@@ -1,0 +1,6 @@
+{
+    "bot_token": "YOUR_BOT_TOKEN_HERE",
+    "allowed_users": [
+        123456789
+    ]
+}
