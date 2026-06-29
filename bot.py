@@ -476,11 +476,9 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif data.startswith("ssl_check_now:"):
         group_name = data.split(":", 1)[1]
-
         await query.answer("Проверка SSL...")
 
         events = run_monitor(group_name)
-
         checked = 0
         renewed = 0
         expired = 0
@@ -705,37 +703,22 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data.startswith("confirm_save_change:"):
         server_id = data.split(":", 1)[1]
 
-        pending = PENDING_SERVER_CHANGES.get(
-            query.from_user.id
-        )
-
+        pending = PENDING_SERVER_CHANGES.get(query.from_user.id)
         if not pending:
-            await query.edit_message_text(
-                "❌ Изменения не найдены."
-            )
+            await query.edit_message_text("❌ Изменения не найдены.")
             return
 
         servers = load_servers()
-
         for i, server in enumerate(servers):
             if server["id"] == server_id:
                 servers[i] = pending["server"]
                 break
 
         save_servers(servers)
+        del PENDING_SERVER_CHANGES[query.from_user.id]
 
-        del PENDING_SERVER_CHANGES[
-            query.from_user.id
-        ]
-
-        await query.edit_message_text(
-            "✅ Изменения сохранены."
-        )
-
-        await show_server_message(
-            query.message,
-            server_id
-        )
+        await query.edit_message_text("✅ Изменения сохранены.")
+        await show_server_message(query.message, server_id)
 
     elif data.startswith("cancel_save_change:"):
         server_id = data.split(":", 1)[1]
@@ -1224,7 +1207,6 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.answer("Проверка серверов...")
 
         from servers import get_server_info
-        from storage import load_servers
 
         servers = load_servers()
         lines = []
