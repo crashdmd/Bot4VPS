@@ -248,17 +248,23 @@ async def build_server_card(server_id):
 
 async def show_server(query, server_id):
     text, kb = await build_server_card(server_id)
-
     if not text:
         await query.edit_message_text(
             "Сервер не найден."
         )
         return
 
-    await query.edit_message_text(
-        text,
-        reply_markup=InlineKeyboardMarkup(kb)
-    )
+    try:
+        await query.edit_message_text(
+            text,
+            reply_markup=InlineKeyboardMarkup(kb)   # ← обернуть в Markup
+        )
+    except Exception:
+        # Если не получилось отредактировать — отправляем новое сообщение
+        await query.message.reply_text(
+            text,
+            reply_markup=InlineKeyboardMarkup(kb)
+        )
 
 async def show_server_message(message, server_id):
     text, kb = await build_server_card(server_id)
