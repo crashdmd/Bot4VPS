@@ -2,7 +2,6 @@ import json
 import os
 import ssl
 import socket
-
 from datetime import datetime
 from storage import (
     load_servers,
@@ -15,7 +14,6 @@ MONITOR_FILE = "monitor.json"
 def load_monitor():
     if not os.path.exists(MONITOR_FILE):
         return {}
-
     with open(MONITOR_FILE, "r", encoding="utf-8") as f:
         return json.load(f)
 
@@ -34,15 +32,15 @@ def get_server_monitor(server_id):
     data = load_monitor()
     return data.get(server_id)
 
+
 STATUS_VALID = "valid"
 STATUS_WARNING = "warning"
 STATUS_EXPIRED = "expired"
 STATUS_ERROR = "error"
 
+
 def format_certificate(server_id):
-
     monitor = get_server_monitor(server_id)
-
     if not monitor:
         return (
             "🔒 Сертификат\n"
@@ -50,11 +48,9 @@ def format_certificate(server_id):
         )
 
     cert = monitor["certificate"]
-
     status = cert["status"]
 
     if status == STATUS_VALID:
-
         return (
             "🔒 Сертификат\n"
             "🟢 Действует\n\n"
@@ -64,7 +60,6 @@ def format_certificate(server_id):
         )
 
     if status == STATUS_WARNING:
-
         return (
             "🔒 Сертификат\n"
             "🟡 Скоро истекает\n\n"
@@ -74,7 +69,6 @@ def format_certificate(server_id):
         )
 
     if status == STATUS_EXPIRED:
-
         return (
             "🔒 Сертификат\n"
             "🔴 Истёк\n\n"
@@ -89,84 +83,54 @@ def format_certificate(server_id):
         f"🕒 Проверен: {cert['checked']}\n"
     )
 
+
 def check_certificate(host):
-
     context = ssl.create_default_context()
-
     try:
-
-        with socket.create_connection(
-            (host, 443),
-            timeout=5
-        ) as sock:
-
-            with context.wrap_socket(
-                sock,
-                server_hostname=host
-            ) as ssock:
-
+        with socket.create_connection((host, 443), timeout=5) as sock:
+            with context.wrap_socket(sock, server_hostname=host) as ssock:
                 cert = ssock.getpeercert()
-
     except Exception as e:
-
         return {
             "status": STATUS_ERROR,
             "error": str(e),
-            "checked": datetime.now().strftime(
-                "%Y-%m-%d %H:%M"
-            )
+            "checked": datetime.now().strftime("%Y-%m-%d %H:%M")
         }
 
-    expires = datetime.strptime(
-        cert["notAfter"],
-        "%b %d %H:%M:%S %Y %Z"
-    )
-
-    days_left = (
-        expires - datetime.now()
-    ).days
+    expires = datetime.strptime(cert["notAfter"], "%b %d %H:%M:%S %Y %Z")
+    days_left = (expires - datetime.now()).days
 
     if days_left < 0:
         status = STATUS_EXPIRED
-
     elif days_left <= 5:
         status = STATUS_WARNING
-
     else:
         status = STATUS_VALID
 
     return {
         "status": status,
         "days_left": days_left,
-        "expires": expires.strftime(
-            "%Y-%m-%d"
-        ),
-        "checked": datetime.now().strftime(
-            "%Y-%m-%d %H:%M"
-        )
+        "expires": expires.strftime("%Y-%m-%d"),
+        "checked": datetime.now().strftime("%Y-%m-%d %H:%M")
     }
 
-def compare_certificate(
-    old_cert,
-    new_cert
-):
 
+def compare_certificate(old_cert, new_cert):
     if (
         old_cert["status"] == STATUS_VALID
         and new_cert["status"] == STATUS_VALID
         and old_cert["expires"] != new_cert["expires"]
     ):
-
         return "renewed"
 
     if (
         old_cert["status"] != STATUS_EXPIRED
         and new_cert["status"] == STATUS_EXPIRED
     ):
-
         return "expired"
 
     return None
+
 
 def update_server_certificate(server):
     if not server.get("certificate_check", True):
@@ -187,7 +151,6 @@ def update_server_certificate(server):
         ssl_ip = ssl_host
 
     new_cert = check_certificate(ssl_host)
-
     event = None
     old = monitor.get(server["id"])
 
@@ -202,6 +165,7 @@ def update_server_certificate(server):
         "ssl_ip": ssl_ip,
         "certificate": new_cert
     }
+
     save_monitor(monitor)
 
     if event:
@@ -213,11 +177,12 @@ def update_server_certificate(server):
             "old_expires": old["certificate"]["expires"] if old else None,
             "new_expires": new_cert["expires"]
         }
+
     return None
+
 
 def run_monitor(group_name: str | None = None):
     servers = load_servers()
-
     if group_name:
         servers = [s for s in servers if s.get("group") == group_name]
 
@@ -238,3 +203,27 @@ def run_monitor(group_name: str | None = None):
 
 def run_daily_monitor():
     return run_monitor()
+
+
+def refresh_server_state(server_id: str):
+    """
+    Обновляет состояние сервера после выполнения скриптов.
+    Сейчас обновляет только SSL. В будущем можно расширить.
+    """
+    from storage import find_server
+
+    server = find_server(server_id)
+    if not server:
+        return False
+
+    updated = False
+
+    if server.get("certificate_check"):
+        try:
+            update_server_certificate(server)
+            updated = True
+            print(f"[STATE] SSL обновлён для сервера: {server.get('name')}", flush=True)
+        except Exception as e:
+            print(f"[STATE] Ошибка обновления SSL для {server.get('name')}: {e}", flush=True)
+
+    return updated

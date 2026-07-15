@@ -5,6 +5,8 @@ import asyncio
 import ipaddress
 import os
 import subprocess
+import time
+
 
 from storage import (
     load_servers,
@@ -40,6 +42,7 @@ from server_wizard import (
     add_key_use,
     add_key_select,
     add_key_new,
+    handle_sudo_password_choice
 )
 from scripts import (
     execute_script,          
@@ -53,7 +56,7 @@ from scripts import (
 )
 from script_utils import get_script_params, delete_script
 from ssl_wizard import start_ssl_setup, skip_ssl_host
-from monitor import run_monitor, update_server_certificate
+from monitor import run_monitor, update_server_certificate, refresh_server_state
 from ssh_utils import get_available_keys, test_connection
 from state import (
     ADD_SERVER_STATE,
@@ -380,12 +383,41 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif data.startswith("edit_auth:"):
         server_id = data.split(":", 1)[1]
+        server = find_server(server_id)
 
+        if not server:
+            await query.edit_message_text("❌ Сервер не найден.")
+            return
+
+        auth_type = server.get("auth_type", "password")
+        key_path = server.get("key_path")
+
+        # Проверка ключа при auth_type == "key"
+        if auth_type == "key":
+            key_missing = True
+            if key_path and os.path.exists(key_path):
+                key_missing = False
+
+            if key_missing:
+                text = (
+                    f"⚠️ Файл ключа не найден!\n\n"
+                    f"Сервер: {server['name']}\n"
+                    f"Текущий тип: Ключ\n\n"
+                    f"Выберите действие:"
+                )
+                keyboard = [
+                    [InlineKeyboardButton("📂 Выбрать существующий ключ", callback_data=f"key_select:{server_id}")],
+                    [InlineKeyboardButton("📋 Вставить новый ключ", callback_data=f"key_paste:{server_id}")],
+                    [InlineKeyboardButton("🔒 Сменить на авторизацию по паролю", callback_data=f"change_to_password:{server_id}")],
+                    [InlineKeyboardButton("⬅️ Назад", callback_data=f"edit:{server_id}")]
+                ]
+                await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
+                return
+
+        # Обычное меню (если ключ на месте или тип password)
         await query.edit_message_text(
             "Выберите тип аутентификации:",
-            reply_markup=InlineKeyboardMarkup(
-                build_auth_buttons(server_id)
-            )
+            reply_markup=InlineKeyboardMarkup(build_auth_buttons(server_id))
         )
 
     elif data.startswith("auth_key:"):
@@ -418,6 +450,77 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"Введите новый пароль:\n\n{server['name']}",
             reply_markup=EDIT_CANCEL_KB
         )
+
+    elif data.startswith("edit_sudo_password:"):
+        server_id = data.split(":", 1)[1]
+        server = find_server(server_id)
+
+        if not server:
+            await query.edit_message_text("❌ Сервер не найден.")
+            return
+
+        EDIT_SERVER_STATE[query.from_user.id] = {
+            "server": server_id,
+            "field": "sudo_password"
+        }
+
+        current = " (текущий пароль будет заменён)" if server.get("password") else ""
+        await query.message.reply_text(
+            f"Введите новый пароль для sudo{current}:",
+            reply_markup=EDIT_CANCEL_KB
+        )
+
+    elif data.startswith("delete_sudo_password:"):
+        server_id = data.split(":", 1)[1]
+        server = find_server(server_id)
+
+        if not server:
+            await query.edit_message_text("❌ Сервер не найден.")
+            return
+
+        # Формируем предупреждение в зависимости от типа авторизации
+        if server.get("auth_type") == "password":
+            warning_text = (
+                "⚠️ Внимание!\n\n"
+                "Сейчас у сервера стоит авторизация **по паролю**.\n"
+                "Если ты удалишь sudo-пароль, то потеряешь возможность выполнять команды с правами root через бота.\n\n"
+                "Ты уверен, что хочешь удалить sudo-пароль?"
+            )
+        else:
+            warning_text = (
+                "⚠️ Удалить sudo-пароль?\n\n"
+                "После удаления бот больше не сможет выполнять команды, требующие прав root (через sudo)."
+            )
+
+        keyboard = [
+            [InlineKeyboardButton("✅ Да, удалить", callback_data=f"delete_sudo_password_confirm:{server_id}")],
+            [InlineKeyboardButton("❌ Отмена", callback_data=f"edit_auth:{server_id}")]
+        ]
+
+        await query.edit_message_text(
+            warning_text,
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode="Markdown"
+        )
+
+    elif data.startswith("delete_sudo_password_confirm:"):
+        server_id = data.split(":", 1)[1]
+        server = find_server(server_id)
+
+        if not server:
+            await query.edit_message_text("❌ Сервер не найден.")
+            return
+
+        servers = load_servers()
+        for s in servers:
+            if s["id"] == server_id:
+                s.pop("password", None)
+                break
+        save_servers(servers)
+
+        await query.edit_message_text("✅ Sudo-пароль удалён.")
+        await show_server_message(query.message, server_id)
+
     elif data.startswith("key_select:"):
         server_id = data.split(":", 1)[1]
 
@@ -467,8 +570,6 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         current_server["key_path"] = (
             f"/opt/bot4vps/keys/{key_name}"
         )
-        current_server.pop("password", None)
-
         ok, error = test_connection(
             current_server
         )
@@ -538,6 +639,188 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text(
             "Вставьте приватный SSH-ключ:"
         )
+
+    elif data.startswith("change_auth_type:"):
+        server_id = data.split(":", 1)[1]
+        server = find_server(server_id)
+
+        if not server:
+            await query.edit_message_text("❌ Сервер не найден.")
+            return
+
+        current = server.get("auth_type", "password")
+        text = f"Текущий тип: {'Пароль' if current == 'password' else 'Ключ'}\n\nВыберите новый тип авторизации:"
+
+        keyboard = []
+
+        if current == "password":
+            keyboard.append([
+                InlineKeyboardButton("🔑 Перейти на Ключ", callback_data=f"change_to_key:{server_id}")
+            ])
+        else:
+            keyboard.append([
+                InlineKeyboardButton("🔒 Перейти на Пароль", callback_data=f"change_to_password:{server_id}")
+            ])
+
+        keyboard.append([
+            InlineKeyboardButton("❌ Отмена", callback_data=f"edit_auth:{server_id}")
+        ])
+
+        await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
+
+    elif data.startswith("change_to_key:"):
+        server_id = data.split(":", 1)[1]
+        server = find_server(server_id)
+
+        if not server:
+            await query.edit_message_text("❌ Сервер не найден.")
+            return
+
+        # Создаём отложенные изменения
+        PENDING_SERVER_CHANGES[query.from_user.id] = {
+            "server": server.copy(),
+            "original": server.copy()
+        }
+        pending = PENDING_SERVER_CHANGES[query.from_user.id]["server"]
+        pending["auth_type"] = "key"
+
+        if server.get("password"):
+            keyboard = [
+                [InlineKeyboardButton("✅ Да, сохранить как sudo", callback_data=f"confirm_change_to_key:{server_id}")],
+                [InlineKeyboardButton("❌ Нет, не сохранять", callback_data=f"confirm_change_to_key_no:{server_id}")],
+                [InlineKeyboardButton("❌ Отмена", callback_data=f"edit_auth:{server_id}")]
+            ]
+            await query.edit_message_text(
+                "У сервера есть сохранённый пароль.\n\nСохранить его как sudo-пароль?",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+        else:
+            # Пароля нет — сразу предлагаем выбрать ключ
+            await query.edit_message_text(
+                "Выберите SSH-ключ:",
+                reply_markup=InlineKeyboardMarkup(build_key_buttons(server_id))
+            )
+
+    elif data.startswith("change_to_password:"):
+        server_id = data.split(":", 1)[1]
+        server = find_server(server_id)
+
+        if not server:
+            await query.edit_message_text("❌ Сервер не найден.")
+            return
+
+        has_password = bool(server.get("password"))
+
+        if has_password:
+            # Если пароль уже есть — просто меняем тип
+            servers = load_servers()
+            for s in servers:
+                if s["id"] == server_id:
+                    s["auth_type"] = "password"
+                    break
+            save_servers(servers)
+            await query.edit_message_text("✅ Тип авторизации изменён на Пароль.")
+            await show_server_message(query.message, server_id)
+        else:
+            # Если пароля нет — спрашиваем подтверждение + сразу просим ввести
+            keyboard = [
+                [InlineKeyboardButton("✅ Да, сменить и ввести пароль", callback_data=f"confirm_change_to_password:{server_id}")],
+                [InlineKeyboardButton("❌ Отмена (оставить ключ)", callback_data=f"edit_auth:{server_id}")]
+            ]
+            await query.edit_message_text(
+                "⚠️ У сервера сейчас нет сохранённого пароля.\n\n"
+                "После смены типа на «Пароль» нужно будет ввести новый пароль.\n\n"
+                "Продолжить?",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+
+    elif data.startswith("confirm_change_to_password:"):
+        server_id = data.split(":", 1)[1]
+
+        # Меняем тип на пароль
+        servers = load_servers()
+        for s in servers:
+            if s["id"] == server_id:
+                s["auth_type"] = "password"
+                break
+        save_servers(servers)
+
+        # Сразу просим ввести пароль
+        EDIT_SERVER_STATE[query.from_user.id] = {
+            "server": server_id,
+            "field": "password"
+        }
+
+        await query.message.reply_text(
+            "Введите новый пароль:",
+            reply_markup=EDIT_CANCEL_KB
+        )
+
+    elif data.startswith("confirm_change_to_key:"):
+        user_id = query.from_user.id
+        pending = PENDING_SERVER_CHANGES.get(user_id)
+        if not pending:
+            await query.edit_message_text("❌ Изменения потеряны.")
+            return
+
+        server_id = data.split(":", 1)[1]
+
+        # Пароль уже сохранён как sudo (он был в pending)
+        key_path = pending["server"].get("key_path")
+        key_exists = bool(key_path) and os.path.exists(key_path)
+
+        if key_exists:
+            # Всё ок — сохраняем
+            servers = load_servers()
+            for i, s in enumerate(servers):
+                if s["id"] == server_id:
+                    servers[i] = pending["server"]
+                    break
+            save_servers(servers)
+            del PENDING_SERVER_CHANGES[user_id]
+
+            await query.edit_message_text("✅ Тип авторизации изменён на Ключ.")
+            await show_server_message(query.message, server_id)
+        else:
+            # Ключа нет — предлагаем выбрать
+            await query.edit_message_text(
+                "Выберите SSH-ключ:",
+                reply_markup=InlineKeyboardMarkup(build_key_buttons(server_id))
+            )
+
+    elif data.startswith("confirm_change_to_key_no:"):
+        user_id = query.from_user.id
+        pending = PENDING_SERVER_CHANGES.get(user_id)
+        if not pending:
+            await query.edit_message_text("❌ Изменения потеряны.")
+            return
+
+        server_id = data.split(":", 1)[1]
+
+        # Удаляем пароль
+        pending["server"].pop("password", None)
+
+        key_path = pending["server"].get("key_path")
+        key_exists = bool(key_path) and os.path.exists(key_path)
+
+        if key_exists:
+            # Всё ок — сохраняем
+            servers = load_servers()
+            for i, s in enumerate(servers):
+                if s["id"] == server_id:
+                    servers[i] = pending["server"]
+                    break
+            save_servers(servers)
+            del PENDING_SERVER_CHANGES[user_id]
+
+            await query.edit_message_text("✅ Тип авторизации изменён на Ключ.")
+            await show_server_message(query.message, server_id)
+        else:
+            # Ключа нет — предлагаем выбрать
+            await query.edit_message_text(
+                "Выберите SSH-ключ:",
+                reply_markup=InlineKeyboardMarkup(build_key_buttons(server_id))
+            )
 
     elif data.startswith("confirm_save_change:"):
         server_id = data.split(":", 1)[1]
@@ -619,6 +902,10 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif data == "add_key_new":
         await add_key_new(query)
+
+    elif data.startswith("add_sudo_password:"):
+        choice = data.split(":", 1)[1]
+        await handle_sudo_password_choice(query, choice)
 
     elif data == "add_ssl_host":
 
@@ -760,36 +1047,7 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         params = get_script_params(script_name)
 
         if not params:
-            await query.edit_message_text(
-                "   Запуск скрипта..."
-            )
-
-            result = await execute_script(
-                script_name,
-                server_id,
-                {}
-            )
-
-            keyboard = [
-                [
-                    InlineKeyboardButton(
-                        "📜 Скрипты",
-                        callback_data="scripts"
-                    )
-                ],
-                [
-                    InlineKeyboardButton(
-                        "🏠 Главное меню",
-                        callback_data="main"
-                    )
-                ]
-            ]
-
-            await query.edit_message_text(
-                result,
-                reply_markup=InlineKeyboardMarkup(keyboard)
-            )
-
+            await run_script_with_live_progress(query, script_name, server_id, {})
             return
 
         SCRIPT_RUN_STATE[query.from_user.id] = {
@@ -880,45 +1138,24 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif data == "script_execute":
         user_id = query.from_user.id
-
         state = SCRIPT_CONFIRM_STATE.get(user_id)
 
         if not state:
-            await query.edit_message_text(
-                "❌ Состояние запуска потеряно."
-            )
+            await query.edit_message_text("❌ Состояние запуска потеряно.")
             return
 
-        await query.edit_message_text(
-            "🚀 Запуск скрипта..."
+        # Запускаем скрипт с живым выводом
+
+        await run_script_with_live_progress(
+            query=query,
+            script_name=state["script"],
+            server_id=state["server"],
+            values=state["values"]
         )
 
-        result = await execute_script(
-            state["script"],
-            state["server"],
-            state["values"]
-        )
-
-        keyboard = [
-            [
-                InlineKeyboardButton(
-                    "📜 Скрипты",
-                    callback_data="scripts"
-                )
-            ],
-            [
-                InlineKeyboardButton(
-                    "🏠 Главное меню",
-                    callback_data="main"
-                )
-            ]
-        ]
-
-        await query.edit_message_text(
-            result or "❌ Скрипт не вернул результат",
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
-        del SCRIPT_CONFIRM_STATE[user_id]
+        # Очищаем состояние
+        if user_id in SCRIPT_CONFIRM_STATE:
+            del SCRIPT_CONFIRM_STATE[user_id]
         
 #-----------
     #elif data.startswith("server:"):
@@ -1411,3 +1648,65 @@ async def view_private_key(query, key_name):
         reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode="Markdown"
     )
+
+async def run_script_with_live_progress(query, script_name, server_id, values):
+
+    server = find_server(server_id)
+    server_name = server["name"] if server else server_id
+
+    output_lines = []
+
+    base_text = (
+        f"🚀 Выполнение скрипта\n\n"
+        f"📜 {script_name}\n"
+        f"🖥 Сервер: {server_name}\n\n"
+    )
+
+    # Отправляем первое сообщение
+    message = await query.message.reply_text(base_text + "🟡 Выполняется...")
+
+    async def progress_callback(line: str):
+        output_lines.append(line)
+
+        # Обновляем не чаще чем раз в ~1.5 секунды
+        if len(output_lines) % 2 == 0:
+            display = "\n".join(output_lines[-50:])
+            try:
+                await message.edit_text(base_text + display)
+            except Exception as e:
+                print(f"[TG ERROR] {e}", flush=True)
+
+    # === Выполняем скрипт ===
+    result = await execute_script(
+        script_name=script_name,
+        server_id=server_id,
+        values=values,
+        progress_callback=progress_callback
+    )
+
+    # === Обновляем состояние сервера (SSL и т.д.) ===
+    try:
+        # Обновляем, если скрипт завершился успешно или с предупреждением
+        if "успешно" in result or "предупреждениями" in result or "Выполнено с предупреждениями" in result:
+            await asyncio.to_thread(refresh_server_state, server_id)
+            print(f"[BOT] Состояние сервера {server_id} обновлено после скрипта {script_name}", flush=True)
+    except Exception as e:
+        print(f"[BOT] Ошибка при обновлении состояния сервера {server_id}: {e}", flush=True)
+
+    # === Формируем финальное сообщение ===
+    keyboard = [
+        [InlineKeyboardButton("📜 Скрипты", callback_data="scripts")],
+        [InlineKeyboardButton("🏠 Главное меню", callback_data="main")]
+    ]
+
+    final_text = (
+        f"✅ Выполнение завершено\n\n"
+        f"📜 {script_name}\n"
+        f"🖥 Сервер: {server_name}\n\n"
+        f"{result}"
+    )
+
+    try:
+        await message.edit_text(final_text, reply_markup=InlineKeyboardMarkup(keyboard))
+    except:
+        await query.message.reply_text(final_text, reply_markup=InlineKeyboardMarkup(keyboard))

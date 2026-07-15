@@ -29,6 +29,7 @@ def get_server_info(server):
         "ping": None,
         "network": "none",
         "ssh": False,
+        "ssh_error": None,
         "uptime": "N/A",
         "load": "N/A",
         "ram": "N/A",
@@ -82,9 +83,76 @@ def get_server_info(server):
             result[k] = out.read().decode().strip() or "N/A"
         ssh.close()
     except Exception as e:
-        print(f"Info error {server.get('name')}: {e}", flush=True)
+        result["ssh_error"] = str(e)
+        print(
+            f"Info error {server.get('name')}: {e}",
+            flush=True
+        )
 
     return result
+
+def format_ssh_error(error):
+    if not error:
+        return "Неизвестная ошибка."
+
+    text = error.lower()
+
+    if "authentication failed" in text:
+        return (
+            "Ошибка аутентификации.\n"
+            "Проверьте пароль или SSH-ключ."
+        )
+
+    if (
+        "password authentication failed" in text
+        or "publickey" in text
+    ):
+        return (
+            "Для подключения к серверу "
+            "необходимо использовать SSH-ключ."
+        )
+
+    if "connection refused" in text:
+        return (
+            "SSH-порт недоступен.\n"
+            "Проверьте настройки сервера."
+        )
+
+    if (
+        "network is unreachable" in text
+        or "errno 101" in text
+    ):
+        return (
+            "Сеть недоступна.\n"
+            "Проверьте IP-адрес, сетевое "
+            "подключение или маршрут до сервера."
+        )
+
+    if (
+        "timed out" in text
+        or "timeout" in text
+    ):
+        return (
+            "Сервер не отвечает.\n"
+            "Проверьте доступность сервера "
+            "или соединение."
+        )
+
+    if (
+        "no valid connections" in text
+        or "unable to connect" in text
+    ):
+        return (
+            "Не удалось подключиться "
+            "к SSH-серверу."
+        )
+
+    if "no such file" in text:
+        return (
+            "Файл SSH-ключа не найден."
+        )
+
+    return error
 
 def reboot_server(server):
     try:
@@ -134,10 +202,16 @@ async def build_server_card(server_id):
         else "нет ответа"
     )
 
+    sudo_text = (
+        "✅ Есть"
+        if server.get("password")
+        else "❌ Нет"
+    )
+
     auth_text = (
-        "SSH Key"
+        "🔑 Ключ"
         if server.get("auth_type") == "key"
-        else "Password"
+        else "🔒 Пароль"
     )
 
     monitor = get_server_monitor(
@@ -180,30 +254,38 @@ async def build_server_card(server_id):
             f"🌐 IP: {server.get('host', 'N/A')}"
         )
 
-    text = f"""
-🖥 {server['name']}
+    text = (
+        f"🖥 {server['name']}\n\n"
+        f"{connection}\n"
+        f"👤 User: {server.get('user', 'N/A')}\n"
+        f"🔐 Auth: {auth_text}\n"
+        f"🛡 Sudo: {sudo_text}\n\n"
+    )
 
-{connection}
-👤 User: {server.get('user', 'N/A')}
-🔐 Auth: {auth_text}
+    if info["ssh"]:
 
-🟢 Статус: {'Онлайн' if info['ssh'] else 'Недоступен'}
-📡 ICMP: {ping_text}
-🔐 SSH: {'OK' if info['ssh'] else 'FAIL'}
+        text += (
+            "🟢 Статус: Онлайн\n"
+            f"📡 ICMP: {ping_text}\n"
+            "🔐 SSH: Доступен\n\n"
+            "⏱ Uptime:\n"
+            f"{info['uptime']}\n\n"
+            "📊 Load:\n"
+            f"{info['load']}\n\n"
+            "💾 RAM:\n"
+            f"{info['ram']}\n\n"
+            "🗄 Disk:\n"
+            f"{info['disk']}\n"
+        )
 
-⏱ Uptime:
-{info['uptime']}
+    else:
 
-📊 Load:
-{info['load']}
-
-💾 RAM:
-{info['ram']}
-
-🗄 Disk:
-{info['disk']}
-"""
-
+        text += (
+            f"📡 ICMP: {ping_text}\n"
+            "🔐 SSH: Недоступен\n\n"
+            "Причина:\n"
+            f"{format_ssh_error(info['ssh_error'])}\n"
+        )
     if server.get(
         "certificate_check",
         False

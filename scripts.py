@@ -1,5 +1,6 @@
 import os
 import asyncio
+import shlex
 
 from telegram import (
     InlineKeyboardButton,
@@ -190,124 +191,137 @@ async def run_script_confirm(
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
-async def execute_script(script_name, server_id, values):
-    server = find_server(server_id)
 
+def log(server, text: str):
+    """Безопасное логирование с именем сервера."""
     if not server:
-        print(f"Server not found: {server_id}", flush=True)
+        print(f"[?] {text}", flush=True)
         return
 
+    name = server.get("name") or server.get("host") or "?"
+    print(f"[{name}] {text}", flush=True)
+
+async def execute_script(
+    script_name: str,
+    server_id: str,
+    values: dict,
+    progress_callback=None
+):
+    server = find_server(server_id)
+    if not server:
+        return "❌ Сервер не найден."
+
+    ssh = None
+    remote_script = f"/tmp/{script_name}"
+
     try:
+        log(server, "Подключаемся по SSH")
+        if progress_callback:
+            await progress_callback("🔌 Подключаемся по SSH...")
+
         ssh = create_ssh_client(server)
+        log(server, "SSH подключен")
+        if progress_callback:
+            await progress_callback("✅ SSH подключен")
 
-        print(
-            f"SSH connected: {server['name']}",
-            flush=True
+        local_script = os.path.join("scripts", script_name)
+
+        log(server, "Загружаем скрипт")
+        if progress_callback:
+            await progress_callback("📤 Загружаем скрипт...")
+
+        with ssh.open_sftp() as sftp:
+            sftp.put(local_script, remote_script)
+
+        log(server, "Скрипт загружен")
+        if progress_callback:
+            await progress_callback("✅ Скрипт загружен")
+
+        log(server, "Делаем скрипт исполняемым")
+        if progress_callback:
+            await progress_callback("🔧 Делаем скрипт исполняемым...")
+
+        _, chmod_stdout, _ = ssh.exec_command(f"chmod +x {remote_script}")
+        if chmod_stdout.channel.recv_exit_status() != 0:
+            raise RuntimeError("Не удалось сделать скрипт исполняемым.")
+
+        # Формируем переменные окружения
+        env = " ".join(
+            f"{key}={shlex.quote(str(value))}"
+            for key, value in values.items()
         )
 
-        local_script = os.path.join(
-            "scripts",
-            script_name
-        )
+        is_root = server.get("user", "").lower() == "root"
 
-        remote_script = f"/tmp/{script_name}"
+        if env:
+            if is_root:
+                command = f"{env} timeout 600 bash {remote_script}"
+            else:
+                command = f"sudo -S -p '' env {env} timeout 600 bash {remote_script}"
+        else:
+            if is_root:
+                command = f"timeout 600 bash {remote_script}"
+            else:
+                command = f"sudo -S -p '' timeout 600 bash {remote_script}"
 
-        sftp = ssh.open_sftp()
+        log(server, "Запускаем скрипт")
+        if progress_callback:
+            await progress_callback("🚀 Запускаем скрипт...")
 
-        sftp.put(
-            local_script,
-            remote_script
-        )
+        stdin, stdout, stderr = ssh.exec_command(command)
 
-        sftp.close()
+        if not is_root:
+            stdin.write(server.get("password", "") + "\n")
+            stdin.flush()
+            stdin.channel.shutdown_write()
 
-        print(
-            f"Uploaded: {remote_script}",
-            flush=True
-        )
+        log(server, "Команда отправлена")
+        if progress_callback:
+            await progress_callback("📡 Команда отправлена")
 
-        ssh.exec_command(
-            f"chmod +x {remote_script}"
-        )
+        log(server, "Ожидаем завершения...")
+        if progress_callback:
+            await progress_callback("⏳ Ожидаем завершения...")
 
-        print(
-            f"Chmod OK: {remote_script}",
-            flush=True
-        )
+        # Чтение вывода построчно
+        out_lines = []
+        while True:
+            line = stdout.readline()
+            if not line:
+                if stdout.channel.exit_status_ready():
+                    break
+                continue
 
-        env = []
-
-        for key, value in values.items():
-            env.append(
-                f"{key}='{value}'"
-            )
-
-        command = (
-            " ".join(env)
-            + f" timeout 600 bash {remote_script}"
-        )
-
-        print(
-            f"Executing: {command}",
-            flush=True
-        )
-
-        stdin, stdout, stderr = ssh.exec_command(
-            command
-        )
+            line = line.rstrip("\n\r")
+            if line.strip():
+                log(server, line)
+                if progress_callback:
+                    try:
+                        await progress_callback(line)
+                    except Exception as e:
+                        log(server, f"Callback error: {e}")
+            out_lines.append(line + "\n")
 
         exit_code = stdout.channel.recv_exit_status()
+        log(server, f"Скрипт завершён (код {exit_code})")
 
-        out = stdout.read().decode(
-            "utf-8",
-            errors="ignore"
-        )
-
-        err = stderr.read().decode(
-            "utf-8",
-            errors="ignore"
-        )
-
-        print(
-            f"Exit code: {exit_code}",
-            flush=True
-        )
-
-        print(
-            f"STDOUT:\n{out}",
-            flush=True
-        )
-
-        print(
-            f"STDERR:\n{err}",
-            flush=True
-        )
-
-        ssh.exec_command(
-            f"rm -f {remote_script}"
-        )
-
-        print(
-            f"Deleted: {remote_script}",
-            flush=True
-        )
+        out = "".join(out_lines)
+        err = stderr.read().decode("utf-8", errors="ignore")
 
         output = out.strip()
-
         if err.strip():
             output += "\n\nSTDERR:\n" + err.strip()
 
+        # Обрезка длинного вывода
         lines = output.splitlines()
-
-        if len(lines) > 50:
+        if len(lines) > 60:
             output = (
                 "...\n"
-                "Вывод обрезан. Показаны последние 50 строк.\n\n"
-                + "\n".join(lines[-50:])
+                "Вывод обрезан. Показаны последние 60 строк.\n\n"
+                + "\n".join(lines[-60:])
             )
 
-        ssh.close()
-
+        # === Обработка кодов возврата ===
         if exit_code == 124:
             return (
                 f"⏱ Скрипт прерван по таймауту\n\n"
@@ -316,154 +330,154 @@ async def execute_script(script_name, server_id, values):
                 f"{output or 'Без вывода'}"
             )
 
-        if exit_code == 0:
+        elif exit_code == 0:
             return (
-                f"✅ Скрипт выполнен\n\n"
-                f"Сервер: {server['name']}\n"
-                f"Код возврата: {exit_code}\n\n"
+                f"✅ Скрипт выполнен успешно\n\n"
+                f"Сервер: {server['name']}\n\n"
                 f"{output or 'Без вывода'}"
             )
 
-        return (
-            f"❌ Скрипт завершился с ошибкой\n\n"
-            f"Сервер: {server['name']}\n"
-            f"Код возврата: {exit_code}\n\n"
-            f"{output or 'Без вывода'}"
-        )
+        elif exit_code == 30:
+            return (
+                f"⚠️ Выполнено с предупреждениями\n\n"
+                f"Сервер: {server['name']}\n\n"
+                f"{output or 'Без вывода'}"
+            )
+
+        else:
+            return (
+                f"❌ Скрипт завершился с ошибкой (код {exit_code})\n\n"
+                f"Сервер: {server['name']}\n\n"
+                f"{output or 'Без вывода'}"
+            )
 
     except Exception as e:
-        return (
-            f"❌ Ошибка выполнения\n\n"
-            f"{e}"
-        )
+        log(server, f"Ошибка: {e}")
+        if progress_callback:
+            await progress_callback(f"❌ Ошибка: {e}")
+        return f"❌ Ошибка выполнения скрипта\n\n{e}"
+
+    finally:
+        if ssh:
+            try:
+                ssh.exec_command(f"rm -f {remote_script}")
+            except Exception:
+                pass
+            try:
+                ssh.close()
+            except Exception:
+                pass
 
 async def show_script_param(query, user_id):
-    state = SCRIPT_RUN_STATE[user_id]
+    state = SCRIPT_RUN_STATE.get(user_id)
+
+    # Проверка состояния
+    if not state or state.get("index", 0) >= len(state.get("params", [])):
+        await finish_script_params(query, user_id)
+        return
 
     param = state["params"][state["index"]]
 
+    # Пропускаем параметры, не подходящие по условию
     while param.get("condition"):
-        cond_name, cond_value = param["condition"].split(":", 1)
+        try:
+            cond_name, cond_value = param["condition"].split(":", 1)
+        except ValueError:
+            raise RuntimeError(
+                f"Некорректное условие if= для параметра '{param['name']}'."
+            )
 
         if str(state["values"].get(cond_name, "")).lower() == cond_value.lower():
             break
 
         state["index"] += 1
-
         if state["index"] >= len(state["params"]):
-            await finish_script_params(
-                query,
-                user_id
-            )
+            await finish_script_params(query, user_id)
             return
         param = state["params"][state["index"]]
 
+    # --------------------------------------------------
+    # Формируем клавиатуру
+    # --------------------------------------------------
     if param["type"] == "bool":
         keyboard = [
-            [
-                InlineKeyboardButton(
-                    "✅ Да",
-                    callback_data="script_param:true"
-                )
-            ],
-            [
-                InlineKeyboardButton(
-                    "❌ Нет",
-                    callback_data="script_param:false"
-                )
-            ]
+            [InlineKeyboardButton("✅ Да", callback_data="script_param:true")],
+            [InlineKeyboardButton("❌ Нет", callback_data="script_param:false")]
         ]
 
-        if hasattr(query, "edit_message_text"):
-            await query.edit_message_text(
-                param["label"],
-                reply_markup=InlineKeyboardMarkup(keyboard)
+    elif param["type"] == "select":
+        options = param.get("options", [])
+        if not options:
+            raise RuntimeError(
+                f"BOT_PARAM '{param['name']}' имеет тип select, "
+                f"но не содержит ни одного BOT_OPTION."
             )
-        else:
-            await query.reply_text(
-                param["label"],
-                reply_markup=InlineKeyboardMarkup(keyboard)
-            )
+        keyboard = [
+            [InlineKeyboardButton(opt["label"], callback_data=f"script_param:{opt['value']}")]
+            for opt in options
+        ]
 
-        return
+    else:
+        keyboard = [[
+            InlineKeyboardButton("⏭ Пропустить", callback_data="script_param_skip")
+        ]]
 
-    keyboard = [[
-        InlineKeyboardButton(
-            "⏭ Пропустить",
-            callback_data="script_param_skip"
-        )
-    ]]
+    # --------------------------------------------------
+    # Показываем параметр
+    # --------------------------------------------------
+    text = param.get("label") or param["name"]
+    reply_markup = InlineKeyboardMarkup(keyboard)
 
     if hasattr(query, "edit_message_text"):
-        await query.edit_message_text(
-            param["label"],
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
+        await query.edit_message_text(text, reply_markup=reply_markup)
     else:
-        await query.reply_text(
-            param["label"],
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
+        await query.reply_text(text, reply_markup=reply_markup)
 
 async def finish_script_params(query, user_id):
     state = SCRIPT_RUN_STATE[user_id]
+    script_name = state["script"]
+    server_id = state["server"]
+    values = state["values"]
 
-    SCRIPT_CONFIRM_STATE[user_id] = {
-        "script": state["script"],
-        "server": state["server"],
-        "values": state["values"]
-    }
-    server = find_server(state["server"])
-
+    server = find_server(server_id)
     if not server:
-        await query.reply_text(
-            "❌ Сервер не найден."
-        )
+        await query.reply_text("❌ Сервер не найден.")
+        if user_id in SCRIPT_RUN_STATE:
+            del SCRIPT_RUN_STATE[user_id]
         return
-    lines = []
 
-    for key, value in state["values"].items():
+    # Показываем параметры пользователю (кратко)
+    lines = []
+    for key, value in values.items():
         if "PASS" in key:
             value = "********"
-
         if value == "":
             value = "<пусто>"
-
         lines.append(f"{key} = {value}")
 
     text = (
-        f"📜 Скрипт: {state['script']}\n"
+        f"📜 Скрипт: {script_name}\n"
         f"🖥 Сервер: {server['name']}\n\n"
-        f"Параметры:\n\n"
-        + "\n".join(lines)
+        f"Параметры:\n\n" +
+        "\n".join(lines) +
+        "\n\n🚀 Запуск..."
     )
 
-    keyboard = [
-        [
-            InlineKeyboardButton(
-                "✅ Запустить",
-                callback_data="script_execute"
-            )
-        ],
-        [
-            InlineKeyboardButton(
-                "❌ Отмена",
-                callback_data="scripts"
-            )
-        ]
-    ]
-
     if hasattr(query, "edit_message_text"):
-        await query.edit_message_text(
-            text,
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
+        await query.edit_message_text(text)
     else:
-        await query.reply_text(
-            text,
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
+        await query.reply_text(text)
 
-    del SCRIPT_RUN_STATE[user_id]
+    # Очищаем состояние параметров
+    if user_id in SCRIPT_RUN_STATE:
+        del SCRIPT_RUN_STATE[user_id]
 
+    # === Запускаем скрипт с живым выводом ===
+    from bot_handlers import run_script_with_live_progress
 
+    await run_script_with_live_progress(
+        query=query,
+        script_name=script_name,
+        server_id=server_id,
+        values=values
+    )

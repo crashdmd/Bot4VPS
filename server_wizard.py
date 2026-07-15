@@ -164,7 +164,6 @@ async def handle_edit_server(update):
             elif edit["field"] == "password":
                 server["auth_type"] = "password"
                 server["password"] = new_value
-                server.pop("key_path", None)
 
             elif edit["field"] == "new_key":
                 key_name = f"key_{server['name']}"
@@ -181,6 +180,12 @@ async def handle_edit_server(update):
                 server["auth_type"] = "key"
                 server["key_path"] = key_path
                 server.pop("password", None)
+
+            elif edit["field"] == "sudo_password":
+                server["password"] = new_value
+                # Если вдруг была авторизация по паролю — переводим на ключ
+                if server.get("auth_type") != "key":
+                    server["auth_type"] = "key"
 
             elif edit["field"] == "ssl_host":
                 server["ssl_host"] = new_value
@@ -392,6 +397,17 @@ async def handle_add_server(update):
             key_path=key_path
         )
 
+    elif state["step"] == "sudo_password":
+        state["password"] = text
+        await finish_add_server(
+            update.message,
+            user_id,
+            "key",
+            "\n\n✅ Сервер добавлен с sudo-паролем",
+            key_path=state.get("key_path"),
+            password=text
+        )
+
 async def save_new_server(
     user_id,
     auth_type,
@@ -554,39 +570,28 @@ async def add_key_select(query):
 
 async def add_key_use(query):
     key_name = query.data.split(":", 1)[1]
-
     user_id = query.from_user.id
 
     if user_id not in ADD_SERVER_STATE:
         return
 
     state = ADD_SERVER_STATE[user_id]
-
     key_path = f"/opt/bot4vps/keys/{key_name}"
 
-    test_server = {
-        "host": state["host"],
-        "port": state["port"],
-        "user": state["user"],
-        "auth_type": "key",
-        "key_path": key_path
-    }
+    state["key_path"] = key_path
+    state["step"] = "ask_sudo_password"
 
-    ok, error = test_connection(test_server)
+    keyboard = [
+        [InlineKeyboardButton("✅ Да, нужен sudo-пароль", callback_data="add_sudo_password:yes")],
+        [InlineKeyboardButton("❌ Нет, не нужен", callback_data="add_sudo_password:no")],
+        [InlineKeyboardButton("❌ Отмена", callback_data="cancel_add")]
+    ]
 
-    ssh_message = (
-        "\n\n✅ Проверка SSH успешна."
-        if ok
-        else f"\n\n⚠️ Проверка SSH не пройдена:\n{error}"
+    await query.edit_message_text(
+        "Нужен ли пароль для выполнения команд через sudo?",
+        reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
-    await finish_add_server(
-        query.message,
-        user_id,
-        "key",
-        ssh_message,
-        key_path=key_path
-    )
 async def add_key_new(query):
     user_id = query.from_user.id
 
@@ -598,3 +603,26 @@ async def add_key_new(query):
     await query.edit_message_text(
         "Вставьте приватный SSH-ключ:"
     )
+
+async def handle_sudo_password_choice(query, choice):
+    user_id = query.from_user.id
+
+    if user_id not in ADD_SERVER_STATE:
+        return
+
+    state = ADD_SERVER_STATE[user_id]
+
+    if choice == "yes":
+        state["step"] = "sudo_password"
+        await query.message.reply_text(
+            "Введите пароль для sudo:",
+            reply_markup=CANCEL_KB
+        )
+    else:
+        await finish_add_server(
+            query.message,
+            user_id,
+            "key",
+            "\n\n✅ Сервер добавлен (без sudo-пароля)",
+            key_path=state.get("key_path")
+        )
