@@ -3,7 +3,7 @@ import os
 import ssl
 import socket
 from datetime import datetime
-from storage import (
+from core.storage import (
     load_servers,
     is_group_ssl_enabled
 )
@@ -210,7 +210,7 @@ def refresh_server_state(server_id: str):
     Обновляет состояние сервера после выполнения скриптов.
     Сейчас обновляет только SSL. В будущем можно расширить.
     """
-    from storage import find_server
+    from core.storage import find_server
 
     server = find_server(server_id)
     if not server:

@@ -2,9 +2,8 @@ import json
 import uuid
 import os
 import shutil
-from notifications import (
-    add_notification
-)
+from core.event_service import create_event
+from core.event_types import EventType, EventLevel, EventReason
 
 from pathlib import Path
 from datetime import datetime
@@ -176,10 +175,15 @@ def restore_backup():
             print(
                 "✔ Восстановлено из latest.json"
             )
-            add_notification(
-                type_="restore",
-                data={
-                    "source": "latest.json"
+
+            create_event(
+                event_type=EventType.DATABASE,
+                level=EventLevel.CRITICAL,
+                title="Восстановлена повреждённая база servers.json",
+                message="Автоматически восстановлено из latest.json",
+                details={
+                    "source": "latest.json",  
+                    "reason": EventReason.DATABASE_RESTORED.value
                 }
             )
             return data
@@ -222,13 +226,16 @@ def restore_backup():
                 LATEST_BACKUP
             )
 
-            print(
-                f"✔ Восстановлено из {backup.name}"
-            )
-            add_notification(
-                type_="restore",
-                data={
-                    "source": backup.name
+            print(f"✔ Восстановлено из {backup.name}")
+            
+            create_event(
+                event_type=EventType.DATABASE,
+                level=EventLevel.CRITICAL,
+                title="Восстановлена повреждённая база servers.json",
+                message=f"Автоматически восстановлено из {backup.name}",
+                details={
+                    "source": backup.name,  # или "latest.json"
+                    "reason": EventReason.DATABASE_RESTORED.value
                 }
             )
             return data

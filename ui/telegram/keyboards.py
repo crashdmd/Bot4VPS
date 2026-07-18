@@ -1,9 +1,5 @@
-from telegram import (
-    InlineKeyboardMarkup,
-    InlineKeyboardButton
-)
-
-from storage import load_groups
+from telegram import InlineKeyboardMarkup, InlineKeyboardButton
+from core.storage import load_groups
 
 
 CANCEL_KB = InlineKeyboardMarkup([
@@ -46,7 +42,7 @@ def build_group_buttons(callback_prefix, suffix=""):
     return keyboard
 
 def build_auth_buttons(server_id):
-    from storage import find_server
+    from core.storage import find_server
     import os
 
     server = find_server(server_id)

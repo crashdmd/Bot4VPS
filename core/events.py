@@ -1,0 +1,72 @@
+import json
+import uuid
+from pathlib import Path
+from datetime import datetime
+from typing import Dict, Any, List, Optional
+from .event_types import EventType, EventLevel
+
+EVENTS_FILE = Path("logs/events.json")
+EVENTS_FILE.parent.mkdir(exist_ok=True)
+
+
+def log_event(
+    event_type: EventType,
+    level: EventLevel,
+    title: str,
+    message: str,
+    details: Optional[Dict[str, Any]] = None
+) -> str:
+    """Создаёт событие в журнале."""
+    event = {
+        "id": uuid.uuid4().hex,
+        "timestamp": datetime.now().isoformat(),
+        "type": event_type.value,
+        "level": level.value,
+        "title": title,
+        "message": message,
+        "details": details or {},
+        "read": False,
+        "read_time": None
+    }
+
+    events = load_events()
+    events.append(event)
+    save_events(events)
+
+    # Журнал событий только сохраняет событие.
+    # Доставка уведомлений выполняется через event_service.
+
+    print(f"[{level.value.upper()}] {title}", flush=True)
+    return event["id"]
+
+
+def load_events() -> List[Dict]:
+    if not EVENTS_FILE.exists():
+        return []
+    try:
+        with open(EVENTS_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return []
+
+
+def save_events(events: List[Dict]):
+    with open(EVENTS_FILE, "w", encoding="utf-8") as f:
+        json.dump(events, f, ensure_ascii=False, indent=2)
+
+
+def get_events(limit: int = 100, level: Optional[EventLevel] = None) -> List[Dict]:
+    events = load_events()
+    if level:
+        events = [e for e in events if e["level"] == level.value]
+    return sorted(events, key=lambda x: x["timestamp"], reverse=True)[:limit]
+
+
+def mark_as_read(event_id: str):
+    events = load_events()
+    for e in events:
+        if e["id"] == event_id:
+            e["read"] = True
+            e["read_time"] = datetime.now().isoformat()
+            break
+    save_events(events)

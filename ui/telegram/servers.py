@@ -1,15 +1,8 @@
 import asyncio
-import time
-import socket
 
-from ping3 import ping
+from telegram import InlineKeyboardMarkup, InlineKeyboardButton
 
-from telegram import (
-    InlineKeyboardMarkup,
-    InlineKeyboardButton
-)
-
-from storage import (
+from core.storage import (
     load_servers,
     save_servers,
     load_groups,
@@ -17,173 +10,18 @@ from storage import (
     find_server,
     get_group
 )
-from ui import build_group_buttons
-from ssh_utils import create_ssh_client
-from monitor import (
+from core.servers import (
+    get_server_info,
+    format_ssh_error,
+    reboot_server,
+    wait_for_reboot
+)
+from core.monitor import (
     format_certificate,
     get_server_monitor
 )
+from ui.telegram.keyboards import build_group_buttons
 
-def get_server_info(server):
-    result = {
-        "ping": None,
-        "network": "none",
-        "ssh": False,
-        "ssh_error": None,
-        "uptime": "N/A",
-        "load": "N/A",
-        "ram": "N/A",
-        "disk": "N/A"
-    }
-
-    host = server["host"]
-
-    # 1. Обычный ping
-    try:
-        latency = ping(host, timeout=2)
-        if latency:
-            result["ping"] = round(latency * 1000, 1)
-            result["network"] = "ping"
-    except:
-        pass
-
-    # 2. TCP fallback с надёжным измерением времени
-    if result["network"] == "none":
-        for port in (80, 443):
-            sock = None
-            try:
-                start = time.perf_counter()
-                sock = socket.create_connection((host, port), timeout=3)
-                duration = round((time.perf_counter() - start) * 1000, 1)
-                result["ping"] = duration
-                result["network"] = "http"
-                break
-            except:
-                continue
-            finally:
-                if sock:
-                    try:
-                        sock.close()
-                    except:
-                        pass
-
-    # 3. SSH + системная информация
-    try:
-        ssh = create_ssh_client(server)
-        result["ssh"] = True
-
-        cmds = {
-            "uptime": "uptime -p",
-            "load": "cat /proc/loadavg | awk '{print $1\" \"$2\" \"$3}'",
-            "ram": "free -m | awk '/Mem:/ {print $3\" MB / \"$2\" MB\"}'",
-            "disk": "df -h / | awk 'NR==2 {print $3\" / \"$2}'",
-        }
-        for k, cmd in cmds.items():
-            _, out, _ = ssh.exec_command(cmd)
-            result[k] = out.read().decode().strip() or "N/A"
-        ssh.close()
-    except Exception as e:
-        result["ssh_error"] = str(e)
-        print(
-            f"Info error {server.get('name')}: {e}",
-            flush=True
-        )
-
-    return result
-
-def format_ssh_error(error):
-    if not error:
-        return "Неизвестная ошибка."
-
-    text = error.lower()
-
-    if "authentication failed" in text:
-        return (
-            "Ошибка аутентификации.\n"
-            "Проверьте пароль или SSH-ключ."
-        )
-
-    if (
-        "password authentication failed" in text
-        or "publickey" in text
-    ):
-        return (
-            "Для подключения к серверу "
-            "необходимо использовать SSH-ключ."
-        )
-
-    if "connection refused" in text:
-        return (
-            "SSH-порт недоступен.\n"
-            "Проверьте настройки сервера."
-        )
-
-    if (
-        "network is unreachable" in text
-        or "errno 101" in text
-    ):
-        return (
-            "Сеть недоступна.\n"
-            "Проверьте IP-адрес, сетевое "
-            "подключение или маршрут до сервера."
-        )
-
-    if (
-        "timed out" in text
-        or "timeout" in text
-    ):
-        return (
-            "Сервер не отвечает.\n"
-            "Проверьте доступность сервера "
-            "или соединение."
-        )
-
-    if (
-        "no valid connections" in text
-        or "unable to connect" in text
-    ):
-        return (
-            "Не удалось подключиться "
-            "к SSH-серверу."
-        )
-
-    if "no such file" in text:
-        return (
-            "Файл SSH-ключа не найден."
-        )
-
-    return error
-
-def reboot_server(server):
-    try:
-        ssh = create_ssh_client(server)
-
-        cmd = "/sbin/reboot" if server["user"].lower() == "root" else "sudo /sbin/reboot"
-        print(f"→ Executing on {server['name']}: {cmd}", flush=True)
-
-        _, stdout, stderr = ssh.exec_command(cmd)
-        err = stderr.read().decode().strip()
-        status = stdout.channel.recv_exit_status()
-        
-        print(f"Reboot {server['name']} | status={status} | stderr='{err}'", flush=True)
-        ssh.close()
-        return True
-    except Exception as e:
-        print(f"Reboot FAILED {server.get('name')}: {e}", flush=True)
-        return False
-
-async def wait_for_reboot(server, timeout=120):
-    await asyncio.sleep(10)
-    print(f"Waiting for {server['name']}...", flush=True)
-    start = time.time()
-    while time.time() - start < timeout:
-        try:
-            ssh = create_ssh_client(server)
-            ssh.close()
-            return True
-        except:
-            await asyncio.sleep(5)
-    return False
 
 async def build_server_card(server_id):
     server = find_server(server_id)
@@ -219,37 +57,26 @@ async def build_server_card(server_id):
     )
 
     if monitor:
-
         host = monitor["host"]
         host_ip = monitor["host_ip"]
         ssl_host = monitor["ssl_host"]
         ssl_ip = monitor["ssl_ip"]
 
         if host == ssl_host:
-
             if host == host_ip:
-
-                connection = (
-                    f"🌐 IP: {host}"
-                )
-
+                connection = f"🌐 IP: {host}"
             else:
-
                 connection = (
                     f"🌐 Host: {host}\n"
                     f"🌐 IP: {host_ip}"
                 )
-
         else:
-
             connection = (
                 f"🌐 IP: {host}\n"
                 f"🌐 Домен: {ssl_host}\n"
                 f"🌍 Public IP: {ssl_ip}"
             )
-
     else:
-
         connection = (
             f"🌐 IP: {server.get('host', 'N/A')}"
         )
@@ -263,7 +90,6 @@ async def build_server_card(server_id):
     )
 
     if info["ssh"]:
-
         text += (
             "🟢 Статус: Онлайн\n"
             f"📡 ICMP: {ping_text}\n"
@@ -277,23 +103,16 @@ async def build_server_card(server_id):
             "🗄 Disk:\n"
             f"{info['disk']}\n"
         )
-
     else:
-
         text += (
             f"📡 ICMP: {ping_text}\n"
             "🔐 SSH: Недоступен\n\n"
             "Причина:\n"
             f"{format_ssh_error(info['ssh_error'])}\n"
         )
-    if server.get(
-        "certificate_check",
-        False
-    ):
 
-        text += "\n" + format_certificate(
-            server["id"]
-        )
+    if server.get("certificate_check", False):
+        text += "\n" + format_certificate(server["id"])
 
     kb = [
         [
@@ -328,40 +147,38 @@ async def build_server_card(server_id):
 
     return text, kb
 
+
 async def show_server(query, server_id):
     text, kb = await build_server_card(server_id)
     if not text:
-        await query.edit_message_text(
-            "Сервер не найден."
-        )
+        await query.edit_message_text("Сервер не найден.")
         return
 
     try:
         await query.edit_message_text(
             text,
-            reply_markup=InlineKeyboardMarkup(kb)   # ← обернуть в Markup
+            reply_markup=InlineKeyboardMarkup(kb)
         )
     except Exception:
-        # Если не получилось отредактировать — отправляем новое сообщение
         await query.message.reply_text(
             text,
             reply_markup=InlineKeyboardMarkup(kb)
         )
 
+
 async def show_server_message(message, server_id):
     text, kb = await build_server_card(server_id)
 
     if not text:
-        await message.reply_text(
-            "Сервер не найден."
-        )
+        await message.reply_text("Сервер не найден.")
         return
 
     await message.reply_text(
         text,
         reply_markup=InlineKeyboardMarkup(kb)
     )
-# Перезагрузка
+
+
 async def reboot_confirm(query, server_id):
     server = find_server(server_id)
     if not server:
@@ -373,7 +190,8 @@ async def reboot_confirm(query, server_id):
         [InlineKeyboardButton("✅ Да", callback_data=f"reboot:{server_id}")],
         [InlineKeyboardButton("❌ Нет", callback_data=f"server:{server_id}")]
     ]
-    await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))  # убрал Markdown
+    await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
+
 
 async def perform_reboot(query, server_id):
     server = find_server(server_id)
@@ -414,6 +232,7 @@ async def show_servers(query, status_message=None):
             "🖥 Серверы\n\n"
             "Выберите группу:"
         )
+
     keyboard = build_group_buttons("group")
 
     keyboard.append([
@@ -428,13 +247,13 @@ async def show_servers(query, status_message=None):
             callback_data="add_server"
         )
     ])
-
     keyboard.append([
         InlineKeyboardButton(
             "⬅️ Назад",
             callback_data="main"
         )
     ])
+
     if hasattr(query, "edit_message_text"):
         await query.edit_message_text(
             text,
@@ -445,6 +264,7 @@ async def show_servers(query, status_message=None):
             text,
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
+
 
 async def show_group(query, group_name):
     servers = load_servers()
@@ -464,10 +284,8 @@ async def show_group(query, group_name):
 
     if group_name == "home":
         title = "🏠 Домашние серверы"
-
     elif group_name == "vps":
         title = "☁️ VPS"
-
     else:
         title = f"📁 {group_name}"
 
@@ -492,14 +310,12 @@ async def show_group(query, group_name):
             callback_data=f"group_ssl_menu:{group_name}"
         )
     ])
-
     keyboard.append([
         InlineKeyboardButton(
             "🗑 Удалить группу",
             callback_data=f"delete_group_confirm:{group_name}"
         )
     ])
-
     keyboard.append([
         InlineKeyboardButton(
             "⬅️ Назад",
@@ -507,26 +323,17 @@ async def show_group(query, group_name):
         )
     ])
 
-    if hasattr(
-        query,
-        "edit_message_text"
-    ):
-
+    if hasattr(query, "edit_message_text"):
         await query.edit_message_text(
             text,
-            reply_markup=InlineKeyboardMarkup(
-                keyboard
-            )
+            reply_markup=InlineKeyboardMarkup(keyboard)
         )
-
     else:
-
         await query.reply_text(
             text,
-            reply_markup=InlineKeyboardMarkup(
-                keyboard
-            )
+            reply_markup=InlineKeyboardMarkup(keyboard)
         )
+
 
 async def show_group_ssl_menu(query, group_name):
     group = get_group(group_name)
@@ -562,8 +369,6 @@ async def show_group_ssl_menu(query, group_name):
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
-# Карточка сервера
-
 
 async def edit_server_menu(query, server_id):
     server = find_server(server_id)
@@ -588,26 +393,19 @@ async def edit_server_menu(query, server_id):
         reply_markup=InlineKeyboardMarkup(kb)
     )
 
+
 async def delete_confirm(query, server_id):
     server = find_server(server_id)
 
     if not server:
-        await query.edit_message_text(
-            "Сервер не найден."
-        )
+        await query.edit_message_text("Сервер не найден.")
         return
 
     text = f"⚠️ Удалить сервер {server['name']}?"
 
     kb = [
-        [InlineKeyboardButton(
-            "✅ Да",
-            callback_data=f"delete:{server_id}"
-        )],
-        [InlineKeyboardButton(
-            "❌ Нет",
-            callback_data=f"server:{server_id}"
-        )]
+        [InlineKeyboardButton("✅ Да", callback_data=f"delete:{server_id}")],
+        [InlineKeyboardButton("❌ Нет", callback_data=f"server:{server_id}")]
     ]
 
     await query.edit_message_text(
@@ -615,14 +413,12 @@ async def delete_confirm(query, server_id):
         reply_markup=InlineKeyboardMarkup(kb)
     )
 
+
 async def delete_server(query, server_id):
     server = find_server(server_id)
 
     if not server:
-        await show_servers(
-            query,
-            "❌ Сервер не найден."
-        )
+        await show_servers(query, "❌ Сервер не найден.")
         return
 
     server_name = server["name"]
@@ -639,7 +435,7 @@ async def delete_server(query, server_id):
         f"✅ Сервер {server_name} удалён."
     )
 
-#удаление группы
+
 async def delete_group_confirm(query, group_name):
     servers = load_servers()
 
@@ -653,12 +449,7 @@ async def delete_group_confirm(query, group_name):
             "❌ В группе есть серверы.\n\n"
             "Сначала удалите или перенесите их.",
             reply_markup=InlineKeyboardMarkup([
-                [
-                    InlineKeyboardButton(
-                        "⬅️ Назад",
-                        callback_data=f"group:{group_name}"
-                    )
-                ]
+                [InlineKeyboardButton("⬅️ Назад", callback_data=f"group:{group_name}")]
             ])
         )
         return
@@ -666,25 +457,13 @@ async def delete_group_confirm(query, group_name):
     await query.edit_message_text(
         f"⚠️ Удалить группу '{group_name}'?",
         reply_markup=InlineKeyboardMarkup([
-            [
-                InlineKeyboardButton(
-                    "✅ Да",
-                    callback_data=f"delete_group:{group_name}"
-                )
-            ],
-            [
-                InlineKeyboardButton(
-                    "❌ Нет",
-                    callback_data=f"group:{group_name}"
-                )
-            ]
+            [InlineKeyboardButton("✅ Да", callback_data=f"delete_group:{group_name}")],
+            [InlineKeyboardButton("❌ Нет", callback_data=f"group:{group_name}")]
         ])
     )
 
-async def delete_group(
-    query,
-    group_name
-):
+
+async def delete_group(query, group_name):
     groups = load_groups()
 
     groups = [
@@ -699,4 +478,3 @@ async def delete_group(
         query,
         f"✅ Группа {group_name} удалена."
     )
-
