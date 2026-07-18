@@ -17,6 +17,7 @@ monitor.json
 backup/
 keys/
 scripts/
+logs/
 
 # Logs
 *.log
