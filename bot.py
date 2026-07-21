@@ -45,8 +45,6 @@ with open("config.json", "r", encoding="utf-8") as f:
 BOT_TOKEN = config["bot_token"]
 ALLOWED_USERS = config["allowed_users"]
 
-# Глобальные обработчики уведомлений
-from core.event_types import EventType
 
 NOTIFICATION_HANDLERS = {
     EventType.DATABASE.value: handle_critical_event,

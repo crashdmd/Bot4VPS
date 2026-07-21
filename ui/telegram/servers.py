@@ -355,11 +355,6 @@ async def show_group_ssl_menu(query, group_name):
         ],
     ]
 
-    if group.get("ssl_monitor"):
-        keyboard.append([
-            InlineKeyboardButton("🔄 Проверить сейчас", callback_data=f"ssl_check_now:{group_name}")
-        ])
-
     keyboard.append([
         InlineKeyboardButton("⬅️ Назад", callback_data=f"group:{group_name}")
     ])

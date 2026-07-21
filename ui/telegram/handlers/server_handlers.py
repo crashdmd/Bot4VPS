@@ -21,6 +21,15 @@ from core.storage import (
     find_server,
     is_group_ssl_enabled,
 )
+from core.monitor import (
+    run_monitor,
+    update_server_certificate,
+    load_monitor,
+    STATUS_VALID,
+    STATUS_WARNING,
+    STATUS_EXPIRED,
+    STATUS_ERROR,
+)
 from ui.telegram.servers import (
     show_servers,
     show_group,
@@ -42,7 +51,6 @@ from ui.telegram.server_wizard import (
     cancel_edit_server,
 )
 from ui.telegram.ssl_wizard import start_ssl_setup, skip_ssl_host
-from core.monitor import run_monitor, update_server_certificate
 
 
 # === Внутренние функции ===
@@ -124,42 +132,6 @@ async def _handle_group_ssl(query, data):
         return
 
     await show_group(query, group_name)
-
-
-async def _handle_ssl_check_now(query, data):
-    group_name = data.split(":", 1)[1]
-    await query.answer("Проверка SSL...")
-
-    events = run_monitor(group_name)
-    checked = 0
-    renewed = 0
-    expired = 0
-
-    servers_in_group = [
-        s for s in load_servers()
-        if s.get("group") == group_name and s.get("certificate_check")
-    ]
-    checked = len(servers_in_group)
-
-    for ev in events:
-        if ev["event"] == "renewed":
-            renewed += 1
-        elif ev["event"] == "expired":
-            expired += 1
-
-    text = (
-        f"✅ Проверка завершена\n\n"
-        f"📁 Группа: {group_name}\n"
-        f"📊 Проверено серверов: {checked}\n"
-        f"🔄 Обновлено сертификатов: {renewed}\n"
-        f"🚨 Истекло: {expired}"
-    )
-
-    keyboard = [[
-        InlineKeyboardButton("⬅️ Назад", callback_data=f"group_ssl_menu:{group_name}")
-    ]]
-
-    await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
 
 
 async def _handle_setgroup(query, data):
@@ -305,9 +277,6 @@ async def process_server_callback(query, data: str) -> bool:
 
     elif data.startswith("group_ssl_menu:"):
         await show_group_ssl_menu(query, data.split(":", 1)[1])
-
-    elif data.startswith("ssl_check_now:"):
-        await _handle_ssl_check_now(query, data)
 
     elif data == "cancel_add":
         await cancel_add_server(query)

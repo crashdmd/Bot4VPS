@@ -5,14 +5,12 @@ Admin handlers module for Bot4VPS.
 from telegram import InlineKeyboardMarkup, InlineKeyboardButton
 import asyncio
 
-from core.storage import load_servers
 from core.events import get_events
-from ui.telegram.servers import get_server_info
-
+from ui.telegram.handlers.check_handlers import process_check_callback
 
 async def _show_admin_menu(query):
     keyboard = [
-        [InlineKeyboardButton("🔄 Проверить все сервера", callback_data="check_all_servers")],
+        [InlineKeyboardButton("🔍 Проверить серверы", callback_data="check_servers_menu")],
         [InlineKeyboardButton("📜 Просмотр уведомлений", callback_data="view_notifications")],
         [InlineKeyboardButton("🔑 Управление SSH-ключами", callback_data="key_manager")],
         [InlineKeyboardButton("⬅️ Назад", callback_data="main")]
@@ -21,32 +19,6 @@ async def _show_admin_menu(query):
         "🛠 Администрирование\n\nВыберите действие:",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
-
-
-async def _check_all_servers(query):
-    await query.answer("Проверка серверов...")
-    await query.edit_message_text("🔄 Проверяем все сервера...")
-
-    servers = load_servers()
-    lines = []
-    for server in servers:
-        info = await asyncio.to_thread(get_server_info, server)
-
-        if info["network"] == "ping":
-            net_text = f"Ping {info['ping']} ms"
-        elif info["network"] == "http":
-            net_text = f"HTTP {info.get('ping', '—')} ms"
-        else:
-            net_text = "Недоступен"
-
-        ssh_text = "✅ Доступен" if info.get("ssh") else "❌ Недоступен"
-
-        lines.append(f"🖥 {server['name']}\n   📡 Сеть: {net_text}\n   🔐 SSH: {ssh_text}\n")
-
-    text = "📊 Проверка всех серверов\n\n" + "\n".join(lines)
-
-    keyboard = [[InlineKeyboardButton("⬅️ Назад", callback_data="admin")]]
-    await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
 
 
 async def _clear_events_confirm(query):
@@ -109,18 +81,23 @@ async def _view_notifications(query):
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
-
 async def process_admin_callback(query, data: str) -> bool:
     if data == "admin":
         await _show_admin_menu(query)
-    elif data == "check_all_servers":
-        await _check_all_servers(query)
+
+    elif await process_check_callback(query, data):
+        return True
+
     elif data == "view_notifications":
         await _view_notifications(query)
+
     elif data == "clear_events":
-        await _clear_events_confirm(query)   # теперь с подтверждением
+        await _clear_events_confirm(query)
+
     elif data == "clear_events_confirm":
         await _clear_events(query)
+
     else:
         return False
+
     return True
