@@ -14,9 +14,8 @@ from core.storage import (
 )
 
 PRIORITY_OFFLINE = 0
-PRIORITY_HTTP = 1
-PRIORITY_PING = 2
-
+PRIORITY_PARTIAL = 1
+PRIORITY_FULL = 2
 
 def format_days(days: int) -> str:
     if 11 <= days % 100 <= 14:
@@ -90,21 +89,21 @@ async def _show_group_check_menu(query, group):
     )
 
 async def _check_servers(query, group=None):
-    await query.answer("Проверка серверов...")
-
-    title = f"группу {group}" if group else "все серверы"
-    await query.edit_message_text(f"🔄 Проверяем {title}...")
-
+    await query.answer()
+    await query.edit_message_text(
+        "⏳ Идёт проверка доступности серверов"
+        + (f" в группе {group}..." if group else "...")
+    )
     servers = load_servers()
     if group:
         servers = [s for s in servers if s["group"] == group]
 
     stats = {
         "total": len(servers),
-        "available": 0,
+        "full": 0,
+        "partial": 0,
         "offline": 0,
     }
-
     lines = []
     max_name_len = max((len(server["name"]) for server in servers), default=0)
     for server in servers:
@@ -120,16 +119,21 @@ async def _check_servers(query, group=None):
             })
 
         else:
-            stats["available"] += 1
             method = "HTTP" if info["network"] == "http" else "Ping"
+            if info.get("ssh"):
+                stats["full"] += 1
+                icon = "🟢"
+            else:
+                stats["partial"] += 1
+                icon = "🟡"
             ping = info.get("ping", "—")
             if isinstance(ping, (int, float)):
                 ping = f"{ping:.1f}".rstrip("0").rstrip(".")
             name = server["name"].ljust(max_name_len)
-            line = f"🟢 {name}  {ping} ms ({method})"
+            line = f"{icon} {name}  {ping} ms ({method})"
             if not info.get("ssh"):
                 line += "\n   🔐 SSH недоступен"
-            priority = PRIORITY_HTTP if method == "http" else PRIORITY_PING
+            priority = PRIORITY_FULL if info.get("ssh") else PRIORITY_PARTIAL
             lines.append({
                 "priority": priority,
                 "name": server["name"],
@@ -143,8 +147,9 @@ async def _check_servers(query, group=None):
     text = (
         f"📊 Проверка {title}\n\n"
         f"🖥 Всего: {stats['total']}\n"
-        f"✅ Доступны: {stats['available']}\n"
-        f"❌ Недоступны: {stats['offline']}\n"
+        f"🟢 Полностью доступны: {stats['full']}\n"
+        f"🟡 Частично доступны: {stats['partial']}\n"
+        f"🔴 Недоступны: {stats['offline']}\n"
         f"{'─' * 20}\n"
         + "\n".join(item["text"] for item in lines)
     )
@@ -159,9 +164,11 @@ async def _check_servers(query, group=None):
     )
 
 async def _handle_ssl_check_now(query, group_name):
-    await query.answer("Проверка SSL...")
+    await query.answer()
+    await query.edit_message_text(
+        f"⏳ Идёт проверка SSL-сертификатов в группе {group_name}..."
+    )
     events = run_monitor(group_name)
-
     renewed = 0
     expired = 0
 
@@ -241,7 +248,7 @@ async def _handle_ssl_check_now(query, group_name):
             "value": value,
         })
 
-    rows.sort(key=lambda x: (x["priority"], x["days"]))
+    rows.sort(key=lambda x: (x["priority"], x["days"], x["name"].lower()))
 
     if rows:
         width = max(len(r["name"]) for r in rows)

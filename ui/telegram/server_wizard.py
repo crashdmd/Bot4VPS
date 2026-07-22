@@ -132,11 +132,49 @@ async def handle_edit_server(update):
             update_server_field(edit["server"], "auth_type", "password")
 
     elif edit["field"] == "new_key":
-        key_path = create_key_file(new_value, edit.get("server_name", "server"))
-        success, message = update_server_field(edit["server"], "key_path", key_path)
-        if success:
-            update_server_field(edit["server"], "auth_type", "key")
-            update_server_field(edit["server"], "password", None)  # удаляем старый пароль
+        server = find_server(edit["server"])
+        if not server:
+            await update.message.reply_text("❌ Сервер не найден.")
+            del EDIT_SERVER_STATE[user_id]
+            return
+
+        key_path = create_key_file(new_value, server["name"])
+
+        current_server = server.copy()
+        current_server["key_path"] = key_path
+        current_server["auth_type"] = "key"
+
+        ok, error = test_connection(current_server)
+
+        if ok:
+            servers = load_servers()
+            for i, s in enumerate(servers):
+                if s["id"] == edit["server"]:
+                    servers[i] = current_server
+                    break
+
+            save_servers(servers)
+
+            success = True
+            message = "Параметр успешно обновлён."
+
+        else:
+            PENDING_SERVER_CHANGES[user_id] = {
+                "server": current_server
+            }
+
+            keyboard = [
+                [InlineKeyboardButton("✅ Сохранить", callback_data=f"confirm_save_change:{current_server['id']}")],
+                [InlineKeyboardButton("❌ Отмена", callback_data=f"cancel_save_change:{current_server['id']}")]
+            ]
+
+            del EDIT_SERVER_STATE[user_id]
+
+            await update.message.reply_text(
+                f"⚠️ Проверка SSH не пройдена\n\n{error}\n\nСохранить изменения несмотря на ошибку?",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+            return
 
     elif edit["field"] == "sudo_password":
         success, message = update_server_field(edit["server"], "password", new_value)
@@ -162,7 +200,7 @@ async def handle_edit_server(update):
         return
 
     # Проверка SSH для важных полей
-    check_fields = {"host", "port", "user", "password", "new_key"}
+    check_fields = {"host", "port", "user", "password"}
     if edit["field"] in check_fields:
         server = find_server(edit["server"])
         ok, error = test_connection(server)
