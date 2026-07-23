@@ -123,9 +123,15 @@ cp config.example.json config.json
     "allowed_users": [
         123456789
     ],
-
-    "monitoring": {
-        "...": "..."
+    "monitor": {
+        "online": {
+            "enabled": true,
+            "interval": 1
+        },
+        "ssl": {
+            "enabled": true,
+            "interval": 1440
+        }
     }
 }
 ```
