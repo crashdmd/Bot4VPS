@@ -18,7 +18,7 @@ def add_to_queue(
 ):
     """Добавляет событие в очередь на доставку."""
     queue = load_queue()
-    
+
     item = {
         "id": uuid.uuid4().hex,
         "event_id": event_id,
@@ -31,7 +31,7 @@ def add_to_queue(
         "sent": False,
         "sent_time": None
     }
-    
+
     queue.append(item)
     save_queue(queue)
     return item["id"]
@@ -58,7 +58,7 @@ def get_pending_notifications() -> List[Dict]:
 
 
 def mark_as_sent(queue_id: str):
-    """Отмечает уведомление как отправленное."""
+    """Отмечает уведомление как отправленное (по id элемента очереди)."""
     queue = load_queue()
     for item in queue:
         if item["id"] == queue_id:
@@ -66,6 +66,19 @@ def mark_as_sent(queue_id: str):
             item["sent_time"] = datetime.now().isoformat()
             break
     save_queue(queue)
+
+
+def mark_event_as_sent(event_id: str):
+    """Отмечает уведомление как отправленное (по event_id из журнала)."""
+    queue = load_queue()
+    changed = False
+    for item in queue:
+        if item.get("event_id") == event_id and not item.get("sent"):
+            item["sent"] = True
+            item["sent_time"] = datetime.now().isoformat()
+            changed = True
+    if changed:
+        save_queue(queue)
 
 
 def clear_sent():

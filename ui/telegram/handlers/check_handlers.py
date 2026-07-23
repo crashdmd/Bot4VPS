@@ -5,6 +5,7 @@ from core.servers import get_server_info
 from core.monitor import (
     load_monitor,
     run_monitor,
+    check_server_availability,
     STATUS_ERROR,
     STATUS_EXPIRED,
     STATUS_WARNING,
@@ -107,7 +108,10 @@ async def _check_servers(query, group=None):
     lines = []
     max_name_len = max((len(server["name"]) for server in servers), default=0)
     for server in servers:
-        info = await asyncio.to_thread(get_server_info, server)
+        info, _ = await asyncio.to_thread(
+            check_server_availability,
+            server
+        )
 
         if info["network"] == "offline":
             stats["offline"] += 1

@@ -76,6 +76,11 @@ def get_server_info(server):
 
     return result
 
+def is_server_online(info):
+    """
+    Возвращает True, если сервер доступен по сети.
+    """
+    return info["network"] != "none"
 
 def format_ssh_error(error):
     if not error:

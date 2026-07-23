@@ -1,5 +1,4 @@
 import logging
-import asyncio
 from telegram import Update
 from telegram.ext import ContextTypes
 
@@ -14,8 +13,10 @@ from ui.telegram.notifications import (
 NOTIFICATION_HANDLERS = {
     EventType.DATABASE.value: handle_critical_event,
     EventType.SSL.value: handle_critical_event,
+    EventType.SERVER.value: handle_critical_event,
 }
-from ui.telegram.common import build_main_menu, show_main_menu
+
+from ui.telegram.common import show_main_menu
 from ui.telegram.handlers import (
     process_key_callback,
     process_script_callback,
@@ -26,6 +27,7 @@ from ui.telegram.handlers import (
 
 logger = logging.getLogger(__name__)
 
+
 async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Главный роутер callback-запросов."""
     query = update.callback_query
@@ -33,10 +35,7 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     print(f"[DEBUG] Button pressed. User: {query.from_user.id}, Data: {query.data}", flush=True)
 
-    # === УВЕДОМЛЕНИЯ ===
-    print("[DEBUG] Processing notifications...", flush=True)
     await core_process_notifications(update, NOTIFICATION_HANDLERS)
-    print("[DEBUG] Notifications processed.", flush=True)
 
     if not is_allowed(query.from_user.id):
         await query.edit_message_text("⛔ Доступ запрещён.")
@@ -51,7 +50,7 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     elif await process_server_callback(query, data):
         return
-    elif await process_admin_callback(query, data):
+    elif await process_admin_callback(query, data, context):
         return
     elif await process_key_callback(query, data):
         return

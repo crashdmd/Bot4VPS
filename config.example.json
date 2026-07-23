@@ -2,5 +2,16 @@
     "bot_token": "YOUR_BOT_TOKEN_HERE",
     "allowed_users": [
         123456789
-    ]
+    ],
+    "monitor": {
+        "online": {
+            "enabled": true,
+            "interval": 1
+        },
+        "ssl": {
+            "enabled": true,
+            "interval": 1440
+        }
+    }
+
 }
