@@ -52,33 +52,26 @@ async def build_server_card(server_id):
         else "🔒 Пароль"
     )
 
-    monitor = get_server_monitor(
-        server["id"]
-    )
+    monitor = get_server_monitor(server["id"]) or {}
 
-    if monitor:
-        host = monitor["host"]
-        host_ip = monitor["host_ip"]
-        ssl_host = monitor["ssl_host"]
-        ssl_ip = monitor["ssl_ip"]
+    host = monitor.get("host") or server.get("host", "N/A")
+    host_ip = monitor.get("host_ip") or host
+    ssl_host = monitor.get("ssl_host") or host
+    ssl_ip = monitor.get("ssl_ip") or host_ip
 
-        if host == ssl_host:
-            if host == host_ip:
-                connection = f"🌐 IP: {host}"
-            else:
-                connection = (
-                    f"🌐 Host: {host}\n"
-                    f"🌐 IP: {host_ip}"
-                )
+    if host == ssl_host:
+        if host == host_ip:
+            connection = f"🌐 IP: {host}"
         else:
             connection = (
-                f"🌐 IP: {host}\n"
-                f"🌐 Домен: {ssl_host}\n"
-                f"🌍 Public IP: {ssl_ip}"
+                f"🌐 Host: {host}\n"
+                f"🌐 IP: {host_ip}"
             )
     else:
         connection = (
-            f"🌐 IP: {server.get('host', 'N/A')}"
+            f"🌐 IP: {host}\n"
+            f"🌐 Домен: {ssl_host}\n"
+            f"🌍 Public IP: {ssl_ip}"
         )
 
     text = (
