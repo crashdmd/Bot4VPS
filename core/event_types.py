@@ -9,6 +9,7 @@ class EventType(str, Enum):
     SERVER = "server"
     KEY = "key"
     GENERAL = "general"
+    TASK = "task"
 
 
 class EventLevel(str, Enum):
@@ -23,3 +24,9 @@ class EventReason(str, Enum):
     SSL_EXPIRED = "ssl_expired"
     SERVER_ONLINE = "server_online"
     SERVER_OFFLINE = "server_offline"
+    TASK_QUEUED = "task_queued"
+    TASK_STARTED = "task_started"
+    TASK_FINISHED = "task_finished"
+    TASK_FAILED = "task_failed"
+    TASK_CANCELLED = "task_cancelled"
+    TASK_QUEUE_PAUSED = "task_queue_paused"

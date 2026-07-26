@@ -14,8 +14,8 @@ NOTIFICATION_HANDLERS = {
     EventType.DATABASE.value: handle_critical_event,
     EventType.SSL.value: handle_critical_event,
     EventType.SERVER.value: handle_critical_event,
+    EventType.TASK.value: handle_critical_event, 
 }
-
 from ui.telegram.common import show_main_menu
 from ui.telegram.handlers import (
     process_key_callback,

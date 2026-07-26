@@ -12,6 +12,7 @@ from telegram.ext import (
 )
 
 # Core
+import core.scripts
 from core.storage import ensure_server_ids
 from core.config import load_config
 from core.monitor import schedule_monitor_jobs

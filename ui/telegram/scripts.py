@@ -2,7 +2,6 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
 from core.storage import load_servers, find_server
 from core.script_utils import load_scripts, get_script_info, read_script, get_script_params
-from core.scripts import execute_script   # ← новая зависимость
 
 from state import SCRIPT_RUN_STATE, SCRIPT_CONFIRM_STATE
 
