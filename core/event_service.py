@@ -1,4 +1,4 @@
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Callable, Awaitable, List
 
 from .events import log_event
 from .event_types import EventType, EventLevel
@@ -36,4 +36,72 @@ def create_event(
             details=details,
         )
 
+    return event_id
+
+
+# --------------------------------------------------
+# Реестр нотификаторов немедленной доставки.
+# Ядро не знает про Telegram: UI регистрирует здесь свой
+# отправщик при старте (bot.py), а асинхронные источники
+# событий (job'ы мониторинга) зовут notify_event().
+# --------------------------------------------------
+
+NotifierFn = Callable[[Dict[str, Any], Optional[str]], Awaitable[None]]
+
+_NOTIFIERS: List[NotifierFn] = []
+
+
+def register_notifier(fn: NotifierFn) -> None:
+    """Зарегистрировать асинхронный отправщик уведомлений."""
+    _NOTIFIERS.append(fn)
+
+
+def unregister_notifier(fn: NotifierFn) -> None:
+    if fn in _NOTIFIERS:
+        _NOTIFIERS.remove(fn)
+
+
+async def dispatch_notifiers(
+    notification: Dict[str, Any], event_id: Optional[str] = None
+) -> None:
+    """Немедленно разослать событие через все зарегистрированные нотификаторы."""
+    for fn in list(_NOTIFIERS):
+        try:
+            await fn(notification, event_id)
+        except Exception as e:
+            print(f"[NOTIFIER] {e}", flush=True)
+
+
+async def notify_event(
+    event_type: EventType,
+    level: EventLevel,
+    title: str,
+    message: str,
+    details: Optional[Dict[str, Any]] = None,
+) -> str:
+    """
+    Лог + очередь + немедленная рассылка.
+
+    Единая точка для асинхронных источников событий: записывает событие
+    в журнал, ставит в очередь (для досылки при /start) и сразу рассылает
+    через зарегистрированные нотификаторы.
+    """
+    event_id = create_event(
+        event_type=event_type,
+        level=level,
+        title=title,
+        message=message,
+        details=details,
+        notify=True,
+    )
+    await dispatch_notifiers(
+        {
+            "type": event_type.value,
+            "level": level.value,
+            "title": title,
+            "message": message,
+            "details": details or {},
+        },
+        event_id,
+    )
     return event_id

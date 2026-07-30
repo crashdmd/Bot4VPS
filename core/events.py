@@ -1,5 +1,6 @@
 import json
 import uuid
+import threading
 from pathlib import Path
 from datetime import datetime
 from typing import Dict, Any, List, Optional
@@ -7,6 +8,12 @@ from .event_types import EventType, EventLevel
 
 EVENTS_FILE = Path("logs/events.json")
 EVENTS_FILE.parent.mkdir(exist_ok=True)
+
+# Лимит размера журнала событий (старые сверх лимита обрезаются).
+MAX_EVENTS = 100
+
+# Блокировка для атомарных RMW над журналом (писатели в разных потоках).
+_EVENTS_LOCK = threading.RLock()
 
 
 def log_event(
@@ -29,9 +36,13 @@ def log_event(
         "read_time": None
     }
 
-    events = load_events()
-    events.append(event)
-    save_events(events)
+    with _EVENTS_LOCK:
+        events = load_events()
+        events.append(event)
+        # Не даём журналу расти без границы — оставляем свежие.
+        if len(events) > MAX_EVENTS:
+            events = events[-MAX_EVENTS:]
+        save_events(events)
 
     # Журнал событий только сохраняет событие.
     # Доставка уведомлений выполняется через event_service.
@@ -63,10 +74,11 @@ def get_events(limit: int = 100, level: Optional[EventLevel] = None) -> List[Dic
 
 
 def mark_as_read(event_id: str):
-    events = load_events()
-    for e in events:
-        if e["id"] == event_id:
-            e["read"] = True
-            e["read_time"] = datetime.now().isoformat()
-            break
-    save_events(events)
+    with _EVENTS_LOCK:
+        events = load_events()
+        for e in events:
+            if e["id"] == event_id:
+                e["read"] = True
+                e["read_time"] = datetime.now().isoformat()
+                break
+        save_events(events)

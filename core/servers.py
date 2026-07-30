@@ -1,12 +1,89 @@
 import asyncio
 import time
 import socket
+from concurrent.futures import ThreadPoolExecutor
 
 from ping3 import ping
 
 from core.ssh import create_ssh_client
 from core.storage import find_server
-from core.monitor import get_server_monitor, format_certificate
+
+
+# Разделитель между секциями вывода batched-команды сбора метрик.
+_INFO_SEP = "::BOT4VPS_SEP::"
+
+# Все четыре метрики — одной shell-командой вместо четырёх round-trip'ов.
+_INFO_CMD = (
+    "uptime -p; "
+    "echo '" + _INFO_SEP + "'; "
+    "cat /proc/loadavg | awk '{print $1\" \"$2\" \"$3}'; "
+    "echo '" + _INFO_SEP + "'; "
+    "free -m | awk '/Mem:/ {print $3\" MB / \"$2\" MB\"}'; "
+    "echo '" + _INFO_SEP + "'; "
+    "df -h / | awk 'NR==2 {print $3\" / \"$2}'"
+)
+
+
+def _probe_network(host):
+    """Сетевая доступность: ping, затем TCP 80/443. Возвращает (ping_ms, network)."""
+    try:
+        latency = ping(host, timeout=2)
+        if latency:
+            return round(latency * 1000, 1), "ping"
+    except Exception:
+        pass
+
+    for port in (80, 443):
+        sock = None
+        try:
+            start = time.perf_counter()
+            sock = socket.create_connection((host, port), timeout=2)
+            return round((time.perf_counter() - start) * 1000, 1), "http"
+        except Exception:
+            continue
+        finally:
+            if sock:
+                try:
+                    sock.close()
+                except Exception:
+                    pass
+    return None, "none"
+
+
+def _probe_ssh(server):
+    """SSH-подключение и сбор метрик одной командой."""
+    out = {
+        "ssh": False,
+        "ssh_error": None,
+        "uptime": "N/A",
+        "load": "N/A",
+        "ram": "N/A",
+        "disk": "N/A",
+    }
+    try:
+        ssh = create_ssh_client(server, timeout=5)
+        out["ssh"] = True
+        try:
+            _, stdout, _ = ssh.exec_command(_INFO_CMD)
+            raw = stdout.read().decode("utf-8", errors="ignore")
+            parts = [p.strip() for p in raw.split(_INFO_SEP)]
+
+            def _part(i):
+                return parts[i] if i < len(parts) and parts[i] else "N/A"
+
+            out["uptime"] = _part(0)
+            out["load"] = _part(1)
+            out["ram"] = _part(2)
+            out["disk"] = _part(3)
+        finally:
+            ssh.close()
+    except Exception as e:
+        out["ssh_error"] = str(e)
+        print(
+            f"Info error {server.get('name')}: {e}",
+            flush=True
+        )
+    return out
 
 
 def get_server_info(server):
@@ -23,56 +100,13 @@ def get_server_info(server):
 
     host = server["host"]
 
-    # 1. Обычный ping
-    try:
-        latency = ping(host, timeout=2)
-        if latency:
-            result["ping"] = round(latency * 1000, 1)
-            result["network"] = "ping"
-    except:
-        pass
-
-    # 2. TCP fallback с надёжным измерением времени
-    if result["network"] == "none":
-        for port in (80, 443):
-            sock = None
-            try:
-                start = time.perf_counter()
-                sock = socket.create_connection((host, port), timeout=3)
-                duration = round((time.perf_counter() - start) * 1000, 1)
-                result["ping"] = duration
-                result["network"] = "http"
-                break
-            except:
-                continue
-            finally:
-                if sock:
-                    try:
-                        sock.close()
-                    except:
-                        pass
-
-    # 3. SSH + системная информация
-    try:
-        ssh = create_ssh_client(server)
-        result["ssh"] = True
-
-        cmds = {
-            "uptime": "uptime -p",
-            "load": "cat /proc/loadavg | awk '{print $1\" \"$2\" \"$3}'",
-            "ram": "free -m | awk '/Mem:/ {print $3\" MB / \"$2\" MB\"}'",
-            "disk": "df -h / | awk 'NR==2 {print $3\" / \"$2}'",
-        }
-        for k, cmd in cmds.items():
-            _, out, _ = ssh.exec_command(cmd)
-            result[k] = out.read().decode().strip() or "N/A"
-        ssh.close()
-    except Exception as e:
-        result["ssh_error"] = str(e)
-        print(
-            f"Info error {server.get('name')}: {e}",
-            flush=True
-        )
+    # Сетевая проверка и SSH идут параллельно:
+    # общее время ~ max(network, ssh), а не их сумма.
+    with ThreadPoolExecutor(max_workers=2) as ex:
+        net_future = ex.submit(_probe_network, host)
+        ssh_future = ex.submit(_probe_ssh, server)
+        result["ping"], result["network"] = net_future.result()
+        result.update(ssh_future.result())
 
     return result
 

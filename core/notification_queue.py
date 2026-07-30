@@ -7,6 +7,9 @@ from typing import Dict, Any, List, Optional
 QUEUE_FILE = Path("backup/notification_queue.json")
 QUEUE_FILE.parent.mkdir(exist_ok=True)
 
+# Максимум элементов в очереди: все unsent + хвост последних отправленных.
+MAX_QUEUE = 500
+
 
 def add_to_queue(
     event_id: str,
@@ -33,6 +36,15 @@ def add_to_queue(
     }
 
     queue.append(item)
+
+    # Ограничиваем рост: никогда не удаляем unsent,
+    # старые отправленные отбрасываем первыми.
+    if len(queue) > MAX_QUEUE:
+        unsent = [it for it in queue if not it.get("sent")]
+        sent = [it for it in queue if it.get("sent")]
+        keep_sent = max(0, MAX_QUEUE - len(unsent))
+        queue = unsent + sent[-keep_sent:]
+
     save_queue(queue)
     return item["id"]
 

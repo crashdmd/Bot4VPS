@@ -1,7 +1,7 @@
 import paramiko
 import os
 
-def create_ssh_client(server):
+def create_ssh_client(server, timeout=8):
     ssh = paramiko.SSHClient()
     ssh.set_missing_host_key_policy(
         paramiko.AutoAddPolicy()
@@ -18,7 +18,7 @@ def create_ssh_client(server):
             port=server.get("port", 22),
             username=server["user"],
             key_filename=server["key_path"],
-            timeout=8
+            timeout=timeout
         )
     else:
         ssh.connect(
@@ -26,7 +26,7 @@ def create_ssh_client(server):
             port=server.get("port", 22),
             username=server["user"],
             password=server["password"],
-            timeout=8
+            timeout=timeout
         )
 
     return ssh

@@ -17,10 +17,57 @@ from core.servers import (
     wait_for_reboot
 )
 from core.monitor import (
-    format_certificate,
-    get_server_monitor
+    STATUS_VALID,
+    STATUS_WARNING,
+    STATUS_EXPIRED,
+    get_server_monitor,
 )
 from ui.telegram.keyboards import build_group_buttons
+
+
+def format_certificate(server_id):
+    monitor = get_server_monitor(server_id)
+    if not monitor:
+        return (
+            "🔒 Сертификат\n"
+            "⚪ Нет данных\n"
+        )
+
+    cert = monitor["certificate"]
+    status = cert["status"]
+
+    if status == STATUS_VALID:
+        return (
+            "🔒 Сертификат\n"
+            "🟢 Действует\n\n"
+            f"📅 Истекает: {cert['expires']}\n"
+            f"⏳ Осталось: {cert['days_left']} дн.\n"
+            f"🕒 Проверен: {cert['checked']}\n"
+        )
+
+    if status == STATUS_WARNING:
+        return (
+            "🔒 Сертификат\n"
+            "🟡 Скоро истекает\n\n"
+            f"📅 Истекает: {cert['expires']}\n"
+            f"⏳ Осталось: {cert['days_left']} дн.\n"
+            f"🕒 Проверен: {cert['checked']}\n"
+        )
+
+    if status == STATUS_EXPIRED:
+        return (
+            "🔒 Сертификат\n"
+            "🔴 Истёк\n\n"
+            f"📅 Истёк: {cert['expires']}\n"
+            f"🕒 Проверен: {cert['checked']}\n"
+        )
+
+    return (
+        "🔒 Сертификат\n"
+        "⚪ Ошибка проверки\n\n"
+        f"{cert.get('error', 'Неизвестная ошибка')}\n"
+        f"🕒 Проверен: {cert['checked']}\n"
+    )
 
 
 async def build_server_card(server_id):

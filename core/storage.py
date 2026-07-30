@@ -2,11 +2,34 @@ import json
 import uuid
 import os
 import shutil
+import threading
+from contextlib import contextmanager
 from core.event_service import create_event
 from core.event_types import EventType, EventLevel, EventReason
 
 from pathlib import Path
 from datetime import datetime
+
+# Глобальная блокировка для атомарных read-modify-write над servers.json.
+# RLock — допускает повторный вход (save_servers -> load_data/save_data и т.п.).
+_DATA_LOCK = threading.RLock()
+
+
+@contextmanager
+def data_lock():
+    """
+    Контекст для атомарного RMW над servers.json.
+
+        with data_lock():
+            servers = load_servers()
+            servers.append(new)
+            save_servers(servers)
+
+    Защищает от потери апдейтов при конкурентной записи из обработчиков,
+    потоков мониторинга (asyncio.to_thread) и выполнения скриптов.
+    """
+    with _DATA_LOCK:
+        yield
 
 DATA_FILE = Path(
     "servers.json"
@@ -41,16 +64,16 @@ def load_groups():
     # ["home", "vps"]
     if groups and isinstance(groups[0], str):
 
-        groups = [
-            {
-                "name": name,
-                "ssl_monitor": name == "vps"
-            }
-            for name in groups
-        ]
-
-        data["groups"] = groups
-        save_data(data)
+        with data_lock():
+            data = load_data()
+            data["groups"] = [
+                {
+                    "name": name,
+                    "ssl_monitor": name == "vps"
+                }
+                for name in groups
+            ]
+            save_data(data)
 
     return groups
 
@@ -61,15 +84,17 @@ def get_group(group_name):
     return None
 
 def save_servers(servers):
-    data = load_data()
-    data["servers"] = servers
-    save_data(data)
+    with data_lock():
+        data = load_data()
+        data["servers"] = servers
+        save_data(data)
 
 
 def save_groups(groups):
-    data = load_data()
-    data["groups"] = groups
-    save_data(data)
+    with data_lock():
+        data = load_data()
+        data["groups"] = groups
+        save_data(data)
 
 
 def find_server(server_id):
@@ -320,17 +345,18 @@ def save_data(data):
     create_backup()
 
 def ensure_server_ids():
-    data = load_data()
+    with data_lock():
+        data = load_data()
 
-    changed = False
+        changed = False
 
-    for server in data.get("servers", []):
-        if "id" not in server:
-            server["id"] = uuid.uuid4().hex[:8]
-            changed = True
+        for server in data.get("servers", []):
+            if "id" not in server:
+                server["id"] = uuid.uuid4().hex[:8]
+                changed = True
 
-    if changed:
-        save_data(data)
+        if changed:
+            save_data(data)
 
 def is_group_ssl_enabled(group_name):
 

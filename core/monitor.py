@@ -2,6 +2,7 @@ import json
 import os
 import ssl
 import socket
+import threading
 from datetime import datetime
 from core.storage import (
     load_servers,
@@ -10,6 +11,11 @@ from core.storage import (
 )
 
 MONITOR_FILE = "monitor.json"
+
+# Блокировка для атомарных RMW над monitor.json.
+# Онлайн- и SSL-мониторинг пишут файл из разных потоков (asyncio.to_thread),
+# поэтому нужен потокобезопасный locking.
+_MONITOR_LOCK = threading.RLock()
 
 
 def load_monitor():
@@ -38,51 +44,6 @@ STATUS_VALID = "valid"
 STATUS_WARNING = "warning"
 STATUS_EXPIRED = "expired"
 STATUS_ERROR = "error"
-
-
-def format_certificate(server_id):
-    monitor = get_server_monitor(server_id)
-    if not monitor:
-        return (
-            "🔒 Сертификат\n"
-            "⚪ Нет данных\n"
-        )
-
-    cert = monitor["certificate"]
-    status = cert["status"]
-
-    if status == STATUS_VALID:
-        return (
-            "🔒 Сертификат\n"
-            "🟢 Действует\n\n"
-            f"📅 Истекает: {cert['expires']}\n"
-            f"⏳ Осталось: {cert['days_left']} дн.\n"
-            f"🕒 Проверен: {cert['checked']}\n"
-        )
-
-    if status == STATUS_WARNING:
-        return (
-            "🔒 Сертификат\n"
-            "🟡 Скоро истекает\n\n"
-            f"📅 Истекает: {cert['expires']}\n"
-            f"⏳ Осталось: {cert['days_left']} дн.\n"
-            f"🕒 Проверен: {cert['checked']}\n"
-        )
-
-    if status == STATUS_EXPIRED:
-        return (
-            "🔒 Сертификат\n"
-            "🔴 Истёк\n\n"
-            f"📅 Истёк: {cert['expires']}\n"
-            f"🕒 Проверен: {cert['checked']}\n"
-        )
-
-    return (
-        "🔒 Сертификат\n"
-        "⚪ Ошибка проверки\n\n"
-        f"{cert.get('error', 'Неизвестная ошибка')}\n"
-        f"🕒 Проверен: {cert['checked']}\n"
-    )
 
 
 def check_certificate(host):
@@ -137,10 +98,11 @@ def update_server_certificate(server):
     if not server.get("certificate_check", True):
         return None
 
-    monitor = load_monitor()
     host = server["host"]
     ssl_host = server.get("ssl_host", host)
 
+    # Тяжёлые сетевые операции — вне блокировки, чтобы не держать лок
+    # во время DNS/SSL-проверок.
     try:
         host_ip = socket.gethostbyname(host)
     except OSError:
@@ -152,23 +114,26 @@ def update_server_certificate(server):
         ssl_ip = ssl_host
 
     new_cert = check_certificate(ssl_host)
-    event = None
-    entry = monitor.setdefault(server["id"], {})
 
-    old_cert = entry.get("certificate")
-    event = None
+    # Атомарный RMW monitor.json — под блокировкой.
+    with _MONITOR_LOCK:
+        monitor = load_monitor()
+        entry = monitor.setdefault(server["id"], {})
 
-    if old_cert:
-        event = compare_certificate(old_cert, new_cert)
+        old_cert = entry.get("certificate")
+        event = None
 
-    entry["name"] = server["name"]
-    entry["host"] = host
-    entry["host_ip"] = host_ip
-    entry["ssl_host"] = ssl_host
-    entry["ssl_ip"] = ssl_ip
-    entry["certificate"] = new_cert
+        if old_cert:
+            event = compare_certificate(old_cert, new_cert)
 
-    save_monitor(monitor)
+        entry["name"] = server["name"]
+        entry["host"] = host
+        entry["host_ip"] = host_ip
+        entry["ssl_host"] = ssl_host
+        entry["ssl_ip"] = ssl_ip
+        entry["certificate"] = new_cert
+
+        save_monitor(monitor)
 
     if event:
         print(f"{server['name']}: {event}", flush=True)
@@ -246,32 +211,34 @@ def update_server_availability(server, online: bool, error: str = ""):
         }
     """
 
-    monitor = load_monitor()
+    with _MONITOR_LOCK:
 
-    entry = monitor.setdefault(server["id"], {})
+        monitor = load_monitor()
 
-    availability = entry.get("availability")
+        entry = monitor.setdefault(server["id"], {})
 
-    now = datetime.now().strftime("%Y-%m-%d %H:%M")
+        availability = entry.get("availability")
 
-    # Первый запуск / новый сервер
-    if availability is None:
-        entry["availability"] = {
-            "online": online,
-            "last_error": error,
-            "checked": now
-        }
+        now = datetime.now().strftime("%Y-%m-%d %H:%M")
+
+        # Первый запуск / новый сервер
+        if availability is None:
+            entry["availability"] = {
+                "online": online,
+                "last_error": error,
+                "checked": now
+            }
+
+            save_monitor(monitor)
+            return None
+
+        previous_online = availability["online"]
+
+        availability["online"] = online
+        availability["last_error"] = error
+        availability["checked"] = now
 
         save_monitor(monitor)
-        return None
-
-    previous_online = availability["online"]
-
-    availability["online"] = online
-    availability["last_error"] = error
-    availability["checked"] = now
-
-    save_monitor(monitor)
 
     if previous_online == online:
         return None
@@ -316,14 +283,10 @@ async def online_monitor_job(context):
     """Периодическая проверка доступности серверов (только изменения состояния)"""
     import asyncio
     from core.storage import load_servers
-    from core.event_service import create_event
+    from core.event_service import notify_event
     from core.event_types import EventType, EventLevel, EventReason
-    from ui.telegram.notifications import send_event_notification
 
-    servers = load_servers()
-    bot = context.bot
-
-    for server in servers:
+    for server in load_servers():
         try:
             info, event = await asyncio.to_thread(
                 check_server_availability, server
@@ -340,23 +303,12 @@ async def online_monitor_job(context):
                     f"Сервер «{event['server_name']}» стал недоступен."
                     + (f"\nОшибка: {event.get('error')}" if event.get("error") else "")
                 )
-                event_id = create_event(
-                    event_type=EventType.SERVER,
-                    level=EventLevel.CRITICAL,
-                    title="Сервер недоступен",
-                    message=message,
-                    details=details,
-                )
-                await send_event_notification(
-                    bot,
-                    {
-                        "type": EventType.SERVER.value,
-                        "level": EventLevel.CRITICAL.value,
-                        "title": "Сервер недоступен",
-                        "message": message,
-                        "details": details,
-                    },
-                    event_id=event_id,
+                await notify_event(
+                    EventType.SERVER,
+                    EventLevel.CRITICAL,
+                    "Сервер недоступен",
+                    message,
+                    details,
                 )
 
             elif event["event"] == "online":
@@ -365,24 +317,12 @@ async def online_monitor_job(context):
                     "reason": EventReason.SERVER_ONLINE.value,
                 }
                 message = f"Сервер «{event['server_name']}» снова в сети."
-                event_id = create_event(
-                    event_type=EventType.SERVER,
-                    level=EventLevel.INFO,
-                    title="Сервер снова доступен",
-                    message=message,
-                    details=details,
-                    notify=True,
-                )
-                await send_event_notification(
-                    bot,
-                    {
-                        "type": EventType.SERVER.value,
-                        "level": EventLevel.INFO.value,
-                        "title": "Сервер снова доступен",
-                        "message": message,
-                        "details": details,
-                    },
-                    event_id=event_id,
+                await notify_event(
+                    EventType.SERVER,
+                    EventLevel.INFO,
+                    "Сервер снова доступен",
+                    message,
+                    details,
                 )
 
         except Exception as e:
@@ -394,12 +334,10 @@ async def online_monitor_job(context):
 
 async def ssl_monitor_job(context):
     """Периодический SSL-мониторинг"""
-    from core.event_service import create_event
+    from core.event_service import notify_event
     from core.event_types import EventType, EventLevel, EventReason
-    from ui.telegram.notifications import send_event_notification
 
     events = run_daily_monitor()
-    bot = context.bot
 
     if not events:
         return
@@ -414,24 +352,12 @@ async def ssl_monitor_job(context):
                 f"Сертификат сервера "
                 f"«{event['server_name']}» успешно обновлён."
             )
-            event_id = create_event(
-                event_type=EventType.SSL,
-                level=EventLevel.INFO,
-                title="SSL сертификат обновлён",
-                message=message,
-                details=details,
-                notify=True,
-            )
-            await send_event_notification(
-                bot,
-                {
-                    "type": EventType.SSL.value,
-                    "level": EventLevel.INFO.value,
-                    "title": "SSL сертификат обновлён",
-                    "message": message,
-                    "details": details,
-                },
-                event_id=event_id,
+            await notify_event(
+                EventType.SSL,
+                EventLevel.INFO,
+                "SSL сертификат обновлён",
+                message,
+                details,
             )
 
         elif event["event"] == "expired":
@@ -443,23 +369,12 @@ async def ssl_monitor_job(context):
                 f"Сертификат сервера "
                 f"«{event['server_name']}» истёк."
             )
-            event_id = create_event(
-                event_type=EventType.SSL,
-                level=EventLevel.CRITICAL,
-                title="SSL сертификат истёк",
-                message=message,
-                details=details,
-            )
-            await send_event_notification(
-                bot,
-                {
-                    "type": EventType.SSL.value,
-                    "level": EventLevel.CRITICAL.value,
-                    "title": "SSL сертификат истёк",
-                    "message": message,
-                    "details": details,
-                },
-                event_id=event_id,
+            await notify_event(
+                EventType.SSL,
+                EventLevel.CRITICAL,
+                "SSL сертификат истёк",
+                message,
+                details,
             )
 
 
