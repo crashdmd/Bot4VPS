@@ -19,6 +19,12 @@ DEFAULT_CONFIG = {
             "enabled": True,
             "interval": 1440
         }
+    },
+    "web": {
+        "auth_enabled": False,
+        "username": "admin",
+        "password_hash": "",
+        "secret_key": ""
     }
 }
 
@@ -97,5 +103,35 @@ def set_monitor_interval(name, interval):
     config = load_config()
 
     config["monitor"][name]["interval"] = interval
+
+    save_config(config)
+
+
+# ==========================================================
+# Web UI
+# ==========================================================
+
+def get_web_config():
+    """Секция config.json -> web (авторизация веб-слоя)."""
+
+    return load_config().get("web", {})
+
+
+def set_web_config(web):
+
+    config = load_config()
+
+    config["web"] = web
+
+    save_config(config)
+
+
+def set_web_auth(enabled):
+    """Включить/выключить авторизацию веб-слоя одним флагом."""
+
+    config = load_config()
+
+    web = config.setdefault("web", {})
+    web["auth_enabled"] = bool(enabled)
 
     save_config(config)

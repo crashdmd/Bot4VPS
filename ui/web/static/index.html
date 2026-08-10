@@ -1,0 +1,439 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<meta name="theme-color" content="#0d1117"/>
+<title>Bot4VPS</title>
+<link rel="icon" type="image/jpeg" href="/static/favicon.jpg">
+<link rel="stylesheet" href="/static/css/layout.css"/>
+<link rel="stylesheet" href="/static/css/components.css"/>
+<link rel="stylesheet" href="/static/css/pages.css"/>
+<link rel="stylesheet" href="/static/vendor/xterm/xterm.css"/>
+<script>try{var t=localStorage.getItem('bot4vps_theme');var l=t==='light'||((t==='auto'||!t)&&matchMedia('(prefers-color-scheme: light)').matches);if(l)document.documentElement.setAttribute('data-theme','light');}catch(e){}</script>
+</head>
+<body>
+<div class="layout">
+  <aside class="side">
+    <div class="logo">Bot4VPS</div>
+    <nav id="nav">
+      <button type="button" data-page="servers" class="on">🖥 Серверы</button>
+      <div class="nav-group" data-group="tasks">
+        <button type="button" class="nav-group-head">📥 Задачи <span class="caret">▾</span></button>
+        <div class="nav-sub">
+          <button type="button" data-page="scripts">📜 Скрипты</button>
+          <button type="button" data-page="wireguard">🌐 WireGuard</button>
+        </div>
+      </div>
+      <button type="button" data-page="files">📂 Файлы</button>
+      <button type="button" data-page="monitor">📊 Мониторинг</button>
+      <button type="button" data-page="queues">📋 Очереди</button>
+      <button type="button" data-page="events">📖 Журнал</button>
+    </nav>
+    <nav class="nav-bottom">
+      <button type="button" data-page="settings">⚙ Настройки</button>
+    </nav>
+    <div class="foot" id="side-foot">
+      <span id="api-err" class="err-hint"></span>
+    </div>
+  </aside>
+
+  <div class="main-wrap">
+    <header class="top">
+      <div class="status-line">
+        <span id="core-status"><span class="dot"></span>Core…</span>
+        <span id="side-date">—</span> · <span id="side-clock">—</span>
+        <button type="button" class="secondary" id="theme-toggle" title="Тема интерфейса">🌙</button>
+      </div>
+    </header>
+
+    <div class="content">
+      <section class="page on" id="page-servers">
+        <div class="section-head">
+          <h1>Серверы</h1>
+          <button type="button" id="btn-add-server">＋ Добавить</button>
+        </div>
+        <div class="search-box">
+          <input type="search" id="server-search" placeholder="🔍 Поиск: имя, host, группа…" autocomplete="off"/>
+          <span class="hint" id="server-search-hint"></span>
+        </div>
+        <div id="servers"><div class="empty">Загрузка…</div></div>
+      </section>
+
+      <section class="page" id="page-server">
+        <button type="button" class="back" id="btn-back-servers">← К списку</button>
+        <div class="section-head"><h1 id="srv-title">Сервер</h1></div>
+        <div class="tabs" id="srv-tabs">
+          <button type="button" class="on" data-tab="status">Обзор</button>
+          <button type="button" data-tab="settings">Настройки</button>
+          <button type="button" data-tab="terminal">Терминал</button>
+          <button type="button" data-tab="log">Лог</button>
+          <button type="button" data-tab="queue">Очередь</button>
+        </div>
+        <div id="tab-status" class="tab-pane">
+          <dl class="kv" id="srv-kv"></dl>
+          <div class="metrics" id="srv-metrics"></div>
+          <div class="row" id="srv-metrics-st"></div>
+          <div class="actions" id="srv-actions"></div>
+        </div>
+        <div id="tab-settings" class="tab-pane hidden">
+          <form id="srv-settings-form" class="settings-form" onsubmit="return false;">
+            <label class="row">Имя</label>
+            <input id="sf-name"/>
+            <label class="row">Группа</label>
+            <select id="sf-group"></select>
+            <label class="row">Host</label>
+            <input id="sf-host"/>
+            <label class="row">SSH порт</label>
+            <input id="sf-port" type="number" min="1" max="65535"/>
+            <label class="row">User</label>
+            <input id="sf-user"/>
+            <label class="row">Auth</label>
+            <select id="sf-auth">
+              <option value="password">password</option>
+              <option value="key">key</option>
+            </select>
+            <div id="sf-pass-wrap">
+              <label class="row">Пароль (пусто = не менять)</label>
+              <div class="pw-wrap">
+                <input id="sf-password" type="password" autocomplete="new-password"/>
+                <button type="button" class="eye" data-pw-toggle="sf-password" title="Показать">👁</button>
+              </div>
+            </div>
+            <div id="sf-key-wrap" class="hidden">
+              <label class="row">Ключ</label>
+              <select id="sf-key"></select>
+            </div>
+            <label class="row"><input type="checkbox" id="sf-cert"/> Проверка SSL</label>
+            <label class="row">SSL host</label>
+            <input id="sf-ssl-host" placeholder="domain.com"/>
+            <div class="actions" style="margin-top:.8rem">
+              <button type="button" id="sf-save">💾 Сохранить</button>
+              <button type="button" class="secondary" id="sf-test">🔌 Тест SSH</button>
+              <button type="button" class="danger" id="sf-delete">🗑 Удалить</button>
+            </div>
+          </form>
+        </div>
+        <div id="tab-terminal" class="tab-pane hidden">
+          <div class="term-bar">
+            <span class="row" id="term-status">SSH · отключено</span>
+            <span style="flex:1"></span>
+            <button type="button" class="secondary" id="term-reconnect">⟳ Переподключить</button>
+          </div>
+          <div id="term-xterm" class="term-host"></div>
+        </div>
+        <div id="tab-log" class="tab-pane hidden">
+          <div class="logbox" id="task-log">Нет активной задачи</div>
+        </div>
+        <div id="tab-queue" class="tab-pane hidden">
+          <div id="srv-queue"><div class="empty">—</div></div>
+        </div>
+      </section>
+
+      <section class="page" id="page-scripts">
+        <div class="section-head">
+          <h1>Скрипты</h1>
+          <label class="btn secondary" style="cursor:pointer">Загрузить .sh
+            <input type="file" accept=".sh" hidden id="upload-script"/>
+          </label>
+        </div>
+        <div class="grid" id="scripts"><div class="empty">—</div></div>
+      </section>
+
+      <section class="page" id="page-wireguard">
+        <div class="section-head"><h1>WireGuard</h1></div>
+        <div class="tabs" id="wg-tabs">
+          <button type="button" class="on" data-wgtab="check">🔍 Проверка</button>
+          <button type="button" data-wgtab="install">🟢 Установить</button>
+          <button type="button" data-wgtab="manage">⚙️ Управление</button>
+        </div>
+        <div class="wg-hint" id="wg-tab-hint"></div>
+        <div class="wg-log-wrap hidden" id="wg-task-log-wrap">
+          <div class="wg-log-head"><span id="wg-task-log-title">Вывод задачи</span><button type="button" class="secondary" id="wg-task-log-close" title="Закрыть">✕</button></div>
+          <div class="logbox wg-log" id="wg-task-log"></div>
+        </div>
+        <div id="wg-tab-check">
+          <div class="actions" style="margin:0 0 .8rem">
+            <button type="button" id="wg-sync-all" title="Проверить сервис на всех серверах">🔄 Проверить все серверы</button>
+          </div>
+          <div class="grid" id="wg-check-grid"><div class="empty">Загрузка…</div></div>
+        </div>
+        <div class="grid hidden" id="wg-tab-install"><div class="empty">Загрузка…</div></div>
+        <div class="grid hidden" id="wg-tab-manage"><div class="empty">Загрузка…</div></div>
+      </section>
+
+      <section class="page" id="page-wireguard-server">
+        <button type="button" class="back" id="btn-back-wg">← К списку</button>
+        <div class="section-head">
+          <h1 id="wg-srv-title">WireGuard</h1>
+          <div class="actions" style="margin:0">
+            <button type="button" class="secondary" id="wg-srv-refresh">🔄 Обновить</button>
+          </div>
+        </div>
+        <div id="wg-srv-body"><div class="empty">Загрузка…</div></div>
+      </section>
+
+      <section class="page" id="page-files">
+        <div class="section-head"><h1>Файлы</h1></div>
+        <div class="file-tabs" id="file-tabs">
+          <button type="button" class="on" data-root="scripts">scripts</button>
+          <button type="button" data-root="keys">keys</button>
+        </div>
+        <div class="card" id="file-list" style="padding:0"><div class="empty" style="padding:.8rem">…</div></div>
+        <div class="actions">
+          <label class="btn secondary" style="cursor:pointer">Загрузить<input type="file" hidden id="upload-file"/></label>
+          <button type="button" class="secondary" id="btn-create-key" style="display:none">🔑 Создать ключ</button>
+        </div>
+      </section>
+
+      <section class="page" id="page-monitor">
+        <div class="section-head"><h1>Мониторинг</h1></div>
+        <div class="grid" id="monitor-cfg"><div class="empty">…</div></div>
+        <div id="monitor-result" style="margin-top:.75rem"></div>
+      </section>
+
+      <section class="page" id="page-queues">
+        <div class="section-head"><h1>Очереди</h1></div>
+        <div id="queues"><div class="empty">—</div></div>
+        <div class="section-head" style="margin-top:1.5rem"><h1 style="font-size:1rem">История</h1></div>
+        <div class="grid" id="history"><div class="empty">—</div></div>
+      </section>
+
+      <section class="page" id="page-events">
+        <div class="section-head">
+          <h1>Журнал</h1>
+          <div class="actions" style="margin:0">
+            <button type="button" class="secondary" id="btn-journal">Все</button>
+            <button type="button" class="secondary" id="btn-events-clear">🗑 Очистить</button>
+          </div>
+        </div>
+        <div id="events"><div class="empty">—</div></div>
+      </section>
+
+      <section class="page" id="page-settings">
+        <div class="section-head"><h1>Настройки</h1></div>
+
+        <div class="card" style="min-height:0">
+          <h3>📁 Группы серверов</h3>
+          <p class="acc-note" style="margin-bottom:.6rem">
+            Управление группами: создание, переименование, SSL-проверка, удаление пустых.
+            Назначение группы серверу — в карточке сервера.
+          </p>
+          <div id="groups-list" class="groups-list">Загрузка…</div>
+          <div class="groups-create" style="margin-top:.8rem;display:flex;gap:.5rem;flex-wrap:wrap;align-items:center">
+            <input id="grp-new-name" placeholder="Название новой группы" style="flex:1;min-width:12rem"/>
+            <label class="row" style="margin:0"><input type="checkbox" id="grp-new-ssl"/> SSL</label>
+            <button type="button" id="grp-create">＋ Создать</button>
+          </div>
+        </div>
+
+        <div class="card" style="min-height:0">
+          <h3>🔐 Учётная запись</h3>
+          <div class="acc-note" id="acc-status">…</div>
+          <form id="acc-form" class="settings-form" onsubmit="return false;">
+            <label class="row">Логин</label>
+            <input id="acc-user" autocomplete="username"/>
+            <label class="row">Новый пароль <span class="hint">(≥ 6 символов, пусто = не менять)</span></label>
+            <div class="pw-wrap">
+              <input id="acc-pass" type="password" autocomplete="new-password"/>
+              <button type="button" class="eye" data-pw-toggle="acc-pass">👁</button>
+            </div>
+            <label class="row">Старый пароль <span class="hint" id="acc-old-hint"></span></label>
+            <div class="pw-wrap">
+              <input id="acc-old" type="password" autocomplete="current-password"/>
+              <button type="button" class="eye" data-pw-toggle="acc-old">👁</button>
+            </div>
+            <div class="actions" style="margin-top:.8rem">
+              <button type="button" id="acc-save">💾 Сохранить</button>
+              <button type="button" class="secondary" id="acc-toggle">…</button>
+            </div>
+          </form>
+        </div>
+      </section>
+    </div>
+  </div>
+</div>
+
+<div class="modal-bg" id="add-server-modal">
+  <div class="modal">
+    <h3 style="margin:0 0 .7rem">＋ Новый сервер</h3>
+    <label class="row">Имя</label><input id="af-name"/>
+    <label class="row">Группа</label><select id="af-group"></select>
+    <label class="row">Host</label><input id="af-host" placeholder="IP или домен"/>
+    <label class="row">Порт</label><input id="af-port" type="number" value="22"/>
+    <label class="row">User</label><input id="af-user" value="root"/>
+    <label class="row">Auth</label>
+    <select id="af-auth"><option value="password">password</option><option value="key">key</option></select>
+    <div id="af-pass-wrap">
+      <label class="row">Пароль</label>
+      <div class="pw-wrap">
+        <input id="af-password" type="password"/>
+        <button type="button" class="eye" data-pw-toggle="af-password">👁</button>
+      </div>
+    </div>
+    <div id="af-key-wrap" class="hidden"><label class="row">Ключ</label><select id="af-key"></select></div>
+    <label class="row"><input type="checkbox" id="af-cert"/> SSL check</label>
+    <label class="row">SSL host</label><input id="af-ssl"/>
+    <label class="row"><input type="checkbox" id="af-test" checked/> Проверить SSH перед сохранением</label>
+    <div class="actions">
+      <button type="button" id="af-save">Создать</button>
+      <button type="button" class="secondary" id="af-cancel">Отмена</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-bg" id="run-modal">
+  <div class="modal">
+    <h3 style="margin:0 0 .6rem">▶ Запуск скрипта</h3>
+    <label class="row">Скрипт</label><select id="run-script"></select>
+    <label class="row">Сервер</label><select id="run-server"></select>
+    <div id="run-params"></div>
+    <div class="actions">
+      <button type="button" id="btn-run-confirm">Выполнить</button>
+      <button type="button" class="secondary" id="btn-run-cancel">Отмена</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-bg" id="script-modal">
+  <div class="modal" style="width:min(720px,100%)">
+    <div class="section-head" style="margin-bottom:.6rem">
+      <h3 id="script-view-title" style="margin:0">script</h3>
+      <button type="button" class="secondary" id="script-modal-close">Закрыть</button>
+    </div>
+    <pre class="script-view" id="script-view-body"></pre>
+  </div>
+</div>
+
+<div class="modal-bg" id="wg-install-modal">
+  <div class="modal">
+    <h3 style="margin:0 0 .6rem" id="wg-install-title">🟢 Установка WireGuard</h3>
+    <div id="wg-install-params"></div>
+    <label class="row">Endpoint <span class="hint">внешний IP/домен (пусто = host сервера)</span></label>
+    <input id="wg-install-endpoint" placeholder="203.0.113.15 или vpn.example.com"/>
+    <div class="err-hint" id="wg-install-warn"></div>
+    <div class="actions">
+      <button type="button" id="wg-install-confirm">Установить</button>
+      <button type="button" class="secondary" id="wg-install-cancel">Отмена</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-bg" id="wg-qr-modal">
+  <div class="modal" style="text-align:center">
+    <h3 style="margin:0 0 .6rem" id="wg-qr-title">📱 QR-код</h3>
+    <img id="wg-qr-img" alt="QR"/>
+    <div class="actions"><button type="button" class="secondary" id="wg-qr-close">Закрыть</button></div>
+  </div>
+</div>
+
+<div class="modal-bg" id="wg-dialog">
+  <div class="modal">
+    <h3 style="margin:0 0 .5rem" id="wg-dialog-title"></h3>
+    <div class="row" id="wg-dialog-msg" style="white-space:pre-wrap"></div>
+    <input id="wg-dialog-input" class="hidden" autocomplete="off"/>
+    <div class="actions" style="margin-top:.9rem">
+      <button type="button" id="wg-dialog-ok">ОК</button>
+      <button type="button" class="secondary" id="wg-dialog-cancel">Отмена</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-bg" id="wg-config-modal">
+  <div class="modal">
+    <h3 style="margin:0 0 .6rem">⚙️ Изменить конфигурацию</h3>
+    <label class="row">Адрес <span class="hint">CIDR туннеля</span></label>
+    <input id="wg-cfg-address" placeholder="10.8.0.1/24"/>
+    <label class="row">Порт</label>
+    <input id="wg-cfg-port" type="number" min="1" max="65535" placeholder="51820"/>
+    <label class="row">Endpoint <span class="hint">внешний IP/домен (пусто = сброс)</span></label>
+    <input id="wg-cfg-endpoint" placeholder="vpn.example.com"/>
+    <label class="row">DNS <span class="hint">через запятую</span></label>
+    <input id="wg-cfg-dns" placeholder="1.1.1.1"/>
+    <div class="err-hint" id="wg-config-warn"></div>
+    <div class="actions" style="margin-top:.8rem">
+      <button type="button" id="wg-config-save">Сохранить</button>
+      <button type="button" class="secondary" id="wg-config-cancel">Отмена</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-bg" id="wg-profile-modal">
+  <div class="modal" style="width:min(520px,100%)">
+    <div class="section-head" style="margin-bottom:.5rem">
+      <h3 id="wg-profile-title" style="margin:0">Профиль</h3>
+      <button type="button" class="secondary" id="wg-profile-close">Закрыть</button>
+    </div>
+    <div id="wg-profile-body"></div>
+  </div>
+</div>
+
+<div class="modal-bg" id="login-overlay">
+  <div class="modal">
+    <h3 style="margin:0 0 .7rem">🔐 Bot4VPS</h3>
+    <label class="row">Логин</label><input id="li-user" value="admin" autocomplete="username"/>
+    <label class="row">Пароль</label>
+    <div class="pw-wrap">
+      <input id="li-pass" type="password" autocomplete="current-password"/>
+      <button type="button" class="eye" data-pw-toggle="li-pass">👁</button>
+    </div>
+    <div id="li-err" class="err-hint" style="margin:.4rem 0"></div>
+    <div class="actions">
+      <button type="button" id="li-go">Войти</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast-wrap" id="toasts"></div>
+<script src="/static/vendor/xterm/xterm.js"></script>
+<script src="/static/vendor/xterm/addon-fit.js"></script>
+<script type="module" src="/static/js/app.js"></script>
+
+<script type="module">
+// Fallback: загрузка групп даже если app.js/onNav не вызвал loadGroupsAdmin
+async function __loadGroupsFallback() {
+  const box = document.getElementById('groups-list');
+  if (!box) return;
+  // уже отрисовано модулем?
+  if (box.querySelector('.group-row')) return;
+  try {
+    const r = await fetch('/api/groups', { credentials: 'same-origin' });
+    const t = await r.text();
+    let data;
+    try { data = t ? JSON.parse(t) : {}; } catch { throw new Error(r.status + ' ' + t.slice(0, 120)); }
+    if (!r.ok) throw new Error(data.detail || t || r.status);
+    const groups = data.groups || [];
+    if (!groups.length) {
+      box.innerHTML = '<div class="acc-note">Групп пока нет — создайте первую ниже</div>';
+      return;
+    }
+    const esc = s => String(s ?? '').replace(/[&<>"']/g, c =>
+      ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    box.innerHTML = groups.map(g => {
+      const name = g.name != null ? String(g.name) : String(g);
+      const ssl = g.ssl_monitor ? 'checked' : '';
+      const n = g.servers != null ? g.servers : 0;
+      return `<div class="group-row" data-name="${esc(name)}">
+        <input class="grp-name" value="${esc(name)}" title="Переименовать"/>
+        <label class="grp-ssl"><input type="checkbox" class="grp-ssl-cb" ${ssl}/> SSL</label>
+        <span class="grp-count">${n} серв.</span>
+        <button type="button" class="secondary grp-save" title="Сохранить">💾</button>
+        <button type="button" class="secondary grp-del" title="Удалить" ${n > 0 ? 'disabled' : ''}>🗑</button>
+      </div>`;
+    }).join('');
+  } catch (e) {
+    box.innerHTML = `<div class="acc-note" style="color:var(--err)">Ошибка: ${String(e.message || e)}</div>`;
+  }
+}
+// сразу и при каждом показе настроек
+__loadGroupsFallback();
+const __ps = document.getElementById('page-settings');
+if (__ps) {
+  new MutationObserver(() => {
+    if (__ps.classList.contains('on')) __loadGroupsFallback();
+  }).observe(__ps, { attributes: true, attributeFilter: ['class'] });
+}
+</script>
+
+</body>
+</html>

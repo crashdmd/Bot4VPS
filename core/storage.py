@@ -56,30 +56,27 @@ def load_servers():
 
 
 def load_groups():
+    """Всегда возвращает list[dict]: {name, ssl_monitor}."""
     data = load_data()
-
     groups = data.get("groups", [])
-
-    # Старый формат:
-    # ["home", "vps"]
-    if groups and isinstance(groups[0], str):
-
+    normalized = _normalize_groups(groups)
+    needs_migrate = bool(groups) and (
+        isinstance(groups[0], str)
+        or any(not isinstance(g, dict) for g in groups)
+    )
+    if needs_migrate:
         with data_lock():
             data = load_data()
-            data["groups"] = [
-                {
-                    "name": name,
-                    "ssl_monitor": name == "vps"
-                }
-                for name in groups
-            ]
+            data["groups"] = _normalize_groups(data.get("groups", []))
             save_data(data)
+            return list(data["groups"])
+    return normalized
 
-    return groups
 
 def get_group(group_name):
+    group_name = (group_name or "").strip()
     for group in load_groups():
-        if group["name"] == group_name:
+        if isinstance(group, dict) and group.get("name") == group_name:
             return group
     return None
 
@@ -95,6 +92,117 @@ def save_groups(groups):
         data = load_data()
         data["groups"] = groups
         save_data(data)
+
+
+def _normalize_groups(groups):
+    out = []
+    for g in groups or []:
+        if isinstance(g, str):
+            out.append({"name": g, "ssl_monitor": g == "vps"})
+        else:
+            out.append({
+                "name": g.get("name"),
+                "ssl_monitor": bool(g.get("ssl_monitor")),
+            })
+    return out
+
+
+def create_group(name: str, ssl_monitor: bool = False) -> dict:
+    """Создать группу. name — непустое, уникальное."""
+    name = (name or "").strip()
+    if not name:
+        raise ValueError("Название группы не может быть пустым")
+    if any(ch in name for ch in "/\\0"):
+        raise ValueError("Недопустимые символы в названии группы")
+    with data_lock():
+        data = load_data()
+        groups = _normalize_groups(data.get("groups", []))
+        if any(g["name"] == name for g in groups):
+            raise ValueError(f"Группа «{name}» уже существует")
+        group = {"name": name, "ssl_monitor": bool(ssl_monitor)}
+        groups.append(group)
+        data["groups"] = groups
+        save_data(data)
+        return group
+
+
+def rename_group(old_name: str, new_name: str) -> dict:
+    """Переименовать группу и обновить group у всех серверов."""
+    old_name = (old_name or "").strip()
+    new_name = (new_name or "").strip()
+    if not old_name or not new_name:
+        raise ValueError("Название группы не может быть пустым")
+    if old_name == new_name:
+        return get_group(old_name) or {"name": old_name}
+    with data_lock():
+        data = load_data()
+        groups = _normalize_groups(data.get("groups", []))
+        if not any(g["name"] == old_name for g in groups):
+            raise ValueError(f"Группа «{old_name}» не найдена")
+        if any(g["name"] == new_name for g in groups):
+            raise ValueError(f"Группа «{new_name}» уже существует")
+        for g in groups:
+            if g["name"] == old_name:
+                g["name"] = new_name
+                updated = g
+                break
+        servers = data.get("servers", [])
+        for s in servers:
+            if s.get("group") == old_name:
+                s["group"] = new_name
+        data["groups"] = groups
+        data["servers"] = servers
+        save_data(data)
+        return updated
+
+
+def set_group_ssl(name: str, ssl_monitor: bool) -> dict:
+    """Изменить ssl_monitor у группы."""
+    name = (name or "").strip()
+    with data_lock():
+        data = load_data()
+        groups = _normalize_groups(data.get("groups", []))
+        for g in groups:
+            if g["name"] == name:
+                g["ssl_monitor"] = bool(ssl_monitor)
+                data["groups"] = groups
+                save_data(data)
+                return g
+        raise ValueError(f"Группа «{name}» не найдена")
+
+
+def delete_group(name: str) -> None:
+    """Удалить пустую группу. Если есть серверы — ValueError со списком."""
+    name = (name or "").strip()
+    with data_lock():
+        data = load_data()
+        groups = _normalize_groups(data.get("groups", []))
+        if not any(g["name"] == name for g in groups):
+            raise ValueError(f"Группа «{name}» не найдена")
+        servers_in = [
+            s.get("name") or s.get("id")
+            for s in data.get("servers", [])
+            if s.get("group") == name
+        ]
+        if servers_in:
+            listing = "\n".join(f"• {n}" for n in servers_in[:20])
+            more = f"\n… и ещё {len(servers_in) - 20}" if len(servers_in) > 20 else ""
+            raise ValueError(
+                f"Нельзя удалить группу «{name}».\n"
+                f"В группе находятся серверы:\n{listing}{more}"
+            )
+        data["groups"] = [g for g in groups if g["name"] != name]
+        save_data(data)
+
+
+def group_server_names(name: str) -> list:
+    """Имена серверов в группе (для UI)."""
+    return [
+        s.get("name") or s.get("id")
+        for s in load_servers()
+        if s.get("group") == name
+    ]
+
 
 
 def find_server(server_id):

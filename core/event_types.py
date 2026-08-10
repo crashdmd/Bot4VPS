@@ -10,6 +10,7 @@ class EventType(str, Enum):
     KEY = "key"
     GENERAL = "general"
     TASK = "task"
+    SERVICE = "service"
 
 
 class EventLevel(str, Enum):
@@ -30,3 +31,7 @@ class EventReason(str, Enum):
     TASK_FAILED = "task_failed"
     TASK_CANCELLED = "task_cancelled"
     TASK_QUEUE_PAUSED = "task_queue_paused"
+    SERVICE_INSTALLED = "service_installed"
+    SERVICE_REMOVED = "service_removed"
+    SERVICE_SYNCED = "service_synced"
+    SERVICE_UPDATE_AVAILABLE = "service_update_available"

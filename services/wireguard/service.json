@@ -1,0 +1,12 @@
+{
+    "id": "wireguard",
+    "name": "WireGuard",
+    "icon": "🌐",
+    "description": "VPN-сервер и профили клиентов",
+    "install": "apt",
+    "packages": [
+        "wireguard",
+        "wireguard-tools"
+    ],
+    "supports_updates": false
+}

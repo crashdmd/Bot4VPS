@@ -1,4 +1,18 @@
+# Bot4VPS — зависимости
+# Установка:
+#   /opt/bot4vps/venv/bin/pip install -r requirements.txt
+
+# --- Telegram-бот (точка входа bot.py) ---
 python-telegram-bot[job-queue]>=20.0
-paramiko
-ping3
-tzlocaltzlocal
+paramiko                # SSH-клиент — core/ssh.py
+ping3                   # ICMP-пинг доступности — core/servers.py
+tzlocal                 # Локальная таймзона — bot.py
+qrcode[pil]>=8.0        # Генерация QR-кодов
+
+# --- Web UI (ui/web, отдельный процесс) ---
+# Запуск:
+#   PYTHONPATH=. uvicorn ui.web.app:app --host 127.0.0.1 --port 8080
+fastapi>=0.100          # ASGI-фреймворк
+uvicorn[standard]>=0.20 # ASGI-сервер
+itsdangerous>=2.0       # Подпись сессионной cookie
+python-multipart        # Загрузка файлов (UploadFile)

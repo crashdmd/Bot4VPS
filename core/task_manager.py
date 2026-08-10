@@ -146,6 +146,8 @@ class Task:
         sec = self.duration_seconds
         if sec is None:
             return "—"
+        if sec < 1:
+            return "<1 сек"
         sec = int(sec)
         if sec < 60:
             return f"{sec} сек"
@@ -224,6 +226,20 @@ class QueueState:
 # --------------------------------------------------
 # Task Manager
 # --------------------------------------------------
+
+
+def _task_output_for_event(task: "Task") -> Optional[str]:
+    """Вывод задачи для журнала (до 120 строк / 8 КБ)."""
+    lines = list(task.output_lines or [])
+    if task.result and task.result.output:
+        for ln in str(task.result.output).splitlines():
+            if ln not in lines:
+                lines.append(ln)
+    text = "\n".join(lines[-120:])
+    if task.error and task.error not in text:
+        text = (text + "\n" if text else "") + f"ERROR: {task.error}"
+    return (text[:8000] if text else None)
+
 
 class TaskManager:
     def __init__(self, history_limit: int = 100):
@@ -544,6 +560,12 @@ class TaskManager:
                     "attempt": task.attempt,
                     "duration_seconds": task.duration_seconds,
                     "reason": reason_map[kind].value,
+                    "error": (task.error or "")[:500] or None,
+                    "output": (
+                        _task_output_for_event(task)
+                        if kind in ("finished", "failed", "cancelled")
+                        else None
+                    ),
                 },
                 notify = (kind == "failed")
             )

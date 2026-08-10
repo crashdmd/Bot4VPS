@@ -1,0 +1,73 @@
+/* layout */
+:root{
+  --bg:#0d1117;--panel:#161b22;--card:#1c2129;--hover:#22272e;--border:#30363d;
+  --text:#e6edf3;--muted:#8b949e;--accent:#2f81f7;--accent-2:#58a6ff;--ok:#3fb950;--warn:#d29922;--err:#f85149;
+  --chip:#21262d; --term:#0a0e14; --term-fg:#e6edf3;
+  /* семантические токены: бейджи/светофоры/тени/оверлей — адаптируются к теме */
+  --ok-bg:#23863644;--ok-fg:#56d364;
+  --warn-bg:#9e6a0333;--warn-fg:#e3b341;
+  --err-bg:#da363344;--err-fg:#ff7b72;
+  --hover-border:#3d4654;--shadow:0 10px 28px rgba(0,0,0,.35);--overlay:rgba(0,0,0,.55);
+  --dot-glow:0 0 8px currentColor;
+  --side:220px;
+}
+/* Светлая тема — переключается data-theme="light" на <html> */
+:root[data-theme="light"]{
+  --bg:#f6f8fa;--panel:#ffffff;--card:#ffffff;--hover:#eaeef2;--border:#d0d7de;
+  --text:#1f2328;--muted:#57606a;--accent:#0969da;--accent-2:#218bff;--ok:#1a7f37;--warn:#9a6700;--err:#cf222e;
+  --chip:#eaeef2; --term:#f6f8fa; --term-fg:#1f2328;
+  --ok-bg:#1a7f371f;--ok-fg:#1a7f37;
+  --warn-bg:#9a67001f;--warn-fg:#9a6700;
+  --err-bg:#cf222e1f;--err-fg:#cf222e;
+  --hover-border:#d0d7de;--shadow:0 10px 28px rgba(0,0,0,.10);--overlay:rgba(140,149,159,.45);
+  --dot-glow:none;
+}
+*{box-sizing:border-box}
+body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--text);line-height:1.45;min-height:100vh}
+a{color:var(--accent);text-decoration:none}
+.layout{display:grid;grid-template-columns:var(--side) 1fr;min-height:100vh}
+.side{
+  position:sticky;top:0;height:100vh;background:var(--panel);border-right:1px solid var(--border);
+  padding:1rem .75rem;display:flex;flex-direction:column;gap:.25rem
+}
+.side .logo{font-weight:800;font-size:1.05rem;padding:.4rem .55rem 1rem;letter-spacing:.02em}
+.side nav button{
+  width:100%;text-align:left;background:transparent;border:none;color:var(--muted);
+  padding:.55rem .65rem;border-radius:8px;cursor:pointer;font-size:.9rem;transition:background .15s,color .15s
+}
+.side nav button:hover{background:var(--hover);color:var(--text)}
+.side nav button.on{background:var(--chip);color:var(--text);font-weight:600;box-shadow:inset 3px 0 0 var(--accent)}
+.side .nav-bottom{margin-top:auto}.side .foot{padding:.5rem;font-size:.75rem;color:var(--muted)}
+/* сворачиваемая группа навигации (Задачи → Скрипты/WireGuard) */
+.side .nav-group{display:flex;flex-direction:column}
+.side .nav-group-head{display:flex;align-items:center;justify-content:space-between}
+.side .nav-group-head .caret{font-size:.7rem;opacity:.7;transition:transform .15s}
+.side .nav-group.open>.nav-group-head .caret{transform:rotate(180deg)}
+.side .nav-group-head.on{color:var(--text);font-weight:600}
+.side .nav-sub{display:none;flex-direction:column}
+.side .nav-group.open>.nav-sub{display:flex}
+.side .nav-sub>button{padding-left:1.5rem;font-size:.88rem}
+.main-wrap{display:flex;flex-direction:column;min-width:0}
+.top{
+  position:sticky;top:0;z-index:15;background:var(--panel);backdrop-filter:blur(8px);
+  border-bottom:1px solid var(--border);padding:.7rem 1.25rem;display:flex;flex-wrap:wrap;
+  gap:.75rem;align-items:center;justify-content:flex-end
+}
+.status-line{display:flex;flex-wrap:wrap;gap:.5rem 1rem;color:var(--muted);font-size:.85rem;align-items:center}
+.content{padding:1.15rem 1.25rem 2rem}
+.page{display:none;animation:fade .18s ease}.page.on{display:block}
+@keyframes fade{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+.section-head{display:flex;align-items:center;justify-content:space-between;gap:.5rem;margin-bottom:.75rem}
+.section-head h1{margin:0;font-size:1.15rem;font-weight:700}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:.8rem}
+.hidden{display:none!important}
+@media(max-width:860px){
+  .layout{grid-template-columns:1fr}
+  .side{position:relative;height:auto;flex-direction:row;flex-wrap:wrap;align-items:center;border-right:none;border-bottom:1px solid var(--border)}
+  .side nav{display:flex;flex-wrap:wrap;gap:.2rem}
+  .side nav button{width:auto}
+  .side .foot{font-size:.72rem;order:99}.side .nav-bottom{margin-top:0}
+}
+@media(prefers-reduced-motion:reduce){
+  *{animation-duration:.001ms!important;animation-iteration-count:1!important;transition-duration:.001ms!important;scroll-behavior:auto!important}
+}

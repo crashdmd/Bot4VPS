@@ -51,9 +51,24 @@ NotifierFn = Callable[[Dict[str, Any], Optional[str]], Awaitable[None]]
 _NOTIFIERS: List[NotifierFn] = []
 
 
-def register_notifier(fn: NotifierFn) -> None:
-    """Зарегистрировать асинхронный отправщик уведомлений."""
-    _NOTIFIERS.append(fn)
+def register_notifier(fn: NotifierFn, *, replace: bool = False) -> None:
+    """Зарегистрировать асинхронный отправщик уведомлений.
+
+    replace=True — очистить реестр и поставить только этот fn
+    (идемпотентный старт / uvicorn --reload).
+    Иначе fn добавляется один раз (без дублей по identity).
+    """
+    global _NOTIFIERS
+    if replace:
+        _NOTIFIERS = [fn]
+        return
+    if fn not in _NOTIFIERS:
+        _NOTIFIERS.append(fn)
+
+
+def clear_notifiers() -> None:
+    """Сбросить все нотификаторы (shutdown / reload)."""
+    _NOTIFIERS.clear()
 
 
 def unregister_notifier(fn: NotifierFn) -> None:

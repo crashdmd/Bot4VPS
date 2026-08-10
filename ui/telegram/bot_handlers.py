@@ -26,6 +26,8 @@ from ui.telegram.handlers import (
     process_auth_callback,
     process_server_callback,
     process_admin_callback,
+    process_service_callback,
+    process_task_callback,
 )
 
 logger = logging.getLogger(__name__)
@@ -66,6 +68,10 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif await process_admin_callback(query, data, context):
         return
     elif await process_key_callback(query, data):
+        return
+    elif await process_service_callback(query, data):
+        return
+    elif await process_task_callback(query, data):
         return
     elif await process_script_callback(query, data):
         return

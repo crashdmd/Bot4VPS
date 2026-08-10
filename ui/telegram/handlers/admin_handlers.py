@@ -188,8 +188,65 @@ async def _clear_events(query):
     )
 
 
+_EVENT_SUCCESS_REASONS = {
+    "task_finished", "server_online", "ssl_renewed",
+    "service_installed", "service_removed", "database_restored",
+}
+_EVENT_FAIL_REASONS = {
+    "task_failed", "server_offline", "ssl_expired", "task_queue_paused",
+}
+
+
+def _event_list_icon(e: dict) -> str:
+    """Компактная иконка статуса для списка журнала:
+    ✅ успех/завершено · ❌ ошибка · ▶️ запуск · 🔴 critical · ⚠️ warning · ℹ️ прочее."""
+    details = e.get("details") or {}
+    reason = details.get("reason") or ""
+    level = e.get("level", "")
+    if reason in _EVENT_SUCCESS_REASONS:
+        return "✅"
+    if reason in _EVENT_FAIL_REASONS:
+        return "❌"
+    if reason in ("task_queued", "task_started"):
+        return "▶️"
+    if level == "critical":
+        return "🔴"
+    if level == "warning":
+        return "⚠️"
+    return "ℹ️"
+
+
+def _event_list_label(e: dict) -> str:
+    """Краткая подпись: имя задачи/сервиса либо заголовок без избыточного
+    префикса «Задача завершена:» (статус уже несёт иконка)."""
+    details = e.get("details") or {}
+    name = details.get("task_name") or details.get("server_name") or ""
+    if name:
+        return str(name)
+    title = e.get("title") or "событие"
+    for prefix in ("Задача завершена: ", "Задача с ошибкой: ", "Задача в очереди: ",
+                   "Задача запущена: ", "Задача отменена: "):
+        if title.startswith(prefix):
+            title = title[len(prefix):]
+            break
+    return title
+
+
+def _fmt_event_dt(ts: str) -> str:
+    """ISO-timestamp → «ДД.ММ ЧЧ:ММ» для компактного списка."""
+    if not ts:
+        return ""
+    try:
+        date_part, time_part = ts.split("T", 1)
+        d = date_part.split("-")
+        t = time_part.split(":")
+        return f"{d[2]}.{d[1]} {t[0]}:{t[1]}"
+    except Exception:
+        return ts[:16].replace("T", " ")
+
+
 async def _view_notifications(query):
-    """Просмотр уведомлений + кнопка очистки"""
+    """Список событий — каждое открывается в подробном просмотре."""
     events = get_events(limit=30)
 
     if not events:
@@ -201,34 +258,91 @@ async def _view_notifications(query):
         )
         return
 
-    text = "📜 Журнал событий (последние 15)\n\n"
-    for e in events[:15]:
-        level = e.get("level", "")
-        if level == "critical":
-            emoji = "🔴"
-        elif level == "warning":
-            emoji = "⚠️"
-        else:
-            emoji = "ℹ️"
+    rows = []
+    for e in events[:12]:
+        icon = _event_list_icon(e)
+        label_text = _event_list_label(e)[:40]
+        dt = _fmt_event_dt(e.get("timestamp") or "")
+        label = f"{icon} {label_text}" + (f" · {dt}" if dt else "")
+        rows.append([InlineKeyboardButton(
+            label[:64],
+            callback_data=f"event_view:{e['id'][:16]}",
+        )])
 
-        # Имя сервера из details
-        details = e.get("details") or {}
-        server_name = details.get("server_name") or details.get("name") or ""
+    rows.append([InlineKeyboardButton("🗑 Очистить весь журнал", callback_data="clear_events")])
+    rows.append([InlineKeyboardButton("⬅️ Назад в админку", callback_data="admin")])
 
-        line = f"{emoji} {e['title']}"
-        if server_name:
-            line += f"\n   🖥 {server_name}"
-        line += f"\n   {e['timestamp'][:16]}\n\n"
-        text += line
+    await query.edit_message_text(
+        "📜 Журнал событий (последние 12)\n\n"
+        "Нажмите на запись, чтобы открыть подробности.",
+        reply_markup=InlineKeyboardMarkup(rows),
+    )
 
-    keyboard = [
-        [InlineKeyboardButton("🗑 Очистить весь журнал", callback_data="clear_events")],
-        [InlineKeyboardButton("⬅️ Назад в админку", callback_data="admin")],
+
+def _html_escape(s: str) -> str:
+    return (
+        str(s)
+        .replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+    )
+
+
+async def _view_event_detail(query, event_id_prefix: str):
+    """Карточка события: сообщение + полный вывод задачи (из details или history)."""
+    from core.events import load_events
+    from core.task_manager import task_manager
+
+    events = load_events()
+    event = next((e for e in events if str(e.get("id", "")).startswith(event_id_prefix)), None)
+    if not event:
+        await query.answer("Событие не найдено", show_alert=True)
+        return
+
+    level = event.get("level", "")
+    emoji = {"critical": "🔴", "warning": "⚠️"}.get(level, "ℹ️")
+    details = event.get("details") or {}
+    ts = (event.get("timestamp") or "")[:19].replace("T", " ")
+
+    text = (
+        f"{emoji} {event.get('title', 'Событие')}\n\n"
+        f"🕐 {ts}\n"
+        f"Тип: {event.get('type', '—')} · {level or '—'}\n\n"
+        f"{event.get('message') or ''}\n"
+    )
+
+    task_id = details.get("task_id")
+    output = details.get("output")
+    if not output and task_id:
+        task = task_manager.get_task(task_id)
+        if task:
+            lines = list(task.output_lines or [])
+            if task.result and task.result.output:
+                lines.extend(str(task.result.output).splitlines())
+            if task.error:
+                lines.append(f"ERROR: {task.error}")
+            output = "\n".join(lines[-120:]) if lines else None
+
+    if details.get("error") and (not output or str(details["error"]) not in str(output)):
+        text += f"\nОшибка:\n{details['error']}\n"
+
+    if output:
+        body = str(output).strip()
+        header_len = len(text) + 40
+        max_body = max(500, 3800 - header_len)
+        if len(body) > max_body:
+            body = "…\n" + body[-(max_body - 2):]
+        text += f"\n📜 Вывод задачи:\n<code>{_html_escape(body)}</code>"
+
+    rows = [
+        [InlineKeyboardButton("⬅️ К журналу", callback_data="view_notifications")],
+        [InlineKeyboardButton("🏠 Админка", callback_data="admin")],
     ]
 
     await query.edit_message_text(
         text,
-        reply_markup=InlineKeyboardMarkup(keyboard),
+        reply_markup=InlineKeyboardMarkup(rows),
+        parse_mode="HTML",
     )
 
 
@@ -270,6 +384,9 @@ async def process_admin_callback(query, data: str, context=None) -> bool:
 
     elif data == "view_notifications":
         await _view_notifications(query)
+
+    elif data.startswith("event_view:"):
+        await _view_event_detail(query, data.split(":", 1)[1])
 
     elif data == "clear_events":
         await _clear_events_confirm(query)

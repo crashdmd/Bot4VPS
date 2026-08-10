@@ -161,15 +161,15 @@ async def build_server_card(server_id):
                 callback_data=f"server:{server['id']}"
             ),
             InlineKeyboardButton(
-                "🔄 Перезагрузить",
-                callback_data=f"reboot_confirm:{server['id']}"
-            )
+                "🛠 Сервисы",
+                callback_data=f"services:{server['id']}"
+            ),
         ],
         [
             InlineKeyboardButton(
                 "✏️ Изменить",
                 callback_data=f"edit:{server['id']}"
-            )
+            ),
         ],
         [
             InlineKeyboardButton(
