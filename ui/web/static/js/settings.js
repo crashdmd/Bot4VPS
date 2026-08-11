@@ -12,13 +12,16 @@ const mql = window.matchMedia ? window.matchMedia('(prefers-color-scheme: light)
 function storedTheme() {
   try {
     const t = localStorage.getItem(THEME_KEY);
-    return ['dark', 'light', 'auto'].includes(t) ? t : 'auto';
-  } catch (_) { return 'auto'; }
+    if (t === 'dark' || t === 'light') return t;
+    // миграция со старого 'auto'/пусто → системное предпочтение, сохраняем один раз
+    const resolved = (mql && mql.matches) ? 'light' : 'dark';
+    try { localStorage.setItem(THEME_KEY, resolved); } catch (_) {}
+    return resolved;
+  } catch (_) { return 'dark'; }
 }
 
 function resolvedTheme(t) {
-  if (t === 'light' || t === 'dark') return t;
-  return (mql && mql.matches) ? 'light' : 'dark'; // auto → системная
+  return t === 'light' ? 'light' : 'dark';
 }
 
 function applyTheme(t) {
@@ -39,18 +42,11 @@ function setTheme(t) {
   applyTheme(t);
 }
 
-let _autoBound = false;
 export function initTheme() {
-  // при auto — следить за сменой системной темы
-  if (!_autoBound && mql) {
-    mql.addEventListener('change', () => { if (storedTheme() === 'auto') applyTheme('auto'); });
-    _autoBound = true;
-  }
   applyTheme(storedTheme());
-  // быстрый переключатель в шапке: dark → light → auto
+  // быстрый переключатель в шапке: dark ↔ light
   document.getElementById('theme-toggle')?.addEventListener('click', () => {
-    const order = ['dark', 'light', 'auto'];
-    setTheme(order[(order.indexOf(storedTheme()) + 1) % order.length]);
+    setTheme(storedTheme() === 'light' ? 'dark' : 'light');
   });
 }
 

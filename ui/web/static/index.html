@@ -10,7 +10,11 @@
 <link rel="stylesheet" href="/static/css/components.css"/>
 <link rel="stylesheet" href="/static/css/pages.css"/>
 <link rel="stylesheet" href="/static/vendor/xterm/xterm.css"/>
-<script>try{var t=localStorage.getItem('bot4vps_theme');var l=t==='light'||((t==='auto'||!t)&&matchMedia('(prefers-color-scheme: light)').matches);if(l)document.documentElement.setAttribute('data-theme','light');}catch(e){}</script>
+<!-- CodeMirror необязателен: если файлов нет, редактор работает с нумерацией
+     строк без подсветки. Установка — vendor/codemirror/README.md -->
+<link rel="stylesheet" href="/static/vendor/codemirror/codemirror.min.css"/>
+<link rel="stylesheet" href="/static/vendor/codemirror/material-darker.min.css"/>
+<script>try{var t=localStorage.getItem('bot4vps_theme');var l=t==='light'||(t!=='dark'&&matchMedia('(prefers-color-scheme: light)').matches);if(l)document.documentElement.setAttribute('data-theme','light');}catch(e){}</script>
 </head>
 <body>
 <div class="layout">
@@ -23,6 +27,7 @@
         <div class="nav-sub">
           <button type="button" data-page="scripts">📜 Скрипты</button>
           <button type="button" data-page="wireguard">🌐 WireGuard</button>
+          <button type="button" data-page="docker">🐳 Docker</button>
         </div>
       </div>
       <button type="button" data-page="files">📂 Файлы</button>
@@ -40,6 +45,7 @@
 
   <div class="main-wrap">
     <header class="top">
+      <button type="button" class="secondary" id="nav-toggle" title="Меню">☰</button>
       <div class="status-line">
         <span id="core-status"><span class="dot"></span>Core…</span>
         <span id="side-date">—</span> · <span id="side-clock">—</span>
@@ -173,15 +179,55 @@
         <div id="wg-srv-body"><div class="empty">Загрузка…</div></div>
       </section>
 
+      <section class="page" id="page-docker">
+        <div class="section-head"><h1>Docker</h1></div>
+        <div class="wg-hint">Статус Docker Engine на серверах. Установка — через официальный скрипт get.docker.com.</div>
+        <div class="wg-log-wrap hidden" id="docker-task-log-wrap">
+          <div class="wg-log-head"><span id="docker-live-log-title">Вывод задачи</span><button type="button" class="secondary" id="docker-live-log-close" title="Закрыть">✕</button></div>
+          <div class="logbox wg-log" id="docker-task-log"></div>
+        </div>
+        <div class="actions" style="margin:0 0 .8rem">
+          <button type="button" id="docker-sync-all" title="Проверить Docker на всех серверах">🔄 Проверить все серверы</button>
+        </div>
+        <div class="grid" id="docker-grid"><div class="empty">Загрузка…</div></div>
+      </section>
+
+      <section class="page" id="page-docker-server">
+        <button type="button" class="back" id="btn-back-docker">← К списку</button>
+        <div class="section-head">
+          <h1 id="docker-srv-title">Docker</h1>
+          <div class="actions" style="margin:0">
+            <button type="button" class="secondary" id="docker-srv-refresh">🔄 Обновить</button>
+          </div>
+        </div>
+        <div class="wg-log-wrap hidden" id="docker-srv-log-wrap">
+          <div class="wg-log-head"><span>Вывод задачи</span><button type="button" class="secondary" id="docker-srv-log-close" title="Закрыть">✕</button></div>
+          <div class="logbox wg-log" id="docker-srv-log"></div>
+        </div>
+        <!-- Вкладки: Контейнеры (Phase 2) | Образы (Phase 4) | Compose (Phase 5) -->
+        <div class="tabs" style="margin-bottom:1rem">
+          <button type="button" class="tab active" data-tab="containers">Контейнеры</button>
+          <button type="button" class="tab" data-tab="images">Образы</button>
+          <button type="button" class="tab" data-tab="compose">Compose</button>
+        </div>
+        <div id="docker-srv-body"><div class="empty">Загрузка…</div></div>
+        <div id="docker-images-body" class="hidden"><div class="empty">Загрузка…</div></div>
+        <div id="docker-compose-body" class="hidden"><div class="empty">Загрузка…</div></div>
+      </section>
+
       <section class="page" id="page-files">
         <div class="section-head"><h1>Файлы</h1></div>
         <div class="file-tabs" id="file-tabs">
           <button type="button" class="on" data-root="scripts">scripts</button>
           <button type="button" data-root="keys">keys</button>
+          <button type="button" data-root="docker">docker</button>
         </div>
+        <!-- Хлебные крошки: нужны docker-вкладке (проекты → файлы проекта) -->
+        <div id="file-crumbs" class="wg-hint hidden" style="margin:.2rem 0 .6rem"></div>
         <div class="card" id="file-list" style="padding:0"><div class="empty" style="padding:.8rem">…</div></div>
         <div class="actions">
-          <label class="btn secondary" style="cursor:pointer">Загрузить<input type="file" hidden id="upload-file"/></label>
+          <label class="btn secondary" style="cursor:pointer" id="upload-label">Загрузить<input type="file" hidden id="upload-file"/></label>
+          <button type="button" class="secondary" id="btn-create-script" style="display:none">＋ Создать скрипт</button>
           <button type="button" class="secondary" id="btn-create-key" style="display:none">🔑 Создать ключ</button>
         </div>
       </section>
@@ -254,6 +300,7 @@
   </div>
 </div>
 
+<div id="nav-backdrop"></div>
 <div class="modal-bg" id="add-server-modal">
   <div class="modal">
     <h3 style="margin:0 0 .7rem">＋ Новый сервер</h3>
@@ -302,6 +349,45 @@
       <button type="button" class="secondary" id="script-modal-close">Закрыть</button>
     </div>
     <pre class="script-view" id="script-view-body"></pre>
+  </div>
+</div>
+
+<!-- Редактор файлов: CodeMirror, если установлен, иначе textarea с номерами строк -->
+<div class="modal-bg" id="editor-modal">
+  <div class="modal" style="width:min(1000px,100%)">
+    <div class="section-head" style="margin-bottom:.5rem">
+      <h3 id="editor-title" style="margin:0">Редактор</h3>
+    </div>
+    <div class="hint" id="editor-info" style="margin-bottom:.3rem"></div>
+    <div id="editor-cm-wrap" class="editor-cm hidden"></div>
+    <div id="editor-plain" class="editor-plain">
+      <pre id="editor-gutter" class="editor-gutter"></pre>
+      <textarea id="editor-area" spellcheck="false" wrap="off"></textarea>
+    </div>
+    <div class="err-hint" id="editor-warn" style="white-space:pre-wrap"></div>
+    <div class="actions" style="margin-top:.6rem">
+      <button type="button" id="editor-save">💾 Сохранить</button>
+      <button type="button" class="secondary" id="editor-cancel">Отмена</button>
+      <span class="hint">Ctrl+S — сохранить без закрытия, Esc — закрыть</span>
+    </div>
+  </div>
+</div>
+
+<div class="modal-bg" id="script-new-modal">
+  <div class="modal">
+    <div class="section-head" style="margin-bottom:.6rem">
+      <h3 style="margin:0">＋ Создание скрипта</h3>
+    </div>
+    <label class="row" for="script-new-name">Имя файла
+      <span class="hint">латиница, цифры, дефис (например backup.sh)</span>
+    </label>
+    <input id="script-new-name" placeholder="backup.sh" autocomplete="off"/>
+    <div class="row" style="margin-top:.4rem">Тип: Shell (.sh, права 0755)</div>
+    <div class="err-hint" id="script-new-warn"></div>
+    <div class="actions" style="margin-top:.8rem">
+      <button type="button" id="script-new-create">Создать</button>
+      <button type="button" class="secondary" id="script-new-cancel">Отмена</button>
+    </div>
   </div>
 </div>
 
@@ -368,6 +454,188 @@
   </div>
 </div>
 
+<div class="modal-bg" id="docker-run-modal">
+  <div class="modal">
+    <h3 style="margin:0 0 .6rem" id="docker-run-title">➕ Запустить контейнер</h3>
+
+    <label class="row">Образ <span class="hint">например: nginx:latest</span></label>
+    <input id="docker-run-image" placeholder="nginx:latest" autocomplete="off"/>
+
+    <label class="row">Имя контейнера</label>
+    <input id="docker-run-name" placeholder="my-nginx" autocomplete="off"/>
+
+    <label class="row">Политика перезапуска</label>
+    <select id="docker-run-restart">
+      <option value="no">no (не перезапускать)</option>
+      <option value="unless-stopped" selected>unless-stopped (всегда, кроме остановки вручную)</option>
+      <option value="always">always (всегда перезапускать)</option>
+      <option value="on-failure">on-failure (только при ошибке)</option>
+    </select>
+
+    <label class="row">Порты <span class="hint">host:container, например 8080:80</span></label>
+    <div class="row" style="gap:.4rem">
+      <input id="docker-run-port-input" placeholder="8080:80" autocomplete="off" style="flex:1"/>
+      <button type="button" class="secondary" id="docker-run-port-add">Добавить</button>
+    </div>
+    <div id="docker-run-ports-list" class="wg-note" style="margin-top:.3rem;display:none"></div>
+
+    <label class="row">Переменные окружения <span class="hint">KEY=VALUE, например TZ=Europe/Moscow (если не нужны — оставьте поле пустым)</span></label>
+    <div class="row" style="gap:.4rem">
+      <input id="docker-run-env-input" placeholder="TZ=Europe/Moscow" autocomplete="off" style="flex:1"/>
+      <button type="button" class="secondary" id="docker-run-env-add">Добавить</button>
+    </div>
+    <div id="docker-run-env-list" class="wg-note" style="margin-top:.3rem;display:none"></div>
+
+    <div class="err-hint" id="docker-run-warn"></div>
+    <div class="actions" style="margin-top:.8rem">
+      <button type="button" id="docker-run-confirm">Запустить</button>
+      <button type="button" class="secondary" id="docker-run-cancel">Отмена</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-bg" id="docker-pull-modal">
+  <div class="modal">
+    <h3 style="margin:0 0 .6rem">⬇️ Загрузить образ</h3>
+    <label class="row">Образ <span class="hint">например: nginx:alpine или redis:7</span></label>
+    <input id="docker-pull-image" placeholder="nginx:alpine" autocomplete="off"/>
+    <div class="err-hint" id="docker-pull-warn"></div>
+    <div class="actions" style="margin-top:.8rem">
+      <button type="button" id="docker-pull-confirm">Загрузить</button>
+      <button type="button" class="secondary" id="docker-pull-cancel">Отмена</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-bg" id="docker-stack-new-modal">
+  <div class="modal" style="width:min(760px,100%)">
+    <h3 style="margin:0 0 .6rem">🧩 Новый Compose-проект</h3>
+    <label class="row" for="docker-stack-name">Имя проекта
+      <span class="hint">строчные латинские буквы, цифры, дефис (напр. monitoring)</span>
+    </label>
+    <input id="docker-stack-name" placeholder="monitoring" autocomplete="off"/>
+    <div class="wg-note" style="margin:.5rem 0 .3rem">
+      Проект — это каталог: Compose-файл плюс, при необходимости, .env и другие
+      файлы. Вставьте YAML, загрузите один файл или ZIP-архив со всем проектом.
+    </div>
+    <div class="actions" style="margin:.2rem 0 .4rem">
+      <label class="btn secondary" style="cursor:pointer;margin:0">
+        📄 Загрузить YAML
+        <input type="file" hidden id="docker-stack-file-input" accept=".yml,.yaml"/>
+      </label>
+      <label class="btn secondary" style="cursor:pointer;margin:0">
+        🗜 Загрузить ZIP-проект
+        <input type="file" hidden id="docker-stack-zip-input" accept=".zip"/>
+      </label>
+      <span class="hint" id="docker-stack-file-name"></span>
+    </div>
+    <label class="row" for="docker-stack-new-yaml">Compose-файл</label>
+    <textarea id="docker-stack-new-yaml" rows="13" spellcheck="false"
+      style="width:100%;font-family:monospace;white-space:pre;overflow-wrap:normal;overflow-x:auto"
+      placeholder="services:&#10;  web:&#10;    image: nginx:alpine&#10;    ports:&#10;      - &quot;8080:80&quot;"></textarea>
+    <label class="row" for="docker-stack-new-env">.env <span class="hint">если не нужен — оставьте пустым</span></label>
+    <textarea id="docker-stack-new-env" rows="4" spellcheck="false"
+      style="width:100%;font-family:monospace;white-space:pre;overflow-wrap:normal;overflow-x:auto"
+      placeholder="TZ=Europe/Moscow"></textarea>
+    <div class="err-hint" id="docker-stack-new-warn" style="white-space:pre-wrap"></div>
+    <div class="actions" style="margin-top:.8rem">
+      <button type="button" id="docker-stack-new-save">Сохранить</button>
+      <button type="button" class="secondary" id="docker-stack-new-cancel">Отмена</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-bg" id="docker-stack-files-modal">
+  <div class="modal" style="width:min(760px,100%)">
+    <div class="section-head" style="margin-bottom:.5rem">
+      <h3 id="docker-stack-files-title" style="margin:0">Файлы проекта</h3>
+      <button type="button" class="secondary" id="docker-stack-files-close">Закрыть</button>
+    </div>
+    <div id="docker-stack-files-list"><div class="empty">Загрузка…</div></div>
+    <div class="err-hint" id="docker-stack-files-warn" style="white-space:pre-wrap"></div>
+    <div id="docker-stack-files-editor" class="hidden" style="margin-top:.6rem">
+      <label class="row">Содержимое <span class="hint" id="docker-stack-files-editing"></span></label>
+      <textarea id="docker-stack-files-content" rows="12" spellcheck="false"
+        style="width:100%;font-family:monospace;white-space:pre;overflow-wrap:normal;overflow-x:auto"></textarea>
+      <div class="actions" style="margin-top:.6rem">
+        <button type="button" id="docker-stack-files-save">Сохранить файл</button>
+        <button type="button" class="secondary" id="docker-stack-files-cancel">Отмена</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal-bg" id="docker-stack-edit-modal">
+  <div class="modal" style="width:min(860px,100%)">
+    <div class="section-head" style="margin-bottom:.5rem">
+      <h3 id="docker-stack-edit-title" style="margin:0">Редактирование стека</h3>
+      <button type="button" class="secondary" id="docker-stack-edit-close">Закрыть</button>
+    </div>
+    <div class="wg-note" style="margin-bottom:.4rem">
+      Изменения сохраняются в библиотеке Bot4VPS. Чтобы применить их на сервере,
+      после сохранения нажмите «Перезапустить».
+    </div>
+    <textarea id="docker-stack-edit-yaml" rows="20" spellcheck="false"
+      style="width:100%;font-family:monospace;white-space:pre;overflow-wrap:normal;overflow-x:auto"></textarea>
+    <div class="err-hint" id="docker-stack-edit-warn" style="white-space:pre-wrap"></div>
+    <div class="actions" style="margin-top:.8rem">
+      <button type="button" id="docker-stack-edit-save">Сохранить</button>
+      <button type="button" class="secondary" id="docker-stack-edit-cancel">Отмена</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-bg" id="docker-stack-logs-modal">
+  <div class="modal" style="width:min(860px,100%)">
+    <div class="section-head" style="margin-bottom:.5rem">
+      <h3 id="docker-stack-logs-title" style="margin:0">Логи стека</h3>
+      <div class="actions" style="margin:0">
+        <button type="button" class="secondary" id="docker-stack-logs-refresh">🔄 Обновить</button>
+        <button type="button" class="secondary" id="docker-stack-logs-close">Закрыть</button>
+      </div>
+    </div>
+    <pre class="script-view" id="docker-stack-logs-body"></pre>
+  </div>
+</div>
+
+<!-- Общая модалка лога задачи: используется всеми сервисами и страницей «Очереди» -->
+<div class="modal-bg" id="task-log-modal">
+  <div class="modal" style="width:min(860px,100%)">
+    <div class="section-head" style="margin-bottom:.5rem">
+      <h3 id="task-log-title" style="margin:0">Лог задачи</h3>
+      <div class="actions" style="margin:0">
+        <button type="button" class="secondary" id="task-log-refresh">🔄 Обновить</button>
+        <button type="button" class="secondary" id="task-log-close">Закрыть</button>
+      </div>
+    </div>
+    <pre class="script-view" id="task-log-body"></pre>
+  </div>
+</div>
+
+<div class="modal-bg" id="docker-logs-modal">
+  <div class="modal" style="width:min(760px,100%)">
+    <div class="section-head" style="margin-bottom:.5rem">
+      <h3 id="docker-logs-title" style="margin:0">Логи</h3>
+      <div class="actions" style="margin:0">
+        <button type="button" class="secondary" id="docker-logs-refresh">🔄 Обновить</button>
+        <button type="button" class="secondary" id="docker-logs-close">Закрыть</button>
+      </div>
+    </div>
+    <pre class="script-view" id="docker-logs-body"></pre>
+  </div>
+</div>
+
+<div class="modal-bg" id="docker-dialog">
+  <div class="modal">
+    <h3 style="margin:0 0 .5rem" id="docker-dialog-title"></h3>
+    <div class="row" id="docker-dialog-msg" style="white-space:pre-wrap"></div>
+    <div class="actions" style="margin-top:.9rem">
+      <button type="button" id="docker-dialog-ok">ОК</button>
+      <button type="button" class="secondary" id="docker-dialog-cancel">Отмена</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-bg" id="login-overlay">
   <div class="modal">
     <h3 style="margin:0 0 .7rem">🔐 Bot4VPS</h3>
@@ -387,6 +655,11 @@
 <div class="toast-wrap" id="toasts"></div>
 <script src="/static/vendor/xterm/xterm.js"></script>
 <script src="/static/vendor/xterm/addon-fit.js"></script>
+<!-- CodeMirror необязателен (см. vendor/codemirror/README.md): при отсутствии
+     файлов эти теги дадут 404, редактор молча перейдёт на fallback -->
+<script src="/static/vendor/codemirror/codemirror.min.js"></script>
+<script src="/static/vendor/codemirror/shell.min.js"></script>
+<script src="/static/vendor/codemirror/yaml.min.js"></script>
 <script type="module" src="/static/js/app.js"></script>
 
 <script type="module">

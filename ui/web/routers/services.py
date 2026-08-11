@@ -11,7 +11,7 @@ from __future__ import annotations
 import io
 from typing import Any, Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, File, HTTPException, UploadFile
 from fastapi.responses import Response
 from pydantic import BaseModel
 
@@ -140,6 +140,252 @@ async def api_service_profiles(sid: str, server_id: str):
         return err(e)
 
 
+@router.get("/api/services/{sid}/{server_id}/images")
+async def api_service_images(sid: str, server_id: str):
+    """Список образов сервиса (Phase 4 Docker). Generic по sid: вызывает
+    get_images контракта (read-only)."""
+    try:
+        from core import integrator
+        images_list = await integrator.call(sid, server_id, "get_images") or []
+        return {"images": images_list}
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except HTTPException:
+        raise
+    except Exception as e:
+        return err(e)
+
+
+@router.get("/api/services/{sid}/{server_id}/stacks")
+async def api_service_stacks(sid: str, server_id: str):
+    """Список Compose-стеков (Phase 5 Docker): локальная библиотека + статус
+    развёртывания на сервере. Generic по sid: вызывает get_stacks контракта.
+
+    Возвращает {library, server, reconciled, server_accessible} для двунаправленной
+    модели (библиотека ↔ сервер).
+    """
+    try:
+        from core import integrator
+        result = await integrator.call(sid, server_id, "get_stacks")
+        # get_stacks возвращает готовый словарь — не оборачиваем его
+        return result or {"library": [], "server": [], "reconciled": {}, "server_accessible": False}
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except HTTPException:
+        raise
+    except Exception as e:
+        return err(e)
+
+
+@router.get("/api/services/{sid}/{server_id}/stacks/{name}/file")
+async def api_service_stack_file(sid: str, server_id: str, name: str):
+    """Содержимое конфигурационного файла стека (для редактора)."""
+    try:
+        from core import integrator
+        from core.integrator import StepError
+        try:
+            content = await integrator.call(sid, server_id, "fetch_stack_file", name)
+        except StepError as e:
+            raise HTTPException(404, _step_error_message(e))
+        return {"name": name, "content": content if isinstance(content, str) else str(content or "")}
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except HTTPException:
+        raise
+    except Exception as e:
+        return err(e)
+
+
+class StackSaveBody(BaseModel):
+    content: str
+
+
+@router.post("/api/services/{sid}/{server_id}/stacks/{name}/file")
+async def api_service_stack_save(sid: str, server_id: str, name: str, body: StackSaveBody):
+    """Создать/обновить стек в библиотеке. Валидация конфига — в сервисе;
+    StepError (битый YAML) → 400 с человекочитаемым сообщением."""
+    try:
+        from core import integrator
+        from core.integrator import StepError
+        try:
+            info = await integrator.call(
+                sid, server_id, "save_stack_file", name, body.content
+            )
+        except StepError as e:
+            raise HTTPException(400, _step_error_message(e))
+        return {"ok": True, "stack": info}
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except HTTPException:
+        raise
+    except Exception as e:
+        return err(e)
+
+
+@router.delete("/api/services/{sid}/{server_id}/stacks/{name}")
+async def api_service_stack_delete(sid: str, server_id: str, name: str):
+    """Удалить стек из библиотеки (контейнеры на сервере не трогаются)."""
+    try:
+        from core import integrator
+        from core.integrator import StepError
+        try:
+            removed = await integrator.call(sid, server_id, "delete_stack", name)
+        except StepError as e:
+            raise HTTPException(400, _step_error_message(e))
+        return {"ok": True, "removed": removed}
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except HTTPException:
+        raise
+    except Exception as e:
+        return err(e)
+
+
+@router.get("/api/services/{sid}/{server_id}/stacks/{name}/logs")
+async def api_service_stack_logs(
+    sid: str, server_id: str, name: str, tail: int = 200,
+    source: str = "library", key: Optional[str] = None,
+):
+    """Логи стека с сервера. Generic по sid: вызывает fetch_stack_logs.
+
+    source=library|server; key однозначно выбирает развёртывание, если на
+    сервере несколько проектов с одним именем.
+    """
+    try:
+        from core import integrator
+        from core.integrator import StepError
+        try:
+            data = await integrator.call(
+                sid, server_id, "fetch_stack_logs", name, tail, source, key
+            )
+        except StepError as e:
+            raise HTTPException(400, _step_error_message(e))
+        return {"logs": data if isinstance(data, str) else str(data or "")}
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except HTTPException:
+        raise
+    except Exception as e:
+        return err(e)
+
+
+# ---- файлы проекта (проект = директория) ----
+
+@router.get("/api/services/{sid}/{server_id}/stacks/{name}/files")
+async def api_service_stack_files(sid: str, server_id: str, name: str):
+    """Список файлов проекта: [{path, size, is_compose}]."""
+    try:
+        from core import integrator
+        from core.integrator import StepError
+        try:
+            files = await integrator.call(sid, server_id, "list_stack_files", name) or []
+        except StepError as e:
+            raise HTTPException(400, _step_error_message(e))
+        return {"files": files}
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except HTTPException:
+        raise
+    except Exception as e:
+        return err(e)
+
+
+class ProjectFileBody(BaseModel):
+    path: str
+    content: str
+
+
+@router.get("/api/services/{sid}/{server_id}/stacks/{name}/files/content")
+async def api_service_stack_file_read(sid: str, server_id: str, name: str, path: str):
+    """Содержимое произвольного файла проекта (.env и т.п.)."""
+    try:
+        from core import integrator
+        from core.integrator import StepError
+        try:
+            content = await integrator.call(
+                sid, server_id, "fetch_stack_project_file", name, path
+            )
+        except StepError as e:
+            raise HTTPException(404, _step_error_message(e))
+        return {"path": path, "content": content if isinstance(content, str) else str(content or "")}
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except HTTPException:
+        raise
+    except Exception as e:
+        return err(e)
+
+
+@router.post("/api/services/{sid}/{server_id}/stacks/{name}/files")
+async def api_service_stack_file_save(
+    sid: str, server_id: str, name: str, body: ProjectFileBody,
+):
+    """Записать файл проекта (не трогая остальные)."""
+    try:
+        from core import integrator
+        from core.integrator import StepError
+        try:
+            info = await integrator.call(
+                sid, server_id, "save_stack_project_file", name, body.path, body.content
+            )
+        except StepError as e:
+            raise HTTPException(400, _step_error_message(e))
+        return {"ok": True, "file": info}
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except HTTPException:
+        raise
+    except Exception as e:
+        return err(e)
+
+
+@router.delete("/api/services/{sid}/{server_id}/stacks/{name}/files")
+async def api_service_stack_file_delete(sid: str, server_id: str, name: str, path: str):
+    """Удалить файл проекта (основной Compose-файл удалить нельзя)."""
+    try:
+        from core import integrator
+        from core.integrator import StepError
+        try:
+            removed = await integrator.call(
+                sid, server_id, "delete_stack_project_file", name, path
+            )
+        except StepError as e:
+            raise HTTPException(400, _step_error_message(e))
+        return {"ok": True, "removed": removed}
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except HTTPException:
+        raise
+    except Exception as e:
+        return err(e)
+
+
+@router.post("/api/services/{sid}/{server_id}/stacks/{name}/zip")
+async def api_service_stack_zip(
+    sid: str, server_id: str, name: str, file: UploadFile = File(...),
+):
+    """Импортировать ZIP-архив как проект библиотеки.
+
+    Разбор архива и защита от path traversal — в сервисе; роутер только
+    передаёт байты.
+    """
+    try:
+        from core import integrator
+        from core.integrator import StepError
+        data = await file.read()
+        try:
+            info = await integrator.call(sid, server_id, "import_stack_zip", name, data)
+        except StepError as e:
+            raise HTTPException(400, _step_error_message(e))
+        return {"ok": True, "stack": info}
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except HTTPException:
+        raise
+    except Exception as e:
+        return err(e)
+
+
 @router.post("/api/services/{sid}/{server_id}/sync")
 async def api_service_sync(sid: str, server_id: str):
     try:
@@ -183,6 +429,23 @@ async def api_service_config(sid: str, server_id: str, name: str):
             media_type="application/octet-stream",
             headers={"Content-Disposition": f'attachment; filename="{name}.conf"'},
         )
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except HTTPException:
+        raise
+    except Exception as e:
+        return err(e)
+
+
+@router.get("/api/services/{sid}/{server_id}/logs/{name}")
+async def api_service_logs(sid: str, server_id: str, name: str, tail: int = 200):
+    """Логи ресурса сервиса (напр. контейнера Docker). Generic по sid: вызывает
+    fetch_logs контракта (по образцу /config/{name}; не ветвится по sid)."""
+    try:
+        from core import integrator
+        data = await integrator.call(sid, server_id, "fetch_logs", name, tail)
+        text = data if isinstance(data, str) else str(data or "")
+        return {"logs": text}
     except ValueError as e:
         raise HTTPException(400, str(e))
     except HTTPException:

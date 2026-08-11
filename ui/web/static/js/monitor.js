@@ -79,7 +79,7 @@ async function runCheck(b) {
         html += '<table class="ssl-table"><thead><tr><th>Сервер</th><th>Осталось дней</th><th>Проверено</th></tr></thead><tbody>';
         rows.forEach(row => {
           const mark = row.status === 'valid' ? '🟢' : (row.status === 'warning' ? '🟡' : '🔴');
-          html += `<tr><td>${mark} ${esc(row.name)}</td><td>${esc(row.days_left != null ? row.days_left : '—')}</td><td>${esc(row.checked || '—')}</td></tr>`;
+          html += `<tr><td data-label="Сервер">${mark} ${esc(row.name)}</td><td data-label="Дней">${esc(row.days_left != null ? row.days_left : '—')}</td><td data-label="Проверено">${esc(row.checked || '—')}</td></tr>`;
         });
         html += '</tbody></table>';
       }

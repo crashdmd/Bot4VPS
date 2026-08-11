@@ -3,6 +3,7 @@ import { ansiToHtml } from './ansi.js';
 import { toast, showPage, onlineBadge, sslBadge, metricTile, bindPasswordToggles } from './ui.js';
 import { state, setServers, setGroups, setKeys, setOpenServer, setPage, setServerTab } from './state.js';
 import { openTerminal, closeTerminal } from './terminal.js';
+import { openTaskLog, cancelTaskAPI } from './tasks.js';
 
 /** @deprecated use state.servers */
 export let lastServers = state.servers;
@@ -258,19 +259,50 @@ export async function loadQueues() {
     if (!data.queues.length) { el.innerHTML = '<div class="empty">Нет активных</div>'; return; }
     el.innerHTML = data.queues.map(q => {
       const run = q.running;
-      return `<div class="card" style="margin-bottom:.5rem;min-height:0"><h3>${esc(q.server_name)}</h3>
-        <div class="row">${run ? `${esc(run.emoji || '')} ${esc(run.name)}` : '—'}</div>
+      const runningCard = run ? `<div class="card" style="margin-bottom:.5rem;min-height:0;background:var(--hover)">
+        <h4 style="margin:0 0 .3rem">${esc(run.emoji || '')} ${esc(run.name)}</h4>
+        <div class="row" style="color:var(--muted);font-size:.82rem">⏳ выполняется</div>
+        <div class="actions" style="margin-top:.5rem">
+          <button type="button" class="secondary" data-task-log="${esc(run.id)}" style="font-size:.8rem">📄 Лог</button>
+          <button type="button" class="danger" data-task-cancel="${esc(run.id)}" style="font-size:.8rem">✕ Отменить</button>
+        </div>
+      </div>` : '';
+      const queueCards = (q.queue || []).map(t => `<div class="card" style="margin-bottom:.5rem;min-height:0">
+        <h4 style="margin:0 0 .3rem">${esc(t.emoji || '')} ${esc(t.name)}</h4>
+        <div class="row" style="color:var(--muted);font-size:.82rem">⏸ в очереди</div>
+        <div class="actions" style="margin-top:.5rem">
+          <button type="button" class="danger" data-task-cancel="${esc(t.id)}" style="font-size:.8rem">✕ Отменить</button>
+        </div>
+      </div>`).join('');
+      return `<div class="card" style="margin-bottom:1rem"><h3>${esc(q.server_name)}</h3>
         <div class="progress ${q.paused ? 'paused' : ''}"><i></i></div>
-        ${(q.queue || []).map(t => `<div class="row">⏳ ${esc(t.name)}</div>`).join('')}
-        <div class="actions">
-          <button type="button" class="secondary" data-q="${esc(q.server_id)}" data-a="continue">▶</button>
-          <button type="button" class="secondary" data-q="${esc(q.server_id)}" data-a="retry">🔄</button>
-          <button type="button" class="secondary" data-q="${esc(q.server_id)}" data-a="clear">⏹</button>
+        ${runningCard}${queueCards}
+        <div class="actions" style="margin-top:.8rem;border-top:1px solid var(--border);padding-top:.8rem">
+          <button type="button" class="secondary" data-q="${esc(q.server_id)}" data-a="continue">▶ Возобновить</button>
+          <button type="button" class="secondary" data-q="${esc(q.server_id)}" data-a="retry">🔄 Повтор</button>
+          <button type="button" class="secondary" data-q="${esc(q.server_id)}" data-a="clear">⏹ Очистить очередь</button>
         </div></div>`;
     }).join('');
     el.querySelectorAll('[data-q]').forEach(b => b.onclick = async () => {
       try {
         await j('/api/queues/' + encodeURIComponent(b.dataset.q) + '/' + b.dataset.a, { method: 'POST' });
+        loadQueues();
+      } catch (e) { toast(e.message, false); }
+    });
+    el.querySelectorAll('[data-task-log]').forEach(b => b.onclick = () => openTaskLog(b.dataset.taskLog));
+    el.querySelectorAll('[data-task-cancel]').forEach(b => b.onclick = async () => {
+      // §27: для задачи в очереди отмена снимает её до старта. Для уже
+      // выполняющейся отменяется ожидание — запущенная на сервере команда
+      // может дойти до конца. Не обещаем пользователю большего.
+      if (!(await confirm(
+        'Отменить эту задачу?\n\n' +
+        'Задача в очереди — не будет запущена.\n' +
+        'Задача уже выполняется — Bot4VPS перестанет её ждать, но команда, ' +
+        'запущенная на сервере, может завершиться сама.\n\n' +
+        'Остальные задачи в очереди продолжат работу.'
+      ))) return;
+      try {
+        await cancelTaskAPI(b.dataset.taskCancel);
         loadQueues();
       } catch (e) { toast(e.message, false); }
     });

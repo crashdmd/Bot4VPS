@@ -1,0 +1,9 @@
+{
+    "id": "docker",
+    "name": "Docker",
+    "icon": "🐳",
+    "description": "Контейнерная платформа Docker Engine",
+    "install": "custom",
+    "packages": [],
+    "supports_updates": false
+}

@@ -1,8 +1,13 @@
 # Bot4VPS Web UI
 
-Веб-слой (FastAPI + SPA на ванильном JS) поверх **core** — без Telegram. Даёт тот
-же функционал: серверы и SSH-сессии, очереди задач, скрипты с параметрами,
-мониторинг доступности и SSL, журнал событий, файлы и SSH-ключи.
+Веб-слой (FastAPI + SPA на ванильном JS) поверх **core**. Даёт тот же функционал,
+что и Telegram: серверы и SSH-сессии, очереди задач, скрипты с параметрами,
+мониторинг доступности и SSL, журнал событий, сервисы (WireGuard, Docker), файлы
+и SSH-ключи. Плюс то, чего в чате нет: редактор файлов и Compose-проектов.
+
+Сам по себе слой Telegram не требует, но в штатном режиме именно `ui.web.app:app`
+является точкой входа всего приложения — lifespan поднимает Telegram-бота в том же
+процессе (`deploy/bot4vps.service` в корне репозитория).
 
 ## Запуск
 
@@ -46,10 +51,13 @@ PYTHONPATH=. uvicorn ui.web.app:app --reload --host 127.0.0.1 --port 8080
 
 ## Важные ограничения
 
-- **`task_manager` — in-memory** (`core/task_manager.py`), а веб-процесс отдельный
-  от `bot.py`. Очереди и история задач видны только в том процессе, где они
-  запущены: задачи из Telegram не видны в вебе, и наоборот. Для единого состояния
-  нужен внешний сторадж — сейчас его нет.
+- **`task_manager` — in-memory** (`core/task_manager.py`), поэтому очереди и история
+  задач живут в границах процесса. При обычном запуске это не проблема: lifespan
+  поднимает Telegram внутри того же процесса, так что Task Manager, реестр сервисов
+  и monitor jobs у веба и бота общие — задача, запущенная из Telegram, видна в вебе
+  и наоборот. Но если поднять `bot.py` и `uvicorn` как два отдельных процесса,
+  состояние разъедется: у каждого будет своя очередь. Для честно раздельных
+  процессов нужен внешний сторадж — сейчас его нет.
 - Живой probe/metrics/exec/shell ходят по SSH через тот же `core.ssh.create_ssh_client`
   (paramiko). Долгие операции — в `asyncio.to_thread`, event loop не блокируется.
 - Постоянные SSH-сессии терминала (`/api/servers/{id}/exec` с `session:true`) —
@@ -120,13 +128,18 @@ DSL параметров (`core/script_utils.get_script_params`):
 ### Файлы и ключи
 | Метод | Путь | Описание |
 |-------|------|----------|
-| GET | `/api/files?root=scripts\|keys` | список |
+| GET | `/api/files?root=scripts\|keys\|docker` | список (для `docker` без `project` — список проектов, с `project` — файлы внутри, рекурсивно) |
 | GET | `/api/files/download` | скачать |
+| GET | `/api/files/read` | содержимое текстового файла для редактора |
+| POST | `/api/files/write` | сохранить (для `docker` — через `compose_store`: валидация + атомарная запись) |
+| POST | `/api/files/create` | создать пустой файл |
 | POST | `/api/files/upload` | залить |
 | DELETE | `/api/files` | удалить (+ `.pub` пара для keys) |
 | POST | `/api/keys/create` | создать ed25519 |
 | GET | `/api/keys/view` | содержимое приватного ключа |
 | GET | `/api/groups` · `/api/keys` | группы / список ключей |
+
+Редактирование разрешено только для `scripts` и `docker` (`keys` исключены сознательно). Файл считается редактируемым по расширению из белого списка или имени (`.env`, `Dockerfile`, `Makefile`) и при размере ≤ 512 КБ.
 
 ### Мониторинг и события
 | Метод | Путь | Описание |
@@ -137,6 +150,34 @@ DSL параметров (`core/script_utils.get_script_params`):
 | GET | `/api/events` | журнал (`?limit=`) |
 | DELETE | `/api/events` | очистить журнал |
 
+### Сервисы (generic по `sid`)
+
+Роутер не знает о конкретных сервисах — всё через `sid` (`wireguard`, `docker`) и контракт `Service`.
+
+| Метод | Путь | Описание |
+|-------|------|----------|
+| GET | `/api/services` | реестр сервисов |
+| GET | `/api/services/{sid}/params` · `/status` | параметры и статус по серверам |
+| GET | `/api/services/{sid}/{srv}/profiles` · `/images` · `/state` | данные сервиса на сервере |
+| GET | `/api/services/{sid}/{srv}/logs/{name}` | логи (`?tail=`, 1..2000) |
+| POST | `/api/services/{sid}/{srv}/sync` | синхронизация состояния |
+| POST | `/api/services/{sid}/{srv}/enqueue/{action}` | поставить действие в очередь задач |
+| POST | `/api/services/{sid}/bulk-check` | проверить все серверы |
+
+Compose (библиотека проектов; `source=library\|server` выбирает сторону):
+
+| Метод | Путь | Описание |
+|-------|------|----------|
+| GET | `/api/services/docker/stacks` | `{library, server, reconciled, server_accessible}` |
+| GET · POST | `/api/services/docker/stacks/{name}/file` | основной compose-файл |
+| GET | `/api/services/docker/stacks/{name}/files` | все файлы проекта |
+| GET · POST · DELETE | `/api/services/docker/stacks/{name}/files/content` | файл внутри проекта |
+| POST | `/api/services/docker/stacks/{name}/zip` | импорт проекта ZIP-архивом (multipart) |
+| GET | `/api/services/docker/stacks/{name}/logs` | логи проекта (`?tail`, `source`, `key`) |
+| DELETE | `/api/services/docker/stacks/{name}` | удалить из библиотеки |
+
+Библиотека читается с локального диска, серверная часть — best-effort: при недоступном SSH `server_accessible=false`, но проекты библиотеки остаются видны и редактируемы.
+
 ## Структура
 
 ```
@@ -144,7 +185,11 @@ ui/web/
   app.py              FastAPI, middleware, lifespan, auth-эндпоинты
   security.py         PBKDF2 + require_auth
   deps.py             err(), task_brief(), queue_state_dict(), VERSION
-  routers/            meta, summary, servers, tasks, scripts, files, monitor, stream
+  routers/            meta, summary, servers, tasks, scripts, files, monitor,
+                      stream (SSE), services, terminal (WebSocket)
   static/             index.html + css/ + js/ (SPA: api, app, auth, dashboard,
-                     servers, scripts, files, monitor, sse, state, terminal, ui)
+                      servers, tasks, scripts, files, editor, monitor, settings,
+                      wireguard, docker, terminal, sse, ansi, state, ui)
+                      vendor/: codemirror (редактор), xterm (терминал) — локально,
+                      без CDN
 ```

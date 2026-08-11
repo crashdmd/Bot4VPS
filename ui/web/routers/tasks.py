@@ -49,24 +49,6 @@ async def api_history(limit: int = 20, server_id: Optional[str] = None):
         return err(e)
 
 
-@router.get("/api/tasks/{task_id}")
-async def api_task(task_id: str):
-    try:
-        from core.task_manager import task_manager, STATUS_EMOJI
-        t = task_manager.get_task(task_id)
-        if not t:
-            raise HTTPException(404, "Задача не найдена")
-        data = t.to_dict()
-        data["emoji"] = STATUS_EMOJI.get(t.status, "•")
-        data["duration"] = t.duration_human()
-        data["is_done"] = t.is_done
-        return data
-    except HTTPException:
-        raise
-    except Exception as e:
-        return err(e)
-
-
 @router.post("/api/tasks/enqueue")
 async def api_enqueue(body: EnqueueBody):
     try:
@@ -110,5 +92,47 @@ async def api_clear(server_id: str):
     try:
         from core.task_manager import task_manager
         return {"ok": True, "cleared": await task_manager.clear_queue(server_id)}
+    except Exception as e:
+        return err(e)
+
+
+@router.get("/api/tasks/{task_id}")
+async def api_task(task_id: str):
+    """Полное состояние задачи: поля Task + emoji/duration/is_done для UI.
+
+    Плоская форма (без обёртки) — её читают live-вывод задачи и модалка лога.
+    Поиск по running/queue/history делает task_manager.get_task().
+    """
+    try:
+        from core.task_manager import task_manager, STATUS_EMOJI
+        t = task_manager.get_task(task_id)
+        if not t:
+            raise HTTPException(404, "Задача не найдена")
+        data = t.to_dict()
+        data["emoji"] = STATUS_EMOJI.get(t.status, "•")
+        data["duration"] = t.duration_human()
+        data["is_done"] = t.is_done
+        data["success"] = t.is_successful
+        return data
+    except HTTPException:
+        raise
+    except Exception as e:
+        return err(e)
+
+
+@router.post("/api/tasks/{task_id}/cancel")
+async def api_cancel_task(task_id: str):
+    """Отмена конкретной задачи (в очереди или выполняющейся).
+
+    Отличие от clear_queue: удаляется только одна задача, остальные продолжают работу.
+    """
+    try:
+        from core.task_manager import task_manager
+        ok = await task_manager.cancel(task_id)
+        if not ok:
+            raise HTTPException(404, "Задача не найдена")
+        return {"ok": True}
+    except HTTPException:
+        raise
     except Exception as e:
         return err(e)

@@ -7,7 +7,10 @@ import {
 } from './servers.js';
 import { loadScripts, bindScriptsUI } from './scripts.js';
 import { loadWireguard, bindWireguardUI, stopWgTimers, openWgServerById } from './wireguard.js';
+import { loadDocker, bindDockerUI, stopDockerTimers, openDockerServerById } from './docker.js';
+import { bindTasksUI } from './tasks.js';
 import { loadFiles, bindFilesUI } from './files.js';
+import { bindEditorUI } from './editor.js';
 import { bindTerminalUI } from './terminal.js';
 import { bindSettingsUI, loadAccount, loadGroupsAdmin } from './settings.js';
 import { startSSE } from './sse.js';
@@ -25,6 +28,7 @@ async function refreshAll() {
     loadFiles(),
     loadEvents(state.page === 'events' ? 100 : 5),
     loadWireguard(),
+    loadDocker(),
   ]);
 }
 
@@ -32,24 +36,38 @@ function onNav(page) {
   setPage(page);
   if (page !== 'server') stopWatchers();
   if (page !== 'wireguard' && page !== 'wireguard-server') stopWgTimers();
+  if (page !== 'docker' && page !== 'docker-server') stopDockerTimers();
   showPage(page);
   if (page === 'events') loadEvents(); // сохраняет текущий limit (5 или 100)
   if (page === 'servers') loadServers();
   if (page === 'scripts') loadScripts();
   if (page === 'wireguard') loadWireguard();
+  if (page === 'docker') loadDocker();
   if (page === 'files') loadFiles();
   if (page === 'queues') { loadQueues(); loadHistory(); }
   if (page === 'monitor') loadSummary();
   if (page === 'settings') { loadAccount(); loadGroupsAdmin(); }
 }
 
+// Мобильное меню (боковой дрэвер ≤640px)
+const side = document.querySelector('.side');
+const backdrop = document.getElementById('nav-backdrop');
+const closeDrawer = () => { side?.classList.remove('open'); backdrop?.classList.remove('open'); };
+
 document.querySelectorAll('.side [data-page]').forEach(b => {
-  b.addEventListener('click', () => onNav(b.dataset.page));
+  b.addEventListener('click', () => { onNav(b.dataset.page); closeDrawer(); });
 });
 
 document.querySelectorAll('.side .nav-group-head').forEach(b => {
   b.addEventListener('click', () => b.closest('.nav-group')?.classList.toggle('open'));
 });
+
+document.getElementById('nav-toggle')?.addEventListener('click', () => {
+  const open = side?.classList.toggle('open');
+  backdrop?.classList.toggle('open', !!open);
+});
+backdrop?.addEventListener('click', closeDrawer);
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeDrawer(); });
 
 document.getElementById('btn-journal')?.addEventListener('click', () => loadEvents(100)); // expanded
 document.getElementById('btn-events-clear')?.addEventListener('click', async () => {
@@ -63,8 +81,11 @@ document.getElementById('btn-events-clear')?.addEventListener('click', async () 
 
 bindServerUI();
 bindScriptsUI();
+bindTasksUI();
 bindWireguardUI();
+bindDockerUI();
 bindFilesUI();
+bindEditorUI();
 bindTerminalUI();
 bindSettingsUI();
 bindAuthUI();
@@ -110,7 +131,24 @@ async function restoreSession() {
     }
   }
 
-  if (page && page !== 'servers' && page !== 'server' && page !== 'wireguard-server') {
+  let dockerServerId = null;
+  try { dockerServerId = localStorage.getItem('bot4vps_docker_server_id'); } catch (_) {}
+  if (page === 'docker-server' && dockerServerId) {
+    try {
+      await openDockerServerById(dockerServerId);
+      return;
+    } catch (_) {
+      try {
+        localStorage.removeItem('bot4vps_docker_server_id');
+        localStorage.setItem('bot4vps_page', 'docker');
+      } catch (_) {}
+      onNav('docker');
+      return;
+    }
+  }
+
+  if (page && page !== 'servers' && page !== 'server'
+      && page !== 'wireguard-server' && page !== 'docker-server') {
     onNav(page);
   }
 }

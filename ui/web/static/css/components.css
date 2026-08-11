@@ -83,3 +83,87 @@ button.danger{background:#da3633}
 }
 .stat:empty{display:none}
 .run-param{margin-top:.5rem}
+
+/* телефонный тир ≤640px: тап-таргеты крупнее, тосты на всю ширину снизу.
+   .eye сбрасываем — он абсолютный внутри строки ввода, 42px там неуместно. */
+@media(max-width:640px){
+  button,.btn{min-height:42px}
+  .pw-wrap .eye{min-height:0}
+  .tabs button{min-height:40px}
+  .toast-wrap{left:.75rem;right:.75rem;bottom:.75rem}
+  .toast{max-width:none}
+}
+
+/* Редактор файлов: fallback с нумерацией строк (когда нет CodeMirror).
+   Номера в отдельной колонке, скролл синхронизируется из JS. */
+.editor-plain{
+  display:flex;
+  border:1px solid var(--border);
+  border-radius:8px;
+  overflow:hidden;
+  background:var(--term);
+  font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  font-size:.82rem;
+  line-height:1.5;
+}
+.editor-gutter{
+  margin:0;
+  padding:.6rem .5rem;
+  min-width:3rem;
+  text-align:right;
+  color:var(--muted);
+  background:var(--panel);
+  border-right:1px solid var(--border);
+  overflow:hidden;
+  user-select:none;
+  white-space:pre;
+  font:inherit;
+}
+.editor-plain textarea{
+  flex:1;
+  min-height:60vh;
+  margin:0;
+  padding:.6rem;
+  border:none;
+  outline:none;
+  resize:vertical;
+  background:transparent;
+  color:var(--term-fg);
+  font:inherit;
+  white-space:pre;
+  overflow:auto;
+  tab-size:2;
+}
+/* CodeMirror, если установлен */
+.editor-cm .CodeMirror{
+  height:60vh;
+  border:1px solid var(--border);
+  border-radius:8px;
+  font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  font-size:.82rem;
+}
+
+/* Docker Compose: двухколоночный layout (библиотека | сервер) */
+.compose-two-col{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:1.5rem;
+  margin-top:1rem;
+}
+.compose-col{
+  display:flex;
+  flex-direction:column;
+  min-width:0;
+}
+.compose-col .wg-section-title{
+  margin-bottom:.8rem;
+}
+.compose-col .grid{
+  flex:1;
+  align-content:start;
+}
+@media(max-width:900px){
+  .compose-two-col{
+    grid-template-columns:1fr;
+  }
+}

@@ -13,6 +13,7 @@ side-effect. Саморегистрирующийся пакет — граф и
 """
 from .base import (  # noqa: F401
     CallbackCtx,
+    DocumentCtx,
     MessageCtx,
     ServiceUI,
     all_service_uis,
@@ -20,5 +21,6 @@ from .base import (  # noqa: F401
     register_service_ui,
 )
 
-# Side-effect: регистрация WireGuardUI в реестре.
+# Side-effect: регистрация ServiceUI в реестре.
 from . import wireguard  # noqa: F401
+from . import docker  # noqa: F401

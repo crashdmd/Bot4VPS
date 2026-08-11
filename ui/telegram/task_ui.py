@@ -66,8 +66,9 @@ def _nav_rows_for_task(task) -> list:
     if task.kind in ("svc", "svc_scan"):
         payload = task.payload or {}
         service_id = payload.get("service", "")
+        action = payload.get("action", "")
         src = payload.get("src")
-        if task.kind == "svc_scan" or payload.get("action") == "bulk_check":
+        if task.kind == "svc_scan" or action == "bulk_check":
             return [[InlineKeyboardButton("⬅️ Назад", callback_data=f"tasks_svc:{service_id}")]]
         if src == "tasks":
             cb = f"svc:view:{service_id}:{task.server_id}:tasks"
@@ -363,6 +364,9 @@ async def show_tasks_menu(query):
         reply_markup=InlineKeyboardMarkup([
             [InlineKeyboardButton("📜 Скрипты", callback_data="scripts")],
             [InlineKeyboardButton("🛡 WireGuard", callback_data="tasks_svc:wireguard")],
+            # У Docker собственный хаб (owns_hub): проверка / установка /
+            # Compose / серверы — диспетчер отдаст ему op "hub".
+            [InlineKeyboardButton("🐳 Docker", callback_data="tasks_svc:docker")],
             [InlineKeyboardButton("📋 Очереди", callback_data="task_queues")],
             [InlineKeyboardButton("⬅️ Главное меню", callback_data="main")],
         ]),

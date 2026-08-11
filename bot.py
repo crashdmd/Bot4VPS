@@ -34,6 +34,7 @@ from ui.telegram.common import show_main_menu
 from ui.telegram.handlers import (
     process_key_message,
     process_script_message,
+    process_service_document,
     process_service_message,
     process_server_message,
 )
@@ -73,7 +74,13 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def document_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Единая точка входа для всех документов."""
+    """Единая точка входа для всех документов.
+
+    Сначала спрашиваем сервисные UI (Compose-проекты Docker и т.п.), затем —
+    профильный загрузчик core/upload.py (скрипты).
+    """
+    if await process_service_document(update, context):
+        return
     if await process_upload_document(update, context):
         return
     await update.message.reply_text("❓ Этот файл сейчас не ожидается.")
@@ -117,15 +124,24 @@ async def start_telegram(app: Application | None = None) -> Application:
     # replace=True — без дублей при reload
     register_notifier(_immediate_notify, replace=True)
 
-    await application.initialize()
-    if application.job_queue is not None:
-        schedule_monitor_jobs(application.job_queue)
-    else:
-        print("[BOT] job_queue отсутствует — мониторинг не запланирован "
-              "(нужен пакет python-telegram-bot[job-queue])", flush=True)
+    try:
+        await application.initialize()
+        if application.job_queue is not None:
+            schedule_monitor_jobs(application.job_queue)
+        else:
+            print("[BOT] job_queue отсутствует — мониторинг не запланирован "
+                  "(нужен пакет python-telegram-bot[job-queue])", flush=True)
 
-    await application.start()
-    await application.updater.start_polling(drop_pending_updates=False)
+        await application.start()
+        await application.updater.start_polling(drop_pending_updates=False)
+    except Exception:
+        # Провал старта — откат lifecycle, чтобы lifespan получил чистое
+        # состояние: stop/shutdown каждого шага + clear_notifiers +
+        # сброс _application. Исключение прокидывается для лога в lifespan.
+        print("[BOT] start_telegram failed — rolling back", flush=True)
+        await stop_telegram(application)
+        raise
+
     print("🤖 Telegram bot started (manual lifecycle)", flush=True)
     return application
 

@@ -112,3 +112,16 @@
 .group-row .grp-ssl { display: flex; align-items: center; gap: .3rem; margin: 0; }
 .group-row .grp-count { opacity: .7; font-size: .85em; min-width: 4.5rem; }
 .group-row button:disabled { opacity: .35; cursor: not-allowed; }
+
+/* телефонный тир ≤640px: WG-профили в одну колонку + SSL-таблица стопкой карточек.
+   .wg-profile-grid определён здесь, поэтому override — здесь (позже по source-order
+   .grid-override из layout.css не достаёт до этого селектора). */
+@media(max-width:640px){
+  .wg-profile-grid{grid-template-columns:1fr}
+  .ssl-table thead{display:none}
+  .ssl-table,.ssl-table tbody,.ssl-table tr,.ssl-table td{display:block;width:100%}
+  .ssl-table tr{margin-bottom:.5rem;border:1px solid var(--border);border-radius:8px}
+  .ssl-table td{display:flex;justify-content:space-between;gap:.5rem;padding:.4rem .55rem;border-bottom:1px solid var(--chip)}
+  .ssl-table tr:last-child td{border-bottom:none}
+  .ssl-table td::before{content:attr(data-label);color:var(--muted);font-weight:600}
+}

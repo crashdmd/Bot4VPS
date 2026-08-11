@@ -48,6 +48,24 @@ class MessageCtx:
     user_id: int
 
 
+@dataclass(frozen=True)
+class DocumentCtx:
+    """Контекст присланного документа для ServiceUI.handle_document.
+
+    `data` — УЖЕ скачанные байты: загрузку из Telegram делает transport-слой
+    (диспетчер), а не сервисный UI. Иначе каждый ServiceUI начал бы сам ходить
+    в Telegram API, и контракт снова оказался бы загрязнён транспортом.
+
+    UI получает только то, что ему нужно для решения: имя файла (YAML или ZIP?),
+    содержимое и `message` для ответа пользователю.
+    """
+    update: object              # telegram.Update
+    context: object             # ContextTypes.DEFAULT_TYPE
+    user_id: int
+    filename: str
+    data: bytes
+
+
 class ServiceUI:
     """Опциональный Telegram-UI сервисного слоя.
 
@@ -59,6 +77,18 @@ class ServiceUI:
 
     service_id: ClassVar[str] = ""
     claims_ops: ClassVar[set] = set()
+
+    #: Сервис сам рисует хаб раздела (вместо generic «Полная проверка /
+    #: Установить / Управление»). Диспетчер при `tasks_svc:<id>` делегирует ему
+    #: op "hub" вместо generic-хаба.
+    owns_hub: ClassVar[bool] = False
+
+    #: Куда возвращает «❌ Нет» в generic-подтверждении удаления сервиса.
+    #: По умолчанию "settings" — экран настроек, откуда кнопка удаления и растёт.
+    #: Если у сервиса нет "settings" (кнопка удаления живёт прямо на карточке
+    #: сервера), нужно переопределить на op, который UI реально заявляет —
+    #: иначе отказ от удаления упрётся в «операция недоступна».
+    cancel_remove_op: ClassVar[str] = "settings"
 
     def claims(self, op: str) -> bool:
         """Перехватывать ли этот op. По умолчанию — membership в claims_ops.
@@ -87,6 +117,18 @@ class ServiceUI:
 
     async def handle_message(self, ctx: MessageCtx) -> bool:
         """Обработать текстовый ввод многошагового flow. True = обработано."""
+        return False
+
+    def owns_document(self, user_id: int) -> bool:
+        """Ждёт ли сервис документ от user_id. Cheap predicate.
+
+        Проверяется до скачивания файла: если никто документ не ждёт, transport
+        не тратит трафик на загрузку.
+        """
+        return False
+
+    async def handle_document(self, ctx: DocumentCtx) -> bool:
+        """Обработать присланный документ (байты уже скачаны). True = обработано."""
         return False
 
 

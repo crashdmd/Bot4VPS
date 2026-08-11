@@ -39,10 +39,15 @@ from .services._shared import (
 )
 from .services.base import (
     CallbackCtx,
+    DocumentCtx,
     MessageCtx,
     all_service_uis,
     get_service_ui,
 )
+
+# Больше файла в Telegram-документе не ждём: Compose-проект в ZIP столько не
+# занимает, а ограничение защищает от случайной загрузки образа/дампа.
+_MAX_DOCUMENT_SIZE = 20 * 1024 * 1024
 
 # install-wizard оперирует общим state-диктом и params_schema() — не per-service.
 _WIZARD_OPS = {"install_cfg", "install_val", "install_skip", "install_run", "install_cancel"}
@@ -175,9 +180,18 @@ async def _do_sync(query, service_id: str, server_id: str, src: str | None = Non
 async def _confirm_remove(query, service_id: str, server_id: str, src: str | None = None):
     manifest = get_manifest(service_id)
     text = f"⚠️ Удалить {manifest.name}?\nБудут удалены пакеты и конфиги сервиса."
+
+    # Куда возвращает отказ. Дефолт "settings" — как было; сервис может указать
+    # свой op через ServiceUI.cancel_remove_op. Если указанный op не заявлен
+    # (или UI нет вовсе) — падаем на "view": generic-карточка есть всегда.
+    ui = get_service_ui(service_id)
+    cancel_op = getattr(ui, "cancel_remove_op", "settings") if ui is not None else "view"
+    if cancel_op != "view" and (ui is None or not ui.claims(cancel_op)):
+        cancel_op = "view"
+
     rows = [
         [InlineKeyboardButton("✅ Да", callback_data=_svc_cb("remove", service_id, server_id, src=src))],
-        [InlineKeyboardButton("❌ Нет", callback_data=_svc_cb("settings", service_id, server_id, src=src))],
+        [InlineKeyboardButton("❌ Нет", callback_data=_svc_cb(cancel_op, service_id, server_id, src=src))],
     ]
     await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(rows))
 
@@ -236,7 +250,16 @@ async def process_service_callback(query, data: str) -> bool:
         await _tasks_server_list(query, data.split(":", 1)[1], "manage")
         return True
     if data.startswith("tasks_svc:"):
-        await _tasks_service_hub(query, data.split(":", 1)[1])
+        svc_id = data.split(":", 1)[1]
+        # Сервис может рисовать хаб раздела сам (owns_hub) — тогда generic-хаб
+        # с «Полная проверка / Установить / Управление» не показываем.
+        ui = get_service_ui(svc_id)
+        if ui is not None and getattr(ui, "owns_hub", False):
+            ctx = CallbackCtx(op="hub", query=query, user_id=query.from_user.id,
+                              service_id=svc_id, server_id="-", name=None, src=None)
+            if await ui.handle_callback(ctx):
+                return True
+        await _tasks_service_hub(query, svc_id)
         return True
     if data.startswith("services:"):
         await _services_hub(query, data.split(":", 1)[1])
@@ -306,3 +329,43 @@ async def process_service_message(update, context):
             if await ui.handle_message(ctx):
                 return True
     return False
+
+
+async def process_service_document(update, context) -> bool:
+    """Документ → ServiceUI, который его ждёт.
+
+    Transport-слой: сам скачивает файл из Telegram и отдаёт сервисному UI готовые
+    байты (DocumentCtx). Так ни один ServiceUI не обращается к Telegram API за
+    загрузкой — иначе транспорт растёк бы по сервисам.
+    """
+    message = getattr(update, "message", None)
+    doc = getattr(message, "document", None) if message else None
+    if not doc:
+        return False
+    user_id = update.effective_user.id
+
+    ui = next((u for u in all_service_uis() if u.owns_document(user_id)), None)
+    if ui is None:
+        return False
+
+    filename = doc.file_name or "upload"
+    size = getattr(doc, "file_size", None) or 0
+    if size > _MAX_DOCUMENT_SIZE:
+        await message.reply_text(
+            f"❌ Файл слишком большой ({size // 1024} КБ).\n"
+            f"Лимит: {_MAX_DOCUMENT_SIZE // (1024 * 1024)} МБ."
+        )
+        return True
+
+    try:
+        tg_file = await context.bot.get_file(doc.file_id)
+        data = bytes(await tg_file.download_as_bytearray())
+    except Exception as e:
+        await message.reply_text(f"❌ Не удалось скачать файл:\n{e}")
+        return True
+
+    ctx = DocumentCtx(
+        update=update, context=context, user_id=user_id,
+        filename=filename, data=data,
+    )
+    return await ui.handle_document(ctx)
