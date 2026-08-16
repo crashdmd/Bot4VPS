@@ -14,7 +14,8 @@
 
     {
       "name": str, "image": str, "state": str, "status": str,
-      "id": str, "managed": bool, "ports": [str, ...],
+      "id": str, "managed": bool, "compose_project": str,
+      "compose_workdir": str, "ports": [str, ...],
       "cpu": str, "mem": str, "net_in": str, "net_out": str,
     }
 """
@@ -26,6 +27,13 @@ from typing import Any, Dict, List
 # Лейбл, которым помечаются созданные ботом контейнеры (managed-флаг из on-disk
 # маркера, не из БД — как clients/<name> у WG).
 MANAGED_LABEL = "bot4vps.managed"
+
+# Лейблы Compose: по ним контейнер связывается с развёртыванием (project +
+# working_dir = игнор-ключ) и скрывается, если проект в игноре
+# (docs/compose-model.md §11). working_dir обязателен: у двух одноимённых
+# проектов в разных каталогах игнор одного не должен прятать другой (§10).
+COMPOSE_PROJECT_LABEL = "com.docker.compose.project"
+COMPOSE_WORKDIR_LABEL = "com.docker.compose.project.working_dir"
 
 
 def _iter_json_lines(text: str):
@@ -51,6 +59,18 @@ def _labels_have_managed(labels_raw: str) -> bool:
     return False
 
 
+def _label_value(labels_raw: str, key: str) -> str:
+    """Значение лейбла из строки «k=v,k2=v2» (пусто, если нет)."""
+    for pair in (labels_raw or "").split(","):
+        pair = pair.strip()
+        if "=" not in pair:
+            continue
+        k, v = pair.split("=", 1)
+        if k.strip() == key:
+            return v.strip()
+    return ""
+
+
 def _split_ports(ports_raw: str) -> List[str]:
     """Строка Ports из docker ps → список уникальных маппингов (сохраняя порядок)."""
     seen: List[str] = []
@@ -61,20 +81,38 @@ def _split_ports(ports_raw: str) -> List[str]:
     return seen
 
 
-def _extract_published_port(ports_raw: str) -> str:
-    """Извлечь первый опубликованный host-порт из строки Ports.
+def _extract_published_ports(ports_raw: str) -> List[str]:
+    """Все уникальные опубликованные host-порты, сохраняя порядок Docker.
 
-    Формат: '0.0.0.0:8080->80/tcp' или ':::8080->80/tcp' → вернуть '8080'.
-    Если нет опубликованных портов (только '80/tcp' без маппинга) → ''.
+    IPv4/IPv6-публикации одного порта схлопываются. Диапазон публикации
+    ``80-81->80-81/tcp`` разворачивается в реальные host-порты 80 и 81.
     """
     import re
+    out: List[str] = []
     for mapping in (ports_raw or "").split(","):
         mapping = mapping.strip()
-        # Ищем паттерн: [ip:]port->
-        m = re.search(r"(?:[\d.]+|::):(\d+)->", mapping)
-        if m:
-            return m.group(1)
-    return ""
+        if "->" not in mapping:
+            continue
+        host_side = mapping.split("->", 1)[0].strip()
+        # Формы Docker: 0.0.0.0:8080, [::]:8080 и :::8080.
+        m = re.search(r":(\d+)(?:-(\d+))?$", host_side)
+        if not m:
+            continue
+        start = int(m.group(1))
+        end = int(m.group(2) or start)
+        if end < start or end - start > 65535:
+            continue
+        for port in range(start, end + 1):
+            value = str(port)
+            if value not in out:
+                out.append(value)
+    return out
+
+
+def _extract_published_port(ports_raw: str) -> str:
+    """Первый опубликованный host-порт (обратная совместимость)."""
+    ports = _extract_published_ports(ports_raw)
+    return ports[0] if ports else ""
 
 
 def parse_ps(text: str) -> List[Dict[str, Any]]:
@@ -87,14 +125,18 @@ def parse_ps(text: str) -> List[Dict[str, Any]]:
         if not name:
             continue
         ports_raw = str(obj.get("Ports") or "")
+        labels_raw = str(obj.get("Labels") or "")
         out.append({
             "name": name,
             "image": str(obj.get("Image") or "").strip(),
             "state": str(obj.get("State") or "").strip().lower(),
             "status": str(obj.get("Status") or "").strip(),
             "id": str(obj.get("ID") or obj.get("Id") or "").strip()[:12],
-            "managed": _labels_have_managed(str(obj.get("Labels") or "")),
+            "managed": _labels_have_managed(labels_raw),
+            "compose_project": _label_value(labels_raw, COMPOSE_PROJECT_LABEL),
+            "compose_workdir": _label_value(labels_raw, COMPOSE_WORKDIR_LABEL),
             "ports": _split_ports(ports_raw),
+            "published_ports": _extract_published_ports(ports_raw),
             "published_port": _extract_published_port(ports_raw),
             "cpu": "",
             "mem": "",

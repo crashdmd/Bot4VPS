@@ -12,7 +12,8 @@ from core.storage import find_server
 # Разделитель между секциями вывода batched-команды сбора метрик.
 _INFO_SEP = "::BOT4VPS_SEP::"
 
-# Все четыре метрики — одной shell-командой вместо четырёх round-trip'ов.
+# Системные метрики и сведения об ОС — одной shell-командой
+# (без дополнительных SSH round-trip'ов).
 _INFO_CMD = (
     "uptime -p; "
     "echo '" + _INFO_SEP + "'; "
@@ -20,7 +21,17 @@ _INFO_CMD = (
     "echo '" + _INFO_SEP + "'; "
     "free -m | awk '/Mem:/ {print $3\" MB / \"$2\" MB\"}'; "
     "echo '" + _INFO_SEP + "'; "
-    "df -h / | awk 'NR==2 {print $3\" / \"$2}'"
+    "df -h / | awk 'NR==2 {print $3\" / \"$2}'; "
+    "echo '" + _INFO_SEP + "'; "
+    "hostname 2>/dev/null || cat /etc/hostname 2>/dev/null || echo N/A; "
+    "echo '" + _INFO_SEP + "'; "
+    "( . /etc/os-release 2>/dev/null; echo \"${ID:-N/A}\" ); "
+    "echo '" + _INFO_SEP + "'; "
+    "( . /etc/os-release 2>/dev/null; echo \"${VERSION_ID:-N/A}\" ); "
+    "echo '" + _INFO_SEP + "'; "
+    "uname -r 2>/dev/null || echo N/A; "
+    "echo '" + _INFO_SEP + "'; "
+    "uname -m 2>/dev/null || echo N/A"
 )
 
 
@@ -59,6 +70,11 @@ def _probe_ssh(server):
         "load": "N/A",
         "ram": "N/A",
         "disk": "N/A",
+        "hostname": "N/A",
+        "os": "N/A",
+        "os_version": "N/A",
+        "kernel": "N/A",
+        "arch": "N/A",
     }
     try:
         ssh = create_ssh_client(server, timeout=5)
@@ -71,10 +87,16 @@ def _probe_ssh(server):
             def _part(i):
                 return parts[i] if i < len(parts) and parts[i] else "N/A"
 
+            # 0..3 — прежние метрики; 4..8 — system
             out["uptime"] = _part(0)
             out["load"] = _part(1)
             out["ram"] = _part(2)
             out["disk"] = _part(3)
+            out["hostname"] = _part(4)
+            out["os"] = _part(5)
+            out["os_version"] = _part(6)
+            out["kernel"] = _part(7)
+            out["arch"] = _part(8)
         finally:
             ssh.close()
     except Exception as e:
@@ -95,7 +117,12 @@ def get_server_info(server):
         "uptime": "N/A",
         "load": "N/A",
         "ram": "N/A",
-        "disk": "N/A"
+        "disk": "N/A",
+        "hostname": "N/A",
+        "os": "N/A",
+        "os_version": "N/A",
+        "kernel": "N/A",
+        "arch": "N/A",
     }
 
     host = server["host"]

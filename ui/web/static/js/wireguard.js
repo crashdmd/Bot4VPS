@@ -12,6 +12,7 @@ import { ansiToHtml } from './ansi.js';
 const SID = 'wireguard';
 const timers = {};                  // taskId -> polling-интервал
 let statusMap = {};                 // id -> {name, host, status}
+let wgHasServers = false;           // для корректной подсказки пустого обзора
 let wgTab = 'check';
 let installParams = null;
 let installTarget = null;
@@ -19,6 +20,8 @@ let installTarget = null;
 // Экран конкретного сервера
 let wgServerId = null;              // id открытого сервера
 let wgServerState = null;           // последний live-state (для префиля модалки)
+let wgImportedBannerHidden = false;  // состояние видимости баннера текущего сервера
+const importBannerClosedKey = id => `wg_import_banner_closed_${id}`;
 
 const TAB_HINT = {
   check: 'Обзор состояния WireGuard на всех серверах. Нажмите «Проверить все серверы», чтобы обновить данные.',
@@ -70,13 +73,36 @@ function fmtBytes(n) {
 }
 
 function copyToClipboard(text) {
-  if (!text) return;
-  if (navigator.clipboard) {
-    navigator.clipboard.writeText(text)
-      .then(() => toast('Скопировано', true))
-      .catch(() => toast('Не удалось скопировать', false));
-  } else {
-    toast('Буфер обмена недоступен', false);
+  if (text == null || text === '') return;
+  const str = String(text);
+  const ok = () => toast('Скопировано', true);
+  const fail = () => toast('Не удалось скопировать', false);
+  if (navigator.clipboard && window.isSecureContext) {
+    navigator.clipboard.writeText(str).then(ok).catch(() => {
+      if (_copyFallback(str)) ok();
+      else fail();
+    });
+    return;
+  }
+  if (_copyFallback(str)) ok();
+  else fail();
+}
+
+function _copyFallback(str) {
+  try {
+    const ta = document.createElement('textarea');
+    ta.value = str;
+    ta.setAttribute('readonly', '');
+    ta.style.cssText = 'position:fixed;left:-9999px;top:0;opacity:0';
+    document.body.appendChild(ta);
+    ta.focus();
+    ta.select();
+    ta.setSelectionRange(0, str.length);
+    const done = document.execCommand('copy');
+    document.body.removeChild(ta);
+    return !!done;
+  } catch (_) {
+    return false;
   }
 }
 
@@ -134,10 +160,31 @@ const wgPrompt = (title, message, value = '', placeholder = '', okText = 'ОК',
 
 // ---------------- загрузка списка ----------------
 
+
+/** Стартовая вкладка списка серверов по уже известному status API.
+ *  нет данных проверки → check;
+ *  хотя бы один installed → manage;
+ *  проверка была, установленного нет → install.
+ */
+function pickStartTab(servers) {
+  let anyKnown = false;
+  let anyInstalled = false;
+  for (const s of servers || []) {
+    const st = s.status || {};
+    if (!Object.keys(st).length) continue;
+    anyKnown = true;
+    if (st.installed) anyInstalled = true;
+  }
+  if (!anyKnown) return 'check';
+  if (anyInstalled) return 'manage';
+  return 'install';
+}
+
 export async function loadWireguard() {
   try {
     const d = await j(`/api/services/${SID}/status`);
     const servers = d.servers || [];
+    wgHasServers = servers.length > 0;
     statusMap = {};
     servers.forEach(s => { statusMap[s.id] = s; });
     const install = [], manage = [];
@@ -149,6 +196,10 @@ export async function loadWireguard() {
     renderCheck(servers);
     renderInstall(install);
     renderManage(manage);
+    // Не трогаем вкладки, если открыт экран конкретного сервера
+    if (!document.getElementById('page-wireguard-server')?.classList.contains('on')) {
+      setWgTab(pickStartTab(servers));
+    }
   } catch (e) {
     document.getElementById('wg-check-grid').innerHTML = '<div class="empty">' + esc(e.message) + '</div>';
   }
@@ -220,6 +271,16 @@ function renderManage(servers) {
   el.innerHTML = servers.map(manageCard).join('');
   // Управляемый сервер → «Открыть» (отдельный экран). Классика → только «Миграция».
   el.querySelectorAll('[data-open]').forEach(b => b.onclick = () => openWgServer(b.dataset.open));
+  el.querySelectorAll('[data-imported-open]').forEach(b => {
+    b.onclick = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      try {
+        localStorage.removeItem(importBannerClosedKey(b.dataset.importedOpen));
+      } catch (_) {}
+      openWgServer(b.dataset.importedOpen);
+    };
+  });
   el.querySelectorAll('[data-migrate]').forEach(b => b.onclick = () => doMigrate(b.dataset.migrate));
 }
 
@@ -239,10 +300,14 @@ function manageCard(s) {
       <div class="card-actions"><button type="button" data-migrate="${esc(s.id)}">♻️ Миграция</button></div>
     </div>`;
   }
+  const hasImported = Array.isArray(st.profiles) && st.profiles.some(pr => pr && pr.managed === false);
+  const importedIndicator = hasImported
+    ? `<button type="button" class="wg-imported-indicator wg-manage-imported-indicator" data-imported-open="${esc(s.id)}" title="Есть импортированные профили" aria-label="Есть импортированные профили">⚠</button>`
+    : '';
   return `<div class="card">
     <div class="card-body">
       <h3>🖥 ${esc(s.name)} <span class="hint">${esc(s.host || '')}</span></h3>
-      <div class="row" style="margin-top:.3rem">${stateBadge(st)}</div>
+      <div class="row" style="margin-top:.3rem">${stateBadge(st)}${importedIndicator}</div>
       <div class="wg-card-info">Версия: <b>${v ? esc(v) : '—'}</b></div>
       <div class="wg-card-info">Endpoint: <b>${st.endpoint ? esc(st.endpoint) : 'не задан'}</b></div>
       <div class="wg-card-info">Профилей: <b>${profileCount(st)}</b></div>
@@ -268,7 +333,7 @@ function startWgLivePoll(id) {
     // не дёргаем, если открыта модалка ввода
     if (document.querySelector('.modal-bg.open')) return;
     loadWgServerDetail(id).catch(() => {});
-  }, 5000);
+  }, 3000);
 }
 function stopWgLivePoll() {
   if (_wgLiveTimer) { clearInterval(_wgLiveTimer); _wgLiveTimer = null; }
@@ -277,6 +342,11 @@ function stopWgLivePoll() {
 async function openWgServer(id) {
   wgServerId = id;
   wgServerState = null;
+  try {
+    wgImportedBannerHidden = localStorage.getItem(importBannerClosedKey(id)) === '1';
+  } catch (_) {
+    wgImportedBannerHidden = false;
+  }
   try {
     localStorage.setItem('bot4vps_page', 'wireguard-server');
     localStorage.setItem('bot4vps_wg_server_id', id);
@@ -291,6 +361,12 @@ async function openWgServer(id) {
 function backToWgList() {
   stopWgLivePoll();
   wgServerId = null;
+  wgImportedBannerHidden = false;
+  const ban = document.getElementById('wg-imported-banner');
+  if (ban) { ban.classList.add('hidden'); ban.innerHTML = ''; }
+  const indicator = document.getElementById('wg-imported-indicator');
+  if (indicator) indicator.classList.add('hidden');
+
   try {
     localStorage.setItem('bot4vps_page', 'wireguard');
     localStorage.removeItem('bot4vps_wg_server_id');
@@ -313,56 +389,460 @@ async function loadWgServerDetail(id) {
 function renderWgServerDetail(st) {
   const body = document.getElementById('wg-srv-body');
   if (!body) return;
+  const oldPop = document.getElementById('wg-prof-pop');
+  const openProfileName = oldPop && !oldPop.classList.contains('hidden')
+    ? oldPop.dataset.name
+    : null;
   const s = st || {};
   const profiles = Array.isArray(s.profiles) ? s.profiles : [];
   const stats = s.stats || { online: 0, total: profiles.length, rx_bytes: 0, tx_bytes: 0 };
-  const total = (Number(stats.rx_bytes) || 0) + (Number(stats.tx_bytes) || 0);
+  const totalTraffic = (Number(stats.rx_bytes) || 0) + (Number(stats.tx_bytes) || 0);
 
-  const pub = s.server_public_key;
-  const infoRows = [
-    ['Адрес', s.address || '—'],
-    ['Порт', s.port != null ? s.port : '—'],
-    ['Endpoint', s.endpoint || 'не задан'],
-  ];
-  const pubHtml = pub
-    ? `<dt>Публичный ключ</dt><dd><span class="copiable mono" data-copy="${esc(pub)}" title="Нажмите, чтобы скопировать">${esc(pub)}</span></dd>`
-    : `<dt>Публичный ключ</dt><dd>—</dd>`;
-  const info = `<div class="card wg-srv-info"><dl class="kv">${
-    infoRows.map(([k, v]) => `<dt>${k}</dt><dd>${esc(String(v))}</dd>`).join('')
-  }${pubHtml}</dl></div>`;
+  const badgeEl = document.getElementById('wg-srv-badge');
+  if (badgeEl) {
+    badgeEl.innerHTML = s.installed
+      ? '<span class="badge on">Установлен</span>'
+      : '<span class="badge off">Не установлен</span>';
+  }
 
-  const tile = (label, val) => `<div class="metric"><div class="v">${esc(String(val))}</div><div class="l">${esc(label)}</div></div>`;
-  const statsHtml = `<div class="metrics wg-srv-stats">${
-    tile('Онлайн', `${stats.online} / ${stats.total}`)
-  }${tile('Общий', fmtBytes(total))}${tile('Получено', fmtBytes(stats.rx_bytes))}${tile('Отправлено', fmtBytes(stats.tx_bytes))}</div>`;
+  const copyBtn = (val) => {
+    if (val == null || val === '' || val === '—' || val === 'не задан') return '';
+    return ' <button type="button" class="icon-copy" data-copy="' + esc(String(val)) + '" title="Копировать">⧉</button>';
+  };
+  const pub = s.server_public_key || '';
+  const iface = s.interface || s.iface || 'wg0';
+  const active = (s.active || s.status || '').toString().toLowerCase();
+  const isActive = active === 'active' || active === 'running' || !!s.installed;
+  const statusHtml = isActive
+    ? '<span class="ssh-dot ok"></span> Активен'
+    : '<span class="ssh-dot err"></span> Неактивен';
 
-  const configBtn = `<div class="actions" style="margin:.2rem 0 .8rem"><button type="button" id="wg-srv-config">⚙️ Изменить конфигурацию</button></div>`;
+  const addr = s.address != null && s.address !== '' ? String(s.address) : '—';
+  const port = s.port != null ? String(s.port) : '—';
+  const endpoint = s.endpoint || 'не задан';
 
-  const hasImported = profiles.some(p => !p.managed);
-  const cards = profiles.length
-    ? profiles.map(profileGridCard).join('')
-    : '<div class="empty">Профилей нет</div>';
-  const profilesHtml = `<div class="wg-section-title">Профили</div>` +
-    `<div class="actions" style="margin:.3rem 0"><button type="button" class="secondary" data-padd>➕ Добавить профиль</button></div>` +
-    `<div class="grid wg-profile-grid">${cards}</div>`;
+  const infoCard = `
+    <div class="info-block svc-card">
+      <h2>Основная информация</h2>
+      <div class="info-row"><span class="info-label">Адрес</span><span class="info-value mono">${esc(addr)}${copyBtn(addr)}</span></div>
+      <div class="info-row"><span class="info-label">Порт</span><span class="info-value mono">${esc(port)}${copyBtn(port)}</span></div>
+      <div class="info-row"><span class="info-label">Endpoint</span><span class="info-value mono">${esc(endpoint)}${copyBtn(endpoint === 'не задан' ? '' : endpoint)}</span></div>
+      <div class="info-row"><span class="info-label">Публичный ключ</span><span class="info-value info-value-copy"><span class="mono wg-pubkey" title="${esc(pub)}">${pub ? esc(pub) : '—'}</span>${copyBtn(pub)}</span></div>
+      <div class="info-row"><span class="info-label">Интерфейс</span><span class="info-value mono">${esc(iface)}</span></div>
+      <div class="info-row"><span class="info-label">Статус</span><span class="info-value">${statusHtml}</span></div>
+    </div>`;
 
-  const reissueBtn = hasImported
-    ? `<button type="button" data-reissue-all>♻️ Перевыпуск импортированных</button>` : '';
-  const admin = `<div class="wg-admin"><div class="wg-section-title">⚠️ Дополнительные действия</div>` +
-    `<div class="actions">${reissueBtn}<button type="button" class="danger" data-rm>🗑 Удалить сервис</button></div></div>`;
+  const statCard = (icon, value, label) => `
+    <div class="svc-stat-card">
+      <div class="svc-stat-icon">${icon}</div>
+      <div class="svc-stat-val">${esc(String(value))}</div>
+      <div class="svc-stat-label">${esc(label)}</div>
+    </div>`;
+  const statsCard = `
+    <div class="info-block svc-card">
+      <h2>Статистика</h2>
+      <div class="svc-stats-grid-4">
+        ${statCard('👥', `${stats.online || 0} / ${stats.total || profiles.length}`, 'Онлайн / Всего')}
+        ${statCard('↓', fmtBytes(stats.rx_bytes), 'Получено')}
+        ${statCard('↑', fmtBytes(stats.tx_bytes), 'Отправлено')}
+        ${statCard('⇅', fmtBytes(totalTraffic), 'Общий трафик')}
+      </div>
+    </div>`;
 
-  body.innerHTML = info + statsHtml + configBtn + profilesHtml + admin;
+  const ver = shortVer(s.version) || s.version || '—';
+  const confPath = s.config_path || `/etc/wireguard/${iface}.conf`;
+  const syncAt = s.synced_at || '';
+  const daemonCard = `
+    <div class="info-block svc-card">
+      <h2>Демон WireGuard</h2>
+      <div class="info-row"><span class="info-label">Статус</span><span class="info-value">${statusHtml}</span></div>
+      <div class="info-row"><span class="info-label">Версия</span><span class="info-value">${esc(String(ver))}</span></div>
+      <div class="info-row"><span class="info-label">Дата последней синхронизации</span><span class="info-value">${esc(fmtSync(syncAt) || '—')}</span></div>
+      <div class="info-row"><span class="info-label">Конфигурация</span><span class="info-value mono trunc" title="${esc(confPath)}">${esc(confPath)}</span></div>
+    </div>`;
 
-  body.querySelectorAll('[data-copy]').forEach(el => el.onclick = () => copyToClipboard(el.dataset.copy));
-  body.querySelector('#wg-srv-config')?.addEventListener('click', openConfigModal);
+  const q = (document.getElementById('wg-prof-search')?.value || '').trim().toLowerCase();
+  const filtered = q
+    ? profiles.filter(pr => String(pr.name || '').toLowerCase().includes(q)
+        || String((pr.allowed_ips || []).join(' ')).toLowerCase().includes(q))
+    : profiles;
+
+  const statusCell = (pr) => {
+    if (!pr.enabled) return '<span class="badge off">Выключен</span>';
+    if (pr.connected) return '<span class="badge on">Онлайн</span>';
+    return '<span class="badge ssl-warn">Офлайн</span>';
+  };
+  const rows = filtered.map(pr => {
+    const aip = (pr.allowed_ips && pr.allowed_ips.length) ? pr.allowed_ips.join(', ') : '—';
+    const pk = pr.public_key || '';
+    const pkShow = pk ? (pk.length > 24 ? pk.slice(0, 24) + '…' : pk) : '—';
+    const traf = `↓ ${fmtBytes(pr.rx_bytes)} · ↑ ${fmtBytes(pr.tx_bytes)}`;
+    return `<tr>
+      <td class="col-name"><b>${esc(pr.name)}</b>${pr.managed ? '' : ' <span class="badge ssl-warn">import</span>'}</td>
+      <td class="col-ip mono">${esc(aip)}</td>
+      <td class="col-key mono" title="${esc(pk)}">${esc(pkShow)}</td>
+      <td class="col-status">${statusCell(pr)}</td>
+      <td class="col-traf mono">${traf}</td>
+      <td class="col-act">
+        <button type="button" class="secondary wg-prof-menu-btn" data-pmenu="${esc(pr.name)}" title="Действия">⋯</button>
+      </td>
+    </tr>`;
+  }).join('');
+
+  const table = filtered.length
+    ? `<div class="svc-table-wrap wg-prof-scroll"><table class="svc-table wg-prof-table">
+        <thead><tr>
+          <th class="col-name">Имя профиля</th>
+          <th class="col-ip">IP / Адрес</th>
+          <th class="col-key">Публичный ключ</th>
+          <th class="col-status">Статус</th>
+          <th class="col-traf">Трафик</th>
+          <th class="col-act">Действия</th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table></div>`
+    : `<div class="empty svc-empty">Профилей нет<br><span class="hint">Добавьте первый профиль для подключения.</span></div>`;
+
+  const hasImported = profiles.some(pr => !pr.managed);
+
+  if (hasImported) {
+    try {
+      wgImportedBannerHidden = localStorage.getItem(importBannerClosedKey(wgServerId)) === '1';
+    } catch (_) {}
+  } else {
+    wgImportedBannerHidden = false;
+    try {
+      localStorage.removeItem(importBannerClosedKey(wgServerId));
+    } catch (_) {}
+  }
+
+  const ban = document.getElementById('wg-imported-banner');
+  const indicator = document.getElementById('wg-imported-indicator');
+
+  if (indicator) {
+    indicator.classList.toggle('hidden', !hasImported);
+    indicator.title = hasImported
+      ? (wgImportedBannerHidden ? 'Показать информацию об импортированном профиле' : 'Скрыть информацию об импортированном профиле')
+      : '';
+    indicator.setAttribute('aria-label', hasImported ? 'Информация об импортированном профиле' : '');
+  }
+
+  if (ban) {
+    if (hasImported) {
+      ban.innerHTML = `
+        <div class="wg-imported-banner-inner">
+          <button type="button" class="wg-imported-banner-close" id="wg-imported-banner-close" title="Скрыть">×</button>
+          <div class="wg-imported-banner-title">⚠️ Обнаружен импортированный профиль</div>
+          <div class="wg-imported-banner-text">
+            Этот профиль был обнаружен во время миграции существующей конфигурации WireGuard.
+            <br>
+            Профиль остаётся действующим — им можно продолжать пользоваться на устройствах,
+            где он уже установлен.
+            <br>
+            Bot4VPS знает параметры подключения этого клиента (публичный ключ, IP-адрес и другие настройки),
+            однако приватный ключ клиента отсутствует и восстановить его невозможно.
+            <br><br>
+            Поэтому для этого профиля недоступны:
+            <br>❌ Скачать конфигурацию
+            <br>❌ Показать QR-код
+            <br><br>
+            При необходимости профиль можно перевыпустить. Будет создана новая пара ключей клиента.
+            <br><br>
+            После перевыпуска станут доступны:
+            <br>✅ Скачать конфигурацию
+            <br>✅ QR-код
+          </div>
+        </div>`;
+
+      ban.classList.toggle('hidden', wgImportedBannerHidden);
+
+      const closeBtn = document.getElementById('wg-imported-banner-close');
+      if (closeBtn) {
+        closeBtn.onclick = () => {
+          wgImportedBannerHidden = true;
+          try {
+            localStorage.setItem(importBannerClosedKey(wgServerId), '1');
+          } catch (_) {}
+          ban.classList.add('hidden');
+          if (indicator) {
+            indicator.title = 'Показать информацию об импортированном профиле';
+          }
+        };
+      }
+
+      if (indicator) {
+        indicator.onclick = () => {
+          wgImportedBannerHidden = false;
+          try {
+            localStorage.removeItem(importBannerClosedKey(wgServerId));
+          } catch (_) {}
+          ban.classList.remove('hidden');
+          indicator.title = 'Скрыть информацию об импортированном профиле';
+        };
+      }
+    } else {
+      wgImportedBannerHidden = false;
+      ban.classList.add('hidden');
+      ban.innerHTML = '';
+      if (indicator) indicator.onclick = null;
+    }
+  }
+
+  const searchVal = esc(document.getElementById('wg-prof-search')?.value || '');
+  const profilesCard = `
+    <div class="info-block svc-card svc-profiles${hasImported ? ' has-reissue' : ''}">
+      <div class="svc-card-head svc-card-head-one-line">
+        <h2>Профили <span class="hint">(${profiles.length})</span></h2>
+        <div class="svc-card-actions">
+          <input type="search" id="wg-prof-search" placeholder="🔍 Поиск профиля…" value="${searchVal}"/>
+          <button type="button" class="secondary" data-padd>＋ Добавить профиль</button>
+        </div>
+      </div>
+      ${table}
+    </div>`;
+
+  const sideActions = `
+    <div class="info-block svc-card svc-side-actions">
+      <h2>Дополнительные действия</h2>
+      <button type="button" class="svc-action" data-wg-side="export">
+        <b>Экспорт конфигурации</b>
+        <span>Скачать .conf выбранных профилей</span>
+      </button>
+      <button type="button" class="svc-action" data-wg-side="qr">
+        <b>QR-код для подключения</b>
+        <span>Сгенерировать QR-код</span>
+      </button>
+      ${hasImported ? `<button type="button" class="svc-action svc-action-warn" data-reissue-all>
+        <b>♻️ Перевыпустить все</b>
+        <span>Сделать импортированные профили управляемыми</span>
+      </button>` : ''}
+      <button type="button" class="svc-action" data-wg-side="reset-stats">
+        <b>Сбросить статистику</b>
+        <span>Обнулить трафик и счётчики</span>
+      </button>
+      <button type="button" class="svc-action svc-action-danger" data-rm>
+        <b>🗑 Удалить WireGuard</b>
+        <span>Полностью удалить сервис с сервера</span>
+      </button>
+    </div>`;
+
+  body.innerHTML = `
+    <div class="svc-top-grid">${infoCard}${statsCard}${daemonCard}</div>
+    <div class="svc-main-grid">${profilesCard}${sideActions}</div>
+    <div id="wg-prof-pop" class="wg-prof-pop hidden"></div>`;
+
+  body.querySelectorAll('[data-copy]').forEach(el => {
+    el.onclick = (e) => { e.preventDefault(); e.stopPropagation(); copyToClipboard(el.dataset.copy); };
+  });
   body.querySelector('[data-padd]')?.addEventListener('click', addProfile);
-  body.querySelectorAll('[data-pdetail]').forEach(b => b.onclick = () => openProfileDetail(b.dataset.pdetail));
-  body.querySelector('[data-reissue-all]')?.addEventListener('click', () => reissueAllProfiles(wgServerId));
   body.querySelector('[data-rm]')?.addEventListener('click', async () => {
-    if (!(await wgConfirm('Удаление сервиса', `Удалить WireGuard с сервера «${nameOf(wgServerId)}»?`, 'Удалить'))) return;
+    if (!(await wgConfirm(
+      'Удалить WireGuard',
+      'Удалить WireGuard с этого сервера? Профили и конфигурация будут удалены.',
+      'Удалить', 'Отмена',
+    ))) return;
     enqueueAction(wgServerId, 'remove', {}, 'Удаление в очереди');
   });
+  body.querySelector('[data-reissue-all]')?.addEventListener('click', () => reissueAllProfiles(wgServerId));
+  body.querySelector('[data-wg-side="export"]')?.addEventListener('click', () => openProfilePicker('export'));
+  body.querySelector('[data-wg-side="qr"]')?.addEventListener('click', () => openProfilePicker('qr'));
+  body.querySelector('[data-wg-side="reset-stats"]')?.addEventListener('click', resetWgStats);
+  body.querySelectorAll('[data-pmenu]').forEach(btn => {
+    btn.onclick = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      openProfileMenu(btn, btn.dataset.pmenu);
+    };
+  });
+  if (openProfileName) {
+    const btn = body.querySelector(`[data-pmenu="${CSS.escape(openProfileName)}"]`);
+    if (btn) openProfileMenu(btn, openProfileName);
+  }
+  const search = body.querySelector('#wg-prof-search');
+  if (search) {
+    search.oninput = () => {
+      const v = search.value;
+      renderWgServerDetail(wgServerState);
+      const again = document.getElementById('wg-prof-search');
+      if (again) { again.value = v; again.focus(); again.selectionStart = again.selectionEnd = v.length; }
+    };
+  }
 }
+
+function openProfileMenu(anchor, name) {
+  const pop = document.getElementById('wg-prof-pop');
+  if (!pop) return;
+  const p = (wgServerState && Array.isArray(wgServerState.profiles) ? wgServerState.profiles : [])
+    .find(x => x.name === name);
+  if (!p) return;
+  const toggleLbl = p.enabled ? 'Выключить' : 'Включить';
+  const managedItems = p.managed
+    ? `<button type="button" data-pm="download">Скачать .conf</button>
+       <button type="button" data-pm="qr">Показать QR</button>`
+    : `<button type="button" data-pm="reissue">Перевыпустить</button>`;
+  pop.innerHTML = `
+    ${managedItems}
+    <button type="button" data-pm="toggle">${esc(toggleLbl)}</button>
+    <button type="button" data-pm="rename">Переименовать</button>
+    <hr/>
+    <button type="button" class="danger" data-pm="delete">Удалить</button>`;
+  pop.classList.remove('hidden');
+  const r = anchor.getBoundingClientRect();
+  const popW = pop.offsetWidth || 200;
+  // fixed-координаты (как в docker.js openContainerMenu): меню не уезжает
+  // за правый край и не открывается за нижней границей viewport.
+  let left = r.right - popW;
+  let top = r.bottom + 4;
+
+  left = Math.max(8, Math.min(left, window.innerWidth - popW - 8));
+
+  const popH = pop.offsetHeight;
+  if (top + popH > window.innerHeight - 8) {
+    top = Math.max(8, r.top - popH - 4);
+  }
+  pop.style.position = 'fixed';
+
+  pop.style.left = left + 'px';
+  pop.style.top = top + 'px';
+  pop.dataset.name = name;
+
+  const close = () => {
+    pop.classList.add('hidden');
+    document.removeEventListener('click', onDoc, true);
+  };
+  const onDoc = (ev) => {
+    if (pop.contains(ev.target) || anchor.contains(ev.target)) return;
+    close();
+  };
+  setTimeout(() => document.addEventListener('click', onDoc, true), 0);
+
+  pop.querySelectorAll('[data-pm]').forEach(b => {
+    b.onclick = async (ev) => {
+      ev.stopPropagation();
+      const act = b.dataset.pm;
+      close();
+      await runProfileMenuAction(name, act);
+    };
+  });
+}
+
+async function runProfileMenuAction(name, act) {
+  // Скачивание — только клиентский GET; остальное — существующий profileAction()
+  if (act === 'download') {
+    const a = document.createElement('a');
+    a.href = srvBase(wgServerId) + '/config/' + encodeURIComponent(name);
+    a.download = name + '.conf';
+    a.click();
+    return;
+  }
+  if (act === 'qr') {
+    showQr(wgServerId, name);
+    return;
+  }
+  if (act === 'toggle') {
+    const pr = (wgServerState.profiles || []).find(x => x.name === name);
+    await profileAction(name, 'toggle', { enabled: !(pr && pr.enabled) });
+    return;
+  }
+  await profileAction(name, act);
+}
+
+async function resetWgStats() {
+  if (!(await wgConfirm(
+    'Сбросить статистику',
+    'Обнулить счётчики трафика WireGuard на этом сервере?',
+    'Сбросить', 'Отмена',
+  ))) return;
+  try {
+    // Сначала прямой endpoint (быстрый сброс кэша + сервис), иначе enqueue
+    try {
+      await j(srvBase(wgServerId) + '/reset-stats', { method: 'POST' });
+      toast('Статистика сброшена', true);
+      await loadWgServerDetail(wgServerId);
+      return;
+    } catch (e1) {
+      await enqueueAction(wgServerId, 'reset_stats', {}, 'Сброс статистики в очереди');
+      setTimeout(() => { if (wgServerId) loadWgServerDetail(wgServerId); }, 2500);
+    }
+  } catch (e) {
+    toast(e.message || String(e), false);
+  }
+}
+
+function openProfilePicker(mode) {
+  const list = (wgServerState && Array.isArray(wgServerState.profiles) ? wgServerState.profiles : [])
+    .filter(pr => pr.managed !== false);
+  if (!list.length) {
+    toast(mode === 'qr' ? 'Нет профилей для QR' : 'Нет профилей для экспорта', false);
+    return;
+  }
+  const modal = document.getElementById('wg-profile-picker');
+  if (!modal) {
+    toast('Модалка выбора профиля не найдена', false);
+    return;
+  }
+  modal.dataset.mode = mode;
+  document.getElementById('wg-picker-title').textContent =
+    mode === 'qr' ? 'QR-код — выберите профиль' : 'Экспорт конфигурации';
+  const multi = mode === 'export';
+  const box = document.getElementById('wg-picker-list');
+  box.innerHTML = list.map(pr => `
+    <label class="svc-pick-row">
+      <input type="${multi ? 'checkbox' : 'radio'}" name="wg-pick" value="${esc(pr.name)}"/>
+      <span>${esc(pr.name)}</span>
+    </label>`).join('');
+  const okBtn = document.getElementById('wg-picker-ok');
+  if (okBtn) okBtn.textContent = multi ? 'Скачать' : 'Выполнить';
+  document.getElementById('wg-picker-search').value = '';
+  openModalEl(modal);
+}
+
+function applyProfilePicker() {
+  const modal = document.getElementById('wg-profile-picker');
+  const mode = modal && modal.dataset.mode;
+  if (mode === 'export') {
+    const checked = [...(modal.querySelectorAll('input[name="wg-pick"]:checked') || [])].map(i => i.value);
+    if (!checked.length) { toast('Выберите хотя бы один профиль', false); return; }
+    closeModalEl(modal);
+    (async () => {
+      try {
+        if (checked.length === 1) {
+          const a = document.createElement('a');
+          a.href = srvBase(wgServerId) + '/config/' + encodeURIComponent(checked[0]);
+          a.download = checked[0] + '.conf';
+          a.click();
+          toast('Скачивание…', true);
+          return;
+        }
+        const r = await fetch(srvBase(wgServerId) + '/export-zip', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ names: checked }),
+        });
+        if (!r.ok) {
+          let d; try { d = await r.json(); } catch { d = {}; }
+          throw new Error(d.detail || ('HTTP ' + r.status));
+        }
+        const blob = await r.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'wireguard-profiles.zip';
+        a.click();
+        setTimeout(() => URL.revokeObjectURL(url), 2000);
+        toast('ZIP скачан (' + checked.length + ' проф.)', true);
+      } catch (e) {
+        toast(e.message || String(e), false);
+      }
+    })();
+    return;
+  }
+  const sel = modal && modal.querySelector('input[name="wg-pick"]:checked');
+  if (!sel) { toast('Выберите профиль', false); return; }
+  closeModalEl(modal);
+  if (mode === 'qr') showQr(wgServerId, sel.value);
+}
+
 
 function profileGridCard(p) {
   const dot = !p.enabled ? '⚪' : (p.connected ? '🟢' : '🟡');
@@ -568,12 +1048,44 @@ function watchTask(taskId, serverId, action) {
       const t = await j('/api/tasks/' + encodeURIComponent(taskId));
       const head = `${esc(t.emoji || '')} ${esc(t.name || '')} · ${esc(t.status || '')} · ${esc(t.duration || '')}`;
       const lines = t.output_lines || [];
-      const body = lines.length ? lines.map(ansiToHtml).join('\n') : esc('(нет вывода)');
+      const fallback = t.result?.output || t.result?.error || t.error || '(нет вывода)';
+      const body = lines.length
+        ? lines.map(ansiToHtml).join('\n')
+        : ansiToHtml(fallback);
       log.innerHTML = `<div class="tasklog-head">${head}</div><div class="tasklog-body">${body}</div>`;
       log.scrollTop = log.scrollHeight;
       if (t.is_done) {
         clearInterval(timers[taskId]); delete timers[taskId];
-        if (action === 'remove') { backToWgList(); return; }  // сервис удалён — к списку
+        if (action === 'remove') {
+          if (t.success) {
+            window.refreshAfterServiceChange?.(serverId);
+
+            const onDetail = document.getElementById('page-wireguard-server')?.classList.contains('on');
+
+            stopWgLivePoll();
+            wgServerId = null;
+
+            try {
+              localStorage.removeItem('bot4vps_wg_server_id');
+            } catch (_) {}
+
+            if (onDetail) {
+              try {
+                const { openServer } = await import('./servers.js?v=20260815-settings-files-v2');
+                if (serverId) await openServer(serverId);
+                else showPage('servers');
+              } catch (_) {
+                showPage('servers');
+              }
+            } else {
+              await loadWireguard();
+              setWgTab('manage');
+            }
+          } else {
+            toast(t.error || 'Удаление WireGuard завершилось с ошибкой', false);
+          }
+          return;
+        }
         const onDetail = document.getElementById('page-wireguard-server')?.classList.contains('on');
         if (onDetail && serverId) {
           await loadWgServerDetail(serverId);
@@ -581,6 +1093,8 @@ function watchTask(taskId, serverId, action) {
           await loadWireguard();
           if (action === 'install') setWgTab('manage');
         }
+        // Кнопки «Быстрых действий» зависят от статуса сервиса — обновляем их.
+        if (action === 'install' && t.success) window.refreshAfterServiceChange?.(serverId);
       }
     } catch { /* повторим на следующем тике */ }
   };
@@ -596,7 +1110,7 @@ export function stopWgTimers() {
 
 // ---------------- модалка установки ----------------
 
-async function openInstall(id) {
+export async function openInstall(id) {
   const s = statusMap[id] || {};
   installTarget = { id, host: s.host || '', name: s.name || id };
   if (!installParams) {
@@ -676,7 +1190,11 @@ function setWgTab(tab) {
     if (el) el.classList.toggle('hidden', t !== tab);
   });
   const hint = document.getElementById('wg-tab-hint');
-  if (hint) hint.textContent = TAB_HINT[tab] || '';
+  if (hint) {
+    hint.textContent = tab === 'check' && !wgHasServers
+      ? 'Серверов пока нет. Добавьте сервер, чтобы начать проверку.'
+      : TAB_HINT[tab] || '';
+  }
 }
 
 // ---------------- bind ----------------
@@ -695,7 +1213,7 @@ export function bindWireguardUI() {
   document.getElementById('wg-task-log-close')?.addEventListener('click', () =>
     document.getElementById('wg-task-log-wrap').classList.add('hidden'));
 
-  // диалог
+  // диалог (confirm/prompt) — кнопки OK/Cancel; backdrop НЕ закрывает
   const dlg = document.getElementById('wg-dialog');
   document.getElementById('wg-dialog-ok')?.addEventListener('click', () => {
     if (dialogMode === 'prompt') closeDialog(document.getElementById('wg-dialog-input').value);
@@ -707,41 +1225,65 @@ export function bindWireguardUI() {
     if (e.key === 'Enter') { e.preventDefault(); document.getElementById('wg-dialog-ok').click(); }
     else if (e.key === 'Escape') document.getElementById('wg-dialog-cancel').click();
   });
-  dlg?.addEventListener('click', e => { if (e.target.id === 'wg-dialog') closeDialog(dialogMode === 'prompt' ? null : false); });
 
   // экран конкретного сервера
   document.getElementById('btn-back-wg')?.addEventListener('click', backToWgList);
-  document.getElementById('wg-srv-refresh')?.addEventListener('click', () => { if (wgServerId) loadWgServerDetail(wgServerId); });
+  document.getElementById('btn-back-server')?.addEventListener('click', async () => {
+    if (!wgServerId) return;
+
+    try {
+      const { openServer } = await import('./servers.js?v=20260815-settings-files-v2');
+      await openServer(wgServerId);
+    } catch (e) {
+      console.error('Не удалось открыть карточку сервера:', e);
+      showPage('servers');
+    }
+  });
+  document.getElementById('wg-srv-refresh')?.addEventListener('click', async () => {
+    if (!wgServerId) return;
+
+    try {
+      await j(`${srvBase(wgServerId)}/sync`, { method: 'POST' });
+      await loadWgServerDetail(wgServerId);
+      toast('Синхронизация выполнена', true);
+    } catch (e) {
+      toast(e.message, false);
+    }
+  });
+  document.getElementById('wg-srv-config')?.addEventListener('click', () => openConfigModal());
+  document.getElementById('wg-picker-cancel')?.addEventListener('click', () =>
+    closeModalEl(document.getElementById('wg-profile-picker')));
+  document.getElementById('wg-picker-ok')?.addEventListener('click', applyProfilePicker);
+  // picker: backdrop click does not close
+  document.getElementById('wg-picker-search')?.addEventListener('input', e => {
+    const q = e.target.value.trim().toLowerCase();
+    document.querySelectorAll('#wg-picker-list .svc-pick-row').forEach(row => {
+      const name = (row.textContent || '').toLowerCase();
+      row.style.display = !q || name.includes(q) ? '' : 'none';
+    });
+  });
 
   // модалка конфигурации
   document.getElementById('wg-config-save')?.addEventListener('click', saveConfig);
   document.getElementById('wg-config-cancel')?.addEventListener('click', () =>
     closeModalEl(document.getElementById('wg-config-modal')));
-  document.getElementById('wg-config-modal')?.addEventListener('click', e => {
-    if (e.target.id === 'wg-config-modal') e.currentTarget.classList.remove('open');
-  });
+  // config: backdrop click does not close
 
   // модалка профиля
   document.getElementById('wg-profile-close')?.addEventListener('click', () =>
     closeModalEl(document.getElementById('wg-profile-modal')));
-  document.getElementById('wg-profile-modal')?.addEventListener('click', e => {
-    if (e.target.id === 'wg-profile-modal') e.currentTarget.classList.remove('open');
-  });
+  // profile detail: backdrop click does not close
 
   // установка
   document.getElementById('wg-install-confirm')?.addEventListener('click', confirmInstall);
   document.getElementById('wg-install-cancel')?.addEventListener('click', () =>
     closeModalEl(document.getElementById('wg-install-modal')));
-  document.getElementById('wg-install-modal')?.addEventListener('click', e => {
-    if (e.target.id === 'wg-install-modal') e.currentTarget.classList.remove('open');
-  });
+  // install: backdrop click does not close
 
   // QR
   document.getElementById('wg-qr-close')?.addEventListener('click', () =>
     closeModalEl(document.getElementById('wg-qr-modal')));
-  document.getElementById('wg-qr-modal')?.addEventListener('click', e => {
-    if (e.target.id === 'wg-qr-modal') e.currentTarget.classList.remove('open');
-  });
+  // QR: backdrop click does not close
   document.getElementById('wg-qr-img')?.addEventListener('error', () => {
     toast('Не удалось сгенерировать QR (нет Endpoint, профиль неуправляемый или нет библиотеки qrcode)', false);
   });

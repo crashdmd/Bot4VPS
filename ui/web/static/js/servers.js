@@ -1,8 +1,9 @@
 import { j, esc } from './api.js';
 import { ansiToHtml } from './ansi.js';
-import { toast, showPage, onlineBadge, sslBadge, metricTile, bindPasswordToggles } from './ui.js';
+import { toast, showPage, onlineBadge, onlineBadgeWithPing, sslBadge, metricTile, bindPasswordToggles, parseEmoji, confirmAction } from './ui.js';
 import { state, setServers, setGroups, setKeys, setOpenServer, setPage, setServerTab } from './state.js';
 import { openTerminal, closeTerminal } from './terminal.js';
+import { openEventDetail, applyEventsSnapshot } from './monitor.js?v=20260815-fixes-v1';
 import { openTaskLog, cancelTaskAPI } from './tasks.js';
 
 /** @deprecated use state.servers */
@@ -13,6 +14,81 @@ export let openServerId = null;
 export let watchTaskId = null;
 let metricsTimer = null;
 let logTimer = null;
+// Наблюдение за running_task карточки сервера: id последней замеченной задачи.
+// Нужно, чтобы поймать МОМЕНТ её завершения — установка/удаление сервиса меняет
+// Quick Actions, но поллинг wireguard.js/docker.js к этому времени уже погашен
+// stopWgTimers/stopDockerTimers при уходе со страницы сервиса.
+let taskWatchTimer = null;
+let lastRunningTaskId = null;
+
+// История метрик для графиков (последние 20 значений)
+const metricsHistory = {
+  cpu: [],
+  ram: [],
+  disk: []
+};
+const HISTORY_MAX = 20;
+
+// Форматирование uptime в русском формате (5д 6ч 8м)
+function formatUptime(uptime) {
+  if (!uptime || uptime === 'N/A') return '—';
+
+  const dMatch = uptime.match(/(\d+)\s+day/);
+  const hMatch = uptime.match(/(\d+)\s+hour/);
+  const mMatch = uptime.match(/(\d+)\s+minute/);
+
+  const parts = [];
+  if (dMatch) parts.push(dMatch[1] + 'д');
+  if (hMatch) parts.push(hMatch[1] + 'ч');
+  if (mMatch) parts.push(mMatch[1] + 'м');
+
+  return parts.length > 0 ? parts.join(' ') : uptime;
+}
+
+// Копирование в буфер обмена (как в monitor.js)
+function writeClipboard(text) {
+  if (navigator.clipboard && window.isSecureContext) {
+    return navigator.clipboard.writeText(text);
+  }
+  return new Promise((resolve, reject) => {
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.setAttribute('readonly', '');
+      ta.style.position = 'fixed';
+      ta.style.top = '-1000px';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      ta.setSelectionRange(0, ta.value.length);
+      const ok = document.execCommand('copy');
+      document.body.removeChild(ta);
+      ok ? resolve() : reject(new Error('execCommand failed'));
+    } catch (e) {
+      reject(e);
+    }
+  });
+}
+
+function copyServerIp() {
+  const btn = document.getElementById('btn-copy-srv-ip');
+  const ipEl = document.getElementById('srv-ip');
+  if (!ipEl) return;
+  const ip = ipEl.textContent.trim();
+  if (!ip || ip === '—') {
+    toast('IP-адрес недоступен', false);
+    return;
+  }
+  writeClipboard(ip).then(() => {
+    toast('Скопировано', true);
+    if (btn) {
+      btn.classList.add('copied');
+      setTimeout(() => btn.classList.remove('copied'), 1200);
+    }
+  }).catch(() => {
+    toast('Не удалось скопировать', false);
+  });
+}
 
 export async function loadGroupsAndKeys() {
   try { setGroups((await j('/api/groups')).groups || []); } catch { setGroups([]); }
@@ -42,6 +118,12 @@ function filteredServers() {
   });
 }
 
+function pluralizeServers(n) {
+  if (n % 10 === 1 && n % 100 !== 11) return 'сервер';
+  if ([2, 3, 4].includes(n % 10) && ![12, 13, 14].includes(n % 100)) return 'сервера';
+  return 'серверов';
+}
+
 export function renderServersFromState() { renderServers(); }
 
 export function renderServers() {
@@ -53,15 +135,47 @@ export function renderServers() {
   if (!list.length) { el.innerHTML = '<div class="empty">Ничего не найдено</div>'; return; }
   const by = {};
   list.forEach(s => { const g = s.group || '(без группы)'; (by[g] = by[g] || []).push(s); });
+
+  // Получаем настройки отображения групп из localStorage
+  let groupOrder = [];
+  let visibleGroups = null;
+  try {
+    const savedOrder = localStorage.getItem('bot4vps_group_order');
+    const savedVisible = localStorage.getItem('bot4vps_visible_groups');
+    if (savedOrder) groupOrder = JSON.parse(savedOrder);
+    if (savedVisible) visibleGroups = new Set(JSON.parse(savedVisible));
+  } catch (_) {}
+
+  // Формируем список групп для отображения
+  const allGroups = Object.keys(by);
+  let orderedGroups = [];
+
+  // Сначала добавляем группы в сохранённом порядке
+  groupOrder.forEach(g => {
+    if (by[g]) orderedGroups.push(g);
+  });
+
+  // Добавляем новые группы, которых нет в сохранённом порядке
+  allGroups.forEach(g => {
+    if (!orderedGroups.includes(g)) orderedGroups.push(g);
+  });
+
+  // Фильтруем по видимости, если настройка задана
+  if (visibleGroups) {
+    orderedGroups = orderedGroups.filter(g => visibleGroups.has(g));
+  }
+
   let h = '';
-  Object.keys(by).sort().forEach(g => {
-    h += `<div class="group-title">${esc(g)} · ${by[g].length}</div><div class="grid">`;
+  orderedGroups.forEach(g => {
+    const count = by[g].length;
+    h += `<div class="group-title">Группа ${esc(g)} · ${count} ${pluralizeServers(count)}</div><div class="grid">`;
     h += by[g].map(s => `<div class="card clickable" data-sid="${esc(s.id)}">
-      <span class="ping" id="ping-${esc(s.id)}">…</span>
       <h3>${esc(s.name)}</h3>
       <div class="row">${esc(s.host || '—')}</div>
-      <div class="row" style="margin-top:.4rem">${onlineBadge(s.online)}</div>
-      ${s.certificate_check ? `<div class="row">${sslBadge(s)}</div>` : ''}
+      <div class="row" style="margin-top:.4rem;gap:.5rem;flex-wrap:nowrap">
+        ${onlineBadgeWithPing(s.online, s.id)}
+        ${s.certificate_check ? sslBadge(s) : ''}
+      </div>
       ${s.has_running ? '<div class="row">▶ идёт задача</div>' : ''}
     </div>`).join('');
     h += '</div>';
@@ -89,118 +203,686 @@ export function setServerQuery(q) {
 export function stopWatchers() {
   if (metricsTimer) { clearInterval(metricsTimer); metricsTimer = null; }
   if (logTimer) { clearInterval(logTimer); logTimer = null; }
-  closeTerminal();
+  if (taskWatchTimer) { clearInterval(taskWatchTimer); taskWatchTimer = null; }
+  lastRunningTaskId = null;
+}
+
+/**
+ * Следит за running_task открытого сервера и перерисовывает «Быстрые действия»,
+ * когда задача завершилась.
+ *
+ * Зачем: установка/удаление сервиса ставится в очередь сервера, а поллинг задачи
+ * в wireguard.js/docker.js гасится stopWgTimers/stopDockerTimers, как только
+ * пользователь уходит со страницы сервиса (app.js). Уйдя в карточку сервера до
+ * конца удаления, о завершении узнать больше некому — этот наблюдатель закрывает
+ * пробел, не возвращая поллинг сервисов.
+ *
+ * /api/services/{sid}/status запрашивается ТОЛЬКО в момент смены задачи (id стал
+ * другим или задач больше нет), а не на каждом тике.
+ */
+async function watchRunningTask() {
+  if (!openServerId) return;
+  try {
+    const d = await j('/api/servers/' + encodeURIComponent(openServerId));
+    const id = d.running_task?.id || null;
+    const changed = id !== lastRunningTaskId;
+    if (changed) {
+      const finished = lastRunningTaskId !== null;   // была задача — теперь другая/нет
+      lastRunningTaskId = id;
+      if (finished) await renderQuickActions(openServerId);
+    }
+    // События журнала — в том же цикле watcher'а (раз в ~3 с),
+    // без отдельного polling: старт/ход/финиш задачи и прочие события сервера.
+    refreshOpenServerEvents();
+  } catch { /* повторим на следующем тике */ }
 }
 
 function startWatchers() {
   stopWatchers();
   refreshMetrics();
   metricsTimer = setInterval(refreshMetrics, 5000);
-  logTimer = setInterval(() => {
-    const log = document.getElementById('tab-log');
-    if (log && !log.classList.contains('hidden')) refreshTaskLog();
-  }, 1500);
+  watchRunningTask();                              // зафиксировать текущую задачу + события
+  taskWatchTimer = setInterval(watchRunningTask, 3000);
 }
+
+/**
+ * Блок «Быстрые действия» карточки сервера.
+ *
+ * Порядок кнопок фиксирован: статусы WG/Docker ждём через await ДО отрисовки,
+ * иначе кнопки сервисов дорисовывались бы позже остальных и прыгали.
+ * Вынесено из openServer(), чтобы после установки/удаления сервиса можно было
+ * перерисовать только этот блок — без showPage('server'), который выдернул бы
+ * пользователя со страницы WireGuard/Docker.
+ */
+async function renderQuickActions(id) {
+  const qa = document.getElementById('srv-quick-actions');
+  if (!qa) return;
+  qa.innerHTML = '';
+  const addAction = (text, icon, cls, fn, styles) => {
+    const b = document.createElement('button');
+    b.innerHTML = icon ? `${icon} ${text}` : text;
+    if (cls) b.className = cls;
+    b.onclick = fn;
+    b.style.textAlign = 'left';
+    if (styles) Object.assign(b.style, styles);
+    qa.appendChild(b);
+  };
+
+  // 1. Запустить скрипт
+  addAction('Запустить скрипт', '▶', 'secondary',
+    () => import('./scripts.js').then(m => m.openRunModal(id, null)));
+
+  // 2. WireGuard
+  if (await checkWireGuardStatus(id)) {
+    addAction('Панель управления WireGuard', '🔒', 'secondary', () => openWireGuardServer(id));
+  } else {
+    addAction('Установить WireGuard', '🔒', 'secondary', () => confirmInstallWireGuard(id));
+  }
+
+  // 3. Docker
+  if (await checkDockerStatus(id)) {
+    addAction('Панель управления Docker', '🐳', 'secondary', () => openDockerServer(id));
+  } else {
+    addAction('Установить Docker', '🐳', 'secondary', () => confirmInstallDocker(id));
+  }
+
+  // 4. Изменить настройки
+  addAction('Изменить настройки', '⚙', 'secondary', openEditServerModal);
+
+  // 5. Перезагрузить сервер
+  addAction('Перезагрузить сервер', '🔄', 'secondary', async () => {
+    const approved = await confirmAction({
+      title: 'Перезагрузить сервер?',
+      message: 'Сервер будет перезагружен.',
+      confirmText: 'Перезагрузить',
+    });
+    if (!approved) return;
+    try {
+      const r = await j('/api/servers/' + encodeURIComponent(id) + '/reboot', { method: 'POST' });
+      toast(r.ok ? 'Сервер перезагружается' : 'Ошибка', r.ok);
+    } catch (e) { toast(e.message, false); }
+  });
+
+  // 6. Удалить сервер
+  addAction('Удалить сервер', '🗑', '', deleteServer,
+    { background: 'rgba(255, 59, 92, 0.1)', color: '#ff5c7c' });
+}
+
+
+// ---------------------------------------------------------------
+// Недавние события сервера (фильтр журнала по server_id)
+// ---------------------------------------------------------------
+let _srvEventsExpanded = false;
+let _srvEventsList = [];
+let _srvEventsServerId = null;
+
+function _formatEventTime(ts) {
+  if (!ts) return '—';
+  const d = new Date(ts);
+  if (Number.isNaN(d.getTime())) {
+    // ISO без таймзоны / уже строка
+    const s = String(ts).replace('T', ' ');
+    return s.length >= 16 ? s.slice(11, 16) : s.slice(0, 16);
+  }
+  const now = new Date();
+  const startToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const startThat = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const diffDays = Math.round((startToday - startThat) / 86400000);
+  const hh = String(d.getHours()).padStart(2, '0');
+  const mm = String(d.getMinutes()).padStart(2, '0');
+  if (diffDays === 0) return `${hh}:${mm}`;
+  if (diffDays === 1) return 'вчера';
+  const dd = String(d.getDate()).padStart(2, '0');
+  const mo = String(d.getMonth() + 1).padStart(2, '0');
+  if (d.getFullYear() === now.getFullYear()) return `${dd}.${mo}`;
+  return `${dd}.${mo}.${d.getFullYear()}`;
+}
+
+function _eventMatchesServer(e, serverId) {
+  if (!e || !serverId) return false;
+  const d = e.details || {};
+  if (d.server_id != null && String(d.server_id) === String(serverId)) return true;
+  // некоторые события кладут id только в корень
+  if (e.server_id != null && String(e.server_id) === String(serverId)) return true;
+  return false;
+}
+
+function _paintServerEvents() {
+  const el = document.getElementById('srv-recent-events');
+  if (!el) return;
+  const list = _srvEventsList;
+  if (!list.length) {
+    el.innerHTML = '<div class="empty">Недавних событий нет</div>';
+    return;
+  }
+  const visible = _srvEventsExpanded ? list : list.slice(0, 5);
+  const rows = visible.map(e => {
+    const eid = e.id || '';
+    const title = e.title || 'Событие';
+    const time = _formatEventTime(e.timestamp);
+    return `<div class="srv-event-row" data-event-id="${esc(eid)}" title="Открыть детали">
+      <span class="srv-event-title">${esc(title)}</span>
+      <span class="srv-event-time">${esc(time)}</span>
+    </div>`;
+  }).join('');
+  let toggle = '';
+  if (list.length > 5) {
+    toggle = `<button type="button" class="srv-events-toggle" id="srv-events-toggle">
+      ${_srvEventsExpanded ? 'Свернуть ↑' : 'Развернуть ↓'}
+    </button>`;
+  }
+  el.innerHTML = `<div class="srv-event-list">${rows}</div>${toggle}`;
+  el.querySelectorAll('[data-event-id]').forEach(node => {
+    node.onclick = () => openEventDetail(node.dataset.eventId);
+  });
+  const btn = document.getElementById('srv-events-toggle');
+  if (btn) {
+    btn.onclick = () => {
+      _srvEventsExpanded = !_srvEventsExpanded;
+      _paintServerEvents();
+    };
+  }
+}
+
+async function loadServerRecentEvents(serverId, { silent = false } = {}) {
+  const el = document.getElementById('srv-recent-events');
+  if (!el) return;
+  _srvEventsServerId = serverId;
+  if (!silent) {
+    _srvEventsExpanded = false;
+    el.innerHTML = '<div class="empty">Загрузка…</div>';
+  }
+  try {
+    // Берём с запасом: потом фильтруем по server_id
+    const data = await j('/api/events?limit=100');
+    const all = data.events || [];
+    // чтобы openEventDetail нашёл событие в общем кэше журнала
+    applyEventsSnapshot(all);
+    const filtered = all
+      .filter(e => _eventMatchesServer(e, serverId))
+      .sort((a, b) => (b.timestamp || '').localeCompare(a.timestamp || ''));
+    if (_srvEventsServerId !== serverId) return; // устаревший ответ
+    // silent: не мигаем UI, если набор id не изменился
+    if (silent) {
+      const newIds = filtered.map(e => e.id).join(',');
+      const oldIds = _srvEventsList.map(e => e.id).join(',');
+      if (newIds === oldIds) return;
+    }
+    _srvEventsList = filtered;
+    _paintServerEvents();
+  } catch (e) {
+    if (!silent && _srvEventsServerId === serverId) {
+      el.innerHTML = '<div class="empty">' + esc(e.message || 'Ошибка') + '</div>';
+    }
+  }
+}
+
+/** Тихое обновление блока событий открытой карточки (без сброса «Развернуть»). */
+
+export function refreshOpenServerEvents() {
+  if (!openServerId) return;
+  loadServerRecentEvents(openServerId, { silent: true });
+}
+
+/** Обновить индикатор SSH в карточке и на странице терминала. */
+export function renderSshStatus(ssh, error) {
+  const label = (ok) => {
+    if (ok === true) return 'SSH: <span class="ssh-dot ok"></span> OK';
+    if (ok === false) {
+      const tip = error ? ` title="${esc(String(error).slice(0, 120))}"` : '';
+      return `SSH: <span class="ssh-dot err"${tip}></span> недоступен`;
+    }
+    return 'SSH: <span class="ssh-dot"></span> …';
+  };
+  const html = label(ssh);
+  const card = document.getElementById('srv-ssh-status');
+  if (card) card.innerHTML = html;
+  const badge = document.getElementById('term-ssh-badge');
+  if (badge) badge.innerHTML = html;
+
+  const sep = document.getElementById('srv-term-sep');
+  const btn = document.getElementById('btn-open-terminal');
+  const showTerm = ssh === true;
+  if (sep) sep.classList.toggle('hidden', !showTerm);
+  if (btn) {
+    const sid = currentOpenServerId();
+    if (sid) btn.dataset.serverId = String(sid);
+    btn.classList.toggle('hidden', !showTerm);
+  }
+}
+
+/**
+ * Полноэкранный терминал в области контента (page-terminal).
+ * Тот же openTerminal() / WebSocket / xterm — без новой реализации.
+ */
+function currentOpenServerId() {
+  const terminalButton = document.getElementById('btn-open-terminal');
+  return openServerId
+    || state.openServerId
+    || state.openServerData?.server?.id
+    || window._openServerData?.server?.id
+    || terminalButton?.dataset.serverId
+    || null;
+}
+
+export function openServerTerminal() {
+  const sid = currentOpenServerId();
+  if (!sid) {
+    toast('Сначала откройте сервер', false);
+    return;
+  }
+
+  // Карточка уже может быть отрисована, даже если module-level binding
+  // потерялся после перерисовки. Восстанавливаем его перед openTerminal().
+  openServerId = sid;
+  const data = state.openServerData || window._openServerData;
+  const name = data?.server?.name || sid;
+  const el = document.getElementById('term-server-name');
+  if (el) el.textContent = name;
+  // ssh badge уже выставлен renderSshStatus
+  setPage('terminal');
+  showPage('terminal');
+  // xterm fit после показа страницы
+  requestAnimationFrame(() => openTerminal());
+}
+
+export function backFromTerminal() {
+  closeTerminal();
+  if (openServerId) {
+    setPage('server');
+    showPage('server');
+    // возобновить метрики карточки
+    startWatchers();
+  } else {
+    setPage('servers');
+    showPage('servers');
+  }
+}
+
 
 export async function openServer(id) {
   openServerId = id;
   setOpenServer(id, null);
+  const terminalButton = document.getElementById('btn-open-terminal');
+  if (terminalButton) terminalButton.dataset.serverId = String(id);
+
+  // Очищаем историю метрик для нового сервера
+  metricsHistory.cpu = [];
+  metricsHistory.ram = [];
+  metricsHistory.disk = [];
+
   try {
     const data = await j('/api/servers/' + encodeURIComponent(id));
     const s = data.server || {}, mon = data.monitor || {};
-    const avail = mon.availability || {}, cert = mon.certificate || {};
+    const sys = mon.system || {};
     state.openServerData = data; window._openServerData = data;
+
+    // Заголовок и IP
     document.getElementById('srv-title').textContent = s.name || id;
-    document.getElementById('srv-kv').innerHTML = `
-      <dt>Host</dt><dd>${esc(s.host)}:${esc(s.port || 22)}</dd>
-      <dt>User</dt><dd>${esc(s.user)} · ${esc(s.auth_type)}</dd>
-      <dt>Группа</dt><dd>${esc(s.group)}</dd>
-      <dt>Online</dt><dd>${avail.online === true ? '🟢 да' : avail.online === false ? '🔴 нет' : '—'} ${esc(avail.checked || '')}</dd>
-      <dt>SSL</dt><dd>${s.certificate_check ? esc(cert.status || '—') + (cert.days_left != null ? ' · ' + cert.days_left + ' дн.' : '') : 'выкл'}</dd>`;
-    const act = document.getElementById('srv-actions');
-    act.innerHTML = '';
-    const add = (t, cls, fn) => {
-      const b = document.createElement('button');
-      b.textContent = t; if (cls) b.className = cls; b.onclick = fn; act.appendChild(b);
-    };
-    add('▶ Скрипт', '', () => import('./scripts.js').then(m => m.openRunModal(id, null)));
-    add('Reboot', 'danger', async () => {
-      if (!confirm('Reboot?')) return;
-      try {
-        const r = await j('/api/servers/' + encodeURIComponent(id) + '/reboot', { method: 'POST' });
-        toast(r.ok ? 'reboot' : 'fail', r.ok);
-      } catch (e) { toast(e.message, false); }
-    });
+    const ipEl = document.getElementById('srv-ip');
+    if (ipEl) ipEl.textContent = mon.host_ip || s.host || '—';
+
+    // Информация о системе
+    const infoEl = document.getElementById('srv-info');
+    if (infoEl) {
+      // Объединяем OS и OS Version
+      const osName = sys.os || '—';
+      const osVer = sys.os_version || '';
+      const osFull = osVer && osVer !== '—' ? `${osName.charAt(0).toUpperCase() + osName.slice(1)} ${osVer}` : osName;
+
+      let rows = `
+        <div class="info-row">
+          <span class="info-label">Имя сервера</span>
+          <span class="info-value">${esc(sys.hostname || s.name || '—')}</span>
+        </div>
+        <div class="info-row">
+          <span class="info-label">IP</span>
+          <span class="info-value">
+            <span id="srv-info-ip" class="copyable-value" title="Нажмите, чтобы скопировать">
+              ${esc(mon.host_ip || s.host || '—')}
+            </span>
+          </span>
+        </div>
+        <div class="info-row">
+          <span class="info-label">Порт</span>
+          <span class="info-value">${esc(s.port || 22)}</span>
+        </div>
+        <div class="info-row">
+          <span class="info-label">Пользователь</span>
+          <span class="info-value">${esc(s.user || '—')}</span>
+        </div>
+        <div class="info-row">
+          <span class="info-label">Группа</span>
+          <span class="info-value">${esc(s.group || '—')}</span>
+        </div>
+        <div class="info-row">
+          <span class="info-label">ОС</span>
+          <span class="info-value">${esc(osFull)}</span>
+        </div>
+        <div class="info-row">
+          <span class="info-label">Ядро</span>
+          <span class="info-value">${esc(sys.kernel || '—')}</span>
+        </div>
+      `;
+
+      // Добавляем SSL если есть сертификат
+      const cert = mon.certificate;
+      if (cert && mon.ssl_host) {
+        rows += `
+          <div class="info-row">
+            <span class="info-label">Домен</span>
+            <span class="info-value">${esc(mon.ssl_host)}</span>
+          </div>
+          <div class="info-row">
+            <span class="info-label">SSL</span>
+            <span class="info-value">${cert.days_left ? cert.days_left + ' дней' : '—'}</span>
+          </div>
+        `;
+      }
+
+      infoEl.innerHTML = rows;
+      const infoIp = document.getElementById('srv-info-ip');
+      if (infoIp) {
+        infoIp.onclick = () => {
+          const ip = infoIp.textContent.trim();
+
+          if (!ip || ip === '—') {
+            toast('IP-адрес недоступен', false);
+            return;
+          }
+
+          writeClipboard(ip)
+            .then(() => toast('Скопировано', true))
+            .catch(() => toast('Не удалось скопировать', false));
+        };
+      }
+    }
+
+    await renderQuickActions(id);
+    loadServerRecentEvents(id);
+
     if (data.running_task) { watchTaskId = data.running_task.id; state.watchTaskId = watchTaskId; }
     await loadGroupsAndKeys();
+    // SSH-статус из monitor (сетевой online — ещё не SSH); уточним probe ниже
+    renderSshStatus(null);
     showPage('server');
-    showTab(lastServerTab());
+    setPage('server');
+    metricsNA('загрузка...');
     startWatchers();
+    // Точный SSH — существующий /probe (как в refreshMetrics)
+    j('/api/servers/' + encodeURIComponent(id) + '/probe').then(p => {
+      if (openServerId !== id) return;
+      const info = p.info || {};
+      renderSshStatus(!!info.ssh, info.ssh_error || p.ssh_error_human || '');
+    }).catch(() => {
+      if (openServerId === id) renderSshStatus(false, 'probe failed');
+    });
   } catch (e) { toast(e.message, false); }
 }
 
-const VALID_TABS = ['status', 'settings', 'terminal', 'log', 'queue'];
-
-export function showTab(tab) {
-  if (!VALID_TABS.includes(tab)) tab = 'status';
-  setServerTab(tab);
-  document.querySelectorAll('#srv-tabs [data-tab]').forEach(b => b.classList.toggle('on', b.dataset.tab === tab));
-  VALID_TABS.forEach(t => {
-    const el = document.getElementById('tab-' + t);
-    if (el) el.classList.toggle('hidden', t !== tab);
-  });
-  if (tab === 'settings') fillSettingsForm();
-  if (tab === 'log') refreshTaskLog();
-  if (tab === 'queue') loadSrvQueue();
-  if (tab === 'terminal') openTerminal();
-  else closeTerminal();
-}
-
-export function lastServerTab() {
+// Установлен ли сервис на сервере. installed лежит в s.status (см. checkCard
+// в wireguard.js/docker.js), не в корне объекта сервера.
+// cache:'no-store' обязателен: кнопки перерисовываются сразу после установки или
+// удаления, а браузер иначе отдаёт сохранённый ответ того же GET.
+async function checkServiceInstalled(serviceId, serverId) {
   try {
-    const t = localStorage.getItem('bot4vps_server_tab') || state.serverTab;
-    return VALID_TABS.includes(t) ? t : 'status';
-  } catch (_) {
-    return 'status';
+    const r = await j(`/api/services/${serviceId}/status`, { cache: 'no-store' });
+    const srv = r.servers?.find(s => s.id === serverId);
+    return srv?.status?.installed === true;
+  } catch {
+    return false;
   }
 }
 
+const checkWireGuardStatus = id => checkServiceInstalled('wireguard', id);
+const checkDockerStatus = id => checkServiceInstalled('docker', id);
+
+// Открыть панель WireGuard для сервера
+function openWireGuardServer(serverId) {
+  import('./wireguard.js').then(m => m.openWgServerById(serverId));
+}
+
+// Открыть модальное окно установки WireGuard
+function confirmInstallWireGuard(serverId) {
+  import('./wireguard.js')
+    .then(m => m.openInstall(serverId))
+    .catch(err => console.error('Ошибка загрузки модуля WireGuard:', err));
+}
+
+// Открыть панель Docker для сервера
+function openDockerServer(serverId) {
+  import('./docker.js?v=20260815-file-modal-v2').then(m => m.openDockerServerById(serverId));
+}
+
+// Открыть модальное окно установки Docker
+function confirmInstallDocker(serverId) {
+  import('./docker.js?v=20260815-file-modal-v2')
+    .then(m => m.openInstall(serverId))
+    .catch(err => console.error('Ошибка загрузки модуля Docker:', err));
+}
+
+// Открыть модальное окно редактирования сервера
+function openEditServerModal() {
+  const modal = document.getElementById('edit-server-modal');
+  if (modal) {
+    fillSettingsForm();
+    modal.classList.add('open');
+  }
+}
+
+/** @deprecated вкладки карточки убраны; terminal → openServerTerminal() */
+export function showTab(tab) {
+  if (tab === 'terminal') {
+    openServerTerminal();
+    return;
+  }
+  // log/queue/status — просто карточка сервера
+  if (openServerId) {
+    setPage('server');
+    showPage('server');
+  }
+}
+
+export function lastServerTab() {
+  return 'status';
+}
+
 function metricsNA(reason) {
-  const box = document.getElementById('srv-metrics');
-  const st = document.getElementById('srv-metrics-st');
-  if (box) box.innerHTML =
-    metricTile('CPU', 'N/A', null) +
-    metricTile('RAM', 'N/A', null) +
-    metricTile('Disk', 'N/A', null) +
-    metricTile('Load', 'N/A', null) +
-    metricTile('Uptime', 'N/A', null);
-  if (st) st.textContent = reason || 'недоступно';
+  const box = document.getElementById('srv-widgets');
+  if (box) {
+    box.innerHTML = `
+      <div class="sys-widget" data-metric="cpu">
+        <div class="sw-head">
+          <span class="sw-label">CPU</span>
+          <span class="sw-icon">📊</span>
+        </div>
+        <div class="sw-value">—</div>
+        <svg class="sw-graph" viewBox="0 0 200 44" preserveAspectRatio="none"></svg>
+        <div class="sw-stats"><span></span></div>
+      </div>
+
+      <div class="sys-widget" data-metric="ram">
+        <div class="sw-head">
+          <span class="sw-label">Память</span>
+          <span class="sw-icon">💾</span>
+        </div>
+        <div class="sw-value">—</div>
+        <svg class="sw-graph" viewBox="0 0 200 44" preserveAspectRatio="none"></svg>
+        <div class="sw-stats"><span></span></div>
+      </div>
+
+      <div class="sys-widget" data-metric="disk">
+        <div class="sw-head">
+          <span class="sw-label">Диск</span>
+          <span class="sw-icon">💿</span>
+        </div>
+        <div class="sw-value">—</div>
+        <svg class="sw-graph" viewBox="0 0 200 44" preserveAspectRatio="none"></svg>
+        <div class="sw-stats"><span></span></div>
+      </div>
+
+      <div class="sys-widget" data-metric="ping">
+        <div class="sw-head">
+          <span class="sw-label">Ping</span>
+          <span class="sw-icon">📡</span>
+        </div>
+        <div class="sw-value">—</div>
+        <div class="sw-graph-empty"></div>
+        <div class="sw-stats"><span></span></div>
+      </div>
+
+      <div class="sys-widget" data-metric="uptime">
+        <div class="sw-head">
+          <span class="sw-label">Время работы</span>
+          <span class="sw-icon">⏱</span>
+        </div>
+        <div class="sw-value">—</div>
+        <div class="sw-graph-empty"></div>
+        <div class="sw-stats"><span></span></div>
+      </div>
+    `;
+    parseEmoji(box);
+  }
+}
+
+function updateGraph(containerId, data, color) {
+  const svg = document.querySelector(`[data-metric="${containerId}"] .sw-graph`);
+  if (!svg || data.length === 0) return;
+
+  const w = 200;
+  const h = 44;
+  const max = Math.max(...data, 10);
+  const step = w / Math.max(data.length - 1, 1);
+
+  const gridLines = [0, 22, 44].map(y =>
+    `<line x1="0" y1="${y}" x2="200" y2="${y}" stroke="rgba(255,255,255,0.05)" stroke-width="1"/>`
+  ).join('');
+
+  svg.innerHTML = `
+    ${gridLines}
+    <polyline points="${data.map((v, i) => `${(i * step).toFixed(1)},${(h - (v / max) * h).toFixed(1)}`).join(' ')}"
+              fill="none" stroke="${color}" stroke-width="1.5" />
+  `;
 }
 
 export async function refreshMetrics() {
   if (!openServerId) return;
-  const st = document.getElementById('srv-metrics-st');
-  const box = document.getElementById('srv-metrics');
+  const box = document.getElementById('srv-widgets');
   try {
     const m = await j('/api/servers/' + encodeURIComponent(openServerId) + '/metrics');
+
+    // Получаем ping для сервера
+    let pingMs = null;
+    let pingType = 'none';
+    try {
+      const probe = await j('/api/servers/' + encodeURIComponent(openServerId) + '/probe');
+      if (probe.info) {
+        pingMs = probe.info.ping;
+        pingType = probe.info.network || 'none';
+      }
+    } catch {}
+
     if (!m.ok) {
-      metricsNA(m.error || 'SSH недоступен');
+      metricsNA(m.error || 'Нет данных метрик');
       return;
     }
-    // если все null/пусто — тоже N/A
+
     const empty = m.cpu == null && m.ram_pct == null && m.disk_pct == null
       && (!m.load || m.load === 'N/A') && (!m.uptime || m.uptime === 'N/A');
     if (empty) {
       metricsNA('нет данных');
       return;
     }
-    if (st) st.textContent = 'Обновлено';
-    if (box) box.innerHTML =
-      metricTile('CPU', m.cpu != null ? m.cpu + '%' : 'N/A', m.cpu) +
-      metricTile('RAM', m.ram_pct != null ? m.ram_pct + '%' : 'N/A', m.ram_pct) +
-      metricTile('Disk', m.disk_pct != null ? m.disk_pct + '%' : 'N/A', m.disk_pct) +
-      metricTile('Load', (m.load && m.load !== 'N/A') ? m.load : 'N/A', null) +
-      metricTile('Uptime', (m.uptime && m.uptime !== 'N/A') ? m.uptime : 'N/A', null);
+
+    // Добавляем в историю для графиков
+    if (m.cpu != null) {
+      metricsHistory.cpu.push(m.cpu);
+      if (metricsHistory.cpu.length > HISTORY_MAX) metricsHistory.cpu.shift();
+    }
+    if (m.ram_pct != null) {
+      metricsHistory.ram.push(m.ram_pct);
+      if (metricsHistory.ram.length > HISTORY_MAX) metricsHistory.ram.shift();
+    }
+    if (m.disk_pct != null) {
+      metricsHistory.disk.push(m.disk_pct);
+      if (metricsHistory.disk.length > HISTORY_MAX) metricsHistory.disk.shift();
+    }
+
+    // Определяем цвет и статус ping
+    let pingColor = '#ef4444'; // красный по умолчанию
+    let pingStatus = 'Timeout';
+    if (pingMs !== null && pingMs > 0) {
+      if (pingMs <= 500) {
+        pingColor = '#22c55e'; // зеленый
+        pingStatus = 'Отлично';
+      } else if (pingMs <= 700) {
+        pingColor = '#eab308'; // желтый
+        pingStatus = 'Норма';
+      } else {
+        pingStatus = 'Медленно';
+      }
+    }
+    const pingLabel = pingType === 'http' ? 'HTTP' : pingType === 'ping' ? 'ICMP' : 'Ping';
+
+    if (box) {
+      box.innerHTML = `
+        <div class="sys-widget" data-metric="cpu">
+          <div class="sw-head">
+            <span class="sw-label">CPU</span>
+            <span class="sw-icon">📊</span>
+          </div>
+          <div class="sw-value">${m.cpu != null ? m.cpu + '%' : '—'}</div>
+          <svg class="sw-graph" viewBox="0 0 200 44" preserveAspectRatio="none"></svg>
+          <div class="sw-stats"><span></span></div>
+        </div>
+
+        <div class="sys-widget" data-metric="ram">
+          <div class="sw-head">
+            <span class="sw-label">Память</span>
+            <span class="sw-icon">💾</span>
+          </div>
+          <div class="sw-value">${m.ram_pct != null ? m.ram_pct + '%' : '—'}</div>
+          <svg class="sw-graph" viewBox="0 0 200 44" preserveAspectRatio="none"></svg>
+          <div class="sw-stats"><span>${m.ram || '—'}</span></div>
+        </div>
+
+        <div class="sys-widget" data-metric="disk">
+          <div class="sw-head">
+            <span class="sw-label">Диск</span>
+            <span class="sw-icon">💿</span>
+          </div>
+          <div class="sw-value">${m.disk_pct != null ? m.disk_pct + '%' : '—'}</div>
+          <svg class="sw-graph" viewBox="0 0 200 44" preserveAspectRatio="none"></svg>
+          <div class="sw-stats"><span>${m.disk || '—'}</span></div>
+        </div>
+
+        <div class="sys-widget" data-metric="ping" style="--ping-color: ${pingColor}">
+          <div class="sw-head">
+            <span class="sw-label">Ping (${pingLabel})</span>
+            <span class="sw-icon">📡</span>
+          </div>
+          <div class="sw-value" style="color: ${pingColor}">${pingMs !== null && pingMs > 0 ? pingMs + ' ms' : '—'}</div>
+          <div class="sw-graph-empty"></div>
+          <div class="sw-stats"><span style="color: ${pingColor}">${pingStatus}</span></div>
+        </div>
+
+        <div class="sys-widget" data-metric="uptime">
+          <div class="sw-head">
+            <span class="sw-label">Время работы</span>
+            <span class="sw-icon">⏱</span>
+          </div>
+          <div class="sw-value" style="font-size:1.2rem">${formatUptime(m.uptime)}</div>
+          <div class="sw-graph-empty"></div>
+          <div class="sw-stats"><span></span></div>
+        </div>
+      `;
+      parseEmoji(box);
+
+      // Рисуем графики
+      updateGraph('cpu', metricsHistory.cpu, '#60a5fa');
+      updateGraph('ram', metricsHistory.ram, '#f472b6');
+      updateGraph('disk', metricsHistory.disk, '#fb923c');
+    }
   } catch (e) {
     metricsNA(e.message || 'ошибка');
   }
@@ -294,13 +976,12 @@ export async function loadQueues() {
       // §27: для задачи в очереди отмена снимает её до старта. Для уже
       // выполняющейся отменяется ожидание — запущенная на сервере команда
       // может дойти до конца. Не обещаем пользователю большего.
-      if (!(await confirm(
-        'Отменить эту задачу?\n\n' +
-        'Задача в очереди — не будет запущена.\n' +
-        'Задача уже выполняется — Bot4VPS перестанет её ждать, но команда, ' +
-        'запущенная на сервере, может завершиться сама.\n\n' +
-        'Остальные задачи в очереди продолжат работу.'
-      ))) return;
+      const approved = await confirmAction({
+        title: 'Отменить эту задачу?',
+        message: 'Задача в очереди не будет запущена. Для уже выполняющейся задачи Bot4VPS перестанет её ждать, но команда на сервере может завершиться сама. Остальные задачи продолжат работу.',
+        confirmText: 'Отменить',
+      });
+      if (!approved) return;
       try {
         await cancelTaskAPI(b.dataset.taskCancel);
         loadQueues();
@@ -311,6 +992,16 @@ export async function loadQueues() {
   }
 }
 
+function taskResultPreview(t) {
+  const lines = Array.isArray(t.output_lines) ? t.output_lines : [];
+  const resultOutput = t.result?.output || '';
+  const resultError = t.result?.error || '';
+  const value = lines.length
+    ? lines.join('\n')
+    : resultOutput || t.error || resultError || '(нет вывода)';
+  return esc(value).replace(/\n/g, '<br>');
+}
+
 export async function loadHistory() {
   try {
     const data = await j('/api/tasks/history?limit=12');
@@ -318,7 +1009,8 @@ export async function loadHistory() {
     const el = document.getElementById('history');
     if (!tasks.length) { el.innerHTML = '<div class="empty">Пусто (RAM)</div>'; return; }
     el.innerHTML = tasks.map(t => `<div class="card" style="min-height:0"><h3>${esc(t.emoji || '')} ${esc(t.name)}</h3>
-      <div class="row">${esc(t.status)} · ${esc(t.duration)}</div><div class="row">${esc(t.server_name)}</div></div>`).join('');
+      <div class="row">${esc(t.status)} · ${esc(t.duration)}</div><div class="row">${esc(t.server_name)}</div>
+      <div class="row" style="white-space:pre-wrap">${taskResultPreview(t)}</div></div>`).join('');
   } catch (e) {
     document.getElementById('history').innerHTML = '<div class="empty">' + esc(e.message) + '</div>';
   }
@@ -328,6 +1020,21 @@ function toggleAuthFields() {
   const isKey = document.getElementById('sf-auth').value === 'key';
   document.getElementById('sf-pass-wrap').classList.toggle('hidden', isKey);
   document.getElementById('sf-key-wrap').classList.toggle('hidden', !isKey);
+  document.getElementById('sf-sudo-control').classList.toggle('hidden', !isKey);
+}
+
+function toggleSslFields() {
+  const enabled = document.getElementById('sf-cert')?.checked === true;
+  document.getElementById('sf-ssl-host-wrap')?.classList.toggle('hidden', !enabled);
+}
+
+function enableSudoPasswordEditor() {
+  const toggle = document.getElementById('sf-sudo-change');
+  const wrap = document.getElementById('sf-sudo-wrap');
+  if (!toggle || !wrap) return;
+  toggle.classList.add('hidden');
+  wrap.classList.remove('hidden');
+  document.getElementById('sf-sudo-password')?.focus();
 }
 
 export function fillSettingsForm() {
@@ -340,6 +1047,9 @@ export function fillSettingsForm() {
   document.getElementById('sf-user').value = s.user || '';
   document.getElementById('sf-auth').value = s.auth_type || 'password';
   document.getElementById('sf-password').value = '';
+  document.getElementById('sf-sudo-password').value = '';
+  document.getElementById('sf-sudo-wrap').classList.add('hidden');
+  document.getElementById('sf-sudo-change').classList.remove('hidden');
   document.getElementById('sf-ssl-host').value = s.ssl_host || '';
   document.getElementById('sf-cert').checked = !!s.certificate_check;
   const gsel = document.getElementById('sf-group');
@@ -352,6 +1062,7 @@ export function fillSettingsForm() {
     return `<option value="${esc(k.path)}" ${sel ? 'selected' : ''}>${esc(k.name)}</option>`;
   }).join('') || '<option value="">— нет ключей —</option>';
   toggleAuthFields();
+  toggleSslFields();
   bindPasswordToggles();
 }
 
@@ -369,14 +1080,19 @@ export async function saveServerSettings() {
   };
   const pass = document.getElementById('sf-password').value;
   if (body.auth_type === 'password' && pass) body.password = pass;
-  if (body.auth_type === 'key') body.key_path = document.getElementById('sf-key').value || null;
+  if (body.auth_type === 'key') {
+    body.key_path = document.getElementById('sf-key').value || null;
+    const sudoWrap = document.getElementById('sf-sudo-wrap');
+    const sudoPass = document.getElementById('sf-sudo-password').value;
+    if (!sudoWrap.classList.contains('hidden') && sudoPass) body.password = sudoPass;
+  }
   try {
     await j('/api/servers/' + encodeURIComponent(openServerId), {
       method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
     });
     toast('Сохранено', true);
+    document.getElementById('edit-server-modal')?.classList.remove('open');
     await openServer(openServerId);
-    showTab('settings');  // remain on settings after save
     loadServers();
   } catch (e) { toast(e.message, false); }
 }
@@ -429,11 +1145,18 @@ export async function testServerForm() {
 
 export async function deleteServer() {
   if (!openServerId) return;
-  if (!confirm('Удалить сервер безвозвратно?')) return;
+  const name = state.openServerData?.server?.name || window._openServerData?.server?.name || 'сервер';
+  const approved = await confirmAction({
+    title: 'Удалить сервер?',
+    message: `Сервер «${name}» будет удалён из Bot4VPS.`,
+    confirmText: 'Удалить',
+  });
+  if (!approved) return;
   try {
     await j('/api/servers/' + encodeURIComponent(openServerId), { method: 'DELETE' });
     toast('Удалён', true);
     openServerId = null;
+    setOpenServer(null, null);
     stopWatchers();
     try { localStorage.setItem('bot4vps_page', 'servers'); localStorage.removeItem('bot4vps_server_id'); } catch (_) {}
     showPage('servers');
@@ -496,24 +1219,60 @@ export function bindServerUI() {
     });
   }
   document.getElementById('btn-add-server')?.addEventListener('click', openAddServerModal);
+  document.getElementById('btn-groups-panel')?.addEventListener('click', openGroupsPanel);
   document.getElementById('btn-back-servers')?.addEventListener('click', () => {
-    openServerId = null; stopWatchers();
+    openServerId = null;
+    setOpenServer(null, null);
+    stopWatchers();
     try { localStorage.setItem('bot4vps_page', 'servers'); localStorage.removeItem('bot4vps_server_id'); } catch (_) {}
     showPage('servers');
   });
-  document.getElementById('srv-tabs')?.querySelectorAll('[data-tab]').forEach(b => {
-    b.addEventListener('click', () => showTab(b.dataset.tab));
-  });
+  document.getElementById('btn-copy-srv-ip')?.addEventListener('click', copyServerIp);
+  document.getElementById('btn-open-terminal')?.addEventListener('click', () => openServerTerminal());
+  document.getElementById('btn-back-from-terminal')?.addEventListener('click', () => backFromTerminal());
   document.getElementById('sf-auth')?.addEventListener('change', toggleAuthFields);
+  document.getElementById('sf-cert')?.addEventListener('change', toggleSslFields);
+  document.getElementById('sf-sudo-change')?.addEventListener('click', enableSudoPasswordEditor);
   document.getElementById('sf-save')?.addEventListener('click', saveServerSettings);
   document.getElementById('sf-test')?.addEventListener('click', testServerForm);
-  document.getElementById('sf-delete')?.addEventListener('click', deleteServer);
+  document.getElementById('esm-cancel')?.addEventListener('click', () =>
+    document.getElementById('edit-server-modal').classList.remove('open'));
+  document.getElementById('edit-server-modal')?.addEventListener('keydown', e => {
+    if (e.key === 'Escape') document.getElementById('edit-server-modal').classList.remove('open');
+  });
   document.getElementById('af-auth')?.addEventListener('change', toggleAddAuth);
   document.getElementById('af-save')?.addEventListener('click', submitAddServer);
   document.getElementById('af-cancel')?.addEventListener('click', () =>
     document.getElementById('add-server-modal').classList.remove('open'));
-  document.getElementById('add-server-modal')?.addEventListener('click', e => {
-    if (e.target.id === 'add-server-modal') e.currentTarget.classList.remove('open');
-  });
   bindPasswordToggles();
 }
+
+function openGroupsPanel() {
+  const panel = document.getElementById('groups-panel');
+  if (panel) {
+    panel.classList.add('open');
+    // Загружаем списки групп при открытии панели
+    import('./settings.js').then(m => {
+      m.loadGroupsAdmin();
+      m.loadGroupsDisplayOrder();
+    });
+  }
+}
+
+export function closeGroupsPanel() {
+  const panel = document.getElementById('groups-panel');
+  if (panel) panel.classList.remove('open');
+}
+
+// Установка/удаление сервиса меняет кнопки «Быстрых действий» — вызывается из
+// wireguard.js / docker.js. Перерисовываем только этот блок: openServer() внутри
+// делает showPage('server') и выдернул бы пользователя со страницы WG/Docker.
+// Карточка остаётся в DOM после ухода на страницу сервиса, поэтому обновляем её
+// и когда она не на экране — вернувшись, пользователь увидит актуальные кнопки.
+//
+// Состояние кнопок берётся только из /api/services/{sid}/status: вызывающий модуль
+// сообщает лишь ФАКТ изменения, но не результат. Иначе кнопка переключилась бы и
+// после неудавшегося удаления, разойдясь с реальным состоянием сервиса.
+window.refreshAfterServiceChange = (serverId) => {
+  if (serverId && openServerId === serverId) renderQuickActions(serverId);
+};

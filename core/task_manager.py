@@ -201,6 +201,15 @@ class QueueState:
     paused_at: Optional[datetime] = None
     retry_count: int = 0
 
+    def record_failure(self, task: Task):
+        """Запомнить последнюю ошибку для retry, не останавливая очередь."""
+        if self.failed_task_id != task.id:
+            self.retry_count = 0
+        self.paused = False
+        self.failed_task_id = task.id
+        self.failed_task_name = task.name
+        self.paused_at = None
+
     def pause(self, task: Task):
         if self.failed_task_id != task.id:
             self.retry_count = 0
@@ -497,10 +506,10 @@ class TaskManager:
                 should_continue = bool(self._queues.get(server_id)) and not st.paused
             elif task.status == TaskStatus.FAILED:
                 self._emit_task_event(task, "failed")
-                st.pause(task)
-                should_continue = False
-                if self._queues.get(server_id):
-                    self._emit_queue_paused(server_id, task, st)
+                # Ошибка завершает только эту задачу. Данные о ней сохраняем
+                # для истории/retry, но следующую задачу запускаем автоматически.
+                st.record_failure(task)
+                should_continue = bool(self._queues.get(server_id))
             else:
                 self._emit_task_event(task, "cancelled")
                 should_continue = bool(self._queues.get(server_id)) and not st.paused

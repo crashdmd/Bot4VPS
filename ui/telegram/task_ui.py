@@ -82,13 +82,18 @@ def _nav_rows_for_task(task) -> list:
 # Форматирование
 # --------------------------------------------------------------
 
+def _html(value) -> str:
+    """Экранировать динамическое значение для Telegram parse_mode=HTML."""
+    return html_module.escape(str(value), quote=True)
+
+
 def format_log_text(task) -> str:
     emoji = STATUS_EMOJI.get(task.status, "•")
     body = "\n".join(task.output_lines[-40:]) or "…ожидание вывода…"
     return (
-        f"{emoji} Лог · <code>{html_module.escape(task.id)}</code>\n\n"
-        f"📜 {html_module.escape(task.name)}\n🖥 {html_module.escape(task.server_name)}\n"
-        f"Статус: {_status_label(task)}\n\n{body}"
+        f"{emoji} Лог · <code>{_html(task.id)}</code>\n\n"
+        f"📜 {_html(task.name)}\n🖥 {_html(task.server_name)}\n"
+        f"Статус: {_html(_status_label(task))}\n\n{_html(body)}"
     )
 
 
@@ -116,11 +121,15 @@ def format_done_text(task) -> str:
 
     if action == "bulk_check" or task.kind == "svc_scan":
         installed, missing, errors = [], [], []
+        no_servers = False
         raw = (task.result.output if task.result else "") or ""
         candidates = []
         for line in (raw.splitlines() + list(task.output_lines or [])):
             s = (line or "").strip()
             if not s or s.startswith("Всего:"):
+                continue
+            if s == "Серверов для проверки нет":
+                no_servers = True
                 continue
             candidates.append(s)
         seen = set()
@@ -158,19 +167,21 @@ def format_done_text(task) -> str:
         text = (
             f"{emoji} Полная проверка завершена\n\n"
             f"🖥 Проверено серверов: {n or '—'}\n"
-            f"Длительность: {task.duration_human()}\n"
+            f"Длительность: {_html(task.duration_human())}\n"
         )
+        if no_servers:
+            text += "\nСерверов для проверки нет\n"
         if installed:
             text += f"\n✅ Установлен ({len(installed)})\n"
-            text += "".join(f"• {n}\n" for n in installed)
+            text += "".join(f"• {_html(name)}\n" for name in installed)
         if missing:
             text += f"\n❌ Не установлен ({len(missing)})\n"
-            text += "".join(f"• {n}\n" for n in missing)
+            text += "".join(f"• {_html(name)}\n" for name in missing)
         if errors:
             text += f"\n⚠️ Ошибки ({len(errors)})\n"
-            text += "".join(f"• {n} — {e}\n" for n, e in errors)
+            text += "".join(f"• {_html(name)} — {_html(error)}\n" for name, error in errors)
         if task.error:
-            text += f"\nОшибка:\n{_human_error(task.error)}\n"
+            text += f"\nОшибка:\n{_html(_human_error(task.error))}\n"
         return text
 
     if task.is_successful and action == "install":
@@ -186,17 +197,17 @@ def format_done_text(task) -> str:
 
     text = (
         f"{head}\n\n"
-        f"📜 {html_module.escape(task.name)}\n"
-        f"🖥 {html_module.escape(task.server_name)}\n"
-        f"Длительность: {task.duration_human()}\n"
+        f"📜 {_html(task.name)}\n"
+        f"🖥 {_html(task.server_name)}\n"
+        f"Длительность: {_html(task.duration_human())}\n"
     )
     # Выводим результат операции (например, "Профиль включён")
     if task.result and task.result.output:
-        text += f"\n{html_module.escape(task.result.output)}\n"
+        text += f"\n{_html(task.result.output)}\n"
     if task.attempt and task.attempt > 1:
         text += f"Попытка: {task.attempt}\n"
     if task.error:
-        text += f"\nОшибка:\n{_human_error(task.error)}\n"
+        text += f"\nОшибка:\n{_html(_human_error(task.error))}\n"
         detail_lines = []
         for line in (task.output_lines or [])[-15:]:
             s = (line or "").strip()
@@ -206,7 +217,7 @@ def format_done_text(task) -> str:
             if any(k in low for k in ("error", "fatal", "failed", "rtnetlink", "unknown", "not found", "не уда", "operation not")):
                 detail_lines.append(s)
         if detail_lines:
-            text += "\nПричина:\n" + "\n".join(detail_lines[-3:]) + "\n"
+            text += "\nПричина:\n" + "\n".join(_html(line) for line in detail_lines[-3:]) + "\n"
     return text
 
 

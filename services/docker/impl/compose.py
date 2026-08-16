@@ -27,6 +27,7 @@ import base64
 import ipaddress
 import json
 import shlex
+import uuid
 from typing import Any, Dict, List, Optional, Tuple
 
 from core.integrator import StepError, StepRunner
@@ -124,6 +125,15 @@ class Deployment:
         cfg = ",".join(sorted(self.config_files))
         return f"{self.project}|{self.working_dir}|{cfg}"
 
+    @property
+    def ignore_key(self) -> str:
+        """Ключ игнор-листа: «project|working_dir» (docs/compose-model.md §2).
+
+        В отличие от key НЕ включает config_files: добавление override-файла
+        не должно сбрасывать игнор проекта.
+        """
+        return f"{self.project}|{self.working_dir}"
+
     def args(self) -> str:
         """Аргументы compose: project name + рабочий каталог + файлы конфигурации.
 
@@ -144,6 +154,7 @@ class Deployment:
             "config_files": list(self.config_files),
             "managed": self.managed,
             "key": self.key,
+            "ignore_key": self.ignore_key,
         }
 
     def __repr__(self) -> str:  # для логов/диагностики
@@ -171,6 +182,16 @@ _PS_LABELS_CMD = (
     "{{.Label \"com.docker.compose.project.working_dir\"}}\\t"
     "{{.Label \"com.docker.compose.project.config_files\"}}\\t{{.State}}' "
     "2>/dev/null || true"
+)
+
+# Для удаления нужен ID контейнера: если проект уже остановлен, Compose-файл
+# может быть повреждён, поэтому его состояние и очистку контейнеров определяем
+# только по Docker labels, не через `docker compose config/down`.
+_PS_CONTAINER_IDENTITIES_CMD = (
+    "docker ps -a --no-trunc "
+    "--filter label=com.docker.compose.project "
+    "--format '{{.ID}}\\t{{.Label \"com.docker.compose.project\"}}\\t"
+    "{{.Label \"com.docker.compose.project.working_dir\"}}\\t{{.State}}'"
 )
 
 # Каталоги рабочих копий Bot4VPS: проект может быть развёрнут, но остановлен —
@@ -259,11 +280,16 @@ def parse_external_compose(text: str) -> List[Tuple[str, str]]:
 def _read_remote_project_files(
     ssh, server, deployment: "Deployment", limit_bytes: int = PROJECT_READ_LIMIT,
 ) -> Dict[str, bytes]:
-    """Прочитать файлы проекта с сервера как {rel_path: bytes}.
+    """Прочитать с сервера КОНФИГ-НАБОР проекта как {rel_path: bytes}.
 
     Нужно и для импорта (§17), и для сравнения версий (§23). Передаём одним
     tar+base64, чтобы не делать по SSH-вызову на файл и не терять бинарные
     данные. Пустой dict, если каталог недоступен.
+
+    Один и тот же конфиг-предикат (compose_store §3) действует на всех
+    уровнях: tar-исключения на сервере отсекают основную массу данных ДО
+    передачи, прочитанный набор фильтруется повторно — по размеру и
+    бинарности, которые tar не проверял.
 
     Размер проверяем ДО tar: иначе каталог на 60 ГБ будет минуты гнаться через
     base64 (это ещё +33 % к объёму), чтобы затем упасть на limit_bytes.
@@ -271,13 +297,14 @@ def _read_remote_project_files(
     wd = deployment.working_dir
     if not wd:
         return {}
-    size = _du_bytes(ssh, server, wd)
+    size = _du_bytes(ssh, server, wd, config_only=True)
     if size > limit_bytes:
         return {}
     _, out, _ = exec_sudo(
         ssh, server,
         f"cd {shlex.quote(wd)} 2>/dev/null && "
-        f"tar -cf - --exclude-vcs . 2>/dev/null | base64 -w0 || true",
+        f"tar -cf - --exclude-vcs {_config_excludes_args()} . 2>/dev/null "
+        f"| base64 -w0 || true",
     )
     raw = (out or "").strip()
     if not raw:
@@ -313,17 +340,43 @@ def _read_remote_project_files(
                 files[rel] = fh.read()
     except (tarfile.TarError, EOFError):
         return {}
-    return files
+    # Финальный фильтр тем же предикатом, что и локальную библиотеку:
+    # tar-исключения не знают размера/бинарности конкретных файлов.
+    return {rel: files[rel] for rel in compose_store.filter_config_files(files)}
 
 
-def _du_bytes(ssh, server, wd: str) -> int:
-    """Размер каталога через du на уже открытом SSH. 0, если не определить."""
+def _config_excludes_args() -> str:
+    """Аргументы --exclude для tar/du по конфиг-набору (compose_store §3).
+
+    Дублирует CONFIG_EXCLUDE_DIRS на стороне сервера: шаблон '*/<dir>'
+    матчится на любой глубине, поэтому основная масса runtime-данных
+    (data/, logs/, …) отсекается ещё ДО передачи. Это оптимизация, не
+    защита — прочитанный набор фильтруется предикатом повторно.
+    """
+    parts = [
+        f"--exclude='*/{d}'"
+        for d in sorted(compose_store.CONFIG_EXCLUDE_DIRS)
+    ]
+    # '?*' — не меньше одного символа перед '_data': каталог, названный ровно
+    # «_data», локальным предикатом не исключается, держим паритет.
+    parts.append("--exclude='*/?*_data'")
+    return " ".join(parts)
+
+
+def _du_bytes(ssh, server, wd: str, config_only: bool = False) -> int:
+    """Размер каталога через du на уже открытом SSH. 0, если не определить.
+
+    config_only=True — размер без runtime-каталогов (для лимита чтения
+    конфиг-набора): живой проект с гигабайтами в data/ обязан проходить
+    5-МиБ лимит, если сами конфиги маленькие.
+    """
     if not wd:
         return 0
+    excludes = f" {_config_excludes_args()}" if config_only else ""
     try:
         _, out, _ = exec_sudo(
             ssh, server,
-            f"du -sb {shlex.quote(wd)} 2>/dev/null | cut -f1 || echo 0",
+            f"du -sb{excludes} {shlex.quote(wd)} 2>/dev/null | cut -f1 || echo 0",
         )
         return int((out or "0").strip() or "0")
     except Exception:
@@ -339,10 +392,11 @@ def list_server_stacks(server: dict) -> List[Dict[str, Any]]:
     3. Поиск compose-файлов в /opt, /home, /srv, /root — внешние после down.
 
     Возвращает список записей вида:
-        {name, working_dir, config_files, managed, key, deployed,
+        {name, working_dir, config_files, managed, key, ignore_key, deployed,
          containers_total, containers_running, fingerprint}
-    fingerprint считается только для managed-каталогов (для сравнения с
-    библиотекой); для внешних он не нужен и стоил бы лишнего чтения.
+    fingerprint считается только при одноимённом проекте в библиотеке
+    (для сравнения с ней, docs/compose-model.md §3); для остальных чтение
+    tar+base64 по SSH — пустая трата времени.
     """
     ssh = create_ssh_client(server)
     try:
@@ -391,12 +445,10 @@ def list_server_stacks(server: dict) -> List[Dict[str, Any]]:
             record["containers_running"] = entry["containers_running"]
             record["fingerprint"] = None
             # Fingerprint нужен, чтобы сравнить серверную версию с библиотечной
-            # (§23) и решить, показывать ли «Импортировать». Считаем его и для
-            # ВНЕШНИХ проектов — иначе для них сравнение невозможно и кнопка
-            # импорта работала бы «слепо», рискуя перезаписать локальную копию.
-            # Чтение пропускаем, если одноимённого проекта в библиотеке нет:
-            # сравнивать не с чем, а tar+base64 по SSH не бесплатен.
-            if dep.managed or compose_store.stack_exists_safe(dep.project):
+            # и решить, показывать ли «Импортировать». Сравнение имеет смысл
+            # только когда в библиотеке есть одноимённый проект; для остальных
+            # чтение tar+base64 по SSH — пустая трата времени.
+            if compose_store.stack_exists_safe(dep.project):
                 try:
                     files = _read_remote_project_files(ssh, server, dep)
                     if files:
@@ -605,6 +657,29 @@ def _upload_files(runner: StepRunner, target_dir: str, files: Dict[str, bytes]) 
 # Атомарный deploy проекта из библиотеки (§9, §10)
 # --------------------------------------------------
 
+def _restore_runtime_dirs_cmd(target: str, backup: str) -> str:
+    """Команда переноса runtime-каталогов из backup в новую рабочую копию.
+
+    Список тот же, что и в конфиг-предикате (CONFIG_EXCLUDE_DIRS + *_data):
+    что не входит в конфиг-набор, то живёт на сервере и переживает деплой.
+    Каталоги ищем на любой глубине — как data/ в корне, так и config/data/.
+    tar-пайп вместо find -exec: во временной копии runtime-каталогов быть не
+    может (библиотека несёт только конфиг-набор), так что перезапись
+    невозможна, а копирование сохраняет структуру путей как есть.
+    """
+    names = " -o ".join(
+        [f"-name {shlex.quote(d)}" for d in sorted(compose_store.CONFIG_EXCLUDE_DIRS)]
+        + [f"-name {shlex.quote('?*_data')}"]
+    )
+    return (
+        f"if [ -d {shlex.quote(backup)} ]; then "
+        f"(cd {shlex.quote(backup)} && "
+        f"find . -type d \\( {names} \\) -print 2>/dev/null "
+        f"| tar -cf - -T - 2>/dev/null "
+        f"| (cd {shlex.quote(target)} && tar -xf -)) || true; fi"
+    )
+
+
 def _deploy_atomic(runner: StepRunner, cmd: str, stack: str, files: Dict[str, bytes],
                    compose_file: str) -> Deployment:
     """Развернуть проект в /opt/bot4vps/<stack> без риска потерять рабочую копию.
@@ -649,6 +724,16 @@ def _deploy_atomic(runner: StepRunner, cmd: str, stack: str, files: Dict[str, by
             f"mv {shlex.quote(tmp)} {shlex.quote(target)}",
             title="Активация новой версии проекта",
         )
+        # Библиотека несёт только конфиг-набор (§3), а рабочая копия содержит
+        # ещё и runtime-данные (data/, logs/, …). Переносим их из backup в
+        # новый каталог ДО удаления backup: повторный деплой не стирает данные
+        # контейнеров. Провал переноса не откатывает деплой (конфиг уже
+        # валиден и активирован), но и не сносит данные.
+        runner.run(
+            "restore_runtime_dirs",
+            _restore_runtime_dirs_cmd(target, backup),
+            title="Перенос runtime-данных в новую версию",
+        )
         runner.run(
             "cleanup_backup", f"rm -rf {shlex.quote(backup)}",
             title="Удаление резервной копии",
@@ -678,7 +763,7 @@ def _library_files(stack: str) -> Tuple[Dict[str, bytes], str, str]:
     ) or compose_store.DEFAULT_COMPOSE_FILENAME
 
     files: Dict[str, bytes] = {}
-    for rel in compose_store.iter_project_files(stack_name):
+    for rel in compose_store.iter_config_files(stack_name):
         key = rel.as_posix()
         files[key] = compose_store.read_project_bytes(stack_name, key)
     if compose_file not in files:
@@ -812,6 +897,219 @@ def fetch_logs(server: dict, stack: str, tail: int = 200,
 
 
 # --------------------------------------------------
+# Файловые операции на сервере (docs/compose-model.md §9)
+# --------------------------------------------------
+
+def _resolve_remote_path(dep: "Deployment", rel_path: str) -> str:
+    """Абсолютный путь файла внутри working_dir развёртывания.
+
+    rel_path проходит ту же валидацию, что и в библиотеке (safe_relative_path):
+    без абсолютных путей, «..» и имён дисков — защита от выхода за пределы
+    каталога проекта на сервере.
+    """
+    rel = compose_store.safe_relative_path(rel_path)
+    if not dep.working_dir:
+        raise StepError(
+            "resolve_remote_path", -1, title="Путь на сервере",
+            detail="у развёртывания нет working_dir",
+        )
+    return f"{dep.working_dir}/{rel.as_posix()}"
+
+
+def list_remote_files(server: dict, stack: str, key: Optional[str] = None) -> List[Dict[str, Any]]:
+    """Файлы развёртывания на сервере для UI: [{path, size, is_compose}].
+
+    Обход тем же конфиг-набором (§3), что и библиотека — пользователь видит
+    ровно то, что попадает в бэкап/fingerprint, без data/ и logs/.
+    """
+    dep = resolve_deployment(server, stack, key)
+    wd = dep.working_dir
+    if not wd:
+        return []
+    # find -path '*/<dir>/*' — те же исключения, что и у tar (любая глубина);
+    # 'путь\tразмер' на строку. Найденное перепроверяется по размеру (конфиг-
+    # предикат §3: >1 МиБ — не конфиг).
+    excludes = " ".join(
+        f"! -path '*/{d}/*'" for d in sorted(compose_store.CONFIG_EXCLUDE_DIRS)
+    ) + " ! -path '*/?*_data/*'"
+    ssh = create_ssh_client(server)
+    try:
+        _, out, _ = exec_sudo(
+            ssh, server,
+            f"cd {shlex.quote(wd)} 2>/dev/null && "
+            f"find . -type f {excludes} -printf '%p\\t%s\\n' 2>/dev/null || true",
+        )
+    finally:
+        ssh.close()
+    out_list: List[Dict[str, Any]] = []
+    cfg_set = {c.rsplit("/", 1)[-1] for c in dep.config_files if c}
+    for line in (out or "").splitlines():
+        line = line.strip()
+        if not line or "\t" not in line:
+            continue
+        p, s = line.rsplit("\t", 1)
+        p = p.strip()
+        if p.startswith("./"):
+            p = p[2:]
+        if not p:
+            continue
+        try:
+            rel = compose_store.safe_relative_path(p).as_posix()
+        except StepError:
+            continue
+        try:
+            size = int(s.strip() or "0")
+        except ValueError:
+            size = 0
+        if size > compose_store.CONFIG_MAX_FILE_SIZE:
+            continue
+        out_list.append({
+            "path": rel,
+            "size": size,
+            # Основной Compose-файл помечаем для UI (его нельзя удалять).
+            "is_compose": rel in cfg_set or rel in compose_store.COMPOSE_FILENAMES,
+        })
+    out_list.sort(key=lambda f: f["path"])
+    return out_list
+
+
+def fetch_remote_file(server: dict, stack: str, rel_path: str,
+                      key: Optional[str] = None) -> Dict[str, Any]:
+    """Прочитать файл развёртывания: {path, size, text?, binary?, b64?, mime?}.
+
+    Текст читается для редактора; бинарные (jpg/png/webp/gif) — base64 для
+    превью (§9). Размер файла ≤ MAX_PROJECT_FILE_SIZE (5 МиБ).
+    """
+    dep = resolve_deployment(server, stack, key)
+    path = _resolve_remote_path(dep, rel_path)
+    ssh = create_ssh_client(server)
+    try:
+        # Размер заранее: cat гигабайта в base64 — не то, что нам нужно.
+        _, sz_out, _ = exec_sudo(
+            ssh, server, f"stat -c %s {shlex.quote(path)} 2>/dev/null || echo 0",
+        )
+        try:
+            size = int((sz_out or "").strip().splitlines()[0] or "0")
+        except (ValueError, IndexError):
+            size = 0
+        if size > compose_store.MAX_PROJECT_FILE_SIZE:
+            raise StepError(
+                "file_too_large", -1, title="Файл слишком велик",
+                detail=(
+                    f"«{rel_path}» занимает {size / (1024 * 1024):.1f} МБ "
+                    f"(лимит {compose_store.MAX_PROJECT_FILE_SIZE // (1024 * 1024)} МБ)."
+                ),
+            )
+        _, out, _ = exec_sudo(
+            ssh, server,
+            f"base64 -w0 {shlex.quote(path)} 2>/dev/null || true",
+        )
+        raw_b64 = (out or "").strip()
+        if not raw_b64:
+            raise StepError(
+                "read_remote_file", -1, title="Файл не найден",
+                detail=f"{path} отсутствует или недоступен на сервере",
+            )
+        data = base64.b64decode(raw_b64, validate=False)
+        mime = _sniff_mime(data)
+        is_binary = mime.startswith("image/") or _is_binary_bytes(data)
+        result: Dict[str, Any] = {"path": rel_path, "size": len(data)}
+        if is_binary:
+            result["binary"] = True
+            result["b64"] = raw_b64
+            result["mime"] = mime
+        else:
+            result["binary"] = False
+            result["text"] = data.decode("utf-8", errors="replace")
+        return result
+    finally:
+        ssh.close()
+
+
+def write_remote_file(server: dict, stack: str, rel_path: str, content: str,
+                      key: Optional[str] = None) -> Dict[str, Any]:
+    """Записать файл развёртывания (редактор §8). Возврат: {path, size}.
+
+    Запись через тот же приём, что и деплой: SFTP → /tmp → sudo mv (non-root
+    не пишет в каталог проекта напрямую). Перезапись с проверкой размера.
+    """
+    dep = resolve_deployment(server, stack, key)
+    path = _resolve_remote_path(dep, rel_path)
+    data = content.encode("utf-8")
+    if len(data) > compose_store.MAX_PROJECT_FILE_SIZE:
+        raise StepError(
+            "file_too_large", -1, title="Файл слишком велик",
+            detail=f"лимит {compose_store.MAX_PROJECT_FILE_SIZE // (1024 * 1024)} МБ",
+        )
+    remote_tmp = f"/tmp/bot4vps_edit_{uuid.uuid4().hex[:12]}"
+    sftp = None
+    ssh = create_ssh_client(server)
+    try:
+        sftp = ssh.open_sftp()
+        with sftp.file(remote_tmp, "wb") as f:
+            f.write(data)
+        sftp.close()
+        sftp = None
+        runner = StepRunner(ssh, server, lambda _msg: None)
+        runner.run(
+            "write_remote_file",
+            f"cp {shlex.quote(remote_tmp)} {shlex.quote(path)} && "
+            f"rm -f {shlex.quote(remote_tmp)}",
+            title="Запись файла",
+        )
+        return {"path": rel_path, "size": len(data)}
+    finally:
+        if sftp is not None:
+            try:
+                sftp.close()
+            except Exception:
+                pass
+        ssh.close()
+
+
+def delete_remote_file(server: dict, stack: str, rel_path: str,
+                       key: Optional[str] = None) -> str:
+    """Удалить файл развёртывания (кроме основного Compose-файла)."""
+    dep = resolve_deployment(server, stack, key)
+    path = _resolve_remote_path(dep, rel_path)
+    cfg_bases = {c.rsplit("/", 1)[-1] for c in dep.config_files if c}
+    if rel_path in cfg_bases or rel_path in compose_store.COMPOSE_FILENAMES:
+        raise StepError(
+            "delete_compose_file", -1, title="Нельзя удалить",
+            detail="основной Compose-файл удалить нельзя",
+        )
+    ssh = create_ssh_client(server)
+    try:
+        runner = StepRunner(ssh, server, lambda _msg: None)
+        runner.run(
+            "delete_remote_file",
+            f"rm -f {shlex.quote(path)}",
+            title="Удаление файла",
+        )
+        return rel_path
+    finally:
+        ssh.close()
+
+
+def _is_binary_bytes(data: bytes) -> bool:
+    """Бинарность по содержимому — как конфиг-предикат (NUL в первых 8 КиБ)."""
+    return b"\x00" in data[:8192]
+
+
+def _sniff_mime(data: bytes) -> str:
+    """Минимальный сниффер для превью (§9): jpg/png/webp/gif, иначе octet-stream."""
+    if data[:3] == b"\xff\xd8\xff":
+        return "image/jpeg"
+    if data[:8] == b"\x89PNG\r\n\x1a\n":
+        return "image/png"
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "image/webp"
+    if data[:6] in (b"GIF87a", b"GIF89a"):
+        return "image/gif"
+    return "application/octet-stream"
+
+
+# --------------------------------------------------
 # Импорт проекта с сервера в библиотеку (§17)
 # --------------------------------------------------
 
@@ -837,9 +1135,9 @@ def import_from_server(server: dict, stack: str, overwrite: bool, emit,
     ssh = create_ssh_client(server)
     try:
         dep = resolve_deployment(server, stack, key)
-        # Размер проверяем до чтения, чтобы дать внятную ошибку вместо
-        # многоминутного base64 впустую.
-        size = _du_bytes(ssh, server, dep.working_dir)
+        # Размер проверяем до чтения (только конфиг-набор — данные не тянем),
+        # чтобы дать внятную ошибку вместо многоминутного base64 впустую.
+        size = _du_bytes(ssh, server, dep.working_dir, config_only=True)
         if size > PROJECT_READ_LIMIT:
             raise StepError(
                 "import_too_large", -1, title="Проект слишком велик",
@@ -882,18 +1180,42 @@ def import_from_server(server: dict, stack: str, overwrite: bool, emit,
 # Удаление проекта с сервера (§11, §18)
 # --------------------------------------------------
 
+def _deployment_containers(text: str, deployment: Deployment) -> List[Tuple[str, str]]:
+    """Вернуть ``[(container_id, state)]`` для точного deployment по labels.
+
+    Compose YAML намеренно не читается: удаление остановленного проекта должно
+    работать даже с повреждённым конфигом. Working dir не даёт смешать
+    одноимённые проекты из разных каталогов.
+    """
+    expected_dir = deployment.working_dir.rstrip("/")
+    out: List[Tuple[str, str]] = []
+    for line in (text or "").splitlines():
+        parts = line.rstrip().split("\t")
+        if len(parts) < 4:
+            continue
+        container_id, project, working_dir, state = (p.strip() for p in parts[:4])
+        if (
+            container_id
+            and project == deployment.project
+            and working_dir.rstrip("/") == expected_dir
+        ):
+            out.append((container_id, state.lower()))
+    return out
+
+
 def delete_from_server(server: dict, stack: str, emit,
                        source: str = SOURCE_LIBRARY,
                        key: Optional[str] = None) -> str:
-    """Остановить проект и удалить его файлы с сервера.
+    """Удалить Compose-проект и его файлы с сервера.
 
-    Строгий порядок (§18): сначала `compose down` (без -v). Если down упал —
-    НИЧЕГО не удаляем и возвращаем ошибку. Библиотеку не трогаем вообще.
+    У работающего проекта сохраняется строгий порядок: успешный ``compose down``
+    (без ``-v``), затем удаление каталога. Если все контейнеры уже остановлены,
+    Compose-файл не разбирается: остановленные контейнеры удаляются напрямую по
+    Docker labels, затем удаляется каталог. Локальную библиотеку не трогаем.
     """
     ssh = create_ssh_client(server)
     runner = StepRunner(ssh, server, emit)
     try:
-        cmd = detect_compose_cmd(ssh, server)
         dep = (resolve_deployment(server, stack, key) if source == SOURCE_SERVER
                else managed_deployment(stack))
         target = dep.working_dir
@@ -910,12 +1232,36 @@ def delete_from_server(server: dict, stack: str, emit,
                 detail=f"на сервере нет {target}",
             )
 
-        # down БЕЗ «|| true»: провал прерывает операцию до удаления файлов.
-        runner.run(
-            "compose_down", f"{cmd} {dep.args()} down",
-            title=f"Остановка проекта «{dep.project}» (тома сохраняются)",
+        identities_rc, identities_out, identities_err = exec_sudo(
+            ssh, server, _PS_CONTAINER_IDENTITIES_CMD
         )
-        # Сюда попадаем только после успешного down.
+        if identities_rc != 0:
+            raise StepError(
+                "inspect_project_containers", identities_rc,
+                title="Не удалось проверить контейнеры проекта",
+                detail=(identities_err or identities_out or "docker ps завершился с ошибкой"),
+            )
+        project_containers = _deployment_containers(identities_out, dep)
+        running = any(state == "running" for _, state in project_containers)
+
+        if running:
+            # Для реально работающего проекта down обязателен. Ошибка Compose
+            # прерывает операцию: файлы не удаляем и успех не изображаем.
+            cmd = detect_compose_cmd(ssh, server)
+            runner.run(
+                "compose_down", f"{cmd} {dep.args()} down",
+                title=f"Остановка проекта «{dep.project}» (тома сохраняются)",
+            )
+        elif project_containers:
+            # Контейнеры уже остановлены: повреждённый YAML не должен мешать
+            # удалению. docker rm без -v сохраняет именованные тома. Если какой-то
+            # контейнер успел запуститься, rm завершится ошибкой до удаления файлов.
+            ids = " ".join(shlex.quote(container_id) for container_id, _ in project_containers)
+            runner.run(
+                "remove_stopped_containers", f"docker rm {ids}",
+                title=f"Удаление остановленных контейнеров проекта «{dep.project}»",
+            )
+
         runner.run(
             "remove_dir", f"rm -rf {shlex.quote(target)}",
             title=f"Удаление каталога {target}",

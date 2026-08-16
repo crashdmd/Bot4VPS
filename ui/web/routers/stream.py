@@ -102,8 +102,10 @@ def _snapshot():
         out["events_error"] = str(e)
 
     try:
-        from core.config import get_monitor_config
-        out["monitor"] = get_monitor_config()
+        from core.config import get_monitor_config, get_update_check_config
+        cfg = get_monitor_config()
+        cfg["update"] = get_update_check_config()
+        out["monitor"] = cfg
     except Exception as e:
         out["monitor_error"] = str(e)
 

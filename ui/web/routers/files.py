@@ -4,6 +4,7 @@ import os
 import re
 import subprocess
 from pathlib import Path
+from core.integrator import StepError
 from fastapi import APIRouter, File, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
@@ -28,7 +29,7 @@ EDITABLE_ROOTS = {"scripts", "docker"}
 # (например .env) проверяется отдельно — см. _is_texty.
 TEXT_SUFFIXES = {
     ".sh", ".yml", ".yaml", ".env", ".conf", ".cfg", ".ini", ".json",
-    ".txt", ".md", ".toml", ".properties", ".service",
+    ".txt", ".md", ".toml", ".xml", ".svg", ".properties", ".service",
 }
 TEXT_NAMES = {".env", "Dockerfile", "Makefile"}
 
@@ -76,69 +77,51 @@ def _is_texty(path: Path) -> bool:
 
 
 @router.get("/api/files")
-async def api_files(root: str = Query("scripts"), project: str = Query("")):
-    """Список файлов.
-
-    scripts/keys — плоский список файлов каталога.
-    docker — два уровня: без project отдаём проекты (каталоги), с project —
-    все файлы внутри него, включая вложенные (config/nginx/site.conf).
-    """
+async def api_files(
+    root: str = Query("scripts"),
+    project: str = Query(""),
+    directory: str = Query(""),
+):
+    """Список файлов; Docker отдаёт проекты либо один текущий каталог."""
     try:
         base = _root_path(root)
 
-        # --- docker: уровень 1 — список проектов ---
-        if root == "docker" and not project:
-            projects = []
-            for d in sorted(base.iterdir(), key=lambda x: x.name.lower()):
-                if not d.is_dir() or d.name.startswith("."):
-                    continue
-                files = [f for f in d.rglob("*") if f.is_file()]
-                total = 0
-                newest = 0
-                for f in files:
-                    try:
-                        st = f.stat()
-                        total += st.st_size
-                        newest = max(newest, int(st.st_mtime))
-                    except OSError:
-                        pass
-                projects.append({
-                    "name": d.name,
-                    "is_dir": True,
-                    "files": len(files),
-                    "size": total,
-                    "mtime": newest,
-                })
-            return {"root": root, "path": str(base), "level": "projects", "items": projects}
-
-        # --- docker: уровень 2 — файлы конкретного проекта (рекурсивно) ---
         if root == "docker":
-            pdir = _safe_rel(base, _safe_name(project))
-            if not pdir.is_dir():
-                raise HTTPException(404, "Проект не найден")
-            items = []
-            for f in sorted(pdir.rglob("*"), key=lambda x: x.as_posix().lower()):
-                if not f.is_file():
-                    continue
-                st = f.stat()
-                items.append({
-                    "name": f.relative_to(pdir).as_posix(),
-                    "is_dir": False,
-                    "size": st.st_size,
-                    "mtime": int(st.st_mtime),
-                    "editable": _is_texty(f) and st.st_size <= MAX_EDIT_SIZE,
-                })
+            from services.docker.impl import compose_store
+            if not project:
+                return {
+                    "root": root,
+                    "path": str(base),
+                    "level": "projects",
+                    "items": compose_store.list_library_projects(),
+                }
+
+            stack_name = compose_store.validate_stack_name(project)
+            rel_dir = ""
+            if directory:
+                rel_dir = compose_store.safe_relative_path(directory).as_posix()
+            items = compose_store.list_project_directory(stack_name, rel_dir)
+            for item in items:
+                path = Path(item["path"])
+                item["editable"] = (
+                    not item["is_dir"]
+                    and _is_texty(path)
+                    and int(item.get("size") or 0) <= MAX_EDIT_SIZE
+                )
             return {
-                "root": root, "path": str(pdir), "level": "files",
-                "project": pdir.name, "items": items,
+                "root": root,
+                "path": str(compose_store.stack_dir(stack_name)),
+                "level": "files",
+                "project": stack_name,
+                "directory": rel_dir,
+                "items": items,
             }
 
-        # --- scripts / keys: как было ---
+        # scripts / keys: прежний плоский список.
         items = []
         for f in sorted(base.iterdir(), key=lambda x: (not x.is_file(), x.name.lower())):
             if f.name.startswith("."):
                 continue
-            # не показываем публичные ключи
             if root == "keys" and f.name.endswith(".pub"):
                 continue
             if not f.is_file():
@@ -156,6 +139,10 @@ async def api_files(root: str = Query("scripts"), project: str = Query("")):
         return {"root": root, "path": str(base), "level": "files", "items": items}
     except HTTPException:
         raise
+    except StepError as e:
+        detail = getattr(e, "detail", "") or str(e)
+        title = getattr(e, "title", "") or "Ошибка"
+        raise HTTPException(400, f"{title}: {detail}")
     except Exception as e:
         return err(e)
 
@@ -166,7 +153,14 @@ def _resolve_target(root: str, name: str, project: str = "") -> Path:
     if root == "docker":
         if not project:
             raise HTTPException(400, "Не указан проект")
-        pdir = _safe_rel(base, _safe_name(project))
+        from services.docker.impl import compose_store
+        try:
+            stack_name = compose_store.validate_stack_name(project)
+        except StepError as e:
+            detail = getattr(e, "detail", "") or str(e)
+            title = getattr(e, "title", "") or "Ошибка"
+            raise HTTPException(400, f"{title}: {detail}")
+        pdir = _safe_rel(base, stack_name)
         return _safe_rel(pdir, name)
     fp = (base / _safe_name(name)).resolve()
     if not str(fp).startswith(str(base)):
@@ -238,11 +232,17 @@ async def api_files_write(body: FileWriteBody):
                 raise HTTPException(400, "Не указан проект")
             from core.integrator import StepError
             from services.docker.impl import compose_store
-            rel = _safe_rel(_safe_rel(base, _safe_name(body.project)), body.name)
-            pdir = _safe_rel(base, _safe_name(body.project))
+            try:
+                stack_name = compose_store.validate_stack_name(body.project)
+            except StepError as e:
+                detail = getattr(e, "detail", "") or str(e)
+                title = getattr(e, "title", "") or "Ошибка"
+                raise HTTPException(400, f"{title}: {detail}")
+            pdir = _safe_rel(base, stack_name)
+            rel = _safe_rel(pdir, body.name)
             try:
                 info = compose_store.save_project_file(
-                    pdir.name, rel.relative_to(pdir).as_posix(),
+                    stack_name, rel.relative_to(pdir).as_posix(),
                     body.content.encode("utf-8"),
                 )
             except StepError as e:
@@ -278,19 +278,16 @@ async def api_files_delete(root: str, name: str, project: str = Query("")):
     try:
         base = _root_path(root)
 
-        # Compose-файлы удаляем через сервисный слой: он не даст снести
-        # основной compose-файл (без него проект перестанет быть проектом).
+        # Объекты Compose-библиотеки удаляем через слой хранилища: он сам
+        # проверяет путь/симлинки и защищает фактический основной Compose-файл.
         if root == "docker":
             if not project:
                 raise HTTPException(400, "Не указан проект")
             from core.integrator import StepError
             from services.docker.impl import compose_store
-            pdir = _safe_rel(base, _safe_name(project))
-            rel = _safe_rel(pdir, name)
             try:
-                removed = compose_store.delete_project_file(
-                    pdir.name, rel.relative_to(pdir).as_posix()
-                )
+                stack_name = compose_store.validate_stack_name(project)
+                removed = compose_store.delete_project_entry(stack_name, name)
             except StepError as e:
                 detail = getattr(e, "detail", "") or str(e)
                 title = getattr(e, "title", "") or "Ошибка"
@@ -314,9 +311,145 @@ async def api_files_delete(root: str, name: str, project: str = Query("")):
         return err(e)
 
 
+class DockerProjectBody(BaseModel):
+    name: str = Field(..., min_length=1, max_length=63)
+
+
+class DockerObjectBody(BaseModel):
+    project: str = Field(..., min_length=1, max_length=63)
+    directory: str = ""
+    name: str = Field(..., min_length=1, max_length=255)
+    kind: str = ""
+
+
+def _docker_object_path(directory: str, name: str) -> str:
+    """Собрать путь из текущей папки и одного имени без basename-сокращений."""
+    raw_name = str(name or "").strip()
+    if not raw_name or raw_name in (".", "..") or "/" in raw_name or "\\" in raw_name:
+        raise HTTPException(400, "Имя должно быть одним файлом или папкой")
+    from services.docker.impl import compose_store
+    raw = f"{directory.rstrip('/')}/{raw_name}" if directory else raw_name
+    try:
+        return compose_store.safe_relative_path(raw).as_posix()
+    except StepError as e:
+        raise HTTPException(400, f"{getattr(e, 'title', 'Ошибка')}: {getattr(e, 'detail', str(e))}")
+
+
+def _docker_step_error(e: StepError) -> HTTPException:
+    return HTTPException(
+        400,
+        f"{getattr(e, 'title', '') or 'Ошибка'}: {getattr(e, 'detail', '') or str(e)}",
+    )
+
+
+@router.post("/api/files/docker/projects")
+async def api_docker_project_create(body: DockerProjectBody):
+    """Создать пустой проект только в существующей локальной библиотеке."""
+    from services.docker.impl import compose_store
+    try:
+        return {"ok": True, "project": compose_store.create_empty_project(body.name)}
+    except FileExistsError as e:
+        raise HTTPException(409, str(e))
+    except StepError as e:
+        raise _docker_step_error(e)
+
+
+@router.post("/api/files/docker/projects/upload")
+async def api_docker_project_upload(
+    file: UploadFile = File(...),
+    name: str = Query(""),
+):
+    """Безопасно импортировать новый ZIP-проект без merge/overwrite."""
+    from services.docker.impl import compose_store
+    filename = file.filename or "project.zip"
+    if Path(filename).suffix.lower() != ".zip":
+        raise HTTPException(400, "Поддерживаются только ZIP-архивы")
+    data = await file.read()
+    if len(data) > compose_store.MAX_PROJECT_TOTAL_SIZE:
+        raise HTTPException(400, "ZIP-архив слишком большой")
+    try:
+        chosen = (
+            compose_store.validate_stack_name(name)
+            if str(name or "").strip()
+            else compose_store.suggest_zip_stack_name(data, filename)
+        )
+        project = compose_store.import_zip_new(data, filename, chosen)
+        return {"ok": True, "project": project}
+    except FileExistsError as e:
+        raise HTTPException(409, {"message": str(e), "name": chosen})
+    except StepError as e:
+        raise _docker_step_error(e)
+
+
+@router.post("/api/files/docker/directories")
+async def api_docker_directory_create(body: DockerObjectBody):
+    from services.docker.impl import compose_store
+    rel = _docker_object_path(body.directory, body.name)
+    try:
+        info = compose_store.create_project_directory(body.project, rel)
+        return {"ok": True, "directory": info}
+    except FileExistsError as e:
+        raise HTTPException(409, str(e))
+    except StepError as e:
+        raise _docker_step_error(e)
+
+
+@router.post("/api/files/docker/files")
+async def api_docker_file_create(body: DockerObjectBody):
+    """Создать пустой YAML/ENV и не заменять существующий объект."""
+    from services.docker.impl import compose_store
+    kind = str(body.kind or "").strip().lower()
+    name = str(body.name or "").strip()
+    suffix = Path(name).suffix.lower()
+    if kind == "yaml":
+        if not suffix:
+            name += ".yml"
+        elif suffix not in (".yml", ".yaml"):
+            raise HTTPException(400, "Для YAML используйте расширение .yml или .yaml")
+    elif kind == "env":
+        if name != ".env" and suffix != ".env":
+            if suffix:
+                raise HTTPException(400, "Для ENV используйте имя .env или расширение .env")
+            name += ".env"
+    else:
+        raise HTTPException(400, "Тип файла: yaml или env")
+    rel = _docker_object_path(body.directory, name)
+    try:
+        info = compose_store.create_project_file(body.project, rel, b"")
+        return {"ok": True, "file": info}
+    except FileExistsError as e:
+        raise HTTPException(409, str(e))
+    except StepError as e:
+        raise _docker_step_error(e)
+
+
+@router.post("/api/files/docker/upload")
+async def api_docker_file_upload(
+    project: str = Query(...),
+    directory: str = Query(""),
+    file: UploadFile = File(...),
+):
+    """Загрузить один новый файл в текущую папку проекта без overwrite."""
+    from services.docker.impl import compose_store
+    raw_name = file.filename or ""
+    rel = _docker_object_path(directory, raw_name)
+    data = await file.read()
+    try:
+        info = compose_store.create_project_file(project, rel, data)
+        return {"ok": True, "file": info}
+    except FileExistsError as e:
+        raise HTTPException(409, str(e))
+    except (UnicodeDecodeError, StepError) as e:
+        if isinstance(e, StepError):
+            raise _docker_step_error(e)
+        raise HTTPException(400, "Compose-файл должен быть в кодировке UTF-8")
+
+
 @router.post("/api/files/upload")
 async def api_files_upload(root: str = Query("scripts"), file: UploadFile = File(...)):
     try:
+        if root == "docker":
+            raise HTTPException(400, "Для Docker используйте загрузку внутри проекта")
         base = _root_path(root)
         fname = _safe_name(file.filename or "file")
         data = await file.read()

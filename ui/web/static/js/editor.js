@@ -5,11 +5,13 @@
 // редактор с нумерацией строк: та же функциональность, без подсветки.
 // Так панель не зависит от интернета: остальной UI тоже полностью локальный.
 import { j, esc } from './api.js';
-import { toast } from './ui.js';
+import { toast, confirmAction } from './ui.js';
 
 let ctx = null;      // {root, project, name, original}
 let cm = null;       // экземпляр CodeMirror, если доступен
 let onSaved = null;  // колбэк после успешного сохранения
+let editorOptions = { discardOnCancel: false, shortcutSave: true };
+let editorUiBound = false;
 
 const hasCodeMirror = () => typeof window.CodeMirror === 'function';
 
@@ -68,7 +70,7 @@ function setText(text, name) {
     wrap?.classList.remove('hidden');
     if (cm) { cm.toTextArea?.(); cm = null; }
     wrap.innerHTML = '';
-    cm = window.CodeMirror(wrap, {
+    const instance = window.CodeMirror(wrap, {
       value: text,
       mode: modeFor(name),
       lineNumbers: true,
@@ -77,9 +79,17 @@ function setText(text, name) {
       tabSize: 2,
       indentWithTabs: false,
       theme: 'material-darker',
-      extraKeys: { 'Ctrl-S': () => save(), 'Cmd-S': () => save() },
+      extraKeys: {
+        'Ctrl-S': () => { if (editorOptions.shortcutSave) save(); },
+        'Cmd-S': () => { if (editorOptions.shortcutSave) save(); },
+      },
     });
-    setTimeout(() => cm.refresh(), 30);
+    cm = instance;
+    // CodeMirror должен обновиться после layout открытой модалки. Guard не даёт
+    // отложенному refresh затронуть уже заменённый экземпляр при быстрой загрузке.
+    requestAnimationFrame(() => {
+      if (cm === instance) instance.refresh();
+    });
   } else {
     wrap?.classList.add('hidden');
     plain?.classList.remove('hidden');
@@ -90,17 +100,28 @@ function setText(text, name) {
   }
 }
 
-export async function openEditor(root, name, project = '', afterSave = null) {
-  ctx = { root, project, name, original: '' };
+export async function openEditor(root, name, project = '', afterSave = null, options = {}) {
+  editorOptions = {
+    discardOnCancel: options.discardOnCancel === true,
+    shortcutSave: options.shortcutSave !== false,
+  };
+  const openedCtx = { root, project, name, original: '' };
+  ctx = openedCtx;
   onSaved = afterSave;
   const title = document.getElementById('editor-title');
   const warn = document.getElementById('editor-warn');
   const info = document.getElementById('editor-info');
+  const shortcuts = document.getElementById('editor-shortcuts');
   if (title) title.textContent = '✏️ ' + (project ? `${project}/${name}` : name);
   if (warn) warn.textContent = '';
   if (info) {
     info.textContent = hasCodeMirror()
       ? '' : 'Подсветка синтаксиса недоступна (нет vendor/codemirror) — редактор работает без неё.';
+  }
+  if (shortcuts) {
+    shortcuts.textContent = editorOptions.shortcutSave
+      ? 'Ctrl+S — сохранить без закрытия, Esc — закрыть'
+      : 'Изменения сохраняются только кнопкой «Сохранить»';
   }
   document.getElementById('editor-modal')?.classList.add('open');
   setText('Загрузка…', name);
@@ -109,9 +130,11 @@ export async function openEditor(root, name, project = '', afterSave = null) {
     const qs = new URLSearchParams({ root, name });
     if (project) qs.set('project', project);
     const d = await j('/api/files/read?' + qs);
+    if (ctx !== openedCtx) return;
     ctx.original = d.content || '';
     setText(ctx.original, name);
   } catch (e) {
+    if (ctx !== openedCtx) return;
     setText('', name);
     if (warn) warn.textContent = e.message;
   }
@@ -144,17 +167,25 @@ async function save(closeAfter = false) {
   }
 }
 
-function close(force = false) {
-  if (!force && ctx && currentText() !== ctx.original) {
-    if (!confirm('Есть несохранённые изменения. Закрыть без сохранения?')) return;
+// closeAfter=true — кнопка «Сохранить» зовёт close(true) — там подтверждение не нужно.
+async function close(force = false) {
+  if (!force && !editorOptions.discardOnCancel && ctx && currentText() !== ctx.original) {
+    if (!await confirmAction({
+      title: 'Закрыть без сохранения?',
+      message: 'Есть несохранённые изменения — они будут потеряны.',
+      confirmText: 'Закрыть',
+    })) return;
   }
   document.getElementById('editor-modal')?.classList.remove('open');
   if (cm) { cm = null; }
   ctx = null;
   onSaved = null;
+  editorOptions = { discardOnCancel: false, shortcutSave: true };
 }
 
 export function bindEditorUI() {
+  if (editorUiBound) return;
+  editorUiBound = true;
   // Кнопка сохраняет и закрывает редактор.
   document.getElementById('editor-save')?.addEventListener('click', () => save(true));
   document.getElementById('editor-cancel')?.addEventListener('click', () => close());
@@ -164,7 +195,7 @@ export function bindEditorUI() {
     if (!open) return;
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
       e.preventDefault();
-      save();          // без закрытия — привычное поведение горячей клавиши
+      if (editorOptions.shortcutSave) save();
     } else if (e.key === 'Escape') {
       close();
     }

@@ -30,9 +30,10 @@ export async function refreshTaskLog() {
       title.textContent =
         `${t.emoji || '📄'} ${t.name || t.id} · ${t.status || ''} · ${t.duration || ''}`;
     }
-    const lines = t.output_lines || [];
+    const lines = Array.isArray(t.output_lines) ? t.output_lines : [];
     const resultOut = t.result ? (t.result.output || '') : '';
-    const allText = lines.join('\n') + (resultOut ? '\n' + resultOut : '');
+    const resultErr = t.result ? (t.result.error || '') : '';
+    const allText = lines.join('\n') || resultOut || t.error || resultErr;
     bodyEl.innerHTML = allText
       ? allText.split('\n').map(ansiToHtml).join('\n')
       : esc('(лог пуст)');

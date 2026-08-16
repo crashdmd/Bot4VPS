@@ -170,6 +170,8 @@ async def shell_ws(websocket: WebSocket, server_id: str):
         for t in (rt, wt):
             try:
                 await t
+            except asyncio.CancelledError:
+                pass
             except Exception:
                 pass
         await asyncio.to_thread(session.close)

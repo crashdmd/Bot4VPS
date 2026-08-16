@@ -1,17 +1,22 @@
 {
     "bot_token": "YOUR_BOT_TOKEN_HERE",
-    "allowed_users": [
-        123456789
-    ],
+    "allowed_users": [],
     "monitor": {
         "online": {
             "enabled": true,
-            "interval": 1
+            "interval": 15
         },
         "ssl": {
             "enabled": true,
             "interval": 1440
         }
-    }
-
+    },
+    "web": {
+        "auth_enabled": false,
+        "username": "admin",
+        "password_hash": "",
+        "secret_key": ""
+    },
+    "telegram_enabled": true,
+    "update_check": {"enabled": true}
 }

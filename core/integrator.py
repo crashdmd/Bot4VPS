@@ -576,7 +576,7 @@ async def _svc_scan_executor(
 
     servers = load_servers()
     if not servers:
-        return TaskResult(success=False, error="Нет серверов")
+        return TaskResult(success=True, output="Серверов для проверки нет")
 
     lines: List[str] = []
     ok = warn = fail = 0

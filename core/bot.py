@@ -64,38 +64,11 @@ NOTIFICATION_HANDLERS = {
 
 # Единый экземпляр Application (TG + Web в одном процессе)
 _application: Application | None = None
-# Последняя ошибка старта (для статуса в Web UI)
-_last_start_error: str | None = None
 
 
 def get_application() -> Application | None:
     """Текущий PTB Application (для reschedule monitor из Web и т.п.)."""
     return _application
-
-
-def get_last_start_error() -> str | None:
-    return _last_start_error
-
-
-def _humanize_start_error(exc: BaseException) -> str:
-    """Понятное сообщение для UI (невалидный токен и т.п.)."""
-    name = type(exc).__name__
-    msg = str(exc).strip() or name
-    low = msg.lower()
-    if "unauthorized" in low or name in ("InvalidToken", "Unauthorized"):
-        return "невалидный Bot Token (Telegram отклонил авторизацию)"
-    if "invalid token" in low or "token" in low and "invalid" in low:
-        return "невалидный Bot Token"
-    if "conflict" in low:
-        return "конфликт getUpdates (бот уже запущен в другом процессе)"
-    if "timed out" in low or "timeout" in low:
-        return "таймаут связи с Telegram API"
-    if "network" in low or "connect" in low:
-        return f"сеть: {msg}"
-    # коротко, без огромных traceback
-    if len(msg) > 160:
-        msg = msg[:157] + "..."
-    return msg
 
 
 async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -165,7 +138,6 @@ async def start_telegram(app: Application | None = None) -> Application:
     # replace=True — без дублей при reload
     register_notifier(_immediate_notify, replace=True)
 
-    global _last_start_error
     try:
         await application.initialize()
         if application.job_queue is not None:
@@ -176,16 +148,14 @@ async def start_telegram(app: Application | None = None) -> Application:
 
         await application.start()
         await application.updater.start_polling(drop_pending_updates=False)
-    except Exception as e:
+    except Exception:
         # Провал старта — откат lifecycle, чтобы lifespan получил чистое
         # состояние: stop/shutdown каждого шага + clear_notifiers +
         # сброс _application. Исключение прокидывается для лога в lifespan.
-        _last_start_error = _humanize_start_error(e)
-        print(f"[BOT] start_telegram failed — rolling back: {_last_start_error}", flush=True)
+        print("[BOT] start_telegram failed — rolling back", flush=True)
         await stop_telegram(application)
         raise
 
-    _last_start_error = None
     print("🤖 Telegram bot started (manual lifecycle)", flush=True)
     return application
 

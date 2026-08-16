@@ -14,7 +14,7 @@ Phase 5: Compose-проекты. Объект — ПРОЕКТ (директор
 
 Кэш (data/services/docker/<server>.json):
     {installed, version, active, containers:[...], images:[...], stats:{...},
-     synced_at, service_id}
+     ignored:["project|working_dir", ...], synced_at, service_id}
 """
 from __future__ import annotations
 
@@ -26,6 +26,7 @@ from core.integrator import (
     ServiceAction,
     read_cache,
     sync_progress,
+    update_cache,
 )
 from core.ssh import create_ssh_client, exec_sudo
 from core.storage import find_server
@@ -113,24 +114,47 @@ class Service(BaseService):
                         "docker inspect $(docker ps -q 2>/dev/null) 2>/dev/null || true",
                     )
                     ps_list = stats.parse_ps(ps_txt)
+                    # Игнор: сначала исключаем контейнеры из пользовательского
+                    # представления, и только затем обогащаем и считаем статистику.
+                    # Полные данные по-прежнему остаются в Docker и ignored-кэше.
+                    ignored_set = set(self._ignored_keys(server_id))
+                    if ignored_set:
+                        ps_list = [
+                            c for c in ps_list
+                            if f"{c.get('compose_project')}|{(c.get('compose_workdir') or '').rstrip('/')}"
+                            not in ignored_set
+                        ]
                     stats_map = stats.parse_stats(stats_txt)
                     inspect_map = stats.parse_inspect(inspect_txt)
                     containers_list = stats.build_container_stats(
                         ps_list, stats_map, inspect_map
                     )
-            # Добавить service_url для контейнеров с опубликованными портами
+            # Backend отдаёт полный набор URL по опубликованным HOST-портам.
+            # Frontend выбирает только готовый URL и не угадывает протокол.
             host = server.get("host", "")
             for c in containers_list:
-                port = c.get("published_port")
-                if port and c.get("state") == "running":
-                    c["service_url"] = f"http://{host}:{port}"
-                else:
-                    c["service_url"] = ""
+                urls = []
+                if c.get("state") == "running":
+                    for port in c.get("published_ports") or []:
+                        proto = "https" if str(port) == "443" else "http"
+                        urls.append({
+                            "port": str(port),
+                            "url": f"{proto}://{host}:{port}",
+                        })
+                c["service_urls"] = urls
+                # Старое поле сохраняем для совместимости других потребителей.
+                c["service_url"] = urls[0]["url"] if urls else ""
             # Phase 4: добавить список образов (только если демон активен)
             images_list: List[Dict[str, Any]] = []
             if installed and active == "active":
                 images_list = images.list_images(server)
             running = sum(1 for c in containers_list if c.get("state") == "running")
+            stats_summary = {
+                "total": len(containers_list),
+                "running": running,
+                "managed": sum(1 for c in containers_list if c.get("managed")),
+                "images": len(images_list),
+            }
             # Задачи здесь НЕ отдаём: их место — меню «Очереди» (/api/queues).
             # core не должен зависеть от ui.web.
             return {
@@ -139,21 +163,21 @@ class Service(BaseService):
                 "active": active,
                 "containers": containers_list,
                 "images": images_list,
-                "stats": {
-                    "total": len(containers_list),
-                    "running": running,
-                    "managed": sum(1 for c in containers_list if c.get("managed")),
-                    "images": len(images_list),
-                },
+                "stats": stats_summary,
             }
         finally:
             ssh.close()
 
     async def do_sync(self, server_id: str) -> Dict[str, Any]:
         try:
-            return await asyncio.to_thread(self._read_live, server_id)
+            data = await asyncio.to_thread(self._read_live, server_id)
         except Exception as e:
-            return {"installed": False, "error": str(e)}
+            data = {"installed": False, "error": str(e)}
+        # integrator.sync() переписывает кэш ЦЕЛИКОМ (write_cache), а не
+        # сливает поля — возвращаем ignored в данных, иначе игнор слетал бы
+        # при каждой синхронизации (docs/compose-model.md §11).
+        data["ignored"] = self._ignored_keys(server_id)
+        return data
 
     def get_state(self, server_id: str) -> Dict[str, Any]:
         """Живое чтение состояния БЕЗ записи кэша — для открытия/рефреша экрана.
@@ -257,18 +281,19 @@ class Service(BaseService):
     # --------------------------------------------------------
 
     def get_stacks(self, server_id: str) -> Dict[str, Any]:
-        """Библиотека проектов + фактическое состояние сервера.
+        """Единая таблица Compose-проектов (docs/compose-model.md §2, §4-5).
 
-        Возвращает {library, server, reconciled, server_accessible}. Библиотека
-        читается всегда (локальный ФС); серверное состояние — best-effort: при
-        недоступности SSH проекты библиотеки всё равно видны и редактируемы.
-
-        reconciled делит проекты на три группы:
-          both         — есть и в библиотеке, и развёрнут Bot4VPS на этом сервере
-                         (+ project_match: совпадают ли файлы, §23)
-          library_only — только в библиотеке (можно развернуть)
-          server_only  — найден на сервере, в библиотеке нет (внешний, §15)
+        Возвращает {rows, ignored, server_accessible}:
+          rows    — список строк таблицы из reconcile_stacks v2: каждая — один
+                    проект с точки зрения пользователя (статус, локальная копия,
+                    конфликт имён). Игнорируемые исключены.
+          ignored — игнор-ключи из кэша (для модалки «Игнорируемые» нужны
+                    живые данные сервера — их отдаёт list_ignored_stacks).
+        Библиотека читается всегда (локальная ФС); серверное состояние —
+        best-effort: при недоступности SSH библиотечные проекты всё равно
+        видны (статус absent).
         """
+        ignored = self._ignored_keys(server_id)
         library = compose_store.list_stacks()
         server: List[Dict[str, Any]] = []
         server_accessible = False
@@ -280,27 +305,74 @@ class Service(BaseService):
             except Exception as e:
                 print(f"[DOCKER] compose list_server_stacks({server_id}): {e}", flush=True)
 
-        # Сверка каждой серверной записи с библиотекой — по ней UI решает,
-        # предлагать ли импорт и предупреждать ли о перезаписи:
-        #   in_library=False → импорт доступен (проекта в библиотеке нет)
-        #   lib_match=True   → «совпадает», импорт незачем
-        #   lib_match=False  → «отличается», импорт с подтверждением
-        #   lib_match=None   → сравнить не удалось (файлы не прочитаны)
-        lib_fp = {s["name"]: s.get("fingerprint") for s in library}
-        for rec in server:
-            name = rec.get("name")
-            in_lib = name in lib_fp
-            rec["in_library"] = in_lib
-            srv_fp, l_fp = rec.get("fingerprint"), lib_fp.get(name)
-            rec["lib_match"] = (srv_fp == l_fp) if (in_lib and srv_fp and l_fp) else None
-
-        reconciled = compose_store.reconcile_stacks(library, server)
+        reconciled = compose_store.reconcile_stacks(library, server, ignored)
         return {
-            "library": library,
-            "server": server,
-            "reconciled": reconciled,
+            "rows": reconciled["rows"],
+            "ignored": ignored,
             "server_accessible": server_accessible,
         }
+
+    # --- игнор (docs/compose-model.md §11) ---
+
+    def _ignored_keys(self, server_id: str) -> List[str]:
+        """Игнор-ключи проекта на сервере (из кэша; кэш живёт в integrator)."""
+        return list(read_cache(self.manifest.id, server_id).get("ignored") or [])
+
+    def _compose_ignore_key(self, server_id: str, stack: str, key: Optional[str]) -> str:
+        """Игнор-ключ по имени+key развёртывания: резолвит через SSH.
+
+        Ключ не берём из params «как есть»: между списком и нажатием состав
+        config_files мог измениться, а игнор живёт по паре (project, working_dir).
+        """
+        server = find_server(server_id)
+        if not server:
+            raise RuntimeError("Сервер не найден")
+        dep = compose.resolve_deployment(server, stack, key)
+        return dep.ignore_key
+
+    def set_ignored(self, server_id: str, stack: str, key: Optional[str] = None) -> Dict[str, Any]:
+        """Добавить проект в игнор на этом сервере (строка, контейнеры и их
+        пользовательская статистика скрываются)."""
+        ignore_key = self._compose_ignore_key(server_id, stack, key)
+        cache = read_cache(self.manifest.id, server_id)
+        lst = cache.get("ignored") or []
+        if ignore_key not in lst:
+            lst.append(ignore_key)
+            update_cache(self.manifest.id, server_id, ignored=lst)
+        return {"ok": True, "ignored": lst}
+
+    def set_unignored(self, server_id: str, ignore_key: str) -> Dict[str, Any]:
+        """Убрать проект из игнора (по игнор-ключу, без SSH)."""
+        cache = read_cache(self.manifest.id, server_id)
+        lst = [k for k in (cache.get("ignored") or []) if k != ignore_key]
+        update_cache(self.manifest.id, server_id, ignored=lst)
+        return {"ok": True, "ignored": lst}
+
+    def list_ignored_stacks(self, server_id: str) -> List[Dict[str, Any]]:
+        """Игнорируемые развёртывания с живыми данными сервера (для модалки):
+        [{name, working_dir, status, key, ignore_key}]."""
+        ignored = self._ignored_keys(server_id)
+        if not ignored:
+            return []
+        server = find_server(server_id)
+        if not server:
+            return []
+        try:
+            stacks = compose.list_server_stacks(server)
+        except Exception as e:
+            raise RuntimeError(f"Не удалось получить список проектов: {e}")
+        out = []
+        for rec in stacks:
+            if rec.get("ignore_key") in ignored:
+                running = int(rec.get("containers_running") or 0)
+                out.append({
+                    "name": rec.get("name"),
+                    "working_dir": rec.get("working_dir"),
+                    "status": "running" if running > 0 else "stopped",
+                    "key": rec.get("key"),
+                    "ignore_key": rec.get("ignore_key"),
+                })
+        return out
 
     # --- файлы проекта в библиотеке (проект = директория) ---
 
@@ -320,9 +392,33 @@ class Service(BaseService):
         """Все файлы проекта: [{path, size, is_compose}]."""
         return compose_store.list_project_files(name)
 
-    def fetch_stack_project_file(self, server_id: str, name: str, path: str) -> str:
-        """Содержимое произвольного текстового файла проекта (.env и т.п.)."""
-        return compose_store.read_project_file(name, path)
+    def fetch_stack_project_file(
+        self, server_id: str, name: str, path: str
+    ) -> Dict[str, Any]:
+        """Файл библиотеки в том же формате, что удалённый файл.
+
+        Текст возвращается для редактора, изображения — base64 для общего
+        механизма превью Docker-проектов.
+        """
+        import base64
+        data = compose_store.read_project_bytes(name, path)
+        if len(data) > compose_store.MAX_PROJECT_FILE_SIZE:
+            raise StepError(
+                "file_too_large", -1, title="Файл слишком велик",
+                detail=(
+                    f"лимит {compose_store.MAX_PROJECT_FILE_SIZE // (1024 * 1024)} МБ"
+                ),
+            )
+        result: Dict[str, Any] = {"path": path, "size": len(data)}
+        mime = compose._sniff_mime(data)
+        if mime.startswith("image/") or b"\0" in data[:8192]:
+            result["binary"] = True
+            result["b64"] = base64.b64encode(data).decode("ascii")
+            result["mime"] = mime
+        else:
+            result["binary"] = False
+            result["text"] = data.decode("utf-8", errors="replace")
+        return result
 
     def save_stack_project_file(
         self, server_id: str, name: str, path: str, content: str
@@ -351,6 +447,46 @@ class Service(BaseService):
         if not server:
             raise RuntimeError("Сервер не найден")
         return compose.fetch_logs(server, name, tail, source=source, key=key)
+
+    # --- файлы проекта на сервере (docs/compose-model.md §9) ---
+
+    def list_stack_remote_files(self, server_id: str, name: str, key: Optional[str] = None):
+        """Файлы развёртывания на сервере: [{path, size, is_compose}]."""
+        server = find_server(server_id)
+        if not server:
+            raise RuntimeError("Сервер не найден")
+        return compose.list_remote_files(server, name, key)
+
+    def fetch_stack_remote_file(
+        self, server_id: str, name: str, path: str, key: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Файл развёртывания: {path, size, binary, text | b64+mime}.
+
+        Бинарные (jpg/png/webp/gif) — base64 для превью (§9).
+        """
+        server = find_server(server_id)
+        if not server:
+            raise RuntimeError("Сервер не найден")
+        return compose.fetch_remote_file(server, name, path, key)
+
+    def save_stack_remote_file(
+        self, server_id: str, name: str, path: str, content: str,
+        key: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Записать файл развёртывания (редактор §8)."""
+        server = find_server(server_id)
+        if not server:
+            raise RuntimeError("Сервер не найден")
+        return compose.write_remote_file(server, name, path, content, key)
+
+    def delete_stack_remote_file(
+        self, server_id: str, name: str, path: str, key: Optional[str] = None,
+    ) -> str:
+        """Удалить файл развёртывания (кроме основного Compose-файла)."""
+        server = find_server(server_id)
+        if not server:
+            raise RuntimeError("Сервер не найден")
+        return compose.delete_remote_file(server, name, path, key)
 
     # --------------------------------------------------------
     # Единые действия Compose (§19).

@@ -53,6 +53,18 @@ MAX_PROJECT_FILE_SIZE = 5 * 1024 * 1024   # любой файл проекта
 MAX_PROJECT_TOTAL_SIZE = 50 * 1024 * 1024  # весь проект (защита от zip-бомбы)
 MAX_PROJECT_FILES = 500
 
+# Конфиг-набор проекта (docs/compose-model.md §3): ОДИН набор правил для
+# fingerprint, импорта и деплоя. Библиотека — конфиг-бэкап, а не бэкап данных:
+# runtime-данные контейнера (data/, logs/, …) не относятся к конфигурации, и
+# живой проект с ними вечно «расходился» бы с библиотекой.
+CONFIG_EXCLUDE_DIRS = frozenset({
+    "data", "logs", "log", "cache", "tmp", "temp",
+    "uploads", "backup", "backups", "node_modules", ".git",
+})
+CONFIG_DATA_DIR_SUFFIX = "_data"     # pg_data, mysql_data, …
+CONFIG_MAX_FILE_SIZE = 1024 * 1024   # конфиг больше 1 МиБ — это не конфиг
+_CONFIG_BINARY_SNIFF = 8192          # NUL-байт в первых 8 КиБ = бинарный
+
 _STORE_LOCK = threading.RLock()
 
 
@@ -232,7 +244,8 @@ def stack_dir(name: str) -> Path:
 def find_compose_filename(directory: Path) -> Optional[str]:
     """Имя основного Compose-файла в каталоге (по приоритету Docker Compose)."""
     for fname in COMPOSE_FILENAMES:
-        if (directory / fname).is_file():
+        candidate = directory / fname
+        if candidate.is_file() and not candidate.is_symlink():
             return fname
     return None
 
@@ -266,6 +279,199 @@ def stack_exists_safe(name: str) -> bool:
         return False
 
 
+def project_dir_exists(name: str) -> bool:
+    """Есть ли каталог проекта, даже пока в нём нет Compose-файла."""
+    return stack_dir(name).is_dir()
+
+
+def _project_target(name: str, rel_path: str = "", *, require_project: bool = True) -> Path:
+    """Безопасно разрешить путь внутри каталога проекта.
+
+    Помимо проверки ``..`` учитывает симлинки, которые могли быть добавлены в
+    библиотеку вручную: итоговый путь обязан остаться внутри реального каталога
+    проекта.
+    """
+    directory = stack_dir(name)
+    store = STORE_DIR.resolve()
+    resolved_dir = directory.resolve()
+    if resolved_dir.parent != store or directory.is_symlink():
+        raise StepError(
+            "validate_path", -1, title="Путь в проекте",
+            detail="каталог проекта находится вне локальной Docker-библиотеки",
+        )
+    if require_project and not directory.is_dir():
+        raise StepError(
+            "project_not_found", -1, title="Проект не найден",
+            detail=f"проект «{validate_stack_name(name)}» отсутствует в библиотеке",
+        )
+    if not rel_path:
+        return resolved_dir
+    rel = safe_relative_path(rel_path)
+    target = (resolved_dir / Path(*rel.parts)).resolve()
+    if target != resolved_dir and resolved_dir not in target.parents:
+        raise StepError(
+            "validate_path", -1, title="Путь в проекте",
+            detail=f"выход за пределы проекта запрещён: {rel_path!r}",
+        )
+    return target
+
+
+def list_library_projects() -> List[Dict[str, Any]]:
+    """Каталоги локальной библиотеки для «Файлы → Docker», включая пустые."""
+    out: List[Dict[str, Any]] = []
+    if not STORE_DIR.is_dir():
+        return out
+    for entry in sorted(STORE_DIR.iterdir(), key=lambda p: p.name.lower()):
+        if not entry.is_dir() or entry.is_symlink() or entry.name.startswith("."):
+            continue
+        try:
+            name = validate_stack_name(entry.name)
+        except StepError:
+            continue
+        files = iter_project_files(name)
+        total = 0
+        newest = 0.0
+        for rel in files:
+            try:
+                st = (entry / Path(*rel.parts)).stat()
+                total += st.st_size
+                newest = max(newest, st.st_mtime)
+            except OSError:
+                pass
+        out.append({
+            "name": name,
+            "is_dir": True,
+            "files": len(files),
+            "size": total,
+            "mtime": int(newest),
+            "compose_file": find_compose_filename(entry) or "",
+        })
+    return out
+
+
+def list_project_directory(name: str, rel_dir: str = "") -> List[Dict[str, Any]]:
+    """Непосредственные дочерние объекты каталога проекта для файлового UI."""
+    directory = _project_target(name, rel_dir)
+    if not directory.is_dir():
+        raise StepError(
+            "list_directory", -1, title="Папка не найдена",
+            detail=f"в проекте «{name}» нет папки {rel_dir or '/'}",
+        )
+    project_root = _project_target(name)
+    compose_name = find_compose_filename(project_root)
+    out: List[Dict[str, Any]] = []
+    for item in sorted(directory.iterdir(), key=lambda p: (not p.is_dir(), p.name.lower())):
+        if item.is_symlink():
+            continue
+        try:
+            resolved = item.resolve()
+            if resolved != project_root and project_root not in resolved.parents:
+                continue
+            st = item.stat()
+        except OSError:
+            continue
+        rel = item.relative_to(project_root).as_posix()
+        out.append({
+            "name": item.name,
+            "path": rel,
+            "is_dir": item.is_dir(),
+            "size": None if item.is_dir() else st.st_size,
+            "mtime": int(st.st_mtime),
+            "is_compose": not item.is_dir() and rel == compose_name,
+        })
+    return out
+
+
+def create_empty_project(name: str) -> Dict[str, Any]:
+    """Создать пустой каталог проекта без Compose-файла и без deployment."""
+    stack_name = validate_stack_name(name)
+    target = STORE_DIR / stack_name
+    with _STORE_LOCK:
+        STORE_DIR.mkdir(parents=True, exist_ok=True)
+        if target.exists() or target.is_symlink():
+            raise FileExistsError(f"Проект «{stack_name}» уже существует.")
+        target.mkdir(mode=0o755)
+    return {"name": stack_name, "files": 0}
+
+
+def create_project_directory(name: str, rel_path: str) -> Dict[str, Any]:
+    """Создать одну папку в существующем проекте, не объединяя конфликты."""
+    stack_name = validate_stack_name(name)
+    target = _project_target(stack_name, rel_path)
+    parent = target.parent
+    project_root = _project_target(stack_name)
+    if parent != project_root and project_root not in parent.parents:
+        raise StepError("create_directory", -1, title="Путь в проекте", detail="путь вне проекта")
+    with _STORE_LOCK:
+        if not parent.is_dir():
+            raise StepError(
+                "create_directory", -1, title="Папка не найдена",
+                detail="родительская папка не существует",
+            )
+        if target.exists() or target.is_symlink():
+            raise FileExistsError(f"Объект «{PurePosixPath(rel_path).name}» уже существует.")
+        target.mkdir(mode=0o755)
+    return {"name": stack_name, "path": safe_relative_path(rel_path).as_posix()}
+
+
+def create_project_file(name: str, rel_path: str, data: bytes = b"") -> Dict[str, Any]:
+    """Создать новый файл проекта атомарно, никогда не перезаписывая конфликт."""
+    stack_name = validate_stack_name(name)
+    rel = safe_relative_path(rel_path).as_posix()
+    if len(data) > MAX_PROJECT_FILE_SIZE:
+        raise StepError(
+            "create_file", -1, title="Файл слишком большой",
+            detail=f"больше {MAX_PROJECT_FILE_SIZE // (1024 * 1024)} МБ",
+        )
+    target = _project_target(stack_name, rel)
+    parent = target.parent
+    project_root = _project_target(stack_name)
+    if parent != project_root and project_root not in parent.parents:
+        raise StepError("create_file", -1, title="Путь в проекте", detail="путь вне проекта")
+
+    # Загруженный основной Compose-файл проверяем до записи. Пустой файл при
+    # явном создании разрешён: пользователь сразу откроет его в редакторе.
+    if rel in COMPOSE_FILENAMES and data:
+        data = validate_compose_yaml(data.decode("utf-8")).encode("utf-8")
+
+    with _STORE_LOCK:
+        if not parent.is_dir():
+            raise StepError(
+                "create_file", -1, title="Папка не найдена",
+                detail="родительская папка не существует",
+            )
+        if target.exists() or target.is_symlink():
+            raise FileExistsError(f"Объект «{PurePosixPath(rel).name}» уже существует.")
+        if len(iter_project_files(stack_name)) >= MAX_PROJECT_FILES:
+            raise StepError(
+                "create_file", -1, title="Слишком много файлов",
+                detail=f"в проекте уже {MAX_PROJECT_FILES} файлов",
+            )
+        current_total = sum(
+            (_project_target(stack_name, p.as_posix()).stat().st_size
+             for p in iter_project_files(stack_name))
+        )
+        if current_total + len(data) > MAX_PROJECT_TOTAL_SIZE:
+            raise StepError(
+                "create_file", -1, title="Проект слишком большой",
+                detail=f"суммарно больше {MAX_PROJECT_TOTAL_SIZE // (1024 * 1024)} МБ",
+            )
+        fd, tmp_name = tempfile.mkstemp(prefix=f".{target.name}.", suffix=".tmp", dir=parent)
+        try:
+            with os.fdopen(fd, "wb") as f:
+                f.write(data)
+                f.flush()
+                os.fsync(f.fileno())
+            # Повторная проверка внутри lock непосредственно перед публикацией.
+            if target.exists() or target.is_symlink():
+                raise FileExistsError(f"Объект «{PurePosixPath(rel).name}» уже существует.")
+            os.replace(tmp_name, target)
+        finally:
+            if os.path.exists(tmp_name):
+                os.unlink(tmp_name)
+    return {"name": stack_name, "path": rel, "size": len(data)}
+
+
 def iter_project_files(name: str) -> List[PurePosixPath]:
     """Все файлы проекта относительными POSIX-путями (рекурсивно, sorted)."""
     directory = stack_dir(name)
@@ -273,10 +479,92 @@ def iter_project_files(name: str) -> List[PurePosixPath]:
         return []
     out: List[PurePosixPath] = []
     for path in sorted(directory.rglob("*")):
-        if not path.is_file():
+        if path.is_symlink() or not path.is_file():
             continue
         rel = path.relative_to(directory).as_posix()
         out.append(PurePosixPath(rel))
+    return out
+
+
+# --------------------------------------------------
+# Конфиг-набор проекта (docs/compose-model.md §3)
+# --------------------------------------------------
+
+def _is_config_dir(name: str) -> bool:
+    """Каталог исключается из конфиг-набора (runtime-данные контейнера)."""
+    n = (name or "").strip().lower()
+    return n in CONFIG_EXCLUDE_DIRS or (
+        n.endswith(CONFIG_DATA_DIR_SUFFIX) and len(n) > len(CONFIG_DATA_DIR_SUFFIX)
+    )
+
+
+def is_config_file(rel_path: str, size: Optional[int] = None,
+                   head: Optional[bytes] = None) -> bool:
+    """Принадлежит ли файл конфиг-набору проекта.
+
+    Один предикат для fingerprint, импорта с сервера и деплоя из библиотеки —
+    все три работают с одинаковым набором, иначе сверка версий расходилась бы
+    из-за правил отбора, а не из-за правок. Критерий — содержимое, не
+    расширение: безымянные конфиги остаются в наборе.
+
+    rel_path: путь внутри проекта (POSIX). size/head опциональны — их знает
+    локальная ФС; на удалённом списке могут отсутствовать, тогда проверяется
+    только путь.
+    """
+    parts = PurePosixPath(str(rel_path or "")).parts
+    if not parts:
+        return False
+    for p in parts[:-1]:
+        if _is_config_dir(p):
+            return False
+    fname = parts[-1]
+    if fname in (".", "..") or fname.startswith("/"):
+        return False
+    if size is not None and size > CONFIG_MAX_FILE_SIZE:
+        return False
+    if head is not None and b"\0" in head[:_CONFIG_BINARY_SNIFF]:
+        return False
+    return True
+
+
+def filter_config_files(files: Dict[str, bytes]) -> List[str]:
+    """Оставить из {rel_path: bytes} только конфиг-набор (sorted rel-пути).
+
+    Чистая функция: фильтрует прочитанный с сервера tar-набор тем же
+    предикатом, что и локальную библиотеку.
+    """
+    out: List[str] = []
+    for rel, data in files.items():
+        if is_config_file(rel, size=len(data), head=data):
+            out.append(rel)
+    return sorted(out)
+
+
+def iter_config_files(name: str) -> List[PurePosixPath]:
+    """Файлы проекта, входящие в конфиг-набор (sorted, относительные пути).
+
+    Отличается от iter_project_files только отбором: runtime-данные (data/,
+    logs/, …) и крупные/бинарные файлы в конфиг-бэкап не попадают.
+    """
+    directory = stack_dir(name)
+    out: List[PurePosixPath] = []
+    for rel in iter_project_files(name):
+        full = directory / Path(*rel.parts)
+        try:
+            size = full.stat().st_size
+        except OSError:
+            continue
+        if not is_config_file(rel.as_posix(), size=size, head=None):
+            continue
+        # Размер прошёл — нюхаем бинарность только головой, не читая мегабайты.
+        try:
+            with open(full, "rb") as f:
+                head = f.read(_CONFIG_BINARY_SNIFF)
+        except OSError:
+            continue
+        if not is_config_file(rel.as_posix(), size=size, head=head):
+            continue
+        out.append(rel)
     return out
 
 
@@ -330,14 +618,16 @@ def read_project_bytes(name: str, rel_path: str) -> bytes:
 
 
 def project_fingerprint(name: str) -> str:
-    """SHA-256 по всем файлам проекта (путь + содержимое).
+    """SHA-256 по КОНФИГ-НАБОРУ проекта (путь + содержимое).
 
-    Используется для сравнения локальной версии с развёрнутой на сервере (§23).
-    Детерминирован: файлы обходятся в отсортированном порядке.
+    Используется для сравнения локальной версии с развёрнутой на сервере
+    (docs/compose-model.md §3). Runtime-данные (data/, logs/, …) не участвуют:
+    иначе живой проект вечно «расходился» бы с библиотекой. Детерминирован:
+    файлы обходятся в отсортированном порядке.
     """
     directory = stack_dir(name)
     h = hashlib.sha256()
-    for rel in iter_project_files(name):
+    for rel in iter_config_files(name):
         h.update(rel.as_posix().encode("utf-8"))
         h.update(b"\0")
         h.update((directory / Path(*rel.parts)).read_bytes())
@@ -547,52 +837,160 @@ def write_project(name: str, files: Dict[str, bytes]) -> Dict[str, Any]:
 
 
 def save_project_file(name: str, rel_path: str, data: bytes) -> Dict[str, Any]:
-    """Записать/заменить один файл проекта (например .env), не трогая остальные."""
+    """Атомарно записать один файл проекта, сохранив остальные файлы и папки."""
     stack_name = validate_stack_name(name)
     rel = safe_relative_path(rel_path).as_posix()
-    directory = STORE_DIR / stack_name
+    if len(data) > MAX_PROJECT_FILE_SIZE:
+        raise StepError(
+            "save_file", -1, title="Файл слишком большой",
+            detail=f"больше {MAX_PROJECT_FILE_SIZE // (1024 * 1024)} МБ",
+        )
 
-    files: Dict[str, bytes] = {}
-    if directory.is_dir():
-        for existing in iter_project_files(stack_name):
-            files[existing.as_posix()] = (directory / Path(*existing.parts)).read_bytes()
-    files[rel] = data
+    project_root = _project_target(stack_name)
+    target = _project_target(stack_name, rel)
+    lexical_target = project_root / Path(*PurePosixPath(rel).parts)
+    if lexical_target.is_symlink():
+        raise StepError(
+            "save_file", -1, title="Путь в проекте",
+            detail="запись через симлинк запрещена",
+        )
+    if target.exists() and not target.is_file():
+        raise StepError(
+            "save_file", -1, title="Файл не найден",
+            detail=f"{rel} не является файлом",
+        )
+    if not target.parent.is_dir():
+        raise StepError(
+            "save_file", -1, title="Папка не найдена",
+            detail="родительская папка не существует",
+        )
 
-    # Если правим основной Compose-файл — валидируем как Compose.
-    compose_name = find_compose_filename(directory)
+    # Если правим основной Compose-файл — валидируем его до записи.
+    compose_name = find_compose_filename(project_root)
     if compose_name and rel == compose_name:
-        files[rel] = validate_compose_yaml(data.decode("utf-8")).encode("utf-8")
+        try:
+            data = validate_compose_yaml(data.decode("utf-8")).encode("utf-8")
+        except UnicodeDecodeError:
+            raise StepError(
+                "save_file", -1, title="Compose-файл",
+                detail=f"{compose_name} не в кодировке UTF-8",
+            )
 
-    _write_files_atomic(stack_name, files)
+    with _STORE_LOCK:
+        existing_files = iter_project_files(stack_name)
+        if not target.exists() and len(existing_files) >= MAX_PROJECT_FILES:
+            raise StepError(
+                "save_file", -1, title="Слишком много файлов",
+                detail=f"в проекте уже {MAX_PROJECT_FILES} файлов",
+            )
+        old_size = target.stat().st_size if target.is_file() else 0
+        current_total = sum(
+            (_project_target(stack_name, p.as_posix()).stat().st_size
+             for p in existing_files)
+        )
+        if current_total - old_size + len(data) > MAX_PROJECT_TOTAL_SIZE:
+            raise StepError(
+                "save_file", -1, title="Проект слишком большой",
+                detail=f"суммарно больше {MAX_PROJECT_TOTAL_SIZE // (1024 * 1024)} МБ",
+            )
+
+        mode = (target.stat().st_mode & 0o777) if target.is_file() else 0o644
+        fd, tmp_name = tempfile.mkstemp(
+            prefix=f".{target.name}.", suffix=".tmp", dir=target.parent,
+        )
+        try:
+            with os.fdopen(fd, "wb") as f:
+                f.write(data)
+                f.flush()
+                os.fsync(f.fileno())
+            os.chmod(tmp_name, mode)
+            os.replace(tmp_name, target)
+        finally:
+            if os.path.exists(tmp_name):
+                os.unlink(tmp_name)
+
     return {"name": stack_name, "path": rel, "fingerprint": project_fingerprint(stack_name)}
 
 
-def delete_project_file(name: str, rel_path: str) -> str:
-    """Удалить один файл проекта. Основной Compose-файл удалить нельзя."""
+def delete_project_entry(
+    name: str,
+    rel_path: str,
+    *,
+    allow_directory: bool = True,
+) -> Dict[str, Any]:
+    """Удалить файл или каталог внутри проекта, не затрагивая runtime Docker.
+
+    Путь повторно проверяется на уровне хранилища. Удаление через симлинк
+    запрещено даже тогда, когда симлинк указывает обратно внутрь проекта.
+    Основной Compose-файл определяется только через ``find_compose_filename``.
+    """
     stack_name = validate_stack_name(name)
-    rel = safe_relative_path(rel_path).as_posix()
-    directory = STORE_DIR / stack_name
-    compose_name = find_compose_filename(directory)
-    if compose_name and rel == compose_name:
-        raise StepError(
-            "delete_file", -1, title="Нельзя удалить Compose-файл",
-            detail="основной Compose-файл обязателен для проекта",
-        )
-    files: Dict[str, bytes] = {}
-    found = False
-    for existing in iter_project_files(stack_name):
-        key = existing.as_posix()
-        if key == rel:
-            found = True
-            continue
-        files[key] = (directory / Path(*existing.parts)).read_bytes()
-    if not found:
-        raise StepError(
-            "delete_file", -1, title="Файл не найден",
-            detail=f"в проекте «{stack_name}» нет файла {rel}",
-        )
-    _write_files_atomic(stack_name, files)
-    return rel
+    rel_obj = safe_relative_path(rel_path)
+    rel = rel_obj.as_posix()
+
+    with _STORE_LOCK:
+        project_root = _project_target(stack_name)
+        lexical_target = project_root / Path(*rel_obj.parts)
+
+        # resolve() защищает от выхода наружу, а отдельный проход запрещает сам
+        # факт удаления через симлинк (включая симлинки, ведущие внутрь проекта).
+        current = project_root
+        for part in rel_obj.parts:
+            current = current / part
+            if current.is_symlink():
+                raise StepError(
+                    "delete_entry", -1, title="Путь в проекте",
+                    detail="удаление через симлинк запрещено",
+                )
+        target = _project_target(stack_name, rel)
+
+        if not lexical_target.exists():
+            raise StepError(
+                "delete_entry", -1, title="Файл или папка не найдены",
+                detail=f"в проекте «{stack_name}» нет {rel}",
+            )
+
+        compose_name = find_compose_filename(project_root)
+        if compose_name:
+            compose_path = PurePosixPath(compose_name)
+            removes_compose = (
+                rel_obj == compose_path
+                or (
+                    lexical_target.is_dir()
+                    and len(rel_obj.parts) < len(compose_path.parts)
+                    and compose_path.parts[:len(rel_obj.parts)] == rel_obj.parts
+                )
+            )
+            if removes_compose:
+                raise StepError(
+                    "delete_entry", -1, title="Нельзя удалить Compose-файл",
+                    detail="основной Compose-файл обязателен для проекта",
+                )
+
+        if lexical_target.is_dir():
+            if not allow_directory:
+                raise StepError(
+                    "delete_file", -1, title="Файл не найден",
+                    detail=f"{rel} является папкой",
+                )
+            shutil.rmtree(target)
+            kind = "directory"
+        elif lexical_target.is_file():
+            target.unlink()
+            kind = "file"
+        else:
+            raise StepError(
+                "delete_entry", -1, title="Нельзя удалить объект",
+                detail=f"{rel} не является обычным файлом или папкой",
+            )
+
+    return {"name": stack_name, "path": rel, "kind": kind}
+
+
+def delete_project_file(name: str, rel_path: str) -> str:
+    """Совместимый API удаления одного не-Compose файла проекта."""
+    removed = delete_project_entry(name, rel_path, allow_directory=False)
+    return str(removed["path"])
 
 
 def delete_stack(name: str) -> str:
@@ -626,7 +1024,7 @@ def _strip_common_root(names: List[str]) -> Optional[str]:
     return None
 
 
-def read_zip_project(data: bytes) -> Dict[str, bytes]:
+def _read_zip_project_details(data: bytes) -> Tuple[Dict[str, bytes], Optional[str]]:
     """Разобрать ZIP в {rel_path: bytes} с защитой от path traversal (§5).
 
     Отклоняет абсолютные пути, «..», симлинки. Снимает общий корневой каталог,
@@ -687,7 +1085,43 @@ def read_zip_project(data: bytes) -> Dict[str, bytes]:
                 "read_zip", -1, title="Пустой архив",
                 detail="после нормализации путей не осталось файлов",
             )
-        return out
+        return out, root
+
+
+def read_zip_project(data: bytes) -> Dict[str, bytes]:
+    """Разобрать безопасный ZIP и вернуть нормализованные файлы проекта."""
+    files, _root = _read_zip_project_details(data)
+    return files
+
+
+def _suggest_zip_stack_name(root: Optional[str], archive_name: str) -> str:
+    """Безопасное имя проекта из общей папки ZIP либо имени архива."""
+    raw = root or Path(archive_name or "project.zip").stem or "project"
+    value = re.sub(r"[^a-z0-9_-]+", "-", str(raw).strip().lower()).strip("-_")
+    value = value[:63].rstrip("-_") or "project"
+    if not value[0].isalnum():
+        value = ("project-" + value)[:63].rstrip("-_")
+    return validate_stack_name(value)
+
+
+def suggest_zip_stack_name(data: bytes, archive_name: str) -> str:
+    """Проверить ZIP и определить имя проекта без записи на диск."""
+    _files, root = _read_zip_project_details(data)
+    return _suggest_zip_stack_name(root, archive_name)
+
+
+def import_zip_new(data: bytes, archive_name: str, name: str = "") -> Dict[str, Any]:
+    """Создать новый ZIP-проект, исключая замену/слияние существующего."""
+    files, root = _read_zip_project_details(data)
+    stack_name = validate_stack_name(name) if str(name or "").strip() else _suggest_zip_stack_name(root, archive_name)
+    target = STORE_DIR / stack_name
+    with _STORE_LOCK:
+        STORE_DIR.mkdir(parents=True, exist_ok=True)
+        if target.exists() or target.is_symlink():
+            raise FileExistsError(f"Проект «{stack_name}» уже существует.")
+        result = write_project(stack_name, files)
+    result["suggested_name"] = stack_name
+    return result
 
 
 def import_zip(name: str, data: bytes) -> Dict[str, Any]:
@@ -696,61 +1130,142 @@ def import_zip(name: str, data: bytes) -> Dict[str, Any]:
 
 
 # --------------------------------------------------
-# Сверка библиотеки с сервером
+# Сверка библиотеки с сервером (docs/compose-model.md §2, §4-5)
 # --------------------------------------------------
 
 def reconcile_stacks(
     library_list: List[Dict[str, Any]],
     server_list: List[Dict[str, Any]],
+    ignored: Optional[List[str]] = None,
 ) -> Dict[str, List[Dict[str, Any]]]:
     """Сверить библиотеку Bot4VPS с реальным состоянием сервера.
 
-    Чистая функция без SSH: на вход — list_stacks() и compose.list_server_stacks().
+    Чистая функция без SSH: на вход — list_stacks(), compose.list_server_stacks()
+    и список игнор-ключей (project|working_dir, docs/compose-model.md §11).
 
-    Ключ сопоставления — имя проекта, но серверный deployment уникален по
-    (project, working_dir, config_files) (§14). Библиотечный проект связывается
-    только с тем deployment'ом, который развёрнут Bot4VPS (managed=True, т.е.
-    working_dir внутри REMOTE_ROOT). Deployment с тем же именем, но из другого
-    каталога, остаётся отдельной записью в server_only.
+    Идентичность развёртывания — (project, working_dir); имя — не
+    идентификатор. Связь библиотека ↔ сервер устанавливается по имени ТОЛЬКО
+    когда она однозначна: в библиотеке есть проект «name» и на сервере ровно
+    одно развёртывание с этим именем. Несколько одноимённых развёртываний
+    (конфликт имён) между собой не сливаются и с библиотекой не связываются —
+    пользователь разбирается сам (удалить лишнее или проигнорировать).
 
-    project_match (§23) считается по fingerprint: сервер отдаёт fingerprint
-    своих файлов, библиотека — свой. None, если файлы сервера прочитать не удалось.
+    Игнорируемые развёртывания (ключ в ignored) исключаются из строк, а их
+    имена НЕ считаются «занятыми»: если остальные развёртывания с этим именем
+    нет, библиотечный проект получает честный статус absent, а не conflict.
 
-    Returns:
-        {"both": [{name, library, server, project_match}],
-         "library_only": [...], "server_only": [...]}
+    Возвращает ЕДИНЫЙ список строк таблицы (не три группы): каждая строка —
+    один проект с точки зрения пользователя:
+        {name, source, status, working_dir, key, containers_total,
+         containers_running, in_library, lib_match, name_conflict,
+         conflict_count, library, server}
+
+    source:
+        "server"  — развёртывание на сервере (связано с библиотекой или нет)
+        "library" — только локальная копия, развёртывания на сервере нет
+    status (docs/compose-model.md §4):
+        "running"  — контейнеры работают
+        "stopped"  — развёртывание есть, работающих контейнеров нет
+        "absent"   — развёртывания нет, есть только локальная копия
+        "conflict" — имя в библиотеке, на сервере несколько неигнорируемых
+                     развёртываний с этим именем (строка-заглушка библиотечной
+                     копии; установка из библиотеки заблокирована)
+    lib_match: True/False по fingerprint конфиг-набора (§3); None — сравнить
+    не удалось (серверные файлы не прочитаны или локальной копии нет).
     """
     lib_map = {s["name"]: s for s in library_list}
+    ignored_set = set(ignored or [])
 
-    both: List[Dict[str, Any]] = []
-    server_only: List[Dict[str, Any]] = []
-    matched_lib_names = set()
-
+    # Игнорируемые развёртывания исключаются СРАЗУ: не дают строк, а их имена
+    # не считаются «занятыми» — если других с этим именем нет, библиотечный
+    # проект честно получает absent, а не conflict (§11).
+    by_name: Dict[str, List[Dict[str, Any]]] = {}
     for srv in server_list:
         name = srv.get("name")
-        lib = lib_map.get(name) if name else None
-        # Связываем с библиотекой только managed-развёртывания (наш каталог).
-        if lib is not None and srv.get("managed"):
-            srv_fp = srv.get("fingerprint")
-            lib_fp = lib.get("fingerprint")
-            match: Optional[bool] = None
-            if srv_fp and lib_fp:
-                match = (srv_fp == lib_fp)
-            both.append({
+        if not name or _server_ignore_key(srv) in ignored_set:
+            continue
+        by_name.setdefault(name, []).append(srv)
+
+    rows: List[Dict[str, Any]] = []
+
+    def lib_match_of(srv: Dict[str, Any], lib: Optional[Dict[str, Any]]) -> Optional[bool]:
+        if lib is None:
+            return None
+        srv_fp = srv.get("fingerprint")
+        lib_fp = lib.get("fingerprint")
+        if not srv_fp or not lib_fp:
+            return None
+        return srv_fp == lib_fp
+
+    # --- серверные развёртывания ---
+    for name, deps in sorted(by_name.items()):
+        lib = lib_map.get(name)
+        for srv in deps:
+            running = int(srv.get("containers_running") or 0)
+            rows.append({
                 "name": name,
+                "source": "server",
+                "status": "running" if running > 0 else "stopped",
+                "working_dir": srv.get("working_dir"),
+                "key": srv.get("key"),
+                "containers_total": int(srv.get("containers_total") or 0),
+                "containers_running": running,
+                "in_library": lib is not None,
+                "lib_match": lib_match_of(srv, lib),
+                "name_conflict": len(deps) > 1,
+                "conflict_count": len(deps),
                 "library": lib,
                 "server": srv,
-                "project_match": match,
             })
-            matched_lib_names.add(name)
-        else:
-            server_only.append(srv)
 
-    library_only = [s for n, s in lib_map.items() if n not in matched_lib_names]
-    library_only.sort(key=lambda s: s["name"])
+        # Конфликт имён: библиотечная копия отдельной строкой-заглушкой,
+        # «Установить» для неё заблокирована (§4).
+        if lib is not None and len(deps) > 1:
+            rows.append({
+                "name": name,
+                "source": "library",
+                "status": "conflict",
+                "working_dir": None,
+                "key": None,
+                "containers_total": 0,
+                "containers_running": 0,
+                "in_library": True,
+                "lib_match": None,
+                "name_conflict": True,
+                "conflict_count": len(deps),
+                "library": lib,
+                "server": None,
+            })
 
-    return {
-        "both": both,
-        "library_only": library_only,
-        "server_only": server_only,
-    }
+    # --- только библиотека (на сервере видимых развёртываний нет) ---
+    for name, lib in sorted(lib_map.items()):
+        if name in by_name:
+            continue
+        rows.append({
+            "name": name,
+            "source": "library",
+            "status": "absent",
+            "working_dir": None,
+            "key": None,
+            "containers_total": 0,
+            "containers_running": 0,
+            "in_library": True,
+            "lib_match": None,
+            "name_conflict": False,
+            "conflict_count": 0,
+            "library": lib,
+            "server": None,
+        })
+
+    rows.sort(key=lambda r: (r["name"], r.get("working_dir") or ""))
+    return {"rows": rows}
+
+
+def _server_ignore_key(srv: Dict[str, Any]) -> str:
+    """Игнор-ключ серверной записи: «project|working_dir» (без config_files).
+
+    Полный Deployment.key включает config_files — добавление override-файла
+    меняло бы ключ, и игнор «слетал» бы. Для игнора достаточно стабильной
+    пары (project, working_dir).
+    """
+    return f"{srv.get('name')}|{srv.get('working_dir')}"

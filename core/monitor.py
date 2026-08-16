@@ -197,9 +197,18 @@ def refresh_server_state(server_id: str):
 # Мониторинг доступности
 # ==========================================================
 
-def update_server_availability(server, online: bool, error: str = ""):
+def update_server_availability(
+    server,
+    online: bool,
+    error: str = "",
+    system: dict | None = None,
+):
     """
     Обновляет состояние доступности сервера.
+
+    system — опциональный блок системных сведений (hostname, ОС, ядро…),
+    собранный в том же SSH-запросе, что и метрики. Пишется только если
+    передан (при недоступном SSH прежние данные не затираются).
 
     Возвращает:
         None
@@ -220,6 +229,9 @@ def update_server_availability(server, online: bool, error: str = ""):
         availability = entry.get("availability")
 
         now = datetime.now().strftime("%Y-%m-%d %H:%M")
+
+        if system is not None:
+            entry["system"] = system
 
         # Первый запуск / новый сервер
         if availability is None:
@@ -266,12 +278,26 @@ def check_server_availability(server):
     from core.servers import (
         get_server_info,
         is_server_online,
-    )    
+    )
     info = get_server_info(server)
+
+    # system — только при успешном SSH, чтобы не затирать кэш N/A
+    system = None
+    if info.get("ssh"):
+        system = {
+            "hostname": info.get("hostname") or "N/A",
+            "os": info.get("os") or "N/A",
+            "os_version": info.get("os_version") or "N/A",
+            "kernel": info.get("kernel") or "N/A",
+            "arch": info.get("arch") or "N/A",
+            "uptime": info.get("uptime") or "N/A",
+        }
+
     event = update_server_availability(
         server,
         online=is_server_online(info),
-        error=info.get("ssh_error") or ""
+        error=info.get("ssh_error") or "",
+        system=system,
     )
     return info, event
 
@@ -418,3 +444,8 @@ def schedule_monitor_jobs(job_queue):
         )
     else:
         print("[JOBS] ssl_monitor: disabled", flush=True)
+
+    # Суточная проверка обновлений Bot4VPS (встроенный updater, 4.0+)
+    from core.update.scheduler import schedule_update_jobs
+
+    schedule_update_jobs(job_queue)

@@ -151,7 +151,7 @@ async def api_server(server_id: str):
         return {
             "server": {k: server.get(k) for k in (
                 "id", "name", "group", "host", "port", "user",
-                "auth_type", "certificate_check", "ssl_host",
+                "auth_type", "certificate_check", "ssl_host", "key_path",
             )},
             "monitor": mon,
             "running_task": task_brief(task_manager.get_running(server_id)),
@@ -541,11 +541,10 @@ async def api_server_update(server_id: str, body: ServerUpdate):
                 continue
             target[k] = v
 
-        # auth cleanup
+        # В password-режиме key_path не нужен. В key-режиме password хранит
+        # отдельный sudo-пароль для non-root и поэтому должен сохраняться.
         if target.get("auth_type") == "password":
             target.pop("key_path", None)
-        elif target.get("auth_type") == "key":
-            target.pop("password", None)
 
         save_servers(servers)
 

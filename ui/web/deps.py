@@ -7,7 +7,7 @@ from typing import Any, Optional
 from fastapi.responses import JSONResponse
 
 # Единый источник версии для app.py и /api/ping.
-VERSION = "0.6.4"
+from core.version import APP_VERSION as VERSION
 
 
 def err(e: Exception, code: int = 500) -> JSONResponse:
@@ -36,7 +36,18 @@ def task_brief(t) -> Optional[dict[str, Any]]:
         "duration_seconds": t.duration_seconds,
         "is_done": t.is_done,
         "error": t.error,
-        "output_lines": len(t.output_lines),
+        # История и очереди используют краткое представление, но результат
+        # задачи тоже должен быть доступен Web UI (например, при пустом
+        # списке серверов). Сохраняем live output как строки, а не только
+        # количество строк, чтобы UI мог применить приоритет отображения.
+        "output_lines": t.output_lines[-200:],
+        "result": {
+            "success": t.result.success,
+            "exit_code": t.result.exit_code,
+            "output": (t.result.output or "")[-4000:],
+            "error": t.result.error,
+            "warnings": t.result.warnings,
+        } if t.result else None,
     }
 
 

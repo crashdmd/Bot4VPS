@@ -12,8 +12,8 @@
   (``EOFError``/``SSHException``/``OSError``). На фатальной — выставляет ``closed``
   и пробрасывает исключение, чтобы цикл чтения оборвался немедленно.
 * ``send`` на дохлом канале тоже выставляет ``closed`` и пробрасывает исключение.
-* ``resize`` — не data-path: смерть фиксирует (``closed``), но исключение не рвёт,
-  т.к. неудача resize не должна убивать возможно-живую сессию.
+* ``resize`` — не data-path: неудача изменения размера не закрывает и не рвёт
+  возможно-живую сессию.
 """
 from __future__ import annotations
 
@@ -129,9 +129,9 @@ class ShellSession:
             self.cols, self.rows = int(cols), int(rows)
             self._chan.resize_pty(width=self.cols, height=self.rows)
         except Exception:
-            # не data-path: фиксируем смерть, но не пробрасываем —
-            # неудача resize не должна убивать возможно-живую сессию.
-            self._closed = True
+            # resize не является data-path: Paramiko/сервер может отклонить
+            # изменение размера при остающемся живым интерактивном канале.
+            pass
 
     # ---- staged script (заливка скрипта во временный файл для запуска в PTY) ----
 

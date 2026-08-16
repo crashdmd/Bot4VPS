@@ -39,6 +39,21 @@ from .security import (
 
 STATIC = Path(__file__).resolve().parent / "static"
 
+
+class NoCacheStaticFiles(StaticFiles):
+    """StaticFiles без клиентского кэша для ES-модулей Web UI.
+
+    В интерфейсе нет сборщика, а модули импортируют друг друга по постоянным URL.
+    Поэтому браузер иначе может оставить старый docker.js после обновления backend.
+    """
+
+    async def get_response(self, path: str, scope: dict):
+        response = await super().get_response(path, scope)
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+        return response
+
 # Гарантируем secret_key (и при включённой авторизации — password_hash)
 # до сборки приложения, чтобы SessionMiddleware получила корректный ключ.
 _web_cfg = ensure_web_secrets()
@@ -61,6 +76,13 @@ async def lifespan(_app: FastAPI):
         methods = getattr(r, "methods", None)
         if path and methods:
             print(f"[WEB] {sorted(methods)} {path}", flush=True)
+
+    # Встроенный updater: локальный changelog + реконсиляция после restart
+    try:
+        from core.update.updater import init_on_startup
+        await init_on_startup()
+    except Exception as e:
+        print(f"[WEB] update init failed: {e}", flush=True)
 
     # Telegram (опционально: BOT_TOKEN пустой/заглушка — пропускаем)
     tg_app = None
@@ -102,15 +124,16 @@ app.add_middleware(
     https_only=False,
 )
 
-from .routers import meta, summary, servers, tasks, scripts, files, monitor, stream, terminal, services  # noqa: E402
+from .routers import meta, summary, servers, tasks, scripts, files, monitor, stream, terminal, services, system, update  # noqa: E402
 
-app.mount("/static", StaticFiles(directory=STATIC), name="static")
+app.mount("/static", NoCacheStaticFiles(directory=STATIC), name="static")
 
 _AUTH = [Depends(require_auth)]
 
 # Все /api-роутеры закрыты require_auth; login/me/logout/password добавлены ниже напрямую.
 app.include_router(meta.router, dependencies=_AUTH)
 app.include_router(summary.router, dependencies=_AUTH)
+app.include_router(system.router, dependencies=_AUTH)
 app.include_router(servers.router, dependencies=_AUTH)
 app.include_router(tasks.router, dependencies=_AUTH)
 app.include_router(scripts.router, dependencies=_AUTH)
@@ -118,6 +141,11 @@ app.include_router(files.router, dependencies=_AUTH)
 app.include_router(monitor.router, dependencies=_AUTH)
 app.include_router(stream.router, dependencies=_AUTH)
 app.include_router(services.router, dependencies=_AUTH)
+app.include_router(update.router, dependencies=_AUTH)
+
+# Health-check встроенного updater'а: без авторизации (его опрашивает runner
+# после перезапуска, когда сессии ещё нет), но только с loopback.
+app.include_router(update.health_router)
 
 # WebSocket-терминал: авторизация проверяется внутри хендлера (по сессии в scope),
 # т.к. router-level deps на WS работают ненадёжно.
@@ -129,7 +157,14 @@ async def index():
     index_file = STATIC / "index.html"
     if not index_file.exists():
         return HTMLResponse("<h1>Нет static/index.html</h1>", status_code=500)
-    return FileResponse(index_file)
+    return FileResponse(
+        index_file,
+        headers={
+            "Cache-Control": "no-store, no-cache, must-revalidate",
+            "Pragma": "no-cache",
+            "Expires": "0",
+        },
+    )
 
 
 # ------------------------------------------------------------------

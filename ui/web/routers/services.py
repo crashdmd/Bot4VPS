@@ -12,7 +12,7 @@ import io
 from typing import Any, Optional
 
 from fastapi import APIRouter, File, HTTPException, UploadFile
-from fastapi.responses import Response
+from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel
 
 from ..deps import err, task_brief
@@ -109,7 +109,12 @@ async def api_service_params(sid: str):
 
 @router.get("/api/services/{sid}/status")
 async def api_service_status(sid: str):
-    """Статус сервиса по всем серверам (из кэша; быстро, без SSH)."""
+    """Статус сервиса по всем серверам (из кэша; быстро, без SSH).
+
+    no-store обязателен: UI перерисовывает кнопки сразу после установки/удаления
+    сервиса, а браузер иначе отдаёт сохранённый ответ этого же GET со старым
+    installed — кнопка остаётся в прежнем состоянии.
+    """
     try:
         from core import integrator
         from core.storage import load_servers
@@ -117,7 +122,10 @@ async def api_service_status(sid: str):
         for s in load_servers():
             status = await integrator.call(sid, s["id"], "get_status") or {}
             rows.append({"id": s["id"], "name": s["name"], "host": s.get("host", ""), "status": status})
-        return {"servers": rows}
+        return JSONResponse(
+            {"servers": rows},
+            headers={"Cache-Control": "no-store, must-revalidate"},
+        )
     except ValueError as e:
         raise HTTPException(400, str(e))
     except HTTPException:
@@ -272,13 +280,25 @@ async def api_service_stack_logs(
 # ---- файлы проекта (проект = директория) ----
 
 @router.get("/api/services/{sid}/{server_id}/stacks/{name}/files")
-async def api_service_stack_files(sid: str, server_id: str, name: str):
-    """Список файлов проекта: [{path, size, is_compose}]."""
+async def api_service_stack_files(
+    sid: str, server_id: str, name: str,
+    remote: bool = False, key: Optional[str] = None,
+):
+    """Список файлов проекта: [{path, size, is_compose}].
+
+    remote=1 (+ key) — файлы развёртывания на сервере (docs/compose-model.md §9);
+    иначе — локальная библиотечная копия.
+    """
     try:
         from core import integrator
         from core.integrator import StepError
         try:
-            files = await integrator.call(sid, server_id, "list_stack_files", name) or []
+            if remote:
+                files = await integrator.call(
+                    sid, server_id, "list_stack_remote_files", name, key
+                ) or []
+            else:
+                files = await integrator.call(sid, server_id, "list_stack_files", name) or []
         except StepError as e:
             raise HTTPException(400, _step_error_message(e))
         return {"files": files}
@@ -293,21 +313,41 @@ async def api_service_stack_files(sid: str, server_id: str, name: str):
 class ProjectFileBody(BaseModel):
     path: str
     content: str
+    key: Optional[str] = None       # для remote-записи (выбор развёртывания)
 
 
 @router.get("/api/services/{sid}/{server_id}/stacks/{name}/files/content")
-async def api_service_stack_file_read(sid: str, server_id: str, name: str, path: str):
-    """Содержимое произвольного файла проекта (.env и т.п.)."""
+async def api_service_stack_file_read(
+    sid: str, server_id: str, name: str, path: str,
+    remote: bool = False, key: Optional[str] = None,
+):
+    """Содержимое произвольного файла проекта (.env и т.п.).
+
+    remote=1 — версия с сервера: {path, size, binary, text} или
+    {path, size, binary, b64, mime} для превью изображений (§9).
+    """
     try:
         from core import integrator
         from core.integrator import StepError
         try:
-            content = await integrator.call(
+            if remote:
+                return await integrator.call(
+                    sid, server_id, "fetch_stack_remote_file", name, path, key
+                )
+            result = await integrator.call(
                 sid, server_id, "fetch_stack_project_file", name, path
             )
         except StepError as e:
             raise HTTPException(404, _step_error_message(e))
-        return {"path": path, "content": content if isinstance(content, str) else str(content or "")}
+        if isinstance(result, dict):
+            return result
+        # Обратная совместимость с интеграторами, возвращающими только текст.
+        return {
+            "path": path,
+            "size": len(str(result or "").encode("utf-8")),
+            "binary": False,
+            "text": str(result or ""),
+        }
     except ValueError as e:
         raise HTTPException(400, str(e))
     except HTTPException:
@@ -319,15 +359,26 @@ async def api_service_stack_file_read(sid: str, server_id: str, name: str, path:
 @router.post("/api/services/{sid}/{server_id}/stacks/{name}/files")
 async def api_service_stack_file_save(
     sid: str, server_id: str, name: str, body: ProjectFileBody,
+    remote: bool = False,
 ):
-    """Записать файл проекта (не трогая остальные)."""
+    """Записать файл проекта (не трогая остальные).
+
+    remote=1 — файл развёртывания на сервере (редактор §8); key выбирает
+    развёртывание при одноимённых проектах.
+    """
     try:
         from core import integrator
         from core.integrator import StepError
         try:
-            info = await integrator.call(
-                sid, server_id, "save_stack_project_file", name, body.path, body.content
-            )
+            if remote:
+                info = await integrator.call(
+                    sid, server_id, "save_stack_remote_file",
+                    name, body.path, body.content, body.key,
+                )
+            else:
+                info = await integrator.call(
+                    sid, server_id, "save_stack_project_file", name, body.path, body.content
+                )
         except StepError as e:
             raise HTTPException(400, _step_error_message(e))
         return {"ok": True, "file": info}
@@ -340,15 +391,23 @@ async def api_service_stack_file_save(
 
 
 @router.delete("/api/services/{sid}/{server_id}/stacks/{name}/files")
-async def api_service_stack_file_delete(sid: str, server_id: str, name: str, path: str):
+async def api_service_stack_file_delete(
+    sid: str, server_id: str, name: str, path: str,
+    remote: bool = False, key: Optional[str] = None,
+):
     """Удалить файл проекта (основной Compose-файл удалить нельзя)."""
     try:
         from core import integrator
         from core.integrator import StepError
         try:
-            removed = await integrator.call(
-                sid, server_id, "delete_stack_project_file", name, path
-            )
+            if remote:
+                removed = await integrator.call(
+                    sid, server_id, "delete_stack_remote_file", name, path, key
+                )
+            else:
+                removed = await integrator.call(
+                    sid, server_id, "delete_stack_project_file", name, path
+                )
         except StepError as e:
             raise HTTPException(400, _step_error_message(e))
         return {"ok": True, "removed": removed}
@@ -386,6 +445,66 @@ async def api_service_stack_zip(
         return err(e)
 
 
+# ---- игнор Compose-проектов (docs/compose-model.md §11) ----
+# Отдельный префикс (не /stacks/{name}), чтобы не пересекаться с маршрутами
+# конкретного стека: «ignored» в /stacks/{name} съелся бы как имя проекта.
+
+@router.get("/api/services/{sid}/{server_id}/ignored-stacks")
+async def api_service_ignored_stacks(sid: str, server_id: str):
+    """Игнорируемые развёртывания с живыми данными сервера (для модалки)."""
+    try:
+        from core import integrator
+        items = await integrator.call(sid, server_id, "list_ignored_stacks") or []
+        return {"items": items}
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except HTTPException:
+        raise
+    except Exception as e:
+        return err(e)
+
+
+class StackIgnoreBody(BaseModel):
+    stack: str
+    key: Optional[str] = None
+
+
+@router.post("/api/services/{sid}/{server_id}/ignored-stacks")
+async def api_service_stack_ignore(sid: str, server_id: str, body: StackIgnoreBody):
+    """Добавить проект в игнор (строка и его контейнеры скрываются)."""
+    try:
+        from core import integrator
+        from core.integrator import StepError
+        try:
+            result = await integrator.call(
+                sid, server_id, "set_ignored", body.stack, body.key
+            )
+        except StepError as e:
+            raise HTTPException(400, _step_error_message(e))
+        return result or {"ok": True}
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except HTTPException:
+        raise
+    except Exception as e:
+        return err(e)
+
+
+@router.delete("/api/services/{sid}/{server_id}/ignored-stacks")
+async def api_service_stack_unignore(sid: str, server_id: str, ignore_key: str):
+    """Убрать проект из игнора (по игнор-ключу project|working_dir)."""
+    try:
+        from core import integrator
+        result = await integrator.call(sid, server_id, "set_unignored", ignore_key)
+        return result or {"ok": True}
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except HTTPException:
+        raise
+    except Exception as e:
+        return err(e)
+
+
 @router.post("/api/services/{sid}/{server_id}/sync")
 async def api_service_sync(sid: str, server_id: str):
     try:
@@ -400,6 +519,20 @@ async def api_service_sync(sid: str, server_id: str):
         return err(e)
 
 
+def _read_service_cache(sid: str, server_id: str) -> dict:
+    """Прочитать data/services/<sid>/<server_id>.json если есть."""
+    import json
+    from pathlib import Path
+    path = Path("data") / "services" / sid / f"{server_id}.json"
+    if not path.is_file():
+        # иногда id в имени без расширения path already has .json
+        return {}
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
 @router.get("/api/services/{sid}/{server_id}/state")
 async def api_service_state(sid: str, server_id: str):
     """Живое чтение состояния (без записи кэша) — для открытия/рефреша экрана
@@ -407,6 +540,19 @@ async def api_service_state(sid: str, server_id: str):
     try:
         from core import integrator
         data = await integrator.call(sid, server_id, "get_state") or {}
+        if not isinstance(data, dict):
+            data = {}
+        # synced_at: из state, иначе из локального кэша сервиса
+        if not data.get("synced_at"):
+            cache = _read_service_cache(sid, server_id)
+            for key in ("synced_at", "synced", "last_sync", "updated_at"):
+                if cache.get(key):
+                    data["synced_at"] = cache[key]
+                    break
+            # иногда дата лежит в корне status
+            st = cache.get("status") if isinstance(cache.get("status"), dict) else {}
+            if not data.get("synced_at") and st.get("synced_at"):
+                data["synced_at"] = st["synced_at"]
         return {"state": data}
     except ValueError as e:
         raise HTTPException(400, str(e))
@@ -429,6 +575,81 @@ async def api_service_config(sid: str, server_id: str, name: str):
             media_type="application/octet-stream",
             headers={"Content-Disposition": f'attachment; filename="{name}.conf"'},
         )
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except HTTPException:
+        raise
+    except Exception as e:
+        return err(e)
+
+
+class ExportZipBody(BaseModel):
+    names: list[str] = []
+
+
+@router.post("/api/services/{sid}/{server_id}/export-zip")
+async def api_service_export_zip(sid: str, server_id: str, body: ExportZipBody):
+    """Собрать несколько клиентских .conf в один ZIP (Web UI backend)."""
+    try:
+        import zipfile
+        from core import integrator
+        names = [n for n in (body.names or []) if n]
+        if not names:
+            raise HTTPException(400, "Не выбраны профили")
+        if len(names) == 1:
+            # на всякий случай — один файл как conf
+            data = await integrator.call(sid, server_id, "fetch_profile_config", names[0])
+            if not isinstance(data, (bytes, bytearray)):
+                raise HTTPException(500, "Неожиданный тип конфига")
+            return Response(
+                content=bytes(data),
+                media_type="application/octet-stream",
+                headers={"Content-Disposition": f'attachment; filename="{names[0]}.conf"'},
+            )
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+            for name in names:
+                data = await integrator.call(sid, server_id, "fetch_profile_config", name)
+                if not isinstance(data, (bytes, bytearray)):
+                    raise HTTPException(500, f"Не удалось получить конфиг «{name}»")
+                # безопасное имя файла
+                safe = "".join(c if c.isalnum() or c in "-_." else "_" for c in name) or "profile"
+                zf.writestr(f"{safe}.conf", bytes(data))
+        buf.seek(0)
+        return Response(
+            content=buf.getvalue(),
+            media_type="application/zip",
+            headers={"Content-Disposition": 'attachment; filename="wireguard-profiles.zip"'},
+        )
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except HTTPException:
+        raise
+    except Exception as e:
+        return err(e)
+
+
+@router.post("/api/services/{sid}/{server_id}/reset-stats")
+async def api_service_reset_stats(sid: str, server_id: str):
+    """Сброс статистики трафика. Предпочитает do_reset_stats сервиса; иначе enqueue."""
+    try:
+        from core import integrator
+        # 1) quick-op если есть
+        try:
+            res = await integrator.call(sid, server_id, "do_reset_stats", {}, _noop_progress)
+            return _svc_do_result(res) if res is not None else {"success": True}
+        except Exception:
+            pass
+        try:
+            res = await integrator.call(sid, server_id, "reset_stats")
+            if isinstance(res, dict):
+                return res
+            return {"success": True, "result": res}
+        except Exception:
+            pass
+        # 2) очередь
+        task = await integrator.enqueue(sid, server_id, "reset_stats", {}, src="web")
+        return {"success": True, "queued": True, "task": task_brief(task)}
     except ValueError as e:
         raise HTTPException(400, str(e))
     except HTTPException:

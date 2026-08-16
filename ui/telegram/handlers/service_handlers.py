@@ -102,6 +102,28 @@ async def _tasks_service_hub(query, service_id: str):
 
 async def _tasks_full_check(query, service_id: str):
     await query.edit_message_text("⏳ Идёт полная проверка сервисов на всех серверах...")
+
+    # Пустой список — нормальный результат Telegram-сценария. Не создаём
+    # задачу и не оставляем пользователя ждать Task Manager: сразу заменяем
+    # временное сообщение финальным ответом.
+    servers = load_servers()
+    if not servers:
+        manifest = get_manifest(service_id)
+        service_name = manifest.name if manifest else service_id
+        text = (
+            f"✅ Полная проверка {service_name} завершена\n\n"
+            "Серверов для проверки нет.\n"
+            "Добавьте серверы в Bot4VPS, чтобы выполнить проверку."
+        )
+        kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton("⬅️ Назад", callback_data=f"tasks_svc:{service_id}")]
+        ])
+        try:
+            await query.edit_message_text(text, reply_markup=kb)
+        except Exception:
+            await query.message.reply_text(text, reply_markup=kb)
+        return
+
     try:
         task = await integrator.enqueue_bulk_check(service_id)
         await task.wait()

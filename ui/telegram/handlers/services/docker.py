@@ -40,6 +40,7 @@ from state import DOCKER_CB_TOKENS, DOCKER_COMPOSE_UPLOAD, DOCKER_RUN_WIZARD
 
 from .base import CallbackCtx, DocumentCtx, MessageCtx, ServiceUI, register_service_ui
 from ._shared import (
+    _back_from_service,
     _enqueue_watch_message,
     _enqueue_watch_query,
     _noop_progress,
@@ -231,7 +232,7 @@ async def _server_list(query, mode: str) -> None:
             if inst is not True:
                 continue
             label = f"🖥 {s['name']}"
-            op = "view"
+            op = "dk_view"
         else:
             if inst is True:
                 continue
@@ -283,8 +284,23 @@ async def _install_confirm(query, server_id: str) -> None:
 # §7 Карточка Docker на конкретном сервере
 # ==============================================================
 
-async def _server_card(query, server_id: str, src: Optional[str] = None) -> None:
-    """Сводка по серверу: версия, счётчики, вход в разделы."""
+async def _server_card(
+    query, server_id: str, src: Optional[str] = None, *, from_docker_hub: bool = False
+) -> None:
+    """Сводка по серверу: версия, счётчики, вход в разделы.
+
+    При входе из меню «Сервисы» конкретного сервера кнопка «Назад» возвращает
+    туда же (как у WireGuard). Только вход через общий Docker-хаб возвращает в
+    список управления Docker — его помечает отдельный op ``dk_view``.
+    """
+    back_callback = (
+        _svc_cb("dk_manage_list", SERVICE_ID, "-")
+        if from_docker_hub or src == "tasks"
+        else _back_from_service(SERVICE_ID, server_id, src)
+    )
+    refresh_callback = _svc_cb(
+        "dk_view" if from_docker_hub else "view", SERVICE_ID, server_id, src=src
+    )
     server = find_server(server_id)
     name = server["name"] if server else server_id
     st = await _get_state(server_id)
@@ -297,7 +313,7 @@ async def _server_card(query, server_id: str, src: Optional[str] = None) -> None
         rows = [
             [InlineKeyboardButton("🛠 Установить Docker", callback_data=_svc_cb("dk_install_one", SERVICE_ID, server_id))],
             [InlineKeyboardButton("🔄 Синхронизировать", callback_data=_svc_cb("sync", SERVICE_ID, server_id, src=src))],
-            [InlineKeyboardButton("⬅️ Назад", callback_data=_svc_cb("dk_manage_list", SERVICE_ID, "-"))],
+            [InlineKeyboardButton("⬅️ Назад", callback_data=back_callback)],
         ]
         await _edit(query, "\n".join(lines), InlineKeyboardMarkup(rows))
         return
@@ -312,7 +328,8 @@ async def _server_card(query, server_id: str, src: Optional[str] = None) -> None
     compose_count = 0
     try:
         stacks = await integrator.call(SERVICE_ID, server_id, "get_stacks") or {}
-        compose_count = len(stacks.get("server") or [])
+        rows = stacks.get("rows") or []
+        compose_count = sum(1 for r in rows if r.get("source") == "server")
     except Exception:
         pass
 
@@ -330,10 +347,10 @@ async def _server_card(query, server_id: str, src: Optional[str] = None) -> None
         [InlineKeyboardButton("📦 Контейнеры", callback_data=_svc_cb("ct_list", SERVICE_ID, server_id))],
         [InlineKeyboardButton("🖼 Образы", callback_data=_svc_cb("im_list", SERVICE_ID, server_id))],
         [InlineKeyboardButton("📋 Compose", callback_data=_svc_cb("cp_tabs", SERVICE_ID, server_id))],
-        [InlineKeyboardButton("🔄 Обновить", callback_data=_svc_cb("view", SERVICE_ID, server_id, src=src))],
+        [InlineKeyboardButton("🔄 Обновить", callback_data=refresh_callback)],
         [
             InlineKeyboardButton("🗑 Удалить Docker", callback_data=_svc_cb("confirm_remove", SERVICE_ID, server_id, src=src)),
-            InlineKeyboardButton("⬅️ Назад", callback_data=_svc_cb("dk_manage_list", SERVICE_ID, "-")),
+            InlineKeyboardButton("⬅️ Назад", callback_data=back_callback),
         ],
     ]
     await _edit(query, "\n".join(lines), InlineKeyboardMarkup(rows))
@@ -796,25 +813,44 @@ async def _compose_tabs(query, server_id: str) -> None:
 async def _compose_lib_on_server(query, server_id: str) -> None:
     """📚 Bot4VPS: библиотека в контексте сервера — только запуск (§16.1).
 
-    Загрузка живёт в верхнеуровневом разделе Compose, редактирование — в Web.
+    Статус каждой локальной копии на этом сервере — из rows (§4): развёрнут /
+    нет. Загрузка живёт в верхнеуровневом разделе Compose, редактирование — в Web.
     """
     try:
         data = await integrator.call(SERVICE_ID, server_id, "get_stacks") or {}
     except Exception as e:
         await _edit(query, f"⚠️ Не удалось получить список:\n{e}")
         return
-    library = data.get("library") or []
+    # Библиотечные проекты = строки с in_library; их статус на сервере виден
+    # прямо здесь (running/stopped/absent/conflict).
+    lib_rows = [r for r in (data.get("rows") or []) if r.get("in_library")]
+    by_name: Dict[str, Dict[str, Any]] = {}
+    for r in lib_rows:
+        by_name.setdefault(r.get("name"), r)
+        # серверная строка информативнее заглушки — предпочитаем её
+        if r.get("source") == "server":
+            by_name[r.get("name")] = r
 
     lines = ["📚 Bot4VPS · библиотека", ""]
     rows: List[List[InlineKeyboardButton]] = []
-    if not library:
+    if not lib_rows:
         lines.append("Библиотека пуста.")
         lines.append("Загрузить проект: 🐳 Docker → 📋 Compose → 📥 Загрузить.")
-    for st in library:
-        nm = st.get("name")
-        lines.append(f"📦 {nm}  (файлов: {st.get('files', 1)})")
+    for nm, r in by_name.items():
+        st = r.get("status")
+        mark = {"running": "🟢", "stopped": "⚪", "absent": "⚫"}.get(st, "⚠️")
+        lines.append(f"{mark} {nm}")
+        if st == "running":
+            lines.append(f"    контейнеры: {r.get('containers_running', 0)}/{r.get('containers_total', 0)}")
+        elif st == "stopped":
+            lines.append("    развёрнут, не запущен")
+        elif st == "absent":
+            lines.append("    на сервере отсутствует")
+        else:
+            lines.append(f"    конфликт имён ({r.get('conflict_count', '?')})")
+        lines.append("")
         rows.append([InlineKeyboardButton(
-            f"📦 {nm}",
+            f"{mark} {nm}",
             callback_data=_svc_cb("cp_lib_item", SERVICE_ID, server_id, _token(query.from_user.id, nm)),
         )])
     rows.append([InlineKeyboardButton("⬅️ Назад", callback_data=_svc_cb("cp_tabs", SERVICE_ID, server_id))])
@@ -853,39 +889,39 @@ async def _compose_lib_item_on_server(query, server_id: str, name: str) -> None:
 
 
 async def _compose_server_list(query, server_id: str) -> None:
-    """🖥 Серверная библиотека: реальные проекты, в т.ч. остановленные внешние (§17)."""
+    """🖥 Проекты на сервере (docs/compose-model.md §4-5): три статуса + метка
+    локальной копии; деления «Managed/Внешний» больше нет."""
     try:
         data = await integrator.call(SERVICE_ID, server_id, "get_stacks") or {}
     except Exception as e:
         await _edit(query, f"⚠️ Не удалось получить список:\n{e}")
         return
-    stacks = data.get("server") or []
+    rows_data = [r for r in (data.get("rows") or []) if r.get("source") == "server"]
     accessible = data.get("server_accessible")
 
     lines = ["🖥 Compose на сервере", ""]
     rows: List[List[InlineKeyboardButton]] = []
     if not accessible:
         lines.append("⚠️ Сервер недоступен по SSH.")
-    elif not stacks:
+    elif not rows_data:
         lines.append("Compose-проектов не обнаружено.")
-    for rec in stacks:
+    for rec in rows_data:
         nm = rec.get("name")
         icon = _stack_icon(rec)
-        kind = "Managed" if rec.get("managed") else "Внешний"
         lines.append(f"{icon} {nm}")
-        lines.append(f"    {kind}")
         lines.append(f"    {rec.get('working_dir') or '—'}")
-        # Сверка с библиотекой видна сразу в списке — понятно, где нужен импорт.
+        # Метка локальной копии (§5): ✅/⚠️/—.
         match = rec.get("lib_match")
         if match is True:
-            lines.append("    🟢 совпадает с библиотекой")
+            lines.append("    🟢 копия совпадает")
         elif match is False:
-            lines.append("    🟡 отличается от библиотеки")
-        elif not rec.get("in_library"):
-            lines.append("    📚 нет в библиотеке")
+            lines.append("    🟡 копия расходится")
+        else:
+            lines.append("    — нет в библиотеке")
         total = int(rec.get("containers_total") or 0)
+        running = int(rec.get("containers_running") or 0)
         if total:
-            lines.append(f"    контейнеры: {rec.get('containers_running', 0)}/{total}")
+            lines.append(f"    контейнеры: {running}/{total}")
         lines.append("")
         # key нужен, чтобы одноимённые проекты из разных каталогов не путались
         rows.append([InlineKeyboardButton(
@@ -901,13 +937,14 @@ async def _compose_server_list(query, server_id: str) -> None:
 
 
 async def _compose_server_item(query, server_id: str, key: str) -> None:
-    """§18: карточка проекта на сервере со всеми операциями."""
+    """Карточка проекта на сервере (docs/compose-model.md §4-6)."""
     try:
         data = await integrator.call(SERVICE_ID, server_id, "get_stacks") or {}
     except Exception as e:
         await _edit(query, f"⚠️ Не удалось получить проект:\n{e}")
         return
-    rec = next((r for r in (data.get("server") or []) if r.get("key") == key), None)
+    rec = next((r for r in (data.get("rows") or [])
+                if r.get("source") == "server" and r.get("server", {}).get("key") == key), None)
     if rec is None:
         await _edit(
             query, "⚠️ Проект не найден — обновите список.",
@@ -917,31 +954,32 @@ async def _compose_server_item(query, server_id: str, key: str) -> None:
         return
 
     nm = rec.get("name")
+    srv = rec.get("server") or {}
     icon = _stack_icon(rec)
-    kind = "🟢 Managed (Bot4VPS)" if rec.get("managed") else "🟡 Внешний"
     total = int(rec.get("containers_total") or 0)
-    lines = [f"📦 {nm}", "", kind, rec.get("working_dir") or "—"]
-    cfgs = rec.get("config_files") or []
+    running = int(rec.get("containers_running") or 0)
+    lines = [f"📦 {nm}", "", rec.get("working_dir") or srv.get("working_dir") or "—"]
+    cfgs = srv.get("config_files") or []
     if cfgs:
         lines.append("")
         lines.append("Compose: " + ", ".join(c.rsplit("/", 1)[-1] for c in cfgs))
 
-    # Сверка с локальной библиотекой: от неё зависит, предлагать ли импорт.
+    # Метка локальной копии (§5) — от неё зависит, предлагать ли импорт.
     in_lib = bool(rec.get("in_library"))
     match = rec.get("lib_match")
     lines.append("")
     if not in_lib:
-        lines.append("📚 В библиотеке Bot4VPS: нет")
+        lines.append("📚 Локальная копия: нет")
     elif match is True:
-        lines.append("🟢 Совпадает с библиотекой")
+        lines.append("✅ Локальная копия совпадает")
     elif match is False:
-        lines.append("🟡 Отличается от библиотеки")
+        lines.append("⚠️ Локальная копия расходится")
     else:
-        lines.append("📚 В библиотеке есть проект с таким именем")
+        lines.append("📚 Локальная копия есть (не сравнена)")
 
     lines.append("")
     if total:
-        lines.append(f"{icon} Контейнеры: {rec.get('containers_running', 0)}/{total}")
+        lines.append(f"{icon} Контейнеры: {running}/{total}")
     else:
         lines.append(f"{icon} Не запущен (файлы на месте)")
 
@@ -960,10 +998,11 @@ async def _compose_server_item(query, server_id: str, key: str) -> None:
     # серверная версия отличается. При полном совпадении кнопку скрываем —
     # иначе легко случайно перезаписать локальную копию тем же содержимым.
     if match is not True:
-        label = "📥 Импортировать" if not in_lib else "📥 Импортировать (перезапись)"
+        label = "📥 Импортировать" if not in_lib else "📥 Обновить копию с сервера"
         rows.append([InlineKeyboardButton(
             label, callback_data=_svc_cb("cp_srv_import", SERVICE_ID, server_id, tok))])
 
+    rows.append([InlineKeyboardButton("🚫 Игнорировать", callback_data=_svc_cb("cp_srv_ignore", SERVICE_ID, server_id, tok))])
     rows.append([InlineKeyboardButton("🗑 Удалить с сервера", callback_data=_svc_cb("cp_srv_confirm_rm", SERVICE_ID, server_id, tok))])
     rows.append([
         InlineKeyboardButton("🔄 Обновить", callback_data=_svc_cb("cp_srv_item", SERVICE_ID, server_id, tok)),
@@ -1004,7 +1043,8 @@ async def _compose_import_start(query, server_id: str, key: str) -> None:
     match = None
     try:
         data = await integrator.call(SERVICE_ID, server_id, "get_stacks") or {}
-        rec = next((r for r in (data.get("server") or []) if r.get("key") == key), None)
+        rec = next((r for r in (data.get("rows") or [])
+                    if r.get("source") == "server" and r.get("server", {}).get("key") == key), None)
         if rec:
             in_lib = bool(rec.get("in_library"))
             match = rec.get("lib_match")
@@ -1064,6 +1104,21 @@ async def _compose_server_confirm_rm(query, server_id: str, key: str) -> None:
         [InlineKeyboardButton("❌ Отмена", callback_data=_svc_cb("cp_srv_item", SERVICE_ID, server_id, tok))],
     ]
     await _edit(query, text, InlineKeyboardMarkup(rows))
+
+
+async def _compose_ignore(query, server_id: str, key: str) -> None:
+    """Игнорировать проект (§11): строка и его контейнеры скрываются.
+
+    Подтверждение не нужно — действие обратимое (Web: модалка «Игнорируемые»;
+    здесь — после игнора показываем список, где проекта больше нет).
+    """
+    name = key.split("|", 1)[0]
+    try:
+        await integrator.call(SERVICE_ID, server_id, "set_ignored", name, key)
+    except Exception as e:
+        await _edit(query, f"⚠️ Не удалось игнорировать:\n{e}")
+        return
+    await _compose_server_list(query, server_id)
 
 
 # ==============================================================
@@ -1273,7 +1328,7 @@ class DockerUI(ServiceUI):
     cancel_remove_op = "view"
     claims_ops = {
         # хаб, выбор сервера, установка
-        "hub", "view", "dk_hub",
+        "hub", "view", "dk_view", "dk_hub",
         "dk_manage_list", "dk_install_list", "dk_install_one", "dk_install_run",
         # контейнеры
         "ct_list", "ct_item", "ct_start", "ct_stop", "ct_restart",
@@ -1287,7 +1342,7 @@ class DockerUI(ServiceUI):
         "cp_tabs", "cp_lib", "cp_lib_item", "cp_lib_up",
         "cp_srv", "cp_srv_item", "cp_srv_up", "cp_srv_down", "cp_srv_restart",
         "cp_srv_logs", "cp_srv_import", "cp_srv_import_run",
-        "cp_srv_confirm_rm", "cp_srv_rm",
+        "cp_srv_confirm_rm", "cp_srv_rm", "cp_srv_ignore",
         # compose-библиотека (верхний уровень)
         "cl_list", "cl_item", "cl_deploy", "cl_deploy_to",
         "cl_confirm_rm", "cl_rm", "cl_upload", "cl_upload_cancel",
@@ -1304,6 +1359,9 @@ class DockerUI(ServiceUI):
             return True
         if op == "view":
             await _server_card(query, srv, src=src)
+            return True
+        if op == "dk_view":
+            await _server_card(query, srv, src=src, from_docker_hub=True)
             return True
         if op == "dk_manage_list":
             await _server_list(query, "manage")
@@ -1471,7 +1529,7 @@ class DockerUI(ServiceUI):
             return True
         if op in ("cp_srv_item", "cp_srv_up", "cp_srv_down", "cp_srv_restart",
                   "cp_srv_logs", "cp_srv_import", "cp_srv_import_run",
-                  "cp_srv_confirm_rm", "cp_srv_rm"):
+                  "cp_srv_confirm_rm", "cp_srv_rm", "cp_srv_ignore"):
             key = _resolve_token(uid, tok)
             if not key:
                 await _compose_server_list(query, srv)
@@ -1483,6 +1541,10 @@ class DockerUI(ServiceUI):
                 await _compose_server_logs(query, srv, key)
             elif op == "cp_srv_confirm_rm":
                 await _compose_server_confirm_rm(query, srv, key)
+            elif op == "cp_srv_ignore":
+                # Игнор (§11): скрыть проект и его контейнеры. Мгновенная
+                # операция с локальным кэшем — без очереди.
+                await _compose_ignore(query, srv, key)
             elif op == "cp_srv_import":
                 # Если такой проект уже в библиотеке — сначала подтверждение:
                 # импорт перезапишет локальную копию.

@@ -1,127 +1,3284 @@
-/* pages */
-.term{background:var(--term);color:var(--term-fg,var(--text));border:1px solid var(--border);border-radius:10px;padding:.65rem;font-family:ui-monospace,Consolas,monospace;font-size:.8rem;min-height:160px;max-height:320px;overflow:auto;white-space:pre-wrap}
-.term-in{display:flex;gap:.4rem;margin-top:.45rem}
-.term-bar{display:flex;align-items:center;gap:.5rem;margin-bottom:.5rem}
-.term-host{background:var(--term);border:1px solid var(--border);border-radius:10px;padding:.5rem;height:clamp(300px,55vh,560px)}
-.term-host .xterm{height:100%}
-.term-host .xterm-viewport{background-color:var(--term)!important}
-.term-in input{flex:1;padding:.45rem .6rem;border-radius:8px;border:1px solid var(--border);background:var(--card);color:var(--text);font-family:ui-monospace,monospace}
-.logbox{background:var(--term);color:var(--term-fg,var(--text));border:1px solid var(--border);border-radius:10px;padding:.65rem;font-family:ui-monospace,Consolas,monospace;font-size:.78rem;max-height:340px;overflow:auto;white-space:pre-wrap}
-.tasklog-head{color:var(--muted);font-weight:600;border-bottom:1px solid var(--border);padding-bottom:.3rem;margin-bottom:.35rem}
-.tasklog-body{white-space:pre-wrap;word-break:break-word}
-.script-view{background:var(--term);border:1px solid var(--border);border-radius:10px;padding:.75rem;font-family:ui-monospace,Consolas,monospace;font-size:.78rem;max-height:60vh;overflow:auto;white-space:pre;color:var(--term-fg,var(--text))}
-.event{display:grid;grid-template-columns:4px 1fr;background:var(--card);border:1px solid var(--border);border-radius:10px;overflow:hidden;margin-bottom:.4rem;transition:transform .12s}
-.event:hover{transform:translateX(2px)}
-.event .barline{background:var(--accent-2)}.event.critical .barline{background:var(--err)}.event.warning .barline{background:var(--warn)}.event .barline.ok{background:var(--ok)}
-.event .body{padding:.55rem .7rem}.event .title{font-weight:600;font-size:.9rem}.event .meta{color:var(--muted);font-size:.76rem}
-.progress{height:5px;border-radius:99px;background:var(--chip);overflow:hidden;margin:.45rem 0}
-.progress>i{display:block;height:100%;width:40%;background:linear-gradient(90deg,var(--accent),var(--accent-2));animation:slide 1.3s ease-in-out infinite}
-.progress.paused>i{background:var(--warn);animation:none;width:100%}
-@keyframes slide{0%{transform:translateX(-100%)}100%{transform:translateX(280%)}}
-.file-row{display:flex;align-items:center;justify-content:space-between;gap:.5rem;padding:.5rem .55rem;border-bottom:1px solid var(--border);font-size:.88rem}
-.file-row:hover{background:var(--hover)}
-.file-tabs{display:flex;gap:.3rem;flex-wrap:wrap;margin-bottom:.6rem}
-.file-tabs button{background:var(--chip);border:1px solid var(--border);color:var(--text)}.file-tabs button.on{background:var(--accent);border-color:var(--accent);color:#fff}
-#file-list.card{min-height:0;display:block;padding:0}
-.result-grid{display:grid;grid-template-columns:1fr 1fr;gap:.25rem .9rem;margin-top:.5rem;font-size:.88rem}
-@media(max-width:640px){.result-grid{grid-template-columns:1fr}}
-.result-grid .ri{display:flex;justify-content:space-between;gap:.5rem;padding:.2rem 0;border-bottom:1px solid var(--chip)}
-.result-grid .ri .n{font-weight:600}
-.result-grid .ri .m{color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap}
-.ssl-table{width:100%;border-collapse:collapse;margin-top:.5rem;font-size:.88rem}
-.ssl-table th{text-align:left;color:var(--muted);font-weight:600;padding:.35rem .4rem;border-bottom:1px solid var(--border);font-size:.75rem;text-transform:uppercase;letter-spacing:.04em}
-.ssl-table td{padding:.4rem;border-bottom:1px solid var(--chip)}
-.ssl-table tr:last-child td{border-bottom:none}
-.settings-form label.row{display:block;margin:.55rem 0 .2rem}
-.settings-form input,.settings-form select,
-.modal input,.modal select{
-  width:100%;max-width:420px;padding:.45rem .6rem;border-radius:8px;
-  border:1px solid var(--border);background:var(--card);color:var(--text)
+/* Bot4VPS Pages — Специфичные стили */
+
+/* Формы
+   Селектор по :not(), а не по списку type= — в разметке много <input> без
+   атрибута type, они не попадали ни под одно правило и рисовались нативно. */
+input:where(:not([type="checkbox"],[type="radio"],[type="range"],[type="button"],[type="submit"],[type="file"])),
+select,
+textarea{
+  width:100%;
+  padding:0.65rem 0.875rem;
+  border-radius:var(--radius-sm);
+  border:1px solid var(--field-border);
+  background:var(--field);
+  color:var(--text);
+  font-size:0.9rem;
+  font-family:inherit;
+  line-height:1.4;
+  transition:border-color var(--transition-fast),
+             box-shadow var(--transition-fast),
+             background var(--transition-fast);
 }
-.settings-form input[type=checkbox],.modal input[type=checkbox]{width:auto;margin-right:.4rem}
-
-/* страница настроек */
-#page-settings .card h3{margin:0 0 .2rem}
-#acc-form{margin-top:.5rem;max-width:460px}
-#acc-form .pw-wrap{max-width:460px}
-.acc-note{font-size:.78rem;color:var(--muted);margin:.3rem 0 .1rem}
-
-/* страница WireGuard */
-.wg-hint{color:var(--muted);font-size:.82rem;margin:.35rem 0 .7rem}
-#wg-tab-manage{align-items:start}
-#wg-tab-manage .card-actions{justify-content:flex-start}
-#wg-tab-manage .card-actions button{flex:0 1 auto;min-width:max-content;white-space:nowrap}
-.wg-card-info{font-size:.85rem;color:var(--muted);margin-top:.15rem}
-.wg-card-info b{color:var(--text);font-weight:500}
-.wg-note{font-size:.82rem;color:var(--muted);margin:.35rem 0;white-space:pre-line}
-.wg-log-wrap{margin:.4rem 0 .9rem;border:1px solid var(--border);border-radius:10px;overflow:hidden}
-.wg-log-head{display:flex;align-items:center;justify-content:space-between;gap:.5rem;padding:.4rem .65rem;background:var(--card);border-bottom:1px solid var(--border);font-size:.82rem;color:var(--muted)}
-.wg-log-head button{padding:.15rem .5rem;font-size:.8rem}
-.wg-log-wrap .wg-log{margin:0;border:none;border-radius:0;max-height:280px}
-.wg-panel{margin-top:.6rem;padding-top:.6rem;border-top:1px solid var(--border)}
-.wg-section{padding:.5rem 0}
-.wg-section+.wg-section{border-top:1px solid var(--chip)}
-.wg-section-title{font-size:.74rem;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin-bottom:.35rem}
-.wg-profile{display:flex;align-items:center;justify-content:space-between;gap:.5rem;flex-wrap:wrap;padding:.3rem 0}
-.wg-profile+.wg-profile{border-top:1px solid var(--chip)}
-.wg-profile .actions,.wg-ep .actions,.wg-section .actions{margin-top:.3rem;flex-wrap:wrap}
-#wg-qr-img{max-width:100%;border-radius:10px}
-
-/* экран конкретного WireGuard-сервера (#page-wireguard-server) */
-#page-wireguard-server .wg-srv-info{min-width:0}
-#page-wireguard-server .wg-srv-info .kv{margin:0}
-.mono{font-family:ui-monospace,Consolas,monospace}
-.copiable{cursor:pointer;border-bottom:1px dashed var(--muted)}
-.wg-srv-stats{margin:.5rem 0}
-.wg-profile-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:.6rem;align-items:start}
-.wg-prof-card{min-width:0}
-.wg-prof-card .card-body{min-width:0}
-.wg-prof-field{display:flex;flex-direction:column;gap:.1rem;margin:.35rem 0;min-width:0}
-.wg-prof-label{font-size:.72rem;text-transform:uppercase;letter-spacing:.04em;color:var(--muted)}
-.wg-prof-val{font-size:.82rem;word-break:break-all}
-.wg-prof-traffic{display:flex;gap:1rem;margin-top:.4rem;font-variant-numeric:tabular-nums;font-size:.85rem;color:var(--muted)}
-.wg-prof-traffic span{white-space:nowrap}
-.wg-admin{margin-top:1rem;padding-top:.6rem;border-top:1px solid var(--border)}
-.wg-admin .actions{flex-wrap:wrap}
-/* кнопки не выходят за края карточек (ТЗ §23) */
-#wg-tab-manage .card-actions button,#page-wireguard-server .card-actions button,
-.wg-admin .actions button{min-width:max-content;white-space:nowrap}
-
-
-/* nested modals: z-index задаётся из JS openModalEl */
-.modal-bg.open { display: flex; }
-.wg-log, .wg-log-wrap .logbox, .tasklog-body { color: var(--term-fg, var(--text)); }
-
-/* event detail */
-.event { cursor: pointer; }
-.event:hover { transform: translateY(-1px); }
-.event-detail-pre {
-  background: var(--term); color: var(--term-fg, var(--text));
-  border: 1px solid var(--border); border-radius: 8px;
-  padding: .6rem; font-size: .78rem; max-height: 40vh; overflow: auto;
-  white-space: pre-wrap; word-break: break-word;
+input:where(:not([type="checkbox"],[type="radio"],[type="file"])):hover:not(:disabled),
+select:hover:not(:disabled),
+textarea:hover:not(:disabled){
+  border-color:var(--border-hover);
+  background:var(--field-hover);
+}
+input:focus,
+select:focus,
+textarea:focus{
+  outline:none;
+  border-color:var(--accent);
+  box-shadow:0 0 0 3px var(--accent-soft);
+  background:var(--field-hover);
+}
+input::placeholder,
+textarea::placeholder{
+  color:var(--text-dim);
+}
+input:disabled,
+select:disabled,
+textarea:disabled{
+  opacity:0.55;
+  cursor:not-allowed;
+}
+textarea{
+  resize:vertical;
+  min-height:5rem;
 }
 
-.groups-list { display: flex; flex-direction: column; gap: .45rem; }
-.group-row {
-  display: flex; flex-wrap: wrap; gap: .4rem; align-items: center;
-  padding: .45rem .55rem; border: 1px solid var(--border, #30363d);
-  border-radius: 8px;
+/* Свой шеврон вместо нативной стрелки + читаемое всплывающее меню */
+select{
+  appearance:none;
+  -webkit-appearance:none;
+  padding-right:2.25rem;
+  cursor:pointer;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5 6 6.5l5-5' fill='none' stroke='%238b92a0' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat:no-repeat;
+  background-position:right 0.875rem center;
 }
-.group-row .grp-name { flex: 1 1 10rem; min-width: 8rem; font: inherit; padding: .3rem .5rem; }
-.group-row .grp-ssl { display: flex; align-items: center; gap: .3rem; margin: 0; }
-.group-row .grp-count { opacity: .7; font-size: .85em; min-width: 4.5rem; }
-.group-row button:disabled { opacity: .35; cursor: not-allowed; }
+/* Список опций рисует ОС — фон обязан быть непрозрачным */
+select option,
+select optgroup{
+  background:var(--bg-base);
+  color:var(--text);
+}
 
-/* телефонный тир ≤640px: WG-профили в одну колонку + SSL-таблица стопкой карточек.
-   .wg-profile-grid определён здесь, поэтому override — здесь (позже по source-order
-   .grid-override из layout.css не достаёт до этого селектора). */
+/* Чекбоксы — акцент вместо системного серого */
+input[type="checkbox"],
+input[type="radio"]{
+  width:18px;
+  height:18px;
+  margin-right:0.5rem;
+  cursor:pointer;
+  accent-color:var(--accent);
+  flex:none;
+}
+
+/* Выбор файла */
+input[type="file"]{
+  width:100%;
+  font-size:0.85rem;
+  font-family:inherit;
+  color:var(--text-muted);
+  cursor:pointer;
+}
+input[type="file"]::file-selector-button{
+  margin-right:0.75rem;
+  padding:0.5rem 0.875rem;
+  border:1px solid var(--field-border);
+  border-radius:var(--radius-sm);
+  background:var(--card);
+  color:var(--text);
+  font-size:0.85rem;
+  font-family:inherit;
+  cursor:pointer;
+  transition:background var(--transition-fast),border-color var(--transition-fast);
+}
+input[type="file"]::file-selector-button:hover{
+  background:var(--card-hover);
+  border-color:var(--border-hover);
+}
+
+/* Убрать нативные спиннеры у number — они светлые и ломают вид */
+input[type="number"]{
+  -moz-appearance:textfield;
+}
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button{
+  -webkit-appearance:none;
+  margin:0;
+}
+
+/* Крестик очистки у search */
+input[type="search"]::-webkit-search-cancel-button{
+  -webkit-appearance:none;
+  height:14px;
+  width:14px;
+  cursor:pointer;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 14 14'%3E%3Cpath d='M3 3l8 8M11 3l-8 8' fill='none' stroke='%238b92a0' stroke-width='1.8' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-repeat:no-repeat;
+  background-position:center;
+}
+
+label{
+  display:block;
+  font-size:0.9rem;
+  font-weight:500;
+  color:var(--text-muted);
+  margin-bottom:0.5rem;
+}
+
+.form-row{
+  margin-bottom:1.25rem;
+}
+
+.pw-wrap{
+  position:relative;
+  max-width:420px;
+}
+.pw-wrap input{
+  width:100%;
+  padding-right:3rem;
+}
+.pw-wrap .eye{
+  position:absolute;
+  right:0.75rem;
+  top:50%;
+  transform:translateY(-50%);
+  background:transparent;
+  border:none;
+  color:var(--text-muted);
+  padding:0.25rem 0.5rem;
+  cursor:pointer;
+  font-size:1.1rem;
+  transition:color var(--transition-fast);
+}
+.pw-wrap .eye:hover{
+  color:var(--text);
+}
+
+/* Логи и терминал */
+.logbox,.term,.script-view{
+  background:var(--bg-base);
+  color:var(--text);
+  border:1px solid var(--border);
+  border-radius:var(--radius-md);
+  padding:1rem;
+  font-family:'JetBrains Mono',ui-monospace,Consolas,'Courier New',monospace;
+  font-size:0.8125rem;
+  line-height:1.6;
+  overflow:auto;
+  max-height:400px;
+  white-space:pre-wrap;
+  word-break:break-word;
+}
+
+.logbox{
+  max-height:340px;
+}
+
+.tasklog-head{
+  color:var(--text-muted);
+  font-weight:600;
+  font-size:0.85rem;
+  border-bottom:1px solid var(--border);
+  padding-bottom:0.5rem;
+  margin-bottom:0.75rem;
+}
+
+.tasklog-body{
+  white-space:pre-wrap;
+  word-break:break-word;
+}
+
+/* ── Дашборд: три виджета одной высоты, всё на одном экране ───────────── */
+.dash-cols{
+  display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(300px,1fr));
+  gap:1rem;
+  margin-bottom:1.25rem;
+  align-items:stretch;
+}
+.dash-cols > .card{
+  padding:1rem;
+  display:flex;
+  flex-direction:column;
+  min-height:360px;
+}
+.dash-cols > .card h3{
+  font-size:1rem;
+  margin-bottom:0.75rem;
+}
+
+/* Виджет событий — ограничиваем высоту */
+#dash-events{
+  flex:1;
+  overflow-y:auto;
+  display:flex;
+  flex-direction:column;
+  gap:0.375rem;
+}
+
+/* Виджет серверов */
+#dash-servers{
+  flex:1;
+  display:flex;
+  flex-direction:column;
+  gap:0.5rem;
+  min-height:0;
+}
+
+.dash-srv-actions{
+  margin-top:auto;
+  padding-top:0.75rem;
+  display:flex;
+  gap:0.5rem;
+}
+
+/* Виджет системы — кнопка прилипает к низу */
+#dash-system{
+  display:flex;
+  flex-direction:column;
+  flex:1;
+}
+#dash-system .dash-srv-actions{
+  margin-top:auto;
+}
+
+/* Настройки: два столбца — слева учётка, справа группы */
+.settings-grid{
+  display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(360px,1fr));
+  gap:1rem;
+  margin-bottom:1.25rem;
+}
+
+/* Строка сервера */
+.dash-srv{
+  display:grid;
+  grid-template-columns:auto 1fr auto;
+  gap:0.65rem;
+  align-items:center;
+  padding:0.5rem 0.625rem;
+  background:var(--card);
+  border:1px solid transparent;
+  border-radius:var(--radius-sm);
+  cursor:pointer;
+  transition:background var(--transition-fast),border-color var(--transition-fast);
+}
+.dash-srv:hover{
+  background:var(--card-hover);
+  border-color:var(--border-hover);
+}
+.dash-srv-dot{
+  font-size:0.7rem;
+  line-height:1;
+}
+.dash-srv-name{
+  font-weight:600;
+  font-size:0.875rem;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+.dash-srv-host{
+  font-size:0.7rem;
+  color:var(--text-dim);
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+.dash-srv-meta{
+  font-size:0.7rem;
+  color:var(--text-muted);
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+.dash-srv-chart{
+  display:flex;
+  flex-direction:column;
+  align-items:flex-end;
+  gap:0.15rem;
+}
+.dash-srv-cpu{
+  font-size:0.7rem;
+  color:var(--text-muted);
+  white-space:nowrap;
+}
+.dash-srv-cpu [data-f="cpu"]{
+  font-weight:700;
+  font-size:0.8rem;
+  color:var(--text);
+}
+.dash-srv-actions{
+  display:flex;
+  gap:0.5rem;
+  margin-top:0.25rem;
+}
+.dash-srv-actions button{
+  font-size:0.8rem;
+  padding:0.45rem 0.6rem;
+  white-space:nowrap;
+}
+
+/* События */
+.dash-ev{
+  display:flex;
+  gap:0.5rem;
+  align-items:flex-start;
+  padding:0.45rem 0.55rem;
+  background:var(--card);
+  border:1px solid transparent;
+  border-radius:var(--radius-sm);
+  font-size:0.8rem;
+  cursor:pointer;
+  transition:background var(--transition-fast),border-color var(--transition-fast);
+}
+.dash-ev:hover{
+  background:var(--card-hover);
+  border-color:var(--border-hover);
+}
+.dash-ev-msg{
+  font-weight:500;
+  line-height:1.3;
+  display:-webkit-box;
+  -webkit-line-clamp:2;
+  line-clamp:2;
+  -webkit-box-orient:vertical;
+  overflow:hidden;
+}
+.dash-ev-time{
+  color:var(--text-dim);
+  font-size:0.7rem;
+  margin-top:0.15rem;
+}
+
+/* Мониторинг — метрики grid */
+.monitor-grid{
+  display:grid;
+  grid-template-columns:repeat(auto-fit, minmax(220px, 1fr));
+  gap:1rem;
+  margin-bottom:1rem;
+}
+.monitor-card{
+  background:var(--card);
+  border:1px solid var(--border);
+  border-radius:var(--radius-md);
+  padding:1rem;
+  transition:background var(--transition-fast), border-color var(--transition-fast);
+  position:relative;
+}
+.monitor-card:hover{
+  background:var(--card-hover);
+  border-color:var(--border-hover);
+}
+.monitor-card-head{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  margin-bottom:0.5rem;
+}
+.monitor-card-label{
+  font-size:0.75rem;
+  color:var(--text-muted);
+  text-transform:uppercase;
+  letter-spacing:0.05em;
+  font-weight:500;
+}
+.monitor-card-icon{
+  display:flex;
+  align-items:center;
+  justify-content:center;
+}
+.monitor-card-icon svg{
+  display:block;
+}
+.monitor-card-value{
+  font-size:1.75rem;
+  font-weight:700;
+  line-height:1.2;
+}
+.monitor-card-graph-wrap{
+  height:36px;
+  margin:0.5rem 0;
+  position:relative;
+}
+.monitor-card-graph{
+  position:absolute;
+  inset:0;
+}
+.monitor-card-bar{
+  height:5px;
+  background:rgba(255,255,255,0.06);
+  border-radius:999px;
+  overflow:hidden;
+}
+:root[data-theme="light"] .monitor-card-bar{
+  background:rgba(15,23,42,0.08);
+}
+.monitor-card-bar-fill{
+  height:100%;
+  border-radius:999px;
+  transition:width 0.5s cubic-bezier(0.4,0,0.2,1);
+}
+.monitor-card-meta{
+  font-size:0.7rem;
+  color:var(--text-dim);
+  text-align:right;
+  margin-top:0.35rem;
+}
+
+/* Три таблицы мониторинга */
+.monitor-tables{
+  display:grid;
+  grid-template-columns:repeat(auto-fit, minmax(280px, 1fr));
+  gap:1rem;
+  margin-bottom:1rem;
+}
+.monitor-info-row{
+  display:flex;
+  justify-content:space-between;
+  padding:0.5rem 0;
+  border-bottom:1px solid var(--border);
+  font-size:0.85rem;
+}
+.monitor-info-row:last-child{
+  border-bottom:none;
+}
+.monitor-info-row .label{
+  color:var(--text-muted);
+}
+.monitor-info-row .value{
+  font-weight:600;
+  text-align:right;
+}
+
+/* Секция настроек мониторинга */
+.mon-section + .mon-section{
+  margin-top:1rem;
+  padding-top:1rem;
+  border-top:1px solid var(--border);
+}
+.mon-head{
+  display:flex;
+  align-items:center;
+  gap:0.5rem;
+  margin-bottom:0.5rem;
+}
+.mon-icon{
+  font-size:1.1rem;
+}
+.mon-title{
+  font-weight:600;
+  flex:1;
+}
+.mon-status{
+  font-size:0.85rem;
+  color:var(--text-muted);
+}
+.mon-detail{
+  font-size:0.85rem;
+  color:var(--text-muted);
+  margin-bottom:0.75rem;
+}
+.mon-actions{
+  display:flex;
+  flex-wrap:wrap;
+  gap:0.5rem;
+}
+.mon-actions button{
+  flex:1 1 auto;
+  min-width:fit-content;
+}
+
+/* Системные полосы */
+.dash-sys-row + .dash-sys-row{
+  margin-top:0.625rem;
+}
+.dash-sys-head{
+  display:flex;
+  justify-content:space-between;
+  align-items:baseline;
+  margin-bottom:0.3rem;
+  font-size:0.8rem;
+}
+.dash-sys-head .lbl{color:var(--text-muted)}
+.dash-sys-head .val{font-weight:600}
+.dash-sys-track{
+  height:5px;
+  background:rgba(255,255,255,0.06);
+  border-radius:999px;
+  overflow:hidden;
+}
+:root[data-theme="light"] .dash-sys-track{
+  background:rgba(15,23,42,0.08);
+}
+.dash-sys-fill{
+  height:100%;
+  border-radius:999px;
+  transition:width 0.5s cubic-bezier(0.4,0,0.2,1);
+}
+
+/* Статус-пилюли */
+.dash-sys-status{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  margin-top:0.625rem;
+  font-size:0.8rem;
+}
+.dash-sys-status .lbl{
+  color:var(--text-muted);
+}
+.dash-pill{
+  display:inline-flex;
+  align-items:center;
+  gap:0.4rem;
+  padding:0.25rem 0.6rem;
+  border-radius:999px;
+  font-size:0.75rem;
+  font-weight:500;
+  background:var(--card);
+}
+.dash-pill.is-ok{
+  background:rgba(16,185,129,0.1);
+  color:#10b981;
+}
+.dash-pill.is-bad{
+  background:rgba(239,68,68,0.1);
+  color:#ef4444;
+}
+.dash-pill.is-off{
+  background:rgba(148,163,184,0.12);
+  color:#94a3b8;
+}
+.dash-pill .dot{
+  width:6px;
+  height:6px;
+  border-radius:50%;
+  background:currentColor;
+}
+
+/* Доступное обновление в системном виджете Dashboard */
+.dash-update-notice{
+  margin-top:0.75rem;
+  padding:0.7rem 0.75rem;
+  border:1px solid color-mix(in srgb,var(--warn) 42%,transparent);
+  border-radius:var(--radius-sm);
+  background:var(--warn-bg);
+}
+.dash-update-title{
+  color:var(--warn);
+  font-size:0.85rem;
+  font-weight:700;
+}
+.dash-update-version{
+  margin-top:0.15rem;
+  color:var(--text-muted);
+  font-size:0.75rem;
+}
+.dash-update-notice button{
+  width:100%;
+  margin-top:0.6rem;
+  padding:0.45rem 0.6rem;
+  font-size:0.8rem;
+}
+
+/* Сводка ошибок */
+.dash-sys-err{
+  margin-top:0.75rem;
+  padding:0.5rem 0.6rem;
+  border-radius:var(--radius-sm);
+  background:rgba(255,255,255,0.03);
+  font-size:0.8rem;
+  line-height:1.4;
+}
+.dash-sys-err.is-ok{
+  background:rgba(16,185,129,0.08);
+  color:#10b981;
+}
+.dash-sys-err.is-warn{
+  background:rgba(251,191,36,0.08);
+  color:#fbbf24;
+}
+.dash-sys-err.is-bad{
+  background:rgba(239,68,68,0.08);
+  color:#ef4444;
+}
+.dash-sys-err[data-sys-errors="1"]{
+  cursor:pointer;
+  transition:background var(--transition-fast);
+}
+.dash-sys-err[data-sys-errors="1"]:hover{
+  background:rgba(239,68,68,0.14);
+}
+.dash-sys-err-last{
+  margin-top:0.35rem;
+  font-size:0.7rem;
+  opacity:0.8;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+
+/* Терминал (xterm.js) */
+.term-host{
+  background:var(--bg-base);
+  border:1px solid var(--border);
+  border-radius:var(--radius-md);
+  padding:0.75rem;
+  height:clamp(320px,60vh,600px);
+  overflow:hidden;
+}
+.term-host .xterm{
+  height:100%;
+}
+.term-host .xterm-viewport{
+  background-color:var(--bg-base)!important;
+}
+
+.term-bar{
+  display:flex;
+  align-items:center;
+  gap:0.75rem;
+  margin-bottom:0.75rem;
+}
+
+.term-in{
+  display:flex;
+  gap:0.5rem;
+  margin-top:0.75rem;
+}
+.term-in input{
+  flex:1;
+  padding:0.6rem 0.875rem;
+  border-radius:var(--radius-sm);
+  border:1px solid var(--field-border);
+  background:var(--field);
+  color:var(--text);
+  font-family:ui-monospace,Consolas,monospace;
+  font-size:0.9rem;
+}
+
+/* Обёртки логов WireGuard/Docker */
+.wg-log-wrap,.docker-log-wrap{
+  margin:1rem 0;
+  border:1px solid var(--border);
+  border-radius:var(--radius-md);
+  overflow:hidden;
+  background:var(--card);
+}
+
+/* Группы серверов — настройки */
+.groups-list{
+  display:flex;
+  flex-direction:column;
+  gap:0.375rem;
+}
+
+.group-row{
+  display:flex;
+  align-items:center;
+  gap:0.625rem;
+  padding:0.5rem 0.75rem;
+  background:var(--card);
+  border:1px solid var(--border);
+  border-radius:var(--radius-sm);
+  transition:border-color var(--transition-fast),background var(--transition-fast);
+}
+.group-row:hover{
+  border-color:var(--border-hover);
+  background:var(--card-hover);
+}
+
+.group-row .grp-name{
+  flex:1;
+  min-width:0;
+  font-weight:500;
+  font-size:0.9rem;
+  padding:0.4rem 0.6rem;
+}
+
+.grp-ssl-label{
+  display:flex;
+  align-items:center;
+  gap:0.35rem;
+  color:var(--text-muted);
+  font-size:0.8rem;
+  cursor:pointer;
+  margin:0;
+  white-space:nowrap;
+}
+.grp-ssl-label:hover{
+  color:var(--text);
+}
+.grp-ssl-cb{
+  margin:0!important;
+}
+
+.group-row .grp-count{
+  color:var(--text-muted);
+  font-size:0.8rem;
+  min-width:1.5rem;
+  text-align:center;
+  font-variant-numeric:tabular-nums;
+}
+
+.group-row .icon-btn{
+  width:32px;
+  height:32px;
+  padding:0;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  background:transparent;
+  border:1px solid var(--border);
+  border-radius:var(--radius-sm);
+  color:var(--text-muted);
+  cursor:pointer;
+  transition:all var(--transition-fast);
+  font-size:1rem;
+  flex-shrink:0;
+}
+.group-row .icon-btn:hover:not(:disabled){
+  background:var(--card-hover);
+  border-color:var(--border-hover);
+  color:var(--text);
+}
+.group-row .icon-btn:disabled{
+  opacity:0.35;
+  cursor:not-allowed;
+}
+.group-row .grp-del:not(:disabled):hover{
+  background:rgba(239,68,68,0.1);
+  border-color:#ef4444;
+  color:#ef4444;
+}
+
+/* Настройка отображения групп (drag-and-drop) */
+.groups-display-list{
+  display:flex;
+  flex-direction:column;
+  gap:0.5rem;
+}
+
+.group-display-row{
+  display:flex;
+  align-items:center;
+  gap:0.75rem;
+  padding:0.6rem 0.75rem;
+  background:var(--card);
+  border:1px solid var(--border);
+  border-radius:var(--radius-sm);
+  transition:all var(--transition-fast);
+  cursor:move;
+}
+
+.group-display-row:hover{
+  border-color:var(--border-hover);
+  background:var(--card-hover);
+}
+
+.group-display-row.dragging{
+  opacity:0.5;
+  border-color:var(--accent);
+}
+
+.group-display-row .drag-handle{
+  color:var(--text-dim);
+  font-size:1.1rem;
+  cursor:grab;
+  user-select:none;
+}
+
+.group-display-row .drag-handle:active{
+  cursor:grabbing;
+}
+
+.group-display-label{
+  flex:1;
+  display:flex;
+  align-items:center;
+  gap:0.5rem;
+  font-size:0.9rem;
+  cursor:pointer;
+  margin:0;
+}
+
+.group-display-label input[type="checkbox"]{
+  margin:0!important;
+  cursor:pointer;
+}
+
+.group-visible-cb{
+  cursor:pointer;
+}
+
+
+.wg-log-head,.docker-log-head{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:0.75rem;
+  padding:0.75rem 1rem;
+  background:rgba(255,255,255,0.03);
+  border-bottom:1px solid var(--border);
+  font-size:0.85rem;
+  color:var(--text-muted);
+}
+.wg-log-head button,.docker-log-head button{
+  padding:0.35rem 0.75rem;
+  font-size:0.8rem;
+}
+
+.wg-log-wrap .wg-log,
+.docker-log-wrap .docker-log{
+  margin:0;
+  border:none;
+  border-radius:0;
+  max-height:320px;
+}
+
+/* События */
+.event{
+  display:grid;
+  grid-template-columns:4px 1fr;
+  background:var(--card);
+  border:1px solid var(--border);
+  border-radius:var(--radius-md);
+  overflow:hidden;
+  margin-bottom:0.75rem;
+  transition:all var(--transition-fast);
+  cursor:pointer;
+}
+.event:hover{
+  transform:translateX(3px);
+  box-shadow:var(--shadow-sm);
+}
+
+.event .barline{
+  background:var(--info);
+}
+.event.ok .barline{background:var(--ok)}
+.event.warning .barline{background:var(--warn)}
+.event.critical .barline,.event.error .barline{background:var(--err)}
+
+.event .body{
+  padding:0.875rem 1rem;
+}
+.event .title{
+  font-weight:600;
+  font-size:0.95rem;
+  margin-bottom:0.25rem;
+}
+.event .meta{
+  color:var(--text-muted);
+  font-size:0.8rem;
+  display:flex;
+  align-items:center;
+  gap:0.75rem;
+}
+
+/* Метка прочтения — прижата к правому краю строки с датой */
+.event-read{
+  margin-left:auto;
+  flex-shrink:0;
+  font-size:0.72rem;
+  color:var(--text-dim);
+  letter-spacing:0.02em;
+}
+.event-read.is-unread{
+  color:var(--accent);
+  font-weight:600;
+}
+/* Непрочитанное выделяем чуть плотнее — заголовок ярче */
+.event.is-unread .title{
+  color:var(--text);
+}
+.event:not(.is-unread) .title{
+  font-weight:500;
+  color:var(--text-muted);
+}
+
+/* Прогресс-индикатор задач */
+.progress{
+  height:4px;
+  border-radius:999px;
+  background:rgba(255,255,255,0.05);
+  overflow:hidden;
+  margin:0.75rem 0;
+  position:relative;
+}
+.progress>i{
+  display:block;
+  height:100%;
+  width:40%;
+  background:linear-gradient(90deg,var(--accent) 0%,#6366f1 100%);
+  border-radius:999px;
+  animation:progressSlide 1.5s ease-in-out infinite;
+}
+.progress.paused>i{
+  background:var(--warn);
+  animation:none;
+  width:100%;
+}
+
+@keyframes progressSlide{
+  0%{transform:translateX(-100%)}
+  100%{transform:translateX(350%)}
+}
+
+/* System Monitoring */
+.mon-ip-line{
+  display:flex;
+  align-items:center;
+  gap:.6rem;
+  margin:0 0 1rem;
+}
+.mon-ip{
+  color:var(--text);
+  font-weight:600;
+  font-size:1.1rem;
+  font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+.mon-ip-copy{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  width:28px;
+  height:28px;
+  padding:0;
+  background:var(--field);
+  border:1px solid var(--field-border);
+  border-radius:5px;
+  color:var(--text-muted);
+  font-size:.95rem;
+  line-height:1;
+  cursor:pointer;
+  transition:all .2s;
+}
+.mon-ip-copy:hover{
+  background:var(--field-hover);
+  color:var(--text);
+}
+/* Подтверждение копирования — короткая подсветка вместо окна */
+.mon-ip-copy.copied{
+  border-color:var(--ok);
+  color:var(--ok);
+}
+
+/* Пять виджетов одинакового размера — равные колонки сетки */
+.sys-widgets{
+  display:grid;
+  grid-template-columns:repeat(5,minmax(0,1fr));
+  gap:.75rem;
+  margin-bottom:1rem;
+}
+@media (max-width:1100px){
+  .sys-widgets{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
+@media (max-width:640px){
+  .sys-widgets{grid-template-columns:minmax(0,1fr)}
+}
+
+/* Три столбца в одну линию: align-items:stretch (значение grid по умолчанию)
+   тянет каждый столбец до высоты самого высокого. Третий столбец — контейнер
+   на двух блоках, поэтому он тоже растягивается, а блоки внутри делят его
+   высоту пополам. */
+.mon-blocks{
+  display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(280px,1fr));
+  gap:.75rem;
+  margin-bottom:1rem;
+}
+.mon-col{
+  display:flex;
+  flex-direction:column;
+  gap:.75rem;
+  min-width:0;
+}
+/* Блоки третьего столбца делят его высоту, нижние края всех столбцов совпадают */
+.mon-col > .info-block{
+  flex:1;
+  display:flex;
+  flex-direction:column;
+}
+
+.sys-widget{
+  background:var(--card);
+  border:1px solid var(--border);
+  border-radius:8px;
+  padding:.85rem;
+  min-width:0;
+  display:flex;
+  flex-direction:column;
+}
+
+.sw-head{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:.5rem;
+  margin-bottom:.4rem;
+}
+.sw-icon{font-size:1.2rem}
+.sw-label{
+  font-size:.85rem;
+  font-weight:500;
+  color:var(--text-muted);
+}
+.sw-value{
+  font-size:1.5rem;
+  font-weight:700;
+  color:var(--text);
+  line-height:1.7rem;
+  height:1.7rem;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+/* Сеть: строка вида «↓ 1.2 МБ/с ↑ 300 КБ/с» не влезает крупным кеглем */
+.sw-value-sm{font-size:.9rem}
+.sw-graph{
+  display:block;
+  width:100%;
+  height:44px;
+  margin:.45rem 0;
+}
+.sw-graph-empty{height:44px}
+
+/* Uptime-виджет: две части (хост и сервис) вместо графика.
+   Высота собрана так, чтобы карточка совпадала с остальными четырьмя. */
+.sw-split{
+  display:flex;
+  flex-direction:column;
+  justify-content:center;
+  gap:.6rem;
+  flex:1;
+  min-height:calc(1.7rem + 44px + .9rem);
+}
+.sw-part{
+  display:flex;
+  flex-direction:column;
+  gap:.1rem;
+  min-width:0;
+}
+.sw-part-label{
+  font-size:.7rem;
+  color:var(--text-muted);
+}
+.sw-part-value{
+  font-size:1.05rem;
+  font-weight:700;
+  color:var(--text);
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+.sw-stats{
+  display:flex;
+  flex-direction:column;
+  gap:.2rem;
+  font-size:.7rem;
+  color:var(--text-muted);
+  margin-top:auto;
+}
+.sw-subtitle{
+  font-size:.85rem;
+  color:var(--text-muted);
+  text-align:center;
+  margin-top:1rem;
+}
+
+.info-block{
+  background:var(--card);
+  border:1px solid var(--border);
+  border-radius:8px;
+  padding:1rem;
+}
+.info-block h2{
+  font-size:1rem;
+  font-weight:600;
+  margin:0 0 .75rem;
+  color:var(--text);
+}
+.info-row{
+  display:flex;
+  justify-content:space-between;
+  padding:.4rem 0;
+  border-bottom:1px solid rgba(255,255,255,0.05);
+  font-size:.85rem;
+}
+.info-row:last-child{border-bottom:none}
+.info-label{
+  color:var(--text-muted);
+  font-weight:500;
+}
+.info-value{
+  color:var(--text);
+  font-weight:400;
+  display:flex;
+  align-items:center;
+  gap:.35rem;
+  text-align:right;
+}
+/* Настройки мониторинга переехали в колонку .mon-blocks — вместо прежней
+   инлайновой сетки в два столбца кладём Online и SSL стопкой. */
+.mon-cfg{
+  display:flex;
+  flex-direction:column;
+  gap:.75rem;
+}
+.mon-cfg-item + .mon-cfg-item{
+  padding-top:.75rem;
+  border-top:1px solid rgba(255,255,255,0.05);
+}
+/* Шрифты блока — в масштабе страницы (.85rem, как .info-row),
+   а не крупнее, как было в инлайновых стилях. */
+.mon-cfg-title{
+  font-size:.85rem;
+  font-weight:600;
+  color:var(--text);
+  margin-bottom:.3rem;
+}
+.mon-cfg-state{
+  font-size:.85rem;
+  color:var(--text-muted);
+  margin-bottom:.5rem;
+}
+.mon-cfg-actions{gap:.35rem}
+.mon-cfg-actions button{
+  font-size:.8rem;
+  padding:.3rem .55rem;
+}
+/* Строка «Проверять обновления»: чекбокс и кнопки в один ряд,
+   без отдельного заголовка — блок не растёт по высоте (ТЗ п.6). */
+.mon-update-row{
+  display:flex;
+  align-items:center;
+  gap:.5rem;
+  flex-wrap:wrap;
+}
+.mon-update-label{
+  display:flex;
+  align-items:center;
+  gap:.4rem;
+  font-size:.85rem;
+  color:var(--text);
+  cursor:pointer;
+  flex:none;
+}
+.mon-update-row .actions{margin-left:auto}
+.mon-result:not(:empty){margin-top:.75rem}
+
+/* Индикатор состояния службы */
+.svc-dot{
+  width:8px;
+  height:8px;
+  border-radius:50%;
+  flex-shrink:0;
+  display:inline-block;
+}
+.svc-dot.ok{background:var(--ok);box-shadow:0 0 6px var(--ok)}
+.svc-dot.err{background:var(--err);box-shadow:0 0 6px var(--err)}
+
+.service-item{
+  display:flex;
+  justify-content:space-between;
+  padding:.5rem 0;
+  border-bottom:1px solid rgba(255,255,255,0.05);
+  font-size:.85rem;
+}
+.service-item:last-child{border-bottom:none}
+.service-name{
+  color:var(--text-muted);
+  font-weight:500;
+}
+.service-status{
+  color:var(--text);
+  font-weight:400;
+  display:flex;
+  align-items:center;
+  gap:.35rem;
+}
+.service-status.ok{color:var(--ok)}
+.service-status.err{color:var(--err)}
+.service-status.off{color:#94a3b8}
+.svc-dot.off{background:#94a3b8;box-shadow:none}
+
+#system-quick-actions{
+  display:flex;
+  flex-direction:column;
+  gap:.5rem;
+}
+/* Журнал bot4vps: цвета берём из переменных темы, иначе светлая тема ломается */
+.journal-output{
+  margin:0;
+  height:min(60vh,480px);
+  overflow:auto;
+  padding:.7rem .8rem;
+  background:var(--field);
+  border:1px solid var(--field-border);
+  border-radius:6px;
+  color:var(--text);
+  font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  font-size:.78rem;
+  line-height:1.45;
+  white-space:pre-wrap;
+  word-break:break-word;
+}
+.journal-live{
+  color:var(--ok);
+  font-size:.75rem;
+  font-weight:600;
+  letter-spacing:.03em;
+}
+.journal-line.sys{color:var(--text-muted)}
+.journal-line.err{color:var(--err)}
+.action-btn{
+  display:flex;
+  align-items:center;
+  gap:.5rem;
+  width:100%;
+  padding:.75rem 1rem;
+  background:var(--field);
+  border:1px solid var(--field-border);
+  border-radius:6px;
+  color:var(--text);
+  font-size:.9rem;
+  cursor:pointer;
+  transition:all .2s;
+}
+.action-btn:hover{
+  background:var(--field-hover);
+  border-color:var(--border-hover);
+}
+.action-btn .icon{font-size:1.1rem}
+
+
+/* Файлы */
+.file-row{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:0.75rem;
+  padding:0.75rem 1rem;
+  border-bottom:1px solid var(--border);
+  font-size:0.9rem;
+  transition:background var(--transition-fast);
+  cursor:pointer;
+}
+.file-row:hover{
+  background:var(--card-hover);
+}
+.file-row:last-child{
+  border-bottom:none;
+}
+
+.file-icon{
+  font-size:1.25rem;
+  width:24px;
+  text-align:center;
+  flex-shrink:0;
+}
+
+.file-name{
+  flex:1;
+  font-weight:500;
+}
+
+.file-meta{
+  color:var(--text-dim);
+  font-size:0.8rem;
+}
+
+#file-list.card{
+  min-height:0;
+  display:block;
+  padding:0;
+}
+
+/* Локальная Docker-библиотека: единый построчный список. Строка открывает
+   проект, а компактная корзина справа остаётся независимым действием. */
+.docker-library-projects{
+  display:block;
+}
+.docker-library-project{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:.75rem;
+  min-width:0;
+  min-height:54px;
+  padding:.62rem .8rem;
+  border-bottom:1px solid var(--border);
+  background:transparent;
+  cursor:pointer;
+  transition:background var(--transition-fast);
+}
+.docker-library-project:last-child{border-bottom:0}
+.docker-library-project:hover,
+.docker-library-project:focus-visible{
+  background:var(--card-hover);
+  outline:none;
+}
+.docker-library-project-main{
+  display:flex;
+  align-items:baseline;
+  gap:.65rem;
+  min-width:0;
+}
+.docker-library-project-name{
+  flex:0 1 15rem;
+  min-width:7rem;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+  font-weight:600;
+}
+.docker-library-project-meta{
+  overflow:hidden;
+  color:var(--text-muted);
+  font-size:.8rem;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.docker-library-entry-main{
+  display:flex;
+  align-items:center;
+  min-width:0;
+  gap:.55rem;
+}
+.docker-library-entry-name{
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.docker-library-actions{
+  display:flex;
+  flex:0 0 auto;
+  gap:.3rem;
+}
+.docker-library-action{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  width:32px;
+  height:32px;
+  min-width:32px;
+  padding:0;
+  border-radius:var(--radius-sm);
+  font-size:15px;
+  line-height:1;
+}
+.docker-library-action img.emoji{
+  width:15px;
+  height:15px;
+  margin:0;
+}
 @media(max-width:640px){
-  .wg-profile-grid{grid-template-columns:1fr}
-  .ssl-table thead{display:none}
-  .ssl-table,.ssl-table tbody,.ssl-table tr,.ssl-table td{display:block;width:100%}
-  .ssl-table tr{margin-bottom:.5rem;border:1px solid var(--border);border-radius:8px}
-  .ssl-table td{display:flex;justify-content:space-between;gap:.5rem;padding:.4rem .55rem;border-bottom:1px solid var(--chip)}
-  .ssl-table tr:last-child td{border-bottom:none}
-  .ssl-table td::before{content:attr(data-label);color:var(--muted);font-weight:600}
+  .docker-library-project-main{
+    display:block;
+  }
+  .docker-library-project-name,
+  .docker-library-project-meta{
+    display:block;
+  }
+  .docker-library-project-meta{margin-top:.15rem}
+}
+#file-crumbs .docker-crumb{
+  padding:0;
+  border:0;
+  background:none;
+  color:var(--accent);
+  font:inherit;
+  cursor:pointer;
+}
+#file-crumbs .docker-crumb:hover{text-decoration:underline}
+
+/* Сетка результатов (метрики серверов) */
+.result-grid{
+  display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(200px,1fr));
+  gap:0.75rem;
+  margin-top:1rem;
+  font-size:0.9rem;
+}
+
+.result-grid .ri{
+  display:flex;
+  justify-content:space-between;
+  align-items:baseline;
+  gap:0.75rem;
+  padding:0.5rem 0;
+  border-bottom:1px solid var(--border);
+}
+.result-grid .ri .n{
+  font-weight:600;
+  color:var(--text);
+}
+.result-grid .ri .m{
+  color:var(--text-muted);
+  font-variant-numeric:tabular-nums;
+  white-space:nowrap;
+}
+
+/* SSL таблица */
+.ssl-table{
+  width:100%;
+  border-collapse:collapse;
+  margin-top:1rem;
+  font-size:0.875rem;
+}
+.ssl-table th{
+  text-align:left;
+  color:var(--text-muted);
+  font-weight:600;
+  padding:0.65rem 0.75rem;
+  border-bottom:2px solid var(--border);
+  font-size:0.75rem;
+  text-transform:uppercase;
+  letter-spacing:0.05em;
+  background:rgba(255,255,255,0.02);
+}
+.ssl-table td{
+  padding:0.75rem;
+  border-bottom:1px solid var(--border);
+  vertical-align:middle;
+}
+.ssl-table tr:last-child td{
+  border-bottom:none;
+}
+.ssl-table tr:hover{
+  background:var(--card-hover);
+}
+
+/* Модалка проверки мониторинга */
+#monitor-check-modal .ssl-table{
+  margin-top:0;
+  background:var(--bg-base);
+  border-radius:6px;
+  overflow:hidden;
+}
+#monitor-check-modal .ssl-table th{
+  background:var(--card);
+  border-bottom:2px solid var(--border);
+}
+#monitor-check-modal .card{
+  box-shadow:none;
+  border:1px solid var(--border);
+}
+
+/* Сводка результатов проверки */
+.check-summary{
+  font-size:.95rem;
+  padding:.75rem 1rem;
+  background:var(--card);
+  border-radius:6px;
+  margin-bottom:1rem;
+  border:1px solid var(--border);
+}
+
+/* Список результатов проверки */
+.check-results-list{
+  display:flex;
+  flex-direction:column;
+  gap:0.5rem;
+}
+
+.check-item{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  padding:.65rem .875rem;
+  background:var(--bg-base);
+  border:1px solid var(--border);
+  border-radius:6px;
+  gap:1rem;
+  transition:background var(--transition-base);
+}
+
+.check-item:hover{
+  background:var(--card-hover);
+}
+
+.check-name{
+  font-weight:500;
+  color:var(--text);
+  flex:1;
+  min-width:0;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+
+.check-value{
+  color:var(--text-muted);
+  font-variant-numeric:tabular-nums;
+  white-space:nowrap;
+  font-size:.9rem;
+  flex-shrink:0;
+}
+
+/* Страница настроек */
+#page-settings .card{
+  max-width:600px;
+}
+#page-settings .card h3{
+  margin:0 0 0.5rem;
+}
+
+#acc-form{
+  margin-top:1rem;
+  max-width:460px;
+}
+#acc-form .pw-wrap{
+  max-width:460px;
+}
+
+.acc-note{
+  font-size:0.8rem;
+  color:var(--text-dim);
+  margin:0.5rem 0;
+  line-height:1.5;
+}
+
+.settings-form label{
+  display:block;
+  margin:1rem 0 0.5rem;
+}
+
+/* Настройки сервера: на desktop форма раскладывается в две колонки, поэтому
+   все поля и действия видны одновременно без внутренней прокрутки. */
+.server-settings-modal .modal{
+  width:min(720px,100%);
+  max-height:calc(100vh - 2rem);
+  overflow:visible;
+  padding:1.15rem 1.25rem;
+}
+.server-settings-modal h2{
+  margin:0 0 .9rem;
+  font-size:1.25rem;
+}
+.server-settings-fields{
+  display:grid;
+  grid-template-columns:minmax(0,1fr) minmax(0,1fr);
+  gap:.72rem 1rem;
+}
+.server-settings-field{
+  min-width:0;
+}
+.server-settings-field label{
+  display:block;
+  margin:0 0 .3rem;
+  font-size:.82rem;
+  color:var(--text-muted);
+}
+.server-settings-field input:not([type="checkbox"]),
+.server-settings-field select{
+  width:100%;
+}
+.server-settings-placeholder{
+  visibility:hidden;
+  pointer-events:none;
+}
+.server-sudo-control{
+  min-width:0;
+}
+.server-sudo-toggle,
+.server-sudo-input{
+  width:100%;
+  min-width:0;
+}
+.server-sudo-toggle{
+  min-height:42px;
+  justify-content:center;
+}
+.server-sudo-input{
+  max-width:none;
+}
+.server-ssl-check-wrap{
+  grid-column:1;
+  min-width:0;
+}
+.server-settings-check{
+  display:inline-flex!important;
+  align-items:center;
+  gap:.5rem;
+  min-height:42px;
+  margin:0!important;
+  padding:0;
+  border:0;
+  border-radius:0;
+  background:transparent;
+  color:var(--text);
+  cursor:pointer;
+}
+.server-settings-field .server-settings-check input[type="checkbox"]{
+  width:18px;
+  height:18px;
+  flex:0 0 18px;
+  margin:0;
+}
+.server-settings-actions{
+  justify-content:flex-start;
+  margin-top:.9rem;
+}
+
+/* Files: все кнопки создания/загрузки стоят на одной линии и имеют одинаковую геометрию. */
+#page-files > .file-actions{
+  align-items:center;
+  margin-top:.85rem;
+}
+#page-files > .file-actions > button,
+#page-files > .file-actions > .btn{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  height:40px;
+  min-height:40px;
+  box-sizing:border-box;
+  margin:0!important;
+  padding:0 1.25rem;
+  border-radius:var(--radius-sm);
+  font-size:.875rem;
+  line-height:1;
+  vertical-align:middle;
+}
+
+@media(max-width:640px), (max-height:680px){
+  .server-settings-modal .modal{
+    max-height:calc(100vh - 1rem);
+    overflow:auto;
+  }
+}
+@media(max-width:640px){
+  .server-settings-modal{
+    padding:.5rem;
+  }
+  .server-settings-modal .modal{
+    padding:1rem;
+  }
+  .server-settings-fields{
+    grid-template-columns:1fr;
+  }
+  .server-settings-placeholder{
+    display:none!important;
+  }
+  .server-settings-actions button{
+    flex:1 1 auto;
+  }
+}
+
+/* WireGuard специфика */
+#wg-tab-manage{
+  align-items:start;
+}
+#wg-tab-manage .card-actions{
+  justify-content:flex-start;
+}
+#wg-tab-manage .card-actions button{
+  flex:0 1 auto;
+  min-width:max-content;
+  white-space:nowrap;
+}
+
+/* Docker специфика */
+.docker-card-info{
+  font-size:0.85rem;
+  color:var(--text-muted);
+  margin-top:0.25rem;
+}
+.docker-card-info b{
+  color:var(--text);
+  font-weight:600;
+}
+
+/* Docker Compose — два столбца */
+/* Адаптив */
+@media(max-width:768px){
+  /* Сетки с жёстким минимумом колонки (300-360px) не влезали в экран
+     320-360px и давали горизонтальную прокрутку всей страницы:
+     auto-fit не может сжать колонку ниже своего минимума. */
+  .dash-cols,
+  .settings-grid,
+  .mon-blocks{
+    grid-template-columns:minmax(0,1fr);
+  }
+
+  /* Safari на iOS принудительно зумит страницу при фокусе на поле со
+     шрифтом меньше 16px — после этого вёрстка съезжает и сама не
+     возвращается. 16px убирает зум; на десктопе размер прежний. */
+  input:where(:not([type="checkbox"],[type="radio"],[type="range"],[type="button"],[type="submit"],[type="file"])),
+  select,
+  textarea{
+    font-size:16px;
+  }
+
+  .result-grid{
+    grid-template-columns:1fr;
+    gap:0.5rem;
+  }
+
+  .ssl-table{
+    font-size:0.8rem;
+  }
+  .ssl-table th,
+  .ssl-table td{
+    padding:0.5rem;
+  }
+
+  .file-row{
+    padding:0.65rem 0.875rem;
+  }
+
+  .logbox,.term,.script-view{
+    font-size:0.75rem;
+    padding:0.875rem;
+    max-height:300px;
+  }
+}
+
+/* Виджеты мониторинга Bot4VPS */
+.mon-widget{
+  background:var(--card);
+  border:1px solid var(--border);
+  border-radius:var(--radius-md);
+  padding:1rem;
+  display:flex;
+  flex-direction:column;
+  gap:0.5rem;
+}
+
+.mon-widget-head{
+  display:flex;
+  justify-content:space-between;
+  align-items:baseline;
+}
+
+.mon-widget-title{
+  font-weight:600;
+  font-size:0.9rem;
+  color:var(--text);
+}
+
+.mon-widget-value{
+  font-weight:700;
+  font-size:1.1rem;
+  color:var(--text);
+}
+
+.mon-widget-graph{
+  height:40px;
+  margin:0.25rem 0;
+}
+
+.mon-widget-bar{
+  height:8px;
+  background:rgba(255,255,255,0.1);
+  border-radius:4px;
+  overflow:hidden;
+  position:relative;
+}
+
+.mon-widget-bar-fill{
+  height:100%;
+  background:var(--widget-color);
+  border-radius:4px;
+  transition:width 0.3s ease;
+}
+
+.mon-widget-meta{
+  font-size:0.85rem;
+  color:var(--text-muted);
+  text-align:right;
+}
+
+.mon-info-row{
+  display:flex;
+  justify-content:space-between;
+  padding:0.4rem 0;
+  border-bottom:1px solid var(--border);
+  font-size:0.875rem;
+}
+.mon-info-row:last-child{
+  border-bottom:none;
+}
+.mon-info-row span:first-child{
+  color:var(--text-muted);
+}
+.mon-info-row span:last-child{
+  font-weight:500;
+  color:var(--text);
+}
+
+
+/* Карточка сервера: обзор — два блока + полная ширина «Недавние события» */
+.srv-overview-grid{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:1rem;
+  margin-top:1.5rem;
+}
+@media (max-width:768px){
+  .srv-overview-grid{grid-template-columns:1fr}
+}
+.srv-recent-events-block{
+  margin-top:1rem;
+}
+.srv-event-list{
+  display:flex;
+  flex-direction:column;
+  gap:0;
+}
+.srv-event-row{
+  display:flex;
+  align-items:baseline;
+  justify-content:space-between;
+  gap:.75rem;
+  padding:.45rem 0;
+  border-bottom:1px solid rgba(255,255,255,0.05);
+  cursor:pointer;
+  font-size:.85rem;
+}
+.srv-event-row:last-child{border-bottom:none}
+.srv-event-row:hover .srv-event-title{color:var(--accent, #6cb6ff)}
+.srv-event-title{
+  flex:1;
+  min-width:0;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+  color:var(--text);
+}
+.srv-event-time{
+  flex-shrink:0;
+  color:var(--text-muted);
+  font-variant-numeric:tabular-nums;
+  text-align:right;
+  min-width:3.5rem;
+}
+.srv-events-toggle{
+  display:block;
+  width:100%;
+  margin-top:.65rem;
+  text-align:center;
+  background:transparent;
+  border:none;
+  color:var(--text-muted);
+  cursor:pointer;
+  font-size:.85rem;
+  padding:.35rem 0;
+}
+.srv-events-toggle:hover{color:var(--text)}
+
+
+/* --- SSH status + terminal button in server header --- */
+.mon-ip-line{
+  display:flex;
+  align-items:center;
+  gap:.5rem;
+  flex-wrap:wrap;
+}
+.mon-ip-grow{flex:1;min-width:.5rem}
+.srv-ssh-status{
+  font-size:.85rem;
+  color:var(--text-muted);
+  display:inline-flex;
+  align-items:center;
+  gap:.35rem;
+  white-space:nowrap;
+}
+.ssh-dot{
+  display:inline-block;
+  width:.55rem;height:.55rem;
+  border-radius:50%;
+  background:var(--text-muted);
+}
+.ssh-dot.ok{background:var(--ok,#22c55e);box-shadow:0 0 0 2px rgba(34,197,94,.25)}
+.ssh-dot.err{background:var(--err,#ef4444);box-shadow:0 0 0 2px rgba(239,68,68,.25)}
+.srv-term-sep{
+  color:var(--text-muted);
+  opacity:.5;
+  user-select:none;
+}
+.srv-term-btn{
+  font-size:.85rem;
+  padding:.3rem .65rem;
+  border-radius:6px;
+  border:1px solid var(--border);
+  background:var(--card);
+  color:var(--text);
+  cursor:pointer;
+  white-space:nowrap;
+}
+.srv-term-btn:hover{
+  border-color:var(--border-hover, var(--accent, #4a7cff));
+  color:var(--accent, #6cb6ff);
+}
+.srv-term-sep.hidden,.srv-term-btn.hidden{display:none !important}
+
+/* --- Full content-area terminal page ---
+   Важнокая высота обязательна: иначе ResizeObserver + xterm.fit()
+   раздувают .term-host → страница бесконечно растёт вниз. */
+#page-terminal.on{
+  display:block;
+}
+.term-page-head{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:1rem;
+  margin-bottom:.75rem;
+  flex-wrap:wrap;
+}
+.term-page-meta{
+  display:flex;
+  align-items:center;
+  gap:.75rem;
+}
+.term-page-name{
+  font-weight:600;
+  font-size:1.05rem;
+}
+#page-terminal .term-bar{
+  margin-bottom:.5rem;
+}
+/* Наследует .term-host; только высота — на почти весь viewport контента */
+.term-host.term-host-full{
+  height:calc(100vh - 260px);
+  max-height:calc(100vh - 260px);
+  min-height:240px;
+  box-sizing:border-box;
+  overflow:hidden;
+}
+.term-host.term-host-full .xterm{
+  height:100%;
+}
+
+
+/* ===== Service pages (WireGuard / Docker) ===== */
+.svc-top-grid{
+  display:grid;
+  grid-template-columns:repeat(3,minmax(0,1fr));
+  gap:1rem;
+  margin-bottom:1rem;
+}
+.svc-main-grid{
+  display:grid;
+  grid-template-columns:minmax(0,7fr) minmax(240px,3fr); /* ~70/30 */
+  gap:1rem;
+  align-items:stretch;
+}
+.svc-main-grid > .svc-card{
+  display:flex;
+  flex-direction:column;
+  min-height:0;
+}
+.svc-main-grid > .svc-profiles{
+  min-height:100%;
+}
+.svc-main-grid .wg-prof-scroll{
+  flex:1;
+  min-height:0;
+}
+
+.svc-widgets-4{
+  display:grid;
+  grid-template-columns:repeat(4,minmax(0,1fr));
+  gap:1rem;
+  margin-bottom:1rem;
+}
+@media (max-width:1100px){
+  .svc-top-grid,.svc-widgets-4{grid-template-columns:1fr 1fr}
+  .svc-main-grid{grid-template-columns:1fr}
+}
+@media (max-width:640px){
+  .svc-top-grid,.svc-widgets-4{grid-template-columns:1fr}
+}
+.svc-card h2{margin-bottom:.5rem}
+.svc-card-head{
+  display:flex;align-items:center;justify-content:space-between;gap:.75rem;flex-wrap:wrap;
+  margin-bottom:.75rem;
+}
+.svc-card-head h2{margin:0}
+.svc-card-actions{display:flex;gap:.5rem;flex-wrap:wrap;align-items:center}
+.svc-card-actions input[type=search]{
+  min-width:160px;padding:.4rem .6rem;border-radius:6px;border:1px solid var(--border);background:var(--field);color:var(--text);
+}
+.svc-stats-grid{
+  display:grid;grid-template-columns:1fr 1fr;gap:.75rem;
+}
+.svc-stat-val{font-size:1.25rem;font-weight:600;color:var(--text)}
+.svc-stat-label{font-size:.8rem;color:var(--text-muted);margin-top:.15rem}
+.svc-stat-sub{font-size:.72rem;color:var(--text-dim);margin-top:.1rem}
+.svc-widget{text-align:center;padding:1rem}
+.svc-widget .svc-stat-val{font-size:1.35rem}
+.svc-table-wrap{overflow-x:auto;margin-top:.25rem}
+.svc-table{width:100%;border-collapse:collapse;font-size:.85rem}
+.svc-table th{
+  text-align:left;padding:.5rem .6rem;color:var(--text-muted);font-weight:500;
+  border-bottom:1px solid var(--border);white-space:nowrap;
+}
+.svc-table td{
+  padding:.55rem .6rem;border-bottom:1px solid rgba(255,255,255,.04);vertical-align:middle;
+}
+.svc-table tr:hover td{background:var(--hover,rgba(255,255,255,.03));cursor:pointer}
+.svc-row-actions{display:flex;gap:.3rem;flex-wrap:wrap}
+.svc-row-actions button{padding:.25rem .45rem;font-size:.8rem}
+.svc-empty{padding:1.5rem;text-align:center}
+.svc-side-actions{display:flex;flex-direction:column;gap:.5rem}
+.svc-action{
+  display:flex;flex-direction:column;align-items:flex-start;gap:.15rem;
+  text-align:left;width:100%;padding:.7rem .8rem;border-radius:8px;
+  border:1px solid var(--border);background:var(--card);color:var(--text);cursor:pointer;
+}
+.svc-action:hover{border-color:var(--border-hover,var(--accent))}
+.svc-action b{font-size:.9rem}
+.svc-action span{font-size:.75rem;color:var(--text-muted)}
+.svc-action.danger{border-color:rgba(239,68,68,.35);color:#ff5c7c}
+.svc-action.danger:hover{background:rgba(239,68,68,.08)}
+.svc-toolbar{
+  display:flex;gap:.5rem;flex-wrap:wrap;align-items:center;margin-bottom:.75rem;
+}
+.svc-toolbar input[type=search],.svc-toolbar select{
+  padding:.4rem .6rem;border-radius:6px;border:1px solid var(--border);background:var(--field);color:var(--text);
+}
+.icon-copy{
+  border:none;background:transparent;color:var(--text-muted);cursor:pointer;padding:0 .2rem;font-size:.85rem;
+}
+.icon-copy:hover{color:var(--accent)}
+.trunc{max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:inline-block;vertical-align:bottom}
+.info-value.trunc{max-width:180px}
+.svc-pick-list{max-height:240px;overflow:auto;margin-top:.5rem}
+.svc-pick-row{
+  display:flex;align-items:center;gap:.5rem;padding:.45rem .3rem;
+  border-bottom:1px solid rgba(255,255,255,.04);cursor:pointer;
+}
+.svc-dropdown{position:relative}
+.svc-dropdown-menu{
+  position:absolute;right:0;top:calc(100% + 4px);z-index:30;
+  min-width:200px;padding:.35rem;border-radius:8px;
+  border:1px solid var(--border);background:var(--card);box-shadow:var(--shadow-md,0 8px 24px rgba(0,0,0,.25));
+}
+.svc-dropdown-menu button{width:100%;text-align:left;margin:0}
+.section-head #wg-srv-badge,.section-head #docker-srv-badge{margin-left:.35rem}
+/* Подзаголовок страницы сервиса: «Посл. синхронизация: …» под h1 */
+.docker-srv-subtitle{
+  margin-top:.2rem;
+  font-size:.8rem;
+  color:var(--text-dim);
+  font-weight:400;
+  letter-spacing:0;
+  line-height:1.2;
+}
+
+
+/* WG profile table: fixed columns, 3-row scroll */
+.svc-card-head-one-line{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:.75rem;
+  flex-wrap:nowrap;
+}
+.svc-card-head-one-line .svc-card-actions{
+  display:flex;
+  align-items:center;
+  gap:.5rem;
+  flex-shrink:0;
+  flex-wrap:nowrap;
+}
+.svc-card-head-one-line input[type=search]{
+  width:200px;
+  min-width:140px;
+}
+@media (max-width:720px){
+  .svc-card-head-one-line{flex-wrap:wrap}
+  .svc-card-head-one-line .svc-card-actions{flex-wrap:wrap;width:100%}
+  .svc-card-head-one-line input[type=search]{flex:1;width:auto}
+}
+.wg-prof-scroll{
+  max-height:calc(4 * 2.75rem + 2.5rem); /* 4 строки + header */
+  overflow-y:auto;
+  overflow-x:auto;
+}
+.svc-profiles.has-reissue .wg-prof-scroll{
+  max-height:calc(5 * 2.75rem + 2.5rem); /* +кнопка «Перевыпустить» → 5 строк */
+}
+.wg-prof-table{
+  table-layout:fixed;
+  width:100%;
+}
+.wg-prof-table .col-name{width:18%}
+.wg-prof-table .col-ip{width:18%}
+.wg-prof-table .col-key{width:22%}
+.wg-prof-table .col-status{width:12%}
+.wg-prof-table .col-traf{width:18%}
+.wg-prof-table .col-act{width:12%;text-align:right}
+.wg-prof-table td,.wg-prof-table th{
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+  vertical-align:middle;
+}
+.wg-prof-table tbody tr{cursor:default}
+.wg-prof-table tbody tr:hover td{background:var(--hover,rgba(255,255,255,.03))}
+.wg-prof-menu-btn{min-width:2rem}
+
+/* popup menu for profile actions */
+.wg-prof-pop{
+  position:absolute;
+  z-index:80;
+  min-width:190px;
+  padding:.3rem;
+  border-radius:8px;
+  border:1px solid var(--border);
+  background:var(--bg-base);
+  box-shadow:0 10px 28px rgba(0,0,0,.35);
+  display:flex;
+  flex-direction:column;
+  gap:.15rem;
+}
+.wg-prof-pop.hidden{display:none}
+.wg-prof-pop button{
+  text-align:left;
+  width:100%;
+  border:none;
+  background:transparent;
+  color:var(--text);
+  padding:.45rem .6rem;
+  border-radius:6px;
+  cursor:pointer;
+  font-size:.85rem;
+}
+.wg-prof-pop button:hover{background:var(--hover,rgba(255,255,255,.06))}
+.wg-prof-pop button.danger{color:#ff5c7c}
+.wg-prof-pop hr{
+  border:none;border-top:1px solid var(--border);margin:.25rem 0;
+}
+
+/* stats: 4 separate mini-cards */
+.svc-stats-grid-4{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:.6rem;
+}
+.svc-stat-card{
+  border:1px solid var(--border);
+  border-radius:8px;
+  padding:.65rem .7rem;
+  background:var(--hover,rgba(255,255,255,.02));
+}
+.svc-stat-icon{font-size:1rem;margin-bottom:.2rem;opacity:.85}
+.svc-stat-card .svc-stat-val{font-size:1.1rem;font-weight:600}
+.svc-stat-card .svc-stat-label{font-size:.75rem;color:var(--text-muted);margin-top:.15rem}
+
+/* soft danger action */
+.svc-action-danger{
+  border-color:rgba(239,68,68,.35) !important;
+  background:rgba(239,68,68,.06) !important;
+  color:#ff5c7c !important;
+}
+.svc-action-danger:hover{
+  background:rgba(239,68,68,.12) !important;
+}
+.svc-action-danger b,.svc-action-danger span{color:inherit}
+.svc-action-danger span{opacity:.85}
+
+/* full pubkey display */
+.wg-pubkey{
+  max-width:min(100%, 420px);
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+  display:inline-block;
+  vertical-align:bottom;
+}
+
+/* QR modal: smaller image */
+#wg-qr-modal .modal{
+  width:min(320px, 92vw) !important;
+  text-align:center;
+}
+#wg-qr-img{
+  display:block;
+  width:200px !important;
+  max-width:70vw !important;
+  height:auto !important;
+  margin:.75rem auto;
+  border-radius:8px;
+}
+
+/* Ключ + ⧉: ellipsis только на тексте, кнопка всегда видна */
+.info-value-copy{
+  display:flex;
+  align-items:center;
+  gap:.35rem;
+  min-width:0;
+  flex:1;
+  justify-content:flex-end;
+}
+.info-value-copy .wg-pubkey{
+  flex:1;
+  min-width:0;
+  max-width:none;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+  display:block;
+}
+.info-value-copy .icon-copy{
+  flex-shrink:0;
+}
+.info-row .info-value{
+  min-width:0;
+}
+
+.svc-profiles .svc-card-head{flex-shrink:0}
+.svc-profiles .wg-prof-scroll{flex:1 1 auto}
+.svc-side-actions{height:100%}
+.copyable-value {
+  cursor: pointer;
+}
+
+/* Импортированные профили WG */
+.wg-imported-indicator{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  margin-left:.15rem;
+  padding:.1rem .25rem;
+  border:0;
+  background:transparent;
+  color:var(--warn, #f59e0b);
+  font-size:1rem;
+  line-height:1;
+  cursor:pointer;
+  box-shadow:none;
+  transform:none;
+}
+.wg-imported-indicator:hover{
+  background:rgba(245,158,11,.1);
+  color:var(--warn, #f59e0b);
+  box-shadow:none;
+  transform:none;
+}
+.wg-imported-banner{
+  position:relative;
+  margin:0 0 1rem;
+}
+.wg-imported-banner.hidden{display:none}
+.wg-imported-banner-inner{
+  position:relative;
+  border:1px solid rgba(245,158,11,.45);
+  background:rgba(245,158,11,.08);
+  border-radius:var(--radius-md,8px);
+  padding:.85rem 2.75rem .85rem 1rem;
+  color:var(--text);
+  font-size:.85rem;
+  line-height:1.45;
+}
+.wg-imported-banner-title{
+  font-weight:600;
+  margin-bottom:.45rem;
+  color:var(--warn, #f59e0b);
+}
+.wg-imported-banner-text{color:var(--text-muted)}
+.wg-imported-banner-close{
+  position:absolute;
+  top:.45rem;
+  right:.55rem;
+  width:28px;
+  height:28px;
+  padding:0;
+  border:0;
+  background:transparent;
+  color:var(--text-muted);
+  font-size:1.2rem;
+  line-height:1;
+  cursor:pointer;
+  box-shadow:none;
+  transform:none;
+}
+.wg-imported-banner-close:hover{
+  background:rgba(245,158,11,.1);
+  color:var(--warn, #f59e0b);
+  box-shadow:none;
+  transform:none;
+}
+
+.svc-action-warn{
+  border-color:rgba(245,158,11,.45) !important;
+  background:rgba(245,158,11,.08) !important;
+}
+.svc-action-warn:hover{
+  background:rgba(245,158,11,.14) !important;
+  border-color:rgba(245,158,11,.6) !important;
+}
+.svc-action-warn b{color:var(--warn, #f59e0b)}
+.svc-action-warn span{color:var(--text-muted)}
+
+/* Docker: компактный виджет Compose */
+/* Compose-виджет: иконка слева, справа — счётчики столбиком (Локальных,
+   На сервере), под ними по центру — заголовок «Compose проекты». */
+.docker-compose-widget{
+  align-items:center;
+}
+.docker-compose-widget .docker-compose-body{
+  flex:1 1 auto;
+  min-width:0;
+  display:flex;
+  flex-direction:column;
+  gap:.4rem;
+}
+.docker-compose-counts{
+  display:flex;
+  flex-direction:column;
+  gap:.35rem;
+}
+.docker-compose-counts > div:not(.docker-compose-divider){
+  display:flex;
+  align-items:baseline;
+  justify-content:space-between;
+  gap:.5rem;
+  min-width:0;
+}
+.docker-compose-counts .svc-stat-label{
+  margin-top:0;
+}
+.docker-compose-counts .svc-stat-val{
+  font-size:1.35rem;
+}
+.docker-compose-divider{
+  height:1px;
+  width:100%;
+  background:var(--border);
+}
+.docker-compose-title{
+  margin-top:.1rem;
+  text-align:center;
+  font-size:.8rem;
+  color:var(--text-muted);
+}
+
+/* Вкладка «Compose проекты»: единая таблица в общем стиле (как контейнеры).
+   Карточка .docker-ct-card и зона прокрутки .docker-ct-scroll общие —
+   ограничение по числу строк (--ct-max-rows) наследуется автоматически. */
+.docker-stack-card{
+  margin-top:.8rem;
+}
+.docker-stack-table .col-name{width:30%}
+.docker-stack-table .col-src{width:20%}
+.docker-stack-table .col-status{width:16%}
+.docker-stack-table .col-ct{width:13%}
+.docker-stack-table .col-act{
+  width:21%;
+  min-width:168px;
+  text-align:right;
+  white-space:nowrap;
+}
+.stack-name{display:block;font-weight:600}
+.stack-services{
+  display:block;
+  font-size:.78rem;
+  color:var(--text-muted);
+  margin-top:.15rem;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+/* Колонка «Локальная копия»: значок + мелкая подпись сверки (§5). */
+.col-src .stack-src{
+  display:block;
+  font-size:1rem;
+  line-height:1.2;
+}
+.col-src .stack-src-sub{
+  display:block;
+  font-size:.72rem;
+  color:var(--text-dim);
+  margin-top:.1rem;
+}
+/* ⚠️ «расходится»: кликабельная метка → диалог расхождения (§6). */
+.col-src .stack-copy-warn{
+  background:none;
+  border:none;
+  padding:0;
+  font:inherit;
+  font-size:.8rem;
+  color:var(--warn,#c90);
+  cursor:pointer;
+  text-decoration:underline dotted;
+}
+.col-src .stack-copy-warn:hover{
+  text-decoration:underline solid;
+}
+.docker-stack-table .col-ct,
+.docker-stack-table .col-status{
+  white-space:nowrap;
+}
+@media (max-width:768px){
+  /* На узких экранах прячем вспомогательные колонки, оставляя суть. */
+  .docker-stack-table .col-src,
+  .docker-stack-table .col-status{display:none}
+  .docker-stack-table .col-name{width:auto}
+}
+
+/* Docker-виджеты на странице сервера: крупная иконка слева, текст справа,
+   выравнивание по центру по вертикали. Scope по .docker-widgets, чтобы не
+   затронуть WireGuard (там svc-widget центрирован). */
+.docker-widgets .svc-widget{
+  display:flex;
+  flex-direction:row;
+  align-items:center;
+  gap:.85rem;
+  text-align:left;
+}
+.docker-widgets .svc-widget .svc-stat-icon{
+  font-size:2.2rem;
+  line-height:1;
+  opacity:.95;
+  flex:0 0 auto;
+  margin-bottom:0;
+}
+.docker-widgets .svc-widget .svc-stat-text{
+  flex:1 1 auto;
+  min-width:0;
+}
+
+.docker-images-card{
+  padding:.8rem;
+}
+.docker-images-toolbar{
+  margin:0 0 .75rem;
+}
+.docker-images-toolbar input[type=search]{
+  flex:1 1 220px;
+  min-width:180px;
+}
+.docker-images-table-wrap{margin-top:0}
+.docker-images-table{table-layout:fixed}
+.docker-images-table th:nth-child(1),.docker-images-table td:nth-child(1){width:24%}
+.docker-images-table th:nth-child(2),.docker-images-table td:nth-child(2){width:18%}
+.docker-images-table th:nth-child(3),.docker-images-table td:nth-child(3){width:15%}
+.docker-images-table th:nth-child(4),.docker-images-table td:nth-child(4){width:28%}
+.docker-images-table th:nth-child(5),.docker-images-table td:nth-child(5){width:15%;text-align:left}
+
+/* Docker server detail */
+#docker-srv-widgets{margin:0 0 .2rem}
+/* Docker containers block */
+/* Блок контейнеров: видно фиксированно до --ct-max-rows строк, остальные —
+   внутренний скролл (.docker-ct-scroll). Высота строки 44px (синхронно с
+   .docker-ct-table th/td); +1 строка — на липкий заголовок таблицы.
+   Не зависит от высоты viewport. */
+.docker-ct-card{
+  --ct-row-h: 44px;
+  --ct-max-rows: 6;
+  display:flex;
+  flex-direction:column;
+  min-height:240px;
+  overflow:hidden;
+}
+.docker-ct-toolbar{
+  display:flex;
+  flex-wrap:nowrap;
+  gap:.5rem;
+  align-items:center;
+  margin-bottom:.6rem;
+  flex-shrink:0;
+  width:100%;
+}
+.docker-ct-toolbar input[type=search]{
+  flex:1 1 auto;
+  min-width:0;
+}
+.docker-ct-toolbar select{
+  flex:0 0 160px;
+  width:160px;
+}
+.docker-ct-toolbar #docker-ct-create{
+  flex:0 0 auto;
+  white-space:nowrap;
+}
+.docker-ct-scroll{
+  flex:1 1 auto;
+  overflow:auto;
+  min-height:0;
+  /* Лимит по числу строк: (строки + 1 заголовок) × высота строки.
+     При 7 строках и 44px → 8 × 44 = 352px. Меньше — таблица не скроллится. */
+  max-height:calc((var(--ct-max-rows) + 1) * var(--ct-row-h));
+}
+.docker-ct-table{
+  width:100%;
+  table-layout:fixed;
+  border-collapse:collapse;
+}
+.docker-ct-table thead th{
+  position:sticky;
+  top:0;
+  z-index:1;
+  /* --card полупрозрачен (rgba в обеих темах) → при прокрутке строки проступают
+     сквозь заголовок. Подкладываем непрозрачный --bg-base, а оттенок карточки
+     кладём сверху слоёным градиентом. */
+  background:
+    linear-gradient(var(--card, transparent), var(--card, transparent)),
+    var(--bg-base);
+  text-align:left;
+  font-weight:600;
+  border-bottom:1px solid var(--border);
+}
+.docker-ct-table th,
+.docker-ct-table td{
+  height:44px;
+  max-height:44px;
+  vertical-align:middle;
+  padding:0 .65rem;
+  border-bottom:1px solid var(--border);
+  overflow:hidden;
+  box-sizing:border-box;
+}
+.docker-ct-table tbody tr{
+  height:44px;
+}
+.docker-ct-table tbody tr:hover td{
+  background:var(--hover,rgba(255,255,255,.03));
+  cursor:default;
+}
+.docker-ct-cell{
+  display:block;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+  line-height:1.25;
+}
+.docker-ct-table .col-name{width:16%}
+.docker-ct-table .col-image{width:24%}
+.docker-ct-table .col-status{width:11%}
+.docker-ct-table .col-ports{width:18%}
+.docker-ct-table .col-up{width:12%}
+.docker-ct-table .col-act{
+  width:19%;
+  min-width:168px;
+  text-align:right;
+  white-space:nowrap;
+}
+.docker-ct-actions{
+  display:inline-flex;
+  flex-direction:row;
+  flex-wrap:nowrap;
+  gap:.35rem;
+  justify-content:flex-end;
+  align-items:center;
+  height:32px;
+  vertical-align:middle;
+}
+.docker-ct-port-entry{
+  display:flex !important;
+  align-items:center;
+  justify-content:space-between;
+  gap:1rem;
+}
+.docker-ct-port-submenu{
+  z-index:81;
+  min-width:112px;
+}
+.docker-ct-port-submenu button{
+  display:flex;
+  align-items:center;
+  gap:.4rem;
+}
+.docker-ct-port-check{
+  display:inline-block;
+  width:1rem;
+  flex:0 0 1rem;
+  text-align:center;
+}
+.docker-ct-actions .docker-ct-open,
+.docker-ct-actions .docker-ct-more{
+  height:30px;
+  min-height:30px;
+  max-height:30px;
+  padding:0 .65rem;
+  line-height:28px;
+  box-sizing:border-box;
+  border-radius:6px;
+  font-size:.8rem;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  margin:0;
+  flex-shrink:0;
+}
+.docker-ct-actions .docker-ct-more{
+  min-width:30px;
+  width:30px;
+  padding:0;
+  font-size:1rem;
+  font-weight:700;
+}
+@media (max-width:720px){
+  .docker-ct-toolbar{flex-wrap:wrap}
+  .docker-ct-toolbar select{flex:1 1 120px;width:auto}
+  .docker-ct-toolbar #docker-ct-create{margin-left:0;width:100%}
+  .docker-ct-table .col-act{min-width:140px}
+}
+
+
+/* Пункт удаления контейнера в ⋯ */
+.wg-prof-pop button.danger,
+.wg-prof-pop button.docker-ct-danger{
+  color:#ff5c7c !important;
+  font-weight:600;
+}
+.wg-prof-pop button.danger:hover,
+.wg-prof-pop button.docker-ct-danger:hover{
+  background:rgba(255,92,124,.12) !important;
+  color:#ff5c7c !important;
+}
+
+/* Библиотека пользовательских скриптов */
+.scripts-page-head{
+  align-items:center;
+  margin-bottom:1rem;
+}
+.scripts-head-actions{
+  margin-left:auto;
+  justify-content:flex-end;
+}
+.scripts-head-actions > button,
+.scripts-head-actions > .btn{
+  min-height:40px;
+  margin:0;
+}
+.scripts-search-wrap{
+  position:relative;
+  width:min(360px,100%);
+  margin-bottom:.8rem;
+}
+.scripts-search-wrap input{
+  width:100%;
+  min-height:40px;
+  padding-left:2.35rem;
+}
+.scripts-search-icon{
+  position:absolute;
+  left:.8rem;
+  top:50%;
+  z-index:1;
+  color:var(--text-muted);
+  font-size:1rem;
+  line-height:1;
+  pointer-events:none;
+  transform:translateY(-50%);
+}
+.scripts-table-shell{
+  overflow:hidden;
+  border:1px solid var(--border);
+  border-radius:var(--radius-md);
+  background:var(--card);
+}
+.scripts-table-wrap{
+  width:100%;
+  overflow-x:auto;
+}
+.scripts-table{
+  width:100%;
+  min-width:0;
+  table-layout:fixed;
+  border-collapse:collapse;
+  font-size:.85rem;
+}
+.scripts-table th{
+  padding:.55rem .65rem;
+  border-bottom:1px solid var(--border);
+  background:rgba(255,255,255,.018);
+  color:var(--text-muted);
+  font-weight:500;
+  text-align:left;
+  white-space:nowrap;
+}
+.scripts-table td{
+  height:48px;
+  padding:.5rem .65rem;
+  border-bottom:1px solid rgba(255,255,255,.05);
+  vertical-align:middle;
+}
+.scripts-table tbody tr:last-child td{border-bottom:0}
+.scripts-table tbody tr:hover td{background:var(--card-hover)}
+.scripts-check-col{
+  width:4%;
+  text-align:center!important;
+}
+.scripts-table th:nth-child(2),
+.scripts-table td:nth-child(2){width:22%}
+.scripts-table th:nth-child(3),
+.scripts-table td:nth-child(3){width:14%;text-align:center}
+.scripts-table th:nth-child(4),
+.scripts-table td:nth-child(4){width:18%;text-align:center}
+.scripts-table th:nth-child(5),
+.scripts-table td:nth-child(5){width:42%;text-align:center}
+.scripts-check-col input[type="checkbox"]{
+  width:16px;
+  height:16px;
+  margin:0;
+  vertical-align:middle;
+}
+.scripts-name-main{
+  max-width:280px;
+  overflow:hidden;
+  color:var(--text);
+  font-weight:600;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.scripts-file-name{
+  max-width:280px;
+  margin-top:.16rem;
+  overflow:hidden;
+  color:var(--text-muted);
+  font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  font-size:.75rem;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.scripts-param-col{white-space:nowrap}
+.scripts-param{
+  font-weight:600;
+  font-size:.8rem;
+}
+.scripts-param.yes{color:var(--ok)}
+.scripts-param.no{color:var(--text-dim)}
+.scripts-date-col{
+  color:var(--text-muted);
+  font-variant-numeric:tabular-nums;
+  white-space:nowrap;
+}
+.scripts-actions-col{min-width:0}
+.scripts-more-btn{display:none}
+.scripts-actions-pop{
+  min-width:205px;
+  z-index:160;
+}
+.scripts-actions-pop button{justify-content:flex-start}
+.scripts-row-actions{
+  display:flex;
+  width:100%;
+  align-items:center;
+  justify-content:space-between;
+  gap:.3rem;
+  flex-wrap:nowrap;
+}
+.scripts-row-actions .scripts-action-btn{
+  flex:1 1 0;
+  min-width:0;
+}
+.scripts-action-btn,
+.scripts-compact-btn{
+  min-height:30px;
+  padding:.28rem .5rem;
+  border-radius:6px;
+  font-size:.78rem;
+  line-height:1.2;
+  white-space:nowrap;
+}
+.scripts-empty-cell{
+  height:120px;
+  color:var(--text-muted);
+  text-align:center;
+}
+.scripts-table-footer{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  min-height:48px;
+  gap:.7rem;
+  padding:.45rem .65rem;
+  border-top:1px solid var(--border);
+  background:rgba(255,255,255,.012);
+}
+.scripts-bulk-actions{
+  display:flex;
+  align-items:center;
+  gap:.45rem;
+}
+.scripts-pagination{
+  display:flex;
+  align-items:center;
+  gap:.25rem;
+  margin-left:auto;
+}
+.scripts-page-btn{
+  width:32px;
+  min-width:32px;
+  height:32px;
+  min-height:32px;
+  padding:0;
+  border:1px solid var(--border);
+  border-radius:6px;
+  background:transparent;
+  color:var(--text-muted);
+  font-size:.8rem;
+}
+.scripts-page-btn:hover:not(:disabled){
+  border-color:var(--border-hover);
+  background:var(--card-hover);
+  color:var(--text);
+  box-shadow:none;
+  transform:none;
+}
+.scripts-page-btn.on{
+  border-color:var(--accent);
+  background:var(--accent-soft);
+  color:var(--accent);
+}
+.scripts-page-gap{
+  min-width:24px;
+  color:var(--text-dim);
+  text-align:center;
+}
+.script-create-modal{width:min(460px,100%)}
+.script-create-actions{justify-content:space-between}
+
+/* Большой редактор: область кода занимает основную часть модалки. */
+#editor-modal{padding:1rem}
+.editor-modal-panel{
+  display:flex;
+  flex-direction:column;
+  width:min(1100px,100%)!important;
+  height:min(820px,calc(100vh - 2rem));
+  max-height:calc(100vh - 2rem);
+  overflow:hidden;
+}
+.editor-cm,
+.editor-plain{
+  flex:1 1 auto;
+  min-height:0;
+  height:100%;
+  overflow:hidden;
+  border:1px solid var(--border);
+  border-radius:var(--radius-sm);
+  background:var(--bg-base);
+}
+.editor-plain{
+  display:grid;
+  grid-template-columns:auto minmax(0,1fr);
+}
+.editor-gutter{
+  min-width:3.2rem;
+  height:100%;
+  margin:0;
+  padding:.75rem .65rem;
+  overflow:hidden;
+  border-right:1px solid var(--border);
+  color:var(--text-dim);
+  font:13px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  text-align:right;
+  user-select:none;
+}
+#editor-area{
+  width:100%;
+  height:100%;
+  min-height:0;
+  resize:none;
+  border:0;
+  border-radius:0;
+  padding:.75rem;
+  font:13px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+}
+.editor-cm .CodeMirror{height:100%;font-size:13px}
+.editor-modal-panel > .actions{flex:0 0 auto}
+
+@media(max-width:900px){
+  .scripts-actions-col{min-width:235px}
+  .scripts-row-actions{flex-wrap:wrap}
+}
+
+
+/* ===== Mobile overflow guardrails =====
+   Узкие экраны используют те же компоненты и действия, но flex/grid-потомки
+   не имеют права расширять viewport. Таблицы сохраняют горизонтальный скролл
+   внутри своего контейнера. */
+@media(max-width:768px){
+  .settings-grid,
+  .dash-cols,
+  .mon-blocks,
+  .srv-overview-grid,
+  .svc-top-grid,
+  .svc-main-grid,
+  .svc-widgets-4{
+    min-width:0;
+  }
+
+  .dash-cols > *,
+  .settings-grid > *,
+  .mon-blocks > *,
+  .svc-main-grid > *,
+  .svc-top-grid > *,
+  .svc-widgets-4 > *{
+    min-width:0;
+  }
+
+  .file-row,
+  .docker-library-project,
+  .group-row,
+  .group-display-row,
+  .term-bar,
+  .term-in,
+  .svc-card-head,
+  .svc-toolbar,
+  .scripts-table-footer{
+    min-width:0;
+    max-width:100%;
+  }
+
+  .file-name,
+  .docker-library-project-main,
+  .docker-library-project-name,
+  .docker-library-project-meta,
+  .group-row .grp-name,
+  .term-page-name,
+  .srv-event-title,
+  .info-value,
+  .wg-hint,
+  .acc-note{
+    min-width:0;
+    overflow-wrap:anywhere;
+  }
+
+  .file-name{overflow:hidden}
+  .group-row .grp-name{width:auto}
+
+  /* SSL-мониторинг остаётся полноценной таблицей, прокрутка — внутри таблицы. */
+  #monitor-check-modal .ssl-table{
+    display:block;
+    width:100%;
+    max-width:100%;
+    overflow-x:auto;
+    white-space:nowrap;
+  }
+
+  .term-bar{
+    flex-wrap:wrap;
+  }
+  .term-bar > span[style*="flex:1"]{
+    display:none;
+  }
+  .term-host.term-host-full{
+    height:calc(100dvh - 260px);
+    max-height:calc(100dvh - 260px);
+  }
+
+  .scripts-table-shell,
+  .scripts-table-wrap,
+  .svc-table-wrap,
+  .wg-prof-scroll,
+  .docker-ct-scroll,
+  .docker-images-table-wrap{
+    min-width:0;
+    max-width:100%;
+  }
+
+  .scripts-table{
+    min-width:620px;
+  }
+  .scripts-table-wrap{
+    overscroll-behavior-x:contain;
+  }
+
+  .scripts-table-footer{
+    overflow:hidden;
+  }
+  .scripts-bulk-actions{
+    flex-wrap:wrap;
+    max-width:100%;
+  }
+  .scripts-bulk-actions button{flex:1 1 auto}
+
+  .docker-ct-toolbar,
+  .docker-images-toolbar{
+    min-width:0;
+  }
+  .docker-ct-toolbar #docker-ct-create{
+    white-space:normal;
+  }
+
+  .server-settings-actions,
+  .scripts-head-actions,
+  .file-actions{
+    width:100%;
+  }
+
+  .mon-ip{
+    max-width:100%;
+    overflow-wrap:anywhere;
+  }
+}
+
+@media(max-width:420px){
+  .content{padding:.75rem}
+  .section-head{gap:.65rem}
+  .section-head h1{font-size:1.35rem}
+
+  .scripts-table-footer{
+    gap:.5rem;
+  }
+  .scripts-bulk-actions,
+  .scripts-pagination{
+    width:100%;
+    margin-left:0;
+  }
+  .scripts-pagination{justify-content:flex-start}
+
+  .term-host.term-host-full{
+    height:calc(100dvh - 300px);
+    max-height:calc(100dvh - 300px);
+  }
+}
+
+
+
+/* ===== Мобильные таблицы: Скрипты, WireGuard, Docker =====
+   Сохраняем все колонки и действия в привычных таблицах. Если ширины телефона
+   недостаточно, скроллится уже существующий контейнер таблицы, а не страница. */
+@media(max-width:768px){
+  .scripts-table-wrap,
+  .wg-prof-scroll,
+  .docker-ct-scroll,
+  .docker-images-table-wrap{
+    overflow-x:auto;
+    overscroll-behavior-x:contain;
+    -webkit-overflow-scrolling:touch;
+  }
+
+  /* Скрипты: на телефоне четыре desktop-действия заменяет компактное меню. */
+  .scripts-table{
+    width:620px;
+    min-width:620px;
+  }
+  .scripts-table th:nth-child(2),
+  .scripts-table td:nth-child(2){width:220px}
+  .scripts-table th:nth-child(3),
+  .scripts-table td:nth-child(3){width:100px}
+  .scripts-table th:nth-child(4),
+  .scripts-table td:nth-child(4){width:180px}
+  .scripts-table th:nth-child(5),
+  .scripts-table td:nth-child(5){width:64px}
+  .scripts-actions-col{min-width:64px}
+  .scripts-row-actions{
+    min-width:0;
+    justify-content:center;
+    gap:0;
+  }
+  .scripts-row-actions .scripts-action-btn{display:none}
+  .scripts-row-actions .scripts-more-btn{
+    display:inline-flex;
+    width:36px;
+    min-width:36px;
+    height:36px;
+    min-height:36px;
+    padding:0;
+    font-size:1rem;
+    line-height:1;
+  }
+  .scripts-table-footer{
+    overflow:visible;
+  }
+  .scripts-bulk-actions{
+    flex-wrap:nowrap;
+  }
+  .scripts-bulk-actions .scripts-compact-btn{
+    min-height:40px;
+    padding:.45rem .65rem;
+    white-space:nowrap;
+  }
+  .scripts-pagination{
+    overflow-x:auto;
+    overscroll-behavior-x:contain;
+  }
+
+  /* WireGuard: все шесть колонок остаются читаемыми внутри .wg-prof-scroll. */
+  .wg-prof-table{
+    width:940px;
+    min-width:940px;
+    table-layout:fixed;
+  }
+  .wg-prof-table .col-name{width:180px}
+  .wg-prof-table .col-ip{width:160px}
+  .wg-prof-table .col-key{width:220px}
+  .wg-prof-table .col-status{width:120px}
+  .wg-prof-table .col-traf{width:180px}
+  .wg-prof-table .col-act{width:80px}
+  .wg-prof-table th,
+  .wg-prof-table td{padding:.6rem .7rem}
+  .wg-prof-menu-btn{
+    width:40px;
+    min-width:40px;
+    min-height:40px;
+    padding:0;
+  }
+
+  /* Вторичная строка не выходит из кнопки «Перевыпустить все». */
+  .svc-action[data-reissue-all]{
+    width:100%;
+    min-width:0;
+    white-space:normal;
+    overflow:visible;
+  }
+  .svc-action[data-reissue-all] b,
+  .svc-action[data-reissue-all] span{
+    display:block;
+    max-width:100%;
+    white-space:normal;
+    overflow-wrap:anywhere;
+  }
+
+  /* Docker Containers: шесть исходных колонок и оба действия не сжимаются. */
+  .docker-ct-table{
+    width:1130px;
+    min-width:1130px;
+  }
+  .docker-ct-table .col-name{width:170px}
+  .docker-ct-table .col-image{width:240px}
+  .docker-ct-table .col-status{width:140px}
+  .docker-ct-table .col-ports{width:220px}
+  .docker-ct-table .col-up{width:130px}
+  .docker-ct-table .col-act{width:230px;min-width:230px}
+  .docker-ct-table th,
+  .docker-ct-table td{padding:0 .7rem}
+
+  /* Docker Images: имена и действия видны в полноразмерной прокрутке. */
+  .docker-images-table{
+    width:880px;
+    min-width:880px;
+  }
+  .docker-images-table th:nth-child(1),.docker-images-table td:nth-child(1){width:240px}
+  .docker-images-table th:nth-child(2),.docker-images-table td:nth-child(2){width:180px}
+  .docker-images-table th:nth-child(3),.docker-images-table td:nth-child(3){width:120px}
+  .docker-images-table th:nth-child(4),.docker-images-table td:nth-child(4){width:190px}
+  .docker-images-table th:nth-child(5),.docker-images-table td:nth-child(5){width:150px}
+
+  /* Compose: не скрываем вспомогательные колонки; все действия доступны. */
+  .docker-stack-table{
+    width:920px;
+    min-width:920px;
+  }
+  .docker-stack-table .col-src,
+  .docker-stack-table .col-status{display:table-cell}
+  .docker-stack-table .col-name{width:230px}
+  .docker-stack-table .col-src{width:150px}
+  .docker-stack-table .col-status{width:150px}
+  .docker-stack-table .col-ct{width:130px}
+  .docker-stack-table .col-act{width:220px;min-width:220px}
+
+  .docker-ct-actions{
+    height:40px;
+    min-width:204px;
+    gap:.45rem;
+  }
+  .docker-ct-actions .stack-main,
+  .docker-ct-actions .docker-ct-open,
+  .docker-ct-actions .docker-ct-more{
+    height:40px;
+    min-height:40px;
+    max-height:40px;
+    box-sizing:border-box;
+  }
+  .docker-ct-actions .stack-main,
+  .docker-ct-actions .docker-ct-open{
+    padding:0 .7rem;
+    white-space:nowrap;
+  }
+  .docker-ct-actions .docker-ct-more{
+    width:40px;
+    min-width:40px;
+    padding:0;
+    line-height:1;
+    font-size:1.1rem;
+  }
+}
+
+/* ===== Финальная геометрия мобильных сервисных страниц =====
+   Широкие таблицы прокручиваются только внутри собственного контейнера.
+   Внешний layout при этом не получает ширину таблицы. */
+@media (max-width: 768px){
+  #page-docker-server,
+  #page-wireguard-server,
+  #page-scripts{
+    min-width:0;
+    max-width:100%;
+    overflow-x:hidden;
+  }
+
+  #docker-srv-body,
+  #docker-images-body,
+  #docker-compose-body,
+  #wg-srv-body,
+  #scripts-table-shell{
+    min-width:0;
+    max-width:100%;
+  }
+
+  #page-docker-server > .section-head,
+  #page-wireguard-server > .section-head{
+    align-items:flex-start;
+    flex-wrap:wrap;
+  }
+
+  #page-docker-server > .section-head > .actions,
+  #page-wireguard-server > .section-head > .actions{
+    width:100%;
+    margin-left:0!important;
+    flex-wrap:wrap;
+  }
+
+  #page-docker-server > .section-head > .actions > button,
+  #page-wireguard-server > .section-head > .actions > button{
+    flex:1 1 auto;
+    min-width:0;
+  }
+
+  /* Compose: кнопка ⋯ не получает отдельную маленькую высоту. Она
+     растягивается по высоте строки вместе с основной кнопкой действия. */
+  .docker-stack-table .docker-ct-actions{
+    height:auto;
+    min-height:0;
+    align-items:stretch;
+  }
+  .docker-stack-table .docker-ct-actions .stack-main,
+  .docker-stack-table .docker-ct-actions .docker-ct-more{
+    height:auto;
+    min-height:0;
+    align-self:stretch;
+    box-sizing:border-box;
+  }
+  .docker-stack-table .docker-ct-actions .docker-ct-more{
+    flex:0 0 40px;
+    width:40px;
+    padding:0;
+  }
+}
+
+/* То же правило для desktop: обе Compose-кнопки используют одну высоту
+   строки, а ширина ⋯ остаётся компактной. */
+.docker-stack-table .docker-ct-actions{
+  height:auto;
+  align-items:stretch;
+}
+.docker-stack-table .docker-ct-actions .stack-main,
+.docker-stack-table .docker-ct-actions .docker-ct-more{
+  height:auto;
+  min-height:0;
+  max-height:none;
+  align-self:stretch;
+}
+.docker-stack-table .docker-ct-actions .docker-ct-more{
+  flex:0 0 40px;
+  width:40px;
+  min-height:0;
+  max-height:none;
+  padding:0;
 }

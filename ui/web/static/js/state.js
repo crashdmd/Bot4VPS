@@ -9,7 +9,7 @@ export const state = {
   openServerId: null,
   openServerData: null,
   watchTaskId: null,
-  page: 'servers',
+  page: 'dashboard',
   serverTab: 'status',
   // скрипт для запуска сразу после открытия терминала (режим «в терминале»); null — bare shell
   pendingTermScript: null,

@@ -3,15 +3,17 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
-<meta name="theme-color" content="#0d1117"/>
+<meta name="theme-color" content="#0a1628"/>
 <title>Bot4VPS</title>
 <link rel="icon" type="image/jpeg" href="/static/favicon.jpg">
-<link rel="stylesheet" href="/static/css/layout.css"/>
-<link rel="stylesheet" href="/static/css/components.css"/>
-<link rel="stylesheet" href="/static/css/pages.css"/>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/twemoji@latest/dist/twemoji.min.js" crossorigin="anonymous"></script>
+<link rel="stylesheet" href="/static/css/layout.css?v=20260816-mobile-dashboard-v2"/>
+<link rel="stylesheet" href="/static/css/components.css?v=20260815-settings-files-v2"/>
+<link rel="stylesheet" href="/static/css/pages.css?v=20260816-mobile-dashboard-v2"/>
 <link rel="stylesheet" href="/static/vendor/xterm/xterm.css"/>
-<!-- CodeMirror необязателен: если файлов нет, редактор работает с нумерацией
-     строк без подсветки. Установка — vendor/codemirror/README.md -->
 <link rel="stylesheet" href="/static/vendor/codemirror/codemirror.min.css"/>
 <link rel="stylesheet" href="/static/vendor/codemirror/material-darker.min.css"/>
 <script>try{var t=localStorage.getItem('bot4vps_theme');var l=t==='light'||(t!=='dark'&&matchMedia('(prefers-color-scheme: light)').matches);if(l)document.documentElement.setAttribute('data-theme','light');}catch(e){}</script>
@@ -19,131 +21,336 @@
 <body>
 <div class="layout">
   <aside class="side">
-    <div class="logo">Bot4VPS</div>
-    <nav id="nav">
-      <button type="button" data-page="servers" class="on">🖥 Серверы</button>
-      <div class="nav-group" data-group="tasks">
-        <button type="button" class="nav-group-head">📥 Задачи <span class="caret">▾</span></button>
-        <div class="nav-sub">
-          <button type="button" data-page="scripts">📜 Скрипты</button>
-          <button type="button" data-page="wireguard">🌐 WireGuard</button>
-          <button type="button" data-page="docker">🐳 Docker</button>
-        </div>
+    <div class="logo">
+      <div class="logo-icon"><img src="/static/logo.png" alt="Bot4VPS"></div>
+      <div class="logo-text">
+        <span class="logo-title">Bot4VPS</span>
+        <span class="logo-subtitle">Панель управления</span>
       </div>
-      <button type="button" data-page="files">📂 Файлы</button>
-      <button type="button" data-page="monitor">📊 Мониторинг</button>
-      <button type="button" data-page="queues">📋 Очереди</button>
-      <button type="button" data-page="events">📖 Журнал</button>
+    </div>
+    <nav id="nav">
+      <div class="nav-section">
+        <button type="button" data-page="dashboard" class="on">
+          <span class="icon">📊</span> Обзор
+        </button>
+      </div>
+      <div class="nav-section">
+        <div class="nav-label">Управление</div>
+        <button type="button" data-page="servers">
+          <span class="icon">🖥</span> Серверы
+        </button>
+        <button type="button" data-page="wireguard">
+          <span class="icon">🌐</span> WireGuard
+        </button>
+        <button type="button" data-page="docker">
+          <span class="icon">🐳</span> Docker
+        </button>
+        <button type="button" data-page="scripts">
+          <span class="icon">📜</span> Скрипты
+        </button>
+        <button type="button" data-page="files">
+          <span class="icon">📂</span> Файлы
+        </button>
+        <button type="button" data-page="queues">
+          <span class="icon">📋</span> Очереди
+        </button>
+        <button type="button" data-page="monitor">
+          <span class="icon">📡</span> Мониторинг Bot4VPS
+        </button>
+        <button type="button" data-page="events">
+          <span class="icon">📖</span> Журнал уведомлений
+        </button>
+      </div>
     </nav>
     <nav class="nav-bottom">
-      <button type="button" data-page="settings">⚙ Настройки</button>
+      <button type="button" data-page="settings">
+        <span class="icon">⚙️</span> Настройки
+      </button>
     </nav>
-    <div class="foot" id="side-foot">
+    <div class="foot">
+      <div class="status">
+        <span class="status-dot"></span>
+        <span id="bot-status">Бот активен</span>
+      </div>
+      <div style="font-size:0.7rem;color:var(--text-dim);margin-top:0.25rem" id="version-info">v—</div>
       <span id="api-err" class="err-hint"></span>
     </div>
   </aside>
 
   <div class="main-wrap">
     <header class="top">
-      <button type="button" class="secondary" id="nav-toggle" title="Меню">☰</button>
+      <button type="button" id="nav-toggle" title="Меню">☰</button>
+      <div class="search-wrap">
+        <input type="search" class="search" placeholder="Поиск серверов, задач..." autocomplete="off" id="global-search"/>
+        <span class="search-icon">🔍</span>
+      </div>
       <div class="status-line">
-        <span id="core-status"><span class="dot"></span>Core…</span>
-        <span id="side-date">—</span> · <span id="side-clock">—</span>
-        <button type="button" class="secondary" id="theme-toggle" title="Тема интерфейса">🌙</button>
+        <div class="status-item">
+          <span class="dropdown-status-dot ok" id="header-system-dot"></span>
+          <span id="header-system-status">Система в норме</span>
+        </div>
+        <span class="header-divider"></span>
+        <button type="button" class="status-item is-clickable" id="header-servers-link"
+                title="Перейти к серверам">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
+            <line x1="8" y1="21" x2="16" y2="21"></line>
+            <line x1="12" y1="17" x2="12" y2="21"></line>
+          </svg>
+          <span id="header-servers-count">—</span>
+        </button>
+        <span class="header-divider"></span>
+        <div style="position:relative;display:flex;align-items:center;gap:0.5rem">
+          <button type="button" class="icon-btn" id="notifications-btn" title="Уведомления">
+            <span class="badge" id="notif-badge" style="display:none">0</span>
+          </button>
+          <div class="dropdown-menu" id="notifications-dropdown">
+            <div class="dropdown-section" id="notif-list">
+              <div class="dropdown-empty">Нет новых уведомлений</div>
+            </div>
+          </div>
+          <button type="button" class="icon-btn theme-toggle" id="theme-toggle" title="Переключить тему"></button>
+        </div>
+        <div class="profile-wrap" id="profile-wrap" style="display:none">
+          <div class="profile" id="profile-btn" title="Профиль" role="button" tabindex="0">
+            <span id="profile-name">A</span>
+          </div>
+          <div class="dropdown-menu profile-menu" id="profile-menu">
+            <div class="dropdown-section">
+              <button type="button" class="dropdown-item profile-menu-item" id="profile-menu-settings">
+                <span class="profile-menu-ico">⚙</span>
+                <span>Настройки</span>
+              </button>
+            </div>
+            <div class="dropdown-divider"></div>
+            <div class="dropdown-section">
+              <button type="button" class="dropdown-item profile-menu-item" id="profile-menu-logout">
+                <span class="profile-menu-ico">↪</span>
+                <span>Выйти</span>
+              </button>
+            </div>
+          </div>
+        </div>
       </div>
     </header>
+    <div id="nav-backdrop"></div>
+
+    <!-- Боковая панель управления группами -->
+    <div class="side-panel" id="groups-panel">
+      <div class="side-panel-header">
+        <h2>⚙ Настройки групп</h2>
+        <button type="button" class="icon-btn" id="groups-panel-close" title="Закрыть">✕</button>
+      </div>
+      <div class="side-panel-content">
+        <p class="acc-note" style="margin-bottom:1rem">
+          Управление группами: создание, переименование, SSL-проверка, удаление пустых.
+          Назначение группы серверу — в карточке сервера.
+        </p>
+
+        <h4 style="margin:0 0 .6rem;font-size:.95rem">Список групп</h4>
+        <div id="groups-list" class="groups-list">Загрузка…</div>
+
+        <div class="groups-create" style="margin-top:.8rem;display:flex;gap:.5rem;flex-wrap:wrap;align-items:center">
+          <input id="grp-new-name" placeholder="Название новой группы" style="flex:1;min-width:12rem"/>
+          <label class="row" style="margin:0"><input type="checkbox" id="grp-new-ssl"/> SSL</label>
+          <button type="button" id="grp-create">＋ Создать</button>
+        </div>
+
+        <div style="margin-top:1.5rem;padding-top:1.5rem;border-top:1px solid var(--border)">
+          <h4 style="margin:0 0 .6rem;font-size:.95rem">Отображение в меню</h4>
+          <p class="acc-note" style="margin-bottom:.8rem;font-size:.88rem">
+            Порядок групп и их видимость. Перетащите для изменения порядка, снимите галочку чтобы скрыть группу.
+          </p>
+          <div id="groups-display-list" class="groups-display-list">Загрузка…</div>
+        </div>
+      </div>
+    </div>
 
     <div class="content">
-      <section class="page on" id="page-servers">
+      <!-- Дашборд -->
+      <section class="page on" id="page-dashboard">
+        <div class="dash-header">
+          <div class="dash-header-left">
+            <h1 class="dash-greeting">Добрый день!</h1>
+            <p class="dash-subtitle">Вот что происходит с вашей инфраструктурой</p>
+          </div>
+          <div class="dash-header-right">
+            <div class="dash-time-block">
+              <span class="dash-time-icon">🕐</span>
+              <div class="dash-time-info">
+                <div class="dash-time" id="dash-time">—</div>
+                <div class="dash-date" id="dash-date">—</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Метрики -->
+        <div class="metrics-grid">
+          <div class="metric-card" data-nav="servers" style="cursor:pointer">
+            <div class="metric-head">
+              <div class="metric-icon servers">🖥</div>
+              <div class="metric-info">
+                <div class="metric-label">Серверы</div>
+                <div class="metric-value" id="m-servers">—</div>
+              </div>
+            </div>
+            <div id="m-servers-status" class="metric-status-wrap"></div>
+          </div>
+
+          <div class="metric-card" data-nav="queues" style="cursor:pointer">
+            <div class="metric-head">
+              <div class="metric-icon tasks">📋</div>
+              <div class="metric-info">
+                <div class="metric-label">Задачи</div>
+                <div class="metric-value" id="m-tasks">—</div>
+              </div>
+            </div>
+            <div id="m-tasks-status" class="metric-status-wrap"></div>
+          </div>
+
+          <div class="metric-card" data-nav="docker" style="cursor:pointer">
+            <div class="metric-head">
+              <div class="metric-icon docker">🐳</div>
+              <div class="metric-info">
+                <div class="metric-label">Контейнеры</div>
+                <div class="metric-value" id="m-containers">—</div>
+              </div>
+            </div>
+            <div id="m-containers-status" class="metric-status-wrap"></div>
+          </div>
+        </div>
+
+        <!-- Три колонки -->
+        <div class="dash-cols">
+          <!-- Серверы -->
+          <div class="card">
+            <h3>🖥 Серверы</h3>
+            <div id="dash-servers" style="display:flex;flex-direction:column;gap:0.5rem">
+              <div class="empty" style="padding:1.25rem 1rem">Загрузка...</div>
+            </div>
+          </div>
+
+          <!-- Журнал уведомлений -->
+          <div class="card">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.75rem">
+              <h3 style="margin:0">📖 Журнал уведомлений</h3>
+              <button type="button" class="ghost" style="font-size:0.8rem;padding:0.3rem 0.5rem" id="dash-events-all">Все →</button>
+            </div>
+            <div id="dash-events" style="display:flex;flex-direction:column;gap:0.375rem">
+              <div class="empty" style="padding:1.25rem 1rem">Загрузка...</div>
+            </div>
+          </div>
+
+          <!-- Системный статус -->
+          <div class="card">
+            <h3>🖥 Система</h3>
+            <div id="dash-system">
+              <div class="empty" style="padding:1.25rem 1rem">Загрузка...</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="page" id="page-servers">
         <div class="section-head">
           <h1>Серверы</h1>
-          <button type="button" id="btn-add-server">＋ Добавить</button>
-        </div>
-        <div class="search-box">
-          <input type="search" id="server-search" placeholder="🔍 Поиск: имя, host, группа…" autocomplete="off"/>
-          <span class="hint" id="server-search-hint"></span>
+          <div style="display:flex;gap:0.5rem">
+            <button type="button" id="btn-add-server">＋ Добавить сервер</button>
+            <button type="button" class="secondary" id="btn-groups-panel">⚙ Настройки групп</button>
+          </div>
         </div>
         <div id="servers"><div class="empty">Загрузка…</div></div>
       </section>
 
       <section class="page" id="page-server">
         <button type="button" class="back" id="btn-back-servers">← К списку</button>
-        <div class="section-head"><h1 id="srv-title">Сервер</h1></div>
-        <div class="tabs" id="srv-tabs">
-          <button type="button" class="on" data-tab="status">Обзор</button>
-          <button type="button" data-tab="settings">Настройки</button>
-          <button type="button" data-tab="terminal">Терминал</button>
-          <button type="button" data-tab="log">Лог</button>
-          <button type="button" data-tab="queue">Очередь</button>
+        <div class="section-head" style="margin-bottom:0.35rem">
+          <h1 id="srv-title">Сервер</h1>
         </div>
-        <div id="tab-status" class="tab-pane">
-          <dl class="kv" id="srv-kv"></dl>
-          <div class="metrics" id="srv-metrics"></div>
-          <div class="row" id="srv-metrics-st"></div>
-          <div class="actions" id="srv-actions"></div>
+        <div class="mon-ip-line">
+          <span class="mon-ip" id="srv-ip">—</span>
+          <button type="button" class="mon-ip-copy" id="btn-copy-srv-ip"
+                  title="Копировать IP" aria-label="Копировать IP">⧉</button>
+          <span class="mon-ip-grow"></span>
+          <span class="srv-ssh-status" id="srv-ssh-status">SSH: —</span>
+          <span class="srv-term-sep hidden" id="srv-term-sep">│</span>
+          <button type="button" class="srv-term-btn hidden" id="btn-open-terminal"
+                  title="Открыть терминал">⌘ Терминал</button>
         </div>
-        <div id="tab-settings" class="tab-pane hidden">
-          <form id="srv-settings-form" class="settings-form" onsubmit="return false;">
-            <label class="row">Имя</label>
-            <input id="sf-name"/>
-            <label class="row">Группа</label>
-            <select id="sf-group"></select>
-            <label class="row">Host</label>
-            <input id="sf-host"/>
-            <label class="row">SSH порт</label>
-            <input id="sf-port" type="number" min="1" max="65535"/>
-            <label class="row">User</label>
-            <input id="sf-user"/>
-            <label class="row">Auth</label>
-            <select id="sf-auth">
-              <option value="password">password</option>
-              <option value="key">key</option>
-            </select>
-            <div id="sf-pass-wrap">
-              <label class="row">Пароль (пусто = не менять)</label>
-              <div class="pw-wrap">
-                <input id="sf-password" type="password" autocomplete="new-password"/>
-                <button type="button" class="eye" data-pw-toggle="sf-password" title="Показать">👁</button>
-              </div>
+        <div class="sys-widgets" id="srv-widgets"></div>
+        <div class="srv-overview-grid">
+            <div class="info-block">
+              <h2>Информация о системе</h2>
+              <div id="srv-info"></div>
             </div>
-            <div id="sf-key-wrap" class="hidden">
-              <label class="row">Ключ</label>
-              <select id="sf-key"></select>
+            <div class="info-block">
+              <h2>Быстрые действия</h2>
+              <div id="srv-quick-actions" style="display:flex;flex-direction:column;gap:0.5rem"></div>
             </div>
-            <label class="row"><input type="checkbox" id="sf-cert"/> Проверка SSL</label>
-            <label class="row">SSL host</label>
-            <input id="sf-ssl-host" placeholder="domain.com"/>
-            <div class="actions" style="margin-top:.8rem">
-              <button type="button" id="sf-save">💾 Сохранить</button>
-              <button type="button" class="secondary" id="sf-test">🔌 Тест SSH</button>
-              <button type="button" class="danger" id="sf-delete">🗑 Удалить</button>
-            </div>
-          </form>
-        </div>
-        <div id="tab-terminal" class="tab-pane hidden">
-          <div class="term-bar">
-            <span class="row" id="term-status">SSH · отключено</span>
-            <span style="flex:1"></span>
-            <button type="button" class="secondary" id="term-reconnect">⟳ Переподключить</button>
           </div>
-          <div id="term-xterm" class="term-host"></div>
+          <div class="info-block srv-recent-events-block">
+            <h2>Недавние события</h2>
+            <div id="srv-recent-events"><div class="empty">Загрузка…</div></div>
+          </div>
+      </section>
+      <section class="page" id="page-terminal">
+        <div class="term-page-head">
+          <button type="button" class="back" id="btn-back-from-terminal">← Вернуться к серверу</button>
+          <div class="term-page-meta">
+            <span class="term-page-name" id="term-server-name">—</span>
+            <span class="srv-ssh-status" id="term-ssh-badge">SSH: —</span>
+          </div>
         </div>
-        <div id="tab-log" class="tab-pane hidden">
-          <div class="logbox" id="task-log">Нет активной задачи</div>
+        <div class="term-bar">
+          <span class="row" id="term-status">SSH · отключено</span>
+          <span style="flex:1"></span>
+          <button type="button" class="secondary" id="term-reconnect">⟳ Переподключить</button>
         </div>
-        <div id="tab-queue" class="tab-pane hidden">
-          <div id="srv-queue"><div class="empty">—</div></div>
-        </div>
+        <div id="term-xterm" class="term-host term-host-full"></div>
       </section>
 
       <section class="page" id="page-scripts">
-        <div class="section-head">
+        <div class="section-head scripts-page-head">
           <h1>Скрипты</h1>
-          <label class="btn secondary" style="cursor:pointer">Загрузить .sh
-            <input type="file" accept=".sh" hidden id="upload-script"/>
-          </label>
+          <div class="actions scripts-head-actions">
+            <label class="btn secondary scripts-upload" style="cursor:pointer">↑ Загрузить .sh
+              <input type="file" accept=".sh" multiple hidden id="upload-script"/>
+            </label>
+            <button type="button" id="btn-new-script">＋ Новый скрипт</button>
+          </div>
         </div>
-        <div class="grid" id="scripts"><div class="empty">—</div></div>
+        <div class="scripts-search-wrap">
+          <span class="scripts-search-icon" aria-hidden="true">⌕</span>
+          <input type="search" id="scripts-search" placeholder="Поиск по названию..." autocomplete="off"/>
+        </div>
+        <div class="scripts-table-shell">
+          <div class="scripts-table-wrap">
+            <table class="scripts-table">
+              <thead>
+                <tr>
+                  <th class="scripts-check-col">
+                    <input type="checkbox" id="scripts-select-page" aria-label="Выбрать отображаемые скрипты"/>
+                  </th>
+                  <th>Название</th>
+                  <th class="scripts-param-col">BOT PARAM</th>
+                  <th class="scripts-date-col">Обновлён</th>
+                  <th class="scripts-actions-col">Действия</th>
+                </tr>
+              </thead>
+              <tbody id="scripts-body">
+                <tr><td colspan="5" class="scripts-empty-cell">Загрузка…</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="scripts-table-footer">
+            <div class="scripts-bulk-actions hidden" id="scripts-bulk-actions">
+              <button type="button" class="secondary scripts-compact-btn" id="scripts-download-selected">↓ Скачать</button>
+              <button type="button" class="danger scripts-compact-btn" id="scripts-delete-selected">🗑 Удалить</button>
+            </div>
+            <nav class="scripts-pagination" id="scripts-pagination" aria-label="Страницы скриптов"></nav>
+          </div>
+        </div>
       </section>
 
       <section class="page" id="page-wireguard">
@@ -170,72 +377,138 @@
 
       <section class="page" id="page-wireguard-server">
         <button type="button" class="back" id="btn-back-wg">← К списку</button>
-        <div class="section-head">
+        <button type="button" class="back" id="btn-back-server" style="margin-left: 12px;">← К серверу</button>        <div class="section-head">
           <h1 id="wg-srv-title">WireGuard</h1>
-          <div class="actions" style="margin:0">
-            <button type="button" class="secondary" id="wg-srv-refresh">🔄 Обновить</button>
+          <span id="wg-srv-badge"></span>
+          <button type="button" class="wg-imported-indicator hidden" id="wg-imported-indicator" title="Информация об импортированном профиле" aria-label="Информация об импортированном профиле">⚠</button>
+          <div class="actions" style="margin:0;margin-left:auto">
+            <button type="button" class="secondary" id="wg-srv-refresh">⟳ Синхронизировать</button>
+            <button type="button" class="secondary" id="wg-srv-config">⚙ Изменить конфигурацию</button>
           </div>
         </div>
+        <div id="wg-imported-banner" class="wg-imported-banner hidden"></div>
         <div id="wg-srv-body"><div class="empty">Загрузка…</div></div>
       </section>
 
       <section class="page" id="page-docker">
         <div class="section-head"><h1>Docker</h1></div>
-        <div class="wg-hint">Статус Docker Engine на серверах. Установка — через официальный скрипт get.docker.com.</div>
+        <div class="tabs" id="docker-tabs">
+          <button type="button" class="on" data-dktab="check">🔍 Проверка</button>
+          <button type="button" data-dktab="install">🟢 Установить</button>
+          <button type="button" data-dktab="manage">⚙️ Управление</button>
+        </div>
+        <div class="wg-hint" id="docker-tab-hint"></div>
         <div class="wg-log-wrap hidden" id="docker-task-log-wrap">
           <div class="wg-log-head"><span id="docker-live-log-title">Вывод задачи</span><button type="button" class="secondary" id="docker-live-log-close" title="Закрыть">✕</button></div>
           <div class="logbox wg-log" id="docker-task-log"></div>
         </div>
-        <div class="actions" style="margin:0 0 .8rem">
-          <button type="button" id="docker-sync-all" title="Проверить Docker на всех серверах">🔄 Проверить все серверы</button>
+        <div id="docker-tab-check">
+          <div class="actions" style="margin:0 0 .8rem">
+            <button type="button" id="docker-sync-all" title="Проверить Docker на всех серверах">🔄 Проверить все серверы</button>
+          </div>
+          <div class="grid" id="docker-check-grid"><div class="empty">Загрузка…</div></div>
         </div>
-        <div class="grid" id="docker-grid"><div class="empty">Загрузка…</div></div>
+        <div class="grid hidden" id="docker-tab-install"><div class="empty">Загрузка…</div></div>
+        <div class="grid hidden" id="docker-tab-manage"><div class="empty">Загрузка…</div></div>
       </section>
 
       <section class="page" id="page-docker-server">
         <button type="button" class="back" id="btn-back-docker">← К списку</button>
+        <button type="button" class="back" id="btn-back-docker-server" style="margin-left:12px">← К серверу</button>
         <div class="section-head">
-          <h1 id="docker-srv-title">Docker</h1>
-          <div class="actions" style="margin:0">
-            <button type="button" class="secondary" id="docker-srv-refresh">🔄 Обновить</button>
+          <div>
+            <h1 id="docker-srv-title">Docker</h1>
+            <div class="docker-srv-subtitle" id="docker-srv-subtitle"></div>
+          </div>
+          <span id="docker-srv-badge"></span>
+          <div class="actions" style="margin:0;margin-left:auto">
+            <button type="button" class="secondary" id="docker-srv-refresh">⟳ Синхронизировать</button>
+            <button type="button" class="danger" id="docker-srv-delete">🗑 Удалить Docker</button>
           </div>
         </div>
         <div class="wg-log-wrap hidden" id="docker-srv-log-wrap">
           <div class="wg-log-head"><span>Вывод задачи</span><button type="button" class="secondary" id="docker-srv-log-close" title="Закрыть">✕</button></div>
           <div class="logbox wg-log" id="docker-srv-log"></div>
         </div>
-        <!-- Вкладки: Контейнеры (Phase 2) | Образы (Phase 4) | Compose (Phase 5) -->
-        <div class="tabs" style="margin-bottom:1rem">
-          <button type="button" class="tab active" data-tab="containers">Контейнеры</button>
-          <button type="button" class="tab" data-tab="images">Образы</button>
-          <button type="button" class="tab" data-tab="compose">Compose</button>
+        <div id="docker-srv-widgets"></div>
+        <div class="tabs" id="docker-srv-tabs" style="margin:0.8rem 0 1rem">
+          <button type="button" class="on" data-dstab="containers">Контейнеры</button>
+          <button type="button" data-dstab="images">Образы</button>
+          <button type="button" data-dstab="compose">Compose проекты</button>
         </div>
         <div id="docker-srv-body"><div class="empty">Загрузка…</div></div>
         <div id="docker-images-body" class="hidden"><div class="empty">Загрузка…</div></div>
         <div id="docker-compose-body" class="hidden"><div class="empty">Загрузка…</div></div>
+        <div id="docker-ct-pop" class="wg-prof-pop hidden"></div>
       </section>
 
       <section class="page" id="page-files">
         <div class="section-head"><h1>Файлы</h1></div>
-        <div class="file-tabs" id="file-tabs">
-          <button type="button" class="on" data-root="scripts">scripts</button>
-          <button type="button" data-root="keys">keys</button>
-          <button type="button" data-root="docker">docker</button>
+        <div class="tabs" id="file-tabs">
+          <button type="button" class="on" data-root="docker">🐳 Docker</button>
+          <button type="button" data-root="keys">🔑 Keys</button>
         </div>
         <!-- Хлебные крошки: нужны docker-вкладке (проекты → файлы проекта) -->
         <div id="file-crumbs" class="wg-hint hidden" style="margin:.2rem 0 .6rem"></div>
         <div class="card" id="file-list" style="padding:0"><div class="empty" style="padding:.8rem">…</div></div>
-        <div class="actions">
+        <div class="actions file-actions">
           <label class="btn secondary" style="cursor:pointer" id="upload-label">Загрузить<input type="file" hidden id="upload-file"/></label>
-          <button type="button" class="secondary" id="btn-create-script" style="display:none">＋ Создать скрипт</button>
           <button type="button" class="secondary" id="btn-create-key" style="display:none">🔑 Создать ключ</button>
+          <button type="button" id="btn-docker-project-new" style="display:none">＋ Создать проект</button>
+          <label class="btn secondary" id="docker-project-upload-label" style="display:none;cursor:pointer">↑ Загрузить проект<input type="file" hidden id="docker-project-upload" accept=".zip,application/zip"/></label>
+          <button type="button" id="btn-docker-file-new" style="display:none">＋ Создать файл</button>
+          <button type="button" class="secondary" id="btn-docker-folder-new" style="display:none">＋ Создать папку</button>
+          <label class="btn secondary" id="docker-file-upload-label" style="display:none;cursor:pointer">↑ Загрузить файл<input type="file" hidden id="docker-file-upload"/></label>
         </div>
       </section>
 
       <section class="page" id="page-monitor">
-        <div class="section-head"><h1>Мониторинг</h1></div>
-        <div class="grid" id="monitor-cfg"><div class="empty">…</div></div>
-        <div id="monitor-result" style="margin-top:.75rem"></div>
+        <div class="section-head" style="margin-bottom:.35rem">
+          <h1>Мониторинг Bot4VPS</h1>
+        </div>
+        <div class="mon-ip-line">
+          <span class="mon-ip" id="host-ip">—</span>
+          <button type="button" class="mon-ip-copy" id="btn-copy-ip"
+                  title="Копировать IP" aria-label="Копировать IP">⧉</button>
+        </div>
+
+        <div id="system-widgets" class="sys-widgets">
+          <div class="empty">…</div>
+        </div>
+
+        <div class="mon-blocks">
+          <div class="info-block">
+            <h2>Основная информация</h2>
+            <div id="system-basic-info"><div class="empty">…</div></div>
+          </div>
+
+          <div class="info-block">
+            <h2>Настройки мониторинга</h2>
+            <div id="monitor-cfg" class="mon-cfg"><div class="empty">…</div></div>
+            <div id="monitor-result" class="mon-result"></div>
+          </div>
+
+          <div class="mon-col">
+            <div class="info-block">
+              <h2>Статус сервисов</h2>
+              <div id="system-services"><div class="empty">…</div></div>
+            </div>
+
+            <div class="info-block">
+              <h2>Быстрые действия</h2>
+              <div id="system-quick-actions">
+                <button type="button" class="action-btn" id="btn-view-journal">
+                  <span class="icon">📜</span>
+                  <span>Просмотр журнала</span>
+                </button>
+                <button type="button" class="action-btn" id="btn-restart-service">
+                  <span class="icon">🔄</span>
+                  <span>Перезапустить bot4vps</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
       </section>
 
       <section class="page" id="page-queues">
@@ -247,7 +520,7 @@
 
       <section class="page" id="page-events">
         <div class="section-head">
-          <h1>Журнал</h1>
+          <h1>Журнал уведомлений</h1>
           <div class="actions" style="margin:0">
             <button type="button" class="secondary" id="btn-journal">Все</button>
             <button type="button" class="secondary" id="btn-events-clear">🗑 Очистить</button>
@@ -259,42 +532,53 @@
       <section class="page" id="page-settings">
         <div class="section-head"><h1>Настройки</h1></div>
 
-        <div class="card" style="min-height:0">
-          <h3>📁 Группы серверов</h3>
-          <p class="acc-note" style="margin-bottom:.6rem">
-            Управление группами: создание, переименование, SSL-проверка, удаление пустых.
-            Назначение группы серверу — в карточке сервера.
-          </p>
-          <div id="groups-list" class="groups-list">Загрузка…</div>
-          <div class="groups-create" style="margin-top:.8rem;display:flex;gap:.5rem;flex-wrap:wrap;align-items:center">
-            <input id="grp-new-name" placeholder="Название новой группы" style="flex:1;min-width:12rem"/>
-            <label class="row" style="margin:0"><input type="checkbox" id="grp-new-ssl"/> SSL</label>
-            <button type="button" id="grp-create">＋ Создать</button>
+        <div class="settings-grid">
+          <div class="card" style="min-height:0">
+            <h3>🔐 Учётная запись</h3>
+            <div class="acc-note" id="acc-status">…</div>
+            <form id="acc-form" class="settings-form" onsubmit="return false;">
+              <label class="row">Логин</label>
+              <input id="acc-user" autocomplete="username"/>
+              <label class="row">Новый пароль <span class="hint">(≥ 6 символов, пусто = не менять)</span></label>
+              <div class="pw-wrap">
+                <input id="acc-pass" type="password" autocomplete="new-password"/>
+                <button type="button" class="eye" data-pw-toggle="acc-pass">👁</button>
+              </div>
+              <label class="row">Старый пароль <span class="hint" id="acc-old-hint"></span></label>
+              <div class="pw-wrap">
+                <input id="acc-old" type="password" autocomplete="current-password"/>
+                <button type="button" class="eye" data-pw-toggle="acc-old">👁</button>
+              </div>
+              <div class="actions" style="margin-top:.8rem">
+                <button type="button" id="acc-save">💾 Сохранить</button>
+                <button type="button" class="secondary" id="acc-toggle">…</button>
+              </div>
+            </form>
           </div>
-        </div>
-
         <div class="card" style="min-height:0">
-          <h3>🔐 Учётная запись</h3>
-          <div class="acc-note" id="acc-status">…</div>
-          <form id="acc-form" class="settings-form" onsubmit="return false;">
-            <label class="row">Логин</label>
-            <input id="acc-user" autocomplete="username"/>
-            <label class="row">Новый пароль <span class="hint">(≥ 6 символов, пусто = не менять)</span></label>
-            <div class="pw-wrap">
-              <input id="acc-pass" type="password" autocomplete="new-password"/>
-              <button type="button" class="eye" data-pw-toggle="acc-pass">👁</button>
+            <h3>📱 Telegram</h3>
+            <div class="acc-note" id="tg-status-line">Статус: …</div>
+            <div class="actions" style="margin:.6rem 0 .4rem;flex-wrap:wrap;gap:.4rem">
+              <button type="button" id="tg-start">Включить</button>
+              <button type="button" class="secondary" id="tg-stop">Выключить</button>
+              <button type="button" class="secondary" id="tg-restart">Перезапустить</button>
             </div>
-            <label class="row">Старый пароль <span class="hint" id="acc-old-hint"></span></label>
-            <div class="pw-wrap">
-              <input id="acc-old" type="password" autocomplete="current-password"/>
-              <button type="button" class="eye" data-pw-toggle="acc-old">👁</button>
-            </div>
-            <div class="actions" style="margin-top:.8rem">
-              <button type="button" id="acc-save">💾 Сохранить</button>
-              <button type="button" class="secondary" id="acc-toggle">…</button>
-            </div>
-          </form>
-        </div>
+            <form id="tg-form" class="settings-form" onsubmit="return false;" style="margin-top:.8rem">
+              <label class="row">Telegram User ID</label>
+              <input id="tg-user-id" inputmode="numeric" autocomplete="off" placeholder="123456789"/>
+              <label class="row">Telegram Bot Token</label>
+              <div class="pw-wrap">
+                <input id="tg-bot-token" type="password" autocomplete="new-password" placeholder="Токен уже сохранён — введите новый, чтобы заменить"/>
+                <button type="button" class="eye" data-pw-toggle="tg-bot-token">👁</button>
+              </div>
+              <div class="hint" id="tg-token-hint" style="margin-top:.35rem"></div>
+              <div class="actions" style="margin-top:.8rem">
+                <button type="button" id="tg-save">💾 Сохранить</button>
+              </div>
+            </form>
+          </div>
+
+          </div>
       </section>
     </div>
   </div>
@@ -342,6 +626,22 @@
   </div>
 </div>
 
+<div class="modal-bg" id="script-create-modal">
+  <div class="modal script-create-modal">
+    <div class="section-head" style="margin-bottom:.6rem">
+      <h3 style="margin:0">Новый скрипт</h3>
+    </div>
+    <label class="row" for="script-create-name">Имя файла</label>
+    <input id="script-create-name" placeholder="backup.sh" autocomplete="off"/>
+    <div class="hint" style="margin-top:.35rem">Латинские буквы, цифры, точка, дефис и подчёркивание.</div>
+    <div class="err-hint" id="script-create-warn"></div>
+    <div class="actions script-create-actions" style="margin-top:.8rem">
+      <button type="button" id="script-create-submit">Создать</button>
+      <button type="button" class="secondary" id="script-create-cancel">Отмена</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-bg" id="script-modal">
   <div class="modal" style="width:min(720px,100%)">
     <div class="section-head" style="margin-bottom:.6rem">
@@ -352,9 +652,24 @@
   </div>
 </div>
 
+<!-- Журнал службы bot4vps: только вывод, ввода команд нет -->
+<div class="modal-bg" id="journal-modal">
+  <div class="modal" style="width:min(900px,100%)">
+    <div class="section-head" style="margin-bottom:.5rem">
+      <h3 style="margin:0">Журнал Bot4VPS</h3>
+      <span class="journal-live" id="journal-live" hidden>● LIVE</span>
+    </div>
+    <pre id="journal-output" class="journal-output" aria-live="polite"></pre>
+    <div class="actions" style="margin-top:.6rem">
+      <button type="button" class="secondary" id="btn-journal-stop">Остановить</button>
+      <button type="button" class="secondary" id="btn-journal-close">Закрыть</button>
+    </div>
+  </div>
+</div>
+
 <!-- Редактор файлов: CodeMirror, если установлен, иначе textarea с номерами строк -->
 <div class="modal-bg" id="editor-modal">
-  <div class="modal" style="width:min(1000px,100%)">
+  <div class="modal editor-modal-panel" style="width:min(1000px,100%)">
     <div class="section-head" style="margin-bottom:.5rem">
       <h3 id="editor-title" style="margin:0">Редактор</h3>
     </div>
@@ -368,25 +683,38 @@
     <div class="actions" style="margin-top:.6rem">
       <button type="button" id="editor-save">💾 Сохранить</button>
       <button type="button" class="secondary" id="editor-cancel">Отмена</button>
-      <span class="hint">Ctrl+S — сохранить без закрытия, Esc — закрыть</span>
+      <span class="hint" id="editor-shortcuts">Ctrl+S — сохранить без закрытия, Esc — закрыть</span>
     </div>
   </div>
 </div>
 
-<div class="modal-bg" id="script-new-modal">
-  <div class="modal">
+<div class="modal-bg" id="docker-library-modal">
+  <div class="modal" style="width:min(480px,100%)">
     <div class="section-head" style="margin-bottom:.6rem">
-      <h3 style="margin:0">＋ Создание скрипта</h3>
+      <h3 id="docker-library-title" style="margin:0">Создание проекта</h3>
     </div>
-    <label class="row" for="script-new-name">Имя файла
-      <span class="hint">латиница, цифры, дефис (например backup.sh)</span>
-    </label>
-    <input id="script-new-name" placeholder="backup.sh" autocomplete="off"/>
-    <div class="row" style="margin-top:.4rem">Тип: Shell (.sh, права 0755)</div>
-    <div class="err-hint" id="script-new-warn"></div>
+    <label class="row hidden" id="docker-library-type-row" for="docker-library-type">Тип</label>
+    <select id="docker-library-type" class="hidden">
+      <option value="yaml">YAML</option>
+      <option value="env">ENV</option>
+    </select>
+    <label class="row" id="docker-library-name-label" for="docker-library-name">Название</label>
+    <input id="docker-library-name" autocomplete="off"/>
+    <div class="err-hint" id="docker-library-warn" style="white-space:pre-wrap"></div>
     <div class="actions" style="margin-top:.8rem">
-      <button type="button" id="script-new-create">Создать</button>
-      <button type="button" class="secondary" id="script-new-cancel">Отмена</button>
+      <button type="button" class="secondary" id="docker-library-cancel">Отмена</button>
+      <button type="button" id="docker-library-submit">Создать</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-bg" id="confirm-modal">
+  <div class="modal confirm-modal" role="dialog" aria-modal="true" aria-labelledby="confirm-modal-title">
+    <h3 id="confirm-modal-title">Подтвердите действие</h3>
+    <div id="confirm-modal-message" class="confirm-modal-message"></div>
+    <div class="actions confirm-modal-actions">
+      <button type="button" class="danger" id="confirm-modal-ok">Подтвердить</button>
+      <button type="button" class="secondary" id="confirm-modal-cancel">Отмена</button>
     </div>
   </div>
 </div>
@@ -401,6 +729,19 @@
     <div class="actions">
       <button type="button" id="wg-install-confirm">Установить</button>
       <button type="button" class="secondary" id="wg-install-cancel">Отмена</button>
+    </div>
+  </div>
+</div>
+
+
+<div class="modal-bg" id="wg-profile-picker">
+  <div class="modal" style="width:min(420px,100%)">
+    <h3 style="margin:0 0 .6rem" id="wg-picker-title">Выберите профиль</h3>
+    <input type="search" id="wg-picker-search" placeholder="🔍 Поиск профиля…"/>
+    <div id="wg-picker-list" class="svc-pick-list"></div>
+    <div class="actions" style="margin-top:.8rem">
+      <button type="button" class="secondary" id="wg-picker-cancel">Отмена</button>
+      <button type="button" id="wg-picker-ok">Выполнить</button>
     </div>
   </div>
 </div>
@@ -530,12 +871,12 @@
       <span class="hint" id="docker-stack-file-name"></span>
     </div>
     <label class="row" for="docker-stack-new-yaml">Compose-файл</label>
-    <textarea id="docker-stack-new-yaml" rows="13" spellcheck="false"
-      style="width:100%;font-family:monospace;white-space:pre;overflow-wrap:normal;overflow-x:auto"
+    <textarea id="docker-stack-new-yaml" rows="9" spellcheck="false"
+      style="width:100%;max-height:32vh;font-family:monospace;white-space:pre;overflow-wrap:normal;overflow:auto;resize:vertical"
       placeholder="services:&#10;  web:&#10;    image: nginx:alpine&#10;    ports:&#10;      - &quot;8080:80&quot;"></textarea>
     <label class="row" for="docker-stack-new-env">.env <span class="hint">если не нужен — оставьте пустым</span></label>
-    <textarea id="docker-stack-new-env" rows="4" spellcheck="false"
-      style="width:100%;font-family:monospace;white-space:pre;overflow-wrap:normal;overflow-x:auto"
+    <textarea id="docker-stack-new-env" rows="3" spellcheck="false"
+      style="width:100%;max-height:16vh;font-family:monospace;white-space:pre;overflow-wrap:normal;overflow:auto;resize:vertical"
       placeholder="TZ=Europe/Moscow"></textarea>
     <div class="err-hint" id="docker-stack-new-warn" style="white-space:pre-wrap"></div>
     <div class="actions" style="margin-top:.8rem">
@@ -598,6 +939,20 @@
   </div>
 </div>
 
+<!-- Игнорируемые Compose-проекты (docs/compose-model.md §11): скрыты из списка
+     проектов и контейнеров; здесь — вернуть в строй. -->
+<div class="modal-bg" id="docker-ignored-modal">
+  <div class="modal" style="width:min(640px,100%)">
+    <div class="section-head" style="margin-bottom:.5rem">
+      <h3 style="margin:0">🚫 Игнорируемые проекты</h3>
+      <button type="button" class="secondary" id="docker-ignored-close">Закрыть</button>
+    </div>
+    <div id="docker-ignored-list"><div class="empty">Загрузка…</div></div>
+    <p class="hint" style="margin:.5rem 0 0">Игнорируемые проекты и их контейнеры скрыты
+      из списков. Статистика Docker остаётся полной.</p>
+  </div>
+</div>
+
 <!-- Общая модалка лога задачи: используется всеми сервисами и страницей «Очереди» -->
 <div class="modal-bg" id="task-log-modal">
   <div class="modal" style="width:min(860px,100%)">
@@ -631,8 +986,19 @@
     <div class="row" id="docker-dialog-msg" style="white-space:pre-wrap"></div>
     <div class="actions" style="margin-top:.9rem">
       <button type="button" id="docker-dialog-ok">ОК</button>
+      <button type="button" class="secondary" id="docker-dialog-alt">Альтернатива</button>
       <button type="button" class="secondary" id="docker-dialog-cancel">Отмена</button>
     </div>
+  </div>
+</div>
+
+<div class="modal-bg" id="monitor-check-modal">
+  <div class="modal" style="width:min(860px,100%)">
+    <div class="section-head" style="margin-bottom:.5rem">
+      <h3 id="monitor-check-title" style="margin:0">Результат проверки</h3>
+      <button type="button" class="secondary" id="monitor-check-close">Закрыть</button>
+    </div>
+    <div id="monitor-check-body"></div>
   </div>
 </div>
 
@@ -653,6 +1019,79 @@
 </div>
 
 <div class="toast-wrap" id="toasts"></div>
+
+<!-- Модальное окно редактирования сервера -->
+<div class="modal-bg server-settings-modal" id="edit-server-modal">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="edit-server-title">
+    <h2 id="edit-server-title">Изменить настройки сервера</h2>
+    <form id="srv-settings-form" class="settings-form server-settings-form" onsubmit="return false;">
+      <div class="server-settings-fields">
+        <div class="server-settings-field">
+          <label for="sf-name">Имя</label>
+          <input id="sf-name"/>
+        </div>
+        <div class="server-settings-field">
+          <label for="sf-group">Группа</label>
+          <select id="sf-group"></select>
+        </div>
+        <div class="server-settings-field server-settings-host">
+          <label for="sf-host">Host</label>
+          <input id="sf-host"/>
+        </div>
+        <div class="server-settings-field server-settings-port">
+          <label for="sf-port">SSH порт</label>
+          <input id="sf-port" type="number" min="1" max="65535"/>
+        </div>
+        <div class="server-settings-field">
+          <label for="sf-user">User</label>
+          <input id="sf-user"/>
+        </div>
+        <div class="server-settings-field">
+          <label for="sf-auth">Auth</label>
+          <select id="sf-auth">
+            <option value="password">password</option>
+            <option value="key">key</option>
+          </select>
+        </div>
+        <div class="server-settings-field" id="sf-pass-wrap">
+          <label for="sf-password">Пароль <span class="hint">пусто = не менять</span></label>
+          <div class="pw-wrap">
+            <input id="sf-password" type="password" autocomplete="new-password"/>
+            <button type="button" class="eye" data-pw-toggle="sf-password" title="Показать">👁</button>
+          </div>
+        </div>
+        <div class="server-settings-field hidden" id="sf-key-wrap">
+          <label for="sf-key">SSH-ключ</label>
+          <select id="sf-key"></select>
+        </div>
+        <div class="server-settings-field server-sudo-control hidden" id="sf-sudo-control">
+          <label class="server-settings-placeholder" aria-hidden="true">&nbsp;</label>
+          <button type="button" class="secondary server-sudo-toggle" id="sf-sudo-change">Сменить пароль</button>
+          <div class="pw-wrap server-sudo-input hidden" id="sf-sudo-wrap">
+            <input id="sf-sudo-password" type="password" autocomplete="new-password" placeholder="Новый sudo-пароль"/>
+            <button type="button" class="eye" data-pw-toggle="sf-sudo-password" title="Показать">👁</button>
+          </div>
+        </div>
+        <div class="server-settings-field server-ssl-check-wrap">
+          <label class="server-settings-placeholder" aria-hidden="true">&nbsp;</label>
+          <label class="server-settings-check" for="sf-cert">
+            <input type="checkbox" id="sf-cert"/> Проверка SSL
+          </label>
+        </div>
+        <div class="server-settings-field hidden" id="sf-ssl-host-wrap">
+          <label for="sf-ssl-host">SSL host</label>
+          <input id="sf-ssl-host" placeholder="domain.com"/>
+        </div>
+      </div>
+      <div class="actions server-settings-actions">
+        <button type="button" id="sf-save">💾 Сохранить</button>
+        <button type="button" class="secondary" id="sf-test">🔌 Тест SSH</button>
+        <button type="button" class="secondary" id="esm-cancel">Отмена</button>
+      </div>
+    </form>
+  </div>
+</div>
+
 <script src="/static/vendor/xterm/xterm.js"></script>
 <script src="/static/vendor/xterm/addon-fit.js"></script>
 <!-- CodeMirror необязателен (см. vendor/codemirror/README.md): при отсутствии
@@ -660,7 +1099,7 @@
 <script src="/static/vendor/codemirror/codemirror.min.js"></script>
 <script src="/static/vendor/codemirror/shell.min.js"></script>
 <script src="/static/vendor/codemirror/yaml.min.js"></script>
-<script type="module" src="/static/js/app.js"></script>
+<script type="module" src="/static/js/app.js?v=20260816-version-v1"></script>
 
 <script type="module">
 // Fallback: загрузка групп даже если app.js/onNav не вызвал loadGroupsAdmin
@@ -707,6 +1146,28 @@ if (__ps) {
   }).observe(__ps, { attributes: true, attributeFilter: ['class'] });
 }
 </script>
+
+
+<div class="modal-bg" id="tg-setup-modal">
+  <div class="modal" style="max-width:420px">
+    <h3 style="margin:0 0 .6rem">📱 Настройка Telegram</h3>
+    <p class="acc-note" style="margin:0 0 .8rem">
+      Telegram включён, но для запуска необходимо указать данные.
+    </p>
+    <label class="row">Telegram User ID</label>
+    <input id="tg-setup-user" inputmode="numeric" autocomplete="off" placeholder="123456789"/>
+    <label class="row" style="margin-top:.5rem">Telegram Bot Token</label>
+    <div class="pw-wrap">
+      <input id="tg-setup-token" type="password" autocomplete="new-password" placeholder="123456:ABC…"/>
+      <button type="button" class="eye" data-pw-toggle="tg-setup-token">👁</button>
+    </div>
+    <div class="err-hint" id="tg-setup-err" style="margin-top:.5rem"></div>
+    <div class="actions" style="margin-top:.9rem;flex-wrap:wrap;gap:.4rem">
+      <button type="button" id="tg-setup-save">Сохранить</button>
+      <button type="button" class="secondary" id="tg-setup-disable">Отключить</button>
+    </div>
+  </div>
+</div>
 
 </body>
 </html>

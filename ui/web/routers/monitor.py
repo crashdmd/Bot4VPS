@@ -21,8 +21,10 @@ class MonitorPatch(BaseModel):
 @router.get("/api/monitor/config")
 async def api_monitor_get():
     try:
-        from core.config import get_monitor_config
-        return get_monitor_config()
+        from core.config import get_monitor_config, get_update_check_config
+        cfg = get_monitor_config()
+        cfg["update"] = get_update_check_config()
+        return cfg
     except Exception as e:
         return err(e)
 
@@ -34,15 +36,23 @@ async def api_monitor_set(body: MonitorPatch):
             set_monitor_enabled,
             set_monitor_interval,
             get_monitor_config,
+            get_update_check_config,
         )
-        if body.name not in ("online", "ssl"):
-            raise HTTPException(400, "name: online|ssl")
-        if body.enabled is not None:
-            set_monitor_enabled(body.name, bool(body.enabled))
-        if body.interval is not None:
-            if body.interval < 1:
-                raise HTTPException(400, "interval >= 1")
-            set_monitor_interval(body.name, int(body.interval))
+        if body.name == "update":
+            # Чекбокс «Проверять обновления»: только enabled, без interval
+            if body.enabled is None:
+                raise HTTPException(400, "enabled обязателен")
+            from core.config import set_update_check_enabled
+            set_update_check_enabled(bool(body.enabled))
+        elif body.name in ("online", "ssl"):
+            if body.enabled is not None:
+                set_monitor_enabled(body.name, bool(body.enabled))
+            if body.interval is not None:
+                if body.interval < 1:
+                    raise HTTPException(400, "interval >= 1")
+                set_monitor_interval(body.name, int(body.interval))
+        else:
+            raise HTTPException(400, "name: online|ssl|update")
         # В unified-процессе пересоздаём jobs сразу (раньше только TG умел)
         try:
             from bot import get_application
@@ -52,7 +62,9 @@ async def api_monitor_set(body: MonitorPatch):
                 schedule_monitor_jobs(tg.job_queue)
         except Exception as e:
             print(f"[WEB] monitor reschedule: {e}", flush=True)
-        return {"ok": True, "monitor": get_monitor_config()}
+        cfg = get_monitor_config()
+        cfg["update"] = get_update_check_config()
+        return {"ok": True, "monitor": cfg}
     except HTTPException:
         raise
     except Exception as e:
@@ -263,6 +275,20 @@ async def api_events(limit: int = 25):
     try:
         from core.events import get_events
         return {"events": get_events(limit=limit)}
+    except Exception as e:
+        return err(e)
+
+
+class MarkReadBody(BaseModel):
+    event_id: str
+
+
+@router.post("/api/events/mark-read")
+async def api_events_mark_read(body: MarkReadBody):
+    try:
+        from core.events import mark_as_read
+        mark_as_read(body.event_id)
+        return {"ok": True, "event_id": body.event_id}
     except Exception as e:
         return err(e)
 

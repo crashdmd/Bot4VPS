@@ -1,6 +1,56 @@
 import { esc } from './api.js';
 
 let serverTimeOffset = 0;
+let confirmResolve = null;
+let confirmReturnFocus = null;
+
+function closeConfirmDialog(result) {
+  const modal = document.getElementById('confirm-modal');
+  modal?.classList.remove('open');
+  const resolve = confirmResolve;
+  confirmResolve = null;
+  if (resolve) resolve(result);
+  const returnFocus = confirmReturnFocus;
+  confirmReturnFocus = null;
+  setTimeout(() => returnFocus?.focus?.(), 0);
+}
+
+/** Единое подтверждение опасных действий через общую модалку. */
+export function confirmAction({
+  title,
+  message = '',
+  confirmText = 'Подтвердить',
+  cancelText = 'Отмена',
+  danger = true,
+} = {}) {
+  const modal = document.getElementById('confirm-modal');
+  if (!modal) return Promise.resolve(false);
+  if (confirmResolve) closeConfirmDialog(false);
+
+  confirmReturnFocus = document.activeElement;
+  document.getElementById('confirm-modal-title').textContent = title || 'Подтвердите действие';
+  const messageEl = document.getElementById('confirm-modal-message');
+  messageEl.textContent = message;
+  messageEl.classList.toggle('hidden', !message);
+
+  const ok = document.getElementById('confirm-modal-ok');
+  const cancel = document.getElementById('confirm-modal-cancel');
+  ok.textContent = confirmText;
+  ok.className = danger ? 'danger' : 'secondary';
+  cancel.textContent = cancelText;
+  ok.onclick = () => closeConfirmDialog(true);
+  cancel.onclick = () => closeConfirmDialog(false);
+  modal.onkeydown = e => {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      closeConfirmDialog(false);
+    }
+  };
+
+  modal.classList.add('open');
+  setTimeout(() => cancel.focus(), 30);
+  return new Promise(resolve => { confirmResolve = resolve; });
+}
 
 export function toast(m, ok) {
   const e = document.createElement('div');
@@ -38,6 +88,18 @@ export function tickClock() {
   if (dt) dt.textContent = formatDate(d);
 }
 
+/** Русское склонение числительных: 1 день / 2 дня / 5 дней.
+ *  Живёт здесь, а не в dashboard.js: dashboard.js импортирует monitor.js,
+ *  поэтому обратный импорт был бы циклическим. Из ui.js читают оба. */
+export function plural(n, one, few, many) {
+  const mod100 = n % 100;
+  if (mod100 >= 11 && mod100 <= 14) return many;
+  const mod10 = n % 10;
+  if (mod10 === 1) return one;
+  if (mod10 >= 2 && mod10 <= 4) return few;
+  return many;
+}
+
 export function showPage(name, { onShow } = {}) {
   document.querySelectorAll('.page').forEach(p =>
     p.classList.toggle('on', p.id === 'page-' + name));
@@ -53,17 +115,50 @@ export function showPage(name, { onShow } = {}) {
   if (onShow) onShow(name);
 }
 
+export function parseEmoji(element) {
+  if (typeof twemoji !== 'undefined') {
+    twemoji.parse(element || document.body);
+  }
+}
+
+// Глобальный наблюдатель за изменениями DOM для автоматического парсинга эмодзи
+export function initEmojiObserver() {
+  if (typeof twemoji === 'undefined') return;
+
+  const observer = new MutationObserver((mutations) => {
+    mutations.forEach((mutation) => {
+      mutation.addedNodes.forEach((node) => {
+        if (node.nodeType === 1) { // Element node
+          twemoji.parse(node);
+        }
+      });
+    });
+  });
+
+  observer.observe(document.body, {
+    childList: true,
+    subtree: true
+  });
+}
+
 export function onlineBadge(v) {
   if (v === true) return '<span class="badge on">🟢 Online</span>';
   if (v === false) return '<span class="badge off">🔴 Offline</span>';
   return '<span class="badge unk">⚪ Нет данных</span>';
 }
 
+export function onlineBadgeWithPing(v, serverId) {
+  const statusIcon = v === true ? '🟢' : v === false ? '🔴' : '⚪';
+  const statusText = v === true ? 'Online' : v === false ? 'Offline' : 'Нет данных';
+  const badgeClass = v === true ? 'on' : v === false ? 'off' : 'unk';
+  return `<span class="badge ${badgeClass}">${statusIcon} ${statusText} · <span class="ping" id="ping-${esc(serverId)}">…</span></span>`;
+}
+
 export function sslBadge(s) {
   if (!s.certificate_check) return '<span class="badge unk">SSL —</span>';
   const st = s.ssl_status;
   if (st === 'valid')
-    return `<span class="badge ssl-ok">🟢 SSL OK${s.ssl_days_left != null ? ' · ' + s.ssl_days_left + 'д' : ''}</span>`;
+    return `<span class="badge ssl-ok">🔵 SSL OK${s.ssl_days_left != null ? ' · ' + s.ssl_days_left + 'д' : ''}</span>`;
   if (st === 'warning')
     return `<span class="badge ssl-warn">🟡 SSL скоро${s.ssl_days_left != null ? ' · ' + s.ssl_days_left + 'д' : ''}</span>`;
   if (st === 'expired' || st === 'error')
