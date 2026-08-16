@@ -238,8 +238,11 @@ async def _notify_found(version: str) -> None:
         EventLevel.INFO,
         "Доступно обновление Bot4VPS",
         "Найдена новая версия %s (установлена %s)." % (version, APP_VERSION),
-        details={"version": version, "current": APP_VERSION},
-        reason=EventReason.UPDATE_AVAILABLE,
+        details={
+            "version": version,
+            "current": APP_VERSION,
+            "reason": EventReason.UPDATE_AVAILABLE.value,
+        },
     )
 
 
@@ -517,24 +520,38 @@ async def _notify_result(action: dict, ok: bool) -> None:
     is_rollback = action.get("type") == "rollback"
     target = action.get("target")
     if ok:
+        reason = (
+            EventReason.ROLLBACK_DONE
+            if is_rollback
+            else EventReason.UPDATE_INSTALLED
+        )
         await notify_event(
             EventType.UPDATE,
             EventLevel.INFO,
             "Bot4VPS обновлён до %s" % target,
             ("Откат на версию %s выполнен." if is_rollback
              else "Установлена версия %s.") % target,
-            details={"version": target, "type": action.get("type")},
-            reason=EventReason.ROLLBACK_DONE if is_rollback
-            else EventReason.UPDATE_INSTALLED,
+            details={
+                "version": target,
+                "type": action.get("type"),
+                "reason": reason.value,
+            },
         )
     else:
+        reason = (
+            EventReason.ROLLBACK_FAILED
+            if is_rollback
+            else EventReason.UPDATE_FAILED
+        )
         await notify_event(
             EventType.UPDATE,
             EventLevel.WARNING,
             "Не удалось %s до %s" % ("откатиться" if is_rollback else "обновиться", target),
             "Предыдущая рабочая версия восстановлена."
             if not is_rollback else "Восстановлена предыдущая версия.",
-            details={"version": target, "type": action.get("type")},
-            reason=EventReason.ROLLBACK_FAILED if is_rollback
-            else EventReason.UPDATE_FAILED,
+            details={
+                "version": target,
+                "type": action.get("type"),
+                "reason": reason.value,
+            },
         )
