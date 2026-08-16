@@ -11,8 +11,8 @@
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://unpkg.com/twemoji@latest/dist/twemoji.min.js" crossorigin="anonymous"></script>
 <link rel="stylesheet" href="/static/css/layout.css?v=20260816-mobile-dashboard-v2"/>
-<link rel="stylesheet" href="/static/css/components.css?v=20260815-settings-files-v2"/>
-<link rel="stylesheet" href="/static/css/pages.css?v=20260816-mobile-dashboard-v2"/>
+<link rel="stylesheet" href="/static/css/components.css?v=20260816-task-history-v3"/>
+<link rel="stylesheet" href="/static/css/pages.css?v=20260816-task-history-v3"/>
 <link rel="stylesheet" href="/static/vendor/xterm/xterm.css"/>
 <link rel="stylesheet" href="/static/vendor/codemirror/codemirror.min.css"/>
 <link rel="stylesheet" href="/static/vendor/codemirror/material-darker.min.css"/>
@@ -52,7 +52,7 @@
           <span class="icon">📂</span> Файлы
         </button>
         <button type="button" data-page="queues">
-          <span class="icon">📋</span> Очереди
+          <span class="icon">📋</span> Задачи
         </button>
         <button type="button" data-page="monitor">
           <span class="icon">📡</span> Мониторинг Bot4VPS
@@ -512,18 +512,24 @@
       </section>
 
       <section class="page" id="page-queues">
-        <div class="section-head"><h1>Очереди</h1></div>
+        <div class="section-head"><h1>Задачи</h1></div>
         <div id="queues"><div class="empty">—</div></div>
-        <div class="section-head" style="margin-top:1.5rem"><h1 style="font-size:1rem">История</h1></div>
-        <div class="grid" id="history"><div class="empty">—</div></div>
+        <div class="section-head task-history-head" style="margin-top:1.5rem">
+          <h1 style="font-size:1rem">История задач</h1>
+          <div class="actions" style="margin:0">
+            <button type="button" class="secondary" id="btn-task-history-clear">🗑 Очистить историю задач</button>
+          </div>
+        </div>
+        <div class="task-history-wrap" id="history"><div class="empty">—</div></div>
       </section>
 
       <section class="page" id="page-events">
         <div class="section-head">
           <h1>Журнал уведомлений</h1>
           <div class="actions" style="margin:0">
+            <button type="button" class="secondary" id="btn-events-mark-read">✓ Пометить все как прочитанные</button>
             <button type="button" class="secondary" id="btn-journal">Все</button>
-            <button type="button" class="secondary" id="btn-events-clear">🗑 Очистить</button>
+            <button type="button" class="secondary" id="btn-events-clear">🗑 Очистить журнал</button>
           </div>
         </div>
         <div id="events"><div class="empty">—</div></div>
@@ -713,8 +719,8 @@
     <h3 id="confirm-modal-title">Подтвердите действие</h3>
     <div id="confirm-modal-message" class="confirm-modal-message"></div>
     <div class="actions confirm-modal-actions">
-      <button type="button" class="danger" id="confirm-modal-ok">Подтвердить</button>
       <button type="button" class="secondary" id="confirm-modal-cancel">Отмена</button>
+      <button type="button" class="danger" id="confirm-modal-ok">Подтвердить</button>
     </div>
   </div>
 </div>
@@ -955,15 +961,16 @@
 
 <!-- Общая модалка лога задачи: используется всеми сервисами и страницей «Очереди» -->
 <div class="modal-bg" id="task-log-modal">
-  <div class="modal" style="width:min(860px,100%)">
-    <div class="section-head" style="margin-bottom:.5rem">
+  <div class="modal task-log-modal-panel" role="dialog" aria-modal="true" aria-labelledby="task-log-title">
+    <div class="modal-head task-log-modal-head">
       <h3 id="task-log-title" style="margin:0">Лог задачи</h3>
-      <div class="actions" style="margin:0">
-        <button type="button" class="secondary" id="task-log-refresh">🔄 Обновить</button>
-        <button type="button" class="secondary" id="task-log-close">Закрыть</button>
-      </div>
+      <button type="button" class="modal-close" id="task-log-x" aria-label="Закрыть">×</button>
     </div>
-    <pre class="script-view" id="task-log-body"></pre>
+    <pre class="script-view task-log-modal-body" id="task-log-body"></pre>
+    <div class="actions task-log-modal-actions">
+      <button type="button" class="secondary" id="task-log-refresh">🔄 Обновить</button>
+      <button type="button" class="secondary" id="task-log-close">Закрыть</button>
+    </div>
   </div>
 </div>
 
@@ -1099,7 +1106,7 @@
 <script src="/static/vendor/codemirror/codemirror.min.js"></script>
 <script src="/static/vendor/codemirror/shell.min.js"></script>
 <script src="/static/vendor/codemirror/yaml.min.js"></script>
-<script type="module" src="/static/js/app.js?v=20260816-version-v1"></script>
+<script type="module" src="/static/js/app.js?v=20260816-journal-confirm-v1"></script>
 
 <script type="module">
 // Fallback: загрузка групп даже если app.js/onNav не вызвал loadGroupsAdmin

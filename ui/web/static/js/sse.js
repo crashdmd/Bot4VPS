@@ -1,7 +1,13 @@
 import { state, setServers } from './state.js';
-import { renderMonitor, applyEventsSnapshot } from './monitor.js?v=20260815-fixes-v1';
+import { renderMonitor, applyEventsSnapshot } from './monitor.js?v=20260816-task-history-v3';
 
 let es = null;
+let notificationsRefresh = null;
+let taskHistoryRevision = null;
+
+export function registerNotificationsRefresh(handler) {
+  notificationsRefresh = typeof handler === 'function' ? handler : null;
+}
 
 export function startSSE() {
   if (es) return;
@@ -42,7 +48,7 @@ export function stopSSE() {
 function applySnapshot(data) {
   if (data.servers) {
     setServers(data.servers.map(s => ({ ...s, has_running: !!s.has_running })));
-    import('./servers.js?v=20260815-settings-files-v2').then(m => {
+    import('./servers.js?v=20260816-task-history-v3').then(m => {
       if (state.page === 'servers' && m.renderServersFromState) m.renderServersFromState();
     }).catch(() => {});
   }
@@ -53,6 +59,15 @@ function applySnapshot(data) {
   if (data.monitor && state.page === 'monitor') {
     renderMonitor(data.monitor);
   }
+  if (data.task_history_revision !== undefined
+      && data.task_history_revision !== taskHistoryRevision) {
+    taskHistoryRevision = data.task_history_revision;
+    if (state.page === 'queues') {
+      import('./servers.js?v=20260816-task-history-v3').then(m => {
+        m.loadHistory?.();
+      }).catch(() => {});
+    }
+  }
   if (data.events) {
     // Не перетираем раскрытый список коротким срезом — мержим в кэш и
     // рендерим с учётом выбранного пользователем лимита (см. monitor.js).
@@ -61,12 +76,13 @@ function applySnapshot(data) {
     }
     // Открытая карточка сервера — обновить блок «Недавние события»
     if (state.page === 'server') {
-      import('./servers.js?v=20260815-settings-files-v2').then(m => {
+      import('./servers.js?v=20260816-task-history-v3').then(m => {
         if (m.refreshOpenServerEvents) m.refreshOpenServerEvents();
         else if (m.openServerId) {
           // fallback: модуль мог ещё не экспортировать helper
         }
       }).catch(() => {});
     }
+    if (notificationsRefresh) notificationsRefresh();
   }
 }

@@ -96,8 +96,7 @@ function closeWs() {
 
 function resolveServerId() {
   // Единый источник — state (общий для всех модулей). Не импортируем servers.js:
-  // app.js грузит его как ./servers.js?v=…, и динамический import('./servers.js')
-  // создавал бы второй экземпляр модуля с пустым openServerId.
+  // другой URL импорта создал бы второй экземпляр модуля с пустым openServerId.
   return state.openServerId
     || state.openServerData?.server?.id
     || window._openServerData?.server?.id

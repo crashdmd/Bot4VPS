@@ -97,7 +97,7 @@ function performSearch(query) {
   const sections = [
     { name: 'Обзор', page: 'dashboard', icon: '📊' },
     { name: 'Серверы', page: 'servers', icon: '🖥' },
-    { name: 'Очереди', page: 'queues', icon: '📋' },
+    { name: 'Задачи', page: 'queues', icon: '📋' },
     { name: 'WireGuard', page: 'wireguard', icon: '🌐' },
     { name: 'Docker', page: 'docker', icon: '🐳' },
     { name: 'Скрипты', page: 'scripts', icon: '📜' },
@@ -148,7 +148,7 @@ function renderResults(box, results) {
       const id = item.dataset.id;
 
       if (type === 'server') {
-        import('./servers.js?v=20260815-settings-files-v2').then(m => {
+        import('./servers.js?v=20260816-task-history-v3').then(m => {
           setPage('servers');
           showPage('servers');
           m.openServer(id);

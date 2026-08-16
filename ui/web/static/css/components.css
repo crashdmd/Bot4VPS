@@ -504,7 +504,7 @@ button.ghost:hover,.btn.ghost:hover{
   line-height:1.45;
 }
 .confirm-modal-actions{
-  justify-content:space-between;
+  justify-content:flex-start;
   margin-top:1.1rem;
 }
 .confirm-modal-actions button{

@@ -1844,14 +1844,13 @@ function watchTask(taskId, serverId, action) {
           toast(errMsg, false);
         }
         if (action === 'remove') {
-          window.refreshAfterServiceChange?.(serverId);
           const sid = serverId;
           stopLivePoll();
           dockerServerId = null;
           try { localStorage.removeItem('bot4vps_docker_server_id'); } catch (_) {}
           if (dockerEntryContext === 'server' && sid) {
             try {
-              const { openServer } = await import('./servers.js?v=20260815-settings-files-v2');
+              const { openServer } = await import('./servers.js?v=20260816-task-history-v3');
               await openServer(sid);
             } catch (_) {
               backToDockerList();
@@ -1916,7 +1915,7 @@ export function bindDockerUI() {
   document.getElementById('btn-back-docker-server')?.addEventListener('click', async () => {
     if (!dockerServerId) return;
     try {
-      const { openServer } = await import('./servers.js?v=20260815-settings-files-v2');
+      const { openServer } = await import('./servers.js?v=20260816-task-history-v3');
       await openServer(dockerServerId);
     } catch (e) {
       console.error(e);

@@ -22,6 +22,7 @@ export function confirmAction({
   confirmText = 'Подтвердить',
   cancelText = 'Отмена',
   danger = true,
+  confirmFirst = false,
 } = {}) {
   const modal = document.getElementById('confirm-modal');
   if (!modal) return Promise.resolve(false);
@@ -38,6 +39,11 @@ export function confirmAction({
   ok.textContent = confirmText;
   ok.className = danger ? 'danger' : 'secondary';
   cancel.textContent = cancelText;
+  const actions = ok.parentElement;
+  if (actions) {
+    if (confirmFirst) actions.insertBefore(ok, cancel);
+    else actions.insertBefore(cancel, ok);
+  }
   ok.onclick = () => closeConfirmDialog(true);
   cancel.onclick = () => closeConfirmDialog(false);
   modal.onkeydown = e => {

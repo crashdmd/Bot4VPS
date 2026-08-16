@@ -1,7 +1,7 @@
 import { j, esc } from './api.js';
 import { toast, confirmAction } from './ui.js';
 import { openEditor } from './editor.js?v=20260815-scripts-table-v1';
-import { openServer, openServerTerminal } from './servers.js?v=20260815-settings-files-v2';
+import { openServer, openServerTerminal } from './servers.js?v=20260816-task-history-v3';
 import { state, setScripts } from './state.js';
 
 const SCRIPT_PAGE_SIZE = 9;

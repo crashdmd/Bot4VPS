@@ -451,14 +451,24 @@ export function renderEvents(list, id) {
     const lvl = e.level || 'info';
     const sn = (e.details && (e.details.server_name || e.details.name)) || '';
     const reason = (e.details && e.details.reason) || '';
-    const ok = /online|renewed|finished|queued|started/.test(reason) || lvl === 'info';
+    const taskVisualClass = {
+      task_finished: 'ok',
+      task_queued: 'info',
+      task_queue_paused: 'warning',
+      task_failed: 'error',
+      task_cancelled: 'warning',
+      task_started: 'info',
+    }[reason];
+    const ok = /online|renewed|finished/.test(reason) || lvl === 'info';
+    const visualClass = taskVisualClass
+      || (ok && lvl !== 'critical' && lvl !== 'warning' ? 'ok' : lvl);
     const eid = e.id || String(i);
     const unreadClass = e.read ? '' : 'is-unread';
     const readLabel = e.read
       ? '<span class="event-read">Прочитано</span>'
       : '<span class="event-read is-unread">Не прочитано</span>';
-    return `<div class="event ${esc(lvl)} ${unreadClass}" data-event-id="${esc(eid)}" title="Открыть детали">
-      <div class="barline ${ok && lvl !== 'critical' && lvl !== 'warning' ? 'ok' : ''}"></div>
+    return `<div class="event ${esc(visualClass)} ${unreadClass}" data-event-id="${esc(eid)}" title="Открыть детали">
+      <div class="barline"></div>
       <div class="body"><div class="title">${esc(e.title)}</div>
       <div class="meta">${esc((e.timestamp || '').slice(0, 19).replace('T', ' '))}${sn ? ' · ' + esc(sn) : ''}${readLabel}</div></div></div>`;
   }).join('');
@@ -466,6 +476,15 @@ export function renderEvents(list, id) {
   el.querySelectorAll('[data-event-id]').forEach(node => {
     node.onclick = () => openEventDetail(node.dataset.eventId);
   });
+}
+
+function historyTaskHasLog(task) {
+  if (!task) return false;
+  const lines = Array.isArray(task.output_lines) ? task.output_lines : [];
+  if (lines.some(line => String(line || '').trim())) return true;
+  if (String(task.error || '').trim()) return true;
+  const result = task.result || {};
+  return Boolean(String(result.output || '').trim() || String(result.error || '').trim());
 }
 
 export async function openEventDetail(eventId) {
@@ -509,13 +528,15 @@ export async function openEventDetail(eventId) {
   ];
   const kv = lines.map(([k, v]) => `<div class="row"><b>${esc(k)}:</b> ${esc(String(v))}</div>`).join('');
   const msg = e.message ? `<div class="row" style="margin-top:.5rem;white-space:pre-wrap">${esc(e.message)}</div>` : '';
-  // details JSON без дублирования message
-  const detailsJson = JSON.stringify(d, null, 2);
+  const isTaskEvent = String(e.type || '').toLowerCase() === 'task';
+  // Для задач подробности и полный вывод доступны в разделе «Задачи».
+  // В уведомлении оставляем только краткую сводку, чтобы не дублировать лог.
+  const detailsJson = isTaskEvent ? '' : JSON.stringify(d, null, 2);
   const detailsBlock = detailsJson && detailsJson !== '{}'
     ? `<div class="row" style="margin-top:.6rem"><b>Подробности</b></div>
        <pre class="event-detail-pre">${esc(detailsJson)}</pre>`
     : '';
-  const output = d.output
+  const output = !isTaskEvent && d.output
     ? `<div class="row" style="margin-top:.6rem"><b>Вывод задачи</b></div>
        <pre class="event-detail-pre">${esc(String(d.output))}</pre>`
     : '';
@@ -528,8 +549,9 @@ export async function openEventDetail(eventId) {
     modal.innerHTML = `<div class="modal" style="width:min(560px,100%)">
       <h3 id="event-detail-title" style="margin:0 0 .6rem"></h3>
       <div id="event-detail-body"></div>
-      <div class="actions" style="margin-top:.8rem">
+      <div class="actions" style="margin-top:.8rem;display:flex;align-items:center;justify-content:space-between;width:100%">
         <button type="button" class="secondary" id="event-detail-close">Закрыть</button>
+        <button type="button" class="secondary hidden" id="event-detail-log" hidden>📜 Посмотреть лог</button>
       </div>
     </div>`;
     document.body.appendChild(modal);
@@ -540,6 +562,42 @@ export async function openEventDetail(eventId) {
   }
   modal.querySelector('#event-detail-title').textContent = e.title || 'Событие';
   modal.querySelector('#event-detail-body').innerHTML = kv + msg + output + detailsBlock;
+
+  const logBtn = modal.querySelector('#event-detail-log');
+  const taskId = String(d.task_id || '').trim();
+  modal.dataset.taskId = taskId;
+  logBtn.hidden = true;
+  logBtn.classList.add('hidden');
+  logBtn.onclick = null;
+  // Кнопка появляется только после проверки, что запись есть именно в
+  // persistent history и содержит непустой лог. При нажатии проверяем ещё
+  // раз: запись или её лог могли быть удалены после открытия уведомления.
+  if (isTaskEvent && taskId) {
+    j(`/api/tasks/history/${encodeURIComponent(taskId)}`).then(task => {
+      if (!modal.classList.contains('open') || modal.dataset.taskId !== taskId || !historyTaskHasLog(task)) return;
+      logBtn.hidden = false;
+      logBtn.classList.remove('hidden');
+      logBtn.onclick = async () => {
+        try {
+          const current = await j(`/api/tasks/history/${encodeURIComponent(taskId)}`);
+          if (!historyTaskHasLog(current)) {
+            throw new Error('Лог этой задачи больше недоступен: запись удалена из истории или лог пуст.');
+          }
+          closeEventDetail();
+          const { openTaskLog } = await import('./tasks.js?v=20260816-task-history-v3');
+          await openTaskLog(taskId);
+        } catch (err) {
+          logBtn.hidden = true;
+          logBtn.classList.add('hidden');
+          toast('Лог этой задачи больше недоступен: запись удалена из истории или лог пуст.', false);
+        }
+      };
+    }).catch(() => {
+      // Записи нет в persistent history или лог пуст — кнопку не показываем.
+      logBtn.hidden = true;
+      logBtn.classList.add('hidden');
+    });
+  }
   // z-index поверх других
   modal.style.zIndex = '200';
   modal.classList.add('open');

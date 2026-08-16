@@ -165,7 +165,7 @@ async def execute_script(
         output = "...\nВывод обрезан. Показаны последние 60 строк.\n\n" + "\n".join(lines[-60:])
 
     if result.error == "Отменено":
-        return f"⛔ Отменено\n\nСервер: {name}\n\n{output}"
+        return f"⚠️ Отменено\n\nСервер: {name}\n\n{output}"
     if result.exit_code == 124:
         return f"⏱ Скрипт прерван по таймауту\n\nСервер: {name}\n\n{output}"
     if result.success and result.warnings:

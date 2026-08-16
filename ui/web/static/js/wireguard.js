@@ -19,6 +19,7 @@ let installTarget = null;
 
 // Экран конкретного сервера
 let wgServerId = null;              // id открытого сервера
+let wgEntryContext = 'list';        // 'list' | 'server' — откуда открыли панель
 let wgServerState = null;           // последний live-state (для префиля модалки)
 let wgImportedBannerHidden = false;  // состояние видимости баннера текущего сервера
 const importBannerClosedKey = id => `wg_import_banner_closed_${id}`;
@@ -339,8 +340,9 @@ function stopWgLivePoll() {
   if (_wgLiveTimer) { clearInterval(_wgLiveTimer); _wgLiveTimer = null; }
 }
 
-async function openWgServer(id) {
+async function openWgServer(id, opts = {}) {
   wgServerId = id;
+  wgEntryContext = opts.from === 'server' ? 'server' : 'list';
   wgServerState = null;
   try {
     wgImportedBannerHidden = localStorage.getItem(importBannerClosedKey(id)) === '1';
@@ -361,6 +363,7 @@ async function openWgServer(id) {
 function backToWgList() {
   stopWgLivePoll();
   wgServerId = null;
+  wgEntryContext = 'list';
   wgImportedBannerHidden = false;
   const ban = document.getElementById('wg-imported-banner');
   if (ban) { ban.classList.add('hidden'); ban.innerHTML = ''; }
@@ -1058,9 +1061,7 @@ function watchTask(taskId, serverId, action) {
         clearInterval(timers[taskId]); delete timers[taskId];
         if (action === 'remove') {
           if (t.success) {
-            window.refreshAfterServiceChange?.(serverId);
-
-            const onDetail = document.getElementById('page-wireguard-server')?.classList.contains('on');
+            const returnToServer = wgEntryContext === 'server' && serverId;
 
             stopWgLivePoll();
             wgServerId = null;
@@ -1069,17 +1070,15 @@ function watchTask(taskId, serverId, action) {
               localStorage.removeItem('bot4vps_wg_server_id');
             } catch (_) {}
 
-            if (onDetail) {
+            if (returnToServer) {
               try {
-                const { openServer } = await import('./servers.js?v=20260815-settings-files-v2');
-                if (serverId) await openServer(serverId);
-                else showPage('servers');
+                const { openServer } = await import('./servers.js?v=20260816-task-history-v3');
+                await openServer(serverId);
               } catch (_) {
-                showPage('servers');
+                backToWgList();
               }
             } else {
-              await loadWireguard();
-              setWgTab('manage');
+              backToWgList();
             }
           } else {
             toast(t.error || 'Удаление WireGuard завершилось с ошибкой', false);
@@ -1232,7 +1231,7 @@ export function bindWireguardUI() {
     if (!wgServerId) return;
 
     try {
-      const { openServer } = await import('./servers.js?v=20260815-settings-files-v2');
+      const { openServer } = await import('./servers.js?v=20260816-task-history-v3');
       await openServer(wgServerId);
     } catch (e) {
       console.error('Не удалось открыть карточку сервера:', e);
@@ -1289,5 +1288,5 @@ export function bindWireguardUI() {
   });
 }
 
-// Публичный API для навигации app.js (восстановление сессии).
-export function openWgServerById(id) { return openWgServer(id); }
+// Публичный API для входа со страницы сервера и восстановления сессии.
+export function openWgServerById(id) { return openWgServer(id, { from: 'server' }); }

@@ -378,7 +378,7 @@ async def show_tasks_menu(query):
             # У Docker собственный хаб (owns_hub): проверка / установка /
             # Compose / серверы — диспетчер отдаст ему op "hub".
             [InlineKeyboardButton("🐳 Docker", callback_data="tasks_svc:docker")],
-            [InlineKeyboardButton("📋 Очереди", callback_data="task_queues")],
+            [InlineKeyboardButton("📋 Задачи", callback_data="task_queues")],
             [InlineKeyboardButton("⬅️ Главное меню", callback_data="main")],
         ]),
     )
@@ -387,7 +387,7 @@ async def show_tasks_menu(query):
 async def show_queues_overview(query):
     servers = load_servers()
     rows = []
-    text_lines = ["📋 Очереди задач\n"]
+    text_lines = ["📋 Задачи\n"]
     any_active = False
     for server in servers:
         sid = server["id"]

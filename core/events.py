@@ -66,6 +66,15 @@ def save_events(events: List[Dict]):
         json.dump(events, f, ensure_ascii=False, indent=2)
 
 
+def get_event(event_id: str) -> Optional[Dict]:
+    """Возвращает актуальное событие по id или None, если оно отсутствует."""
+    with _EVENTS_LOCK:
+        for event in load_events():
+            if event.get("id") == event_id:
+                return event
+    return None
+
+
 def get_events(limit: int = 100, level: Optional[EventLevel] = None) -> List[Dict]:
     events = load_events()
     if level:

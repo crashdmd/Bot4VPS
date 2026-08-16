@@ -1,7 +1,7 @@
 
 from __future__ import annotations
 from typing import Any, Optional
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 from ..deps import err, task_brief
 
@@ -41,10 +41,52 @@ async def api_queues():
 
 
 @router.get("/api/tasks/history")
-async def api_history(limit: int = 20, server_id: Optional[str] = None):
+async def api_history(
+    limit: int = Query(20, ge=1, le=100),
+    server_id: Optional[str] = None,
+):
     try:
         from core.task_manager import task_manager
         return {"tasks": [task_brief(t) for t in task_manager.get_history(limit=limit, server_id=server_id)]}
+    except Exception as e:
+        return err(e)
+
+
+@router.get("/api/tasks/history/{task_id}")
+async def api_history_task(task_id: str):
+    """Получить задачу именно из persistent history, не из running/queue."""
+    try:
+        from core.task_manager import task_manager
+        task = next((t for t in task_manager.get_history(limit=100) if t.id == task_id), None)
+        if not task:
+            raise HTTPException(404, "Запись истории не найдена")
+        return task_brief(task)
+    except HTTPException:
+        raise
+    except Exception as e:
+        return err(e)
+
+
+@router.delete("/api/tasks/history/{task_id}")
+async def api_delete_history_task(task_id: str):
+    """Удалить одну запись истории Task Manager, не затрагивая events."""
+    try:
+        from core.task_manager import task_manager
+        if not await task_manager.delete_history_task(task_id):
+            raise HTTPException(404, "Запись истории не найдена")
+        return {"ok": True, "task_id": task_id}
+    except HTTPException:
+        raise
+    except Exception as e:
+        return err(e)
+
+
+@router.delete("/api/tasks/history")
+async def api_clear_history():
+    """Полностью очистить только историю Task Manager."""
+    try:
+        from core.task_manager import task_manager
+        return {"ok": True, "cleared": await task_manager.clear_history()}
     except Exception as e:
         return err(e)
 

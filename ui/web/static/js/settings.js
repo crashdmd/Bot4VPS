@@ -563,7 +563,7 @@ function saveGroupsDisplaySettings() {
       window.renderServers();
     }
     // Альтернативно через импорт, если доступен
-    import('./servers.js').then(m => m.renderServers()).catch(() => {});
+    import('./servers.js?v=20260816-task-history-v3').then(m => m.renderServers()).catch(() => {});
   } catch (e) {
     console.error('Failed to save group display settings', e);
   }

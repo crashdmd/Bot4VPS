@@ -7,6 +7,7 @@ from core.notification_queue import (
     clear_sent,
 )
 from core.event_types import EventReason
+from core.events import get_event
 
 
 def format_event_text(notification: dict) -> str:
@@ -20,7 +21,16 @@ def format_event_text(notification: dict) -> str:
     reason = details.get("reason")
     level = notification.get("level", "critical")
 
-    if reason in (
+    task_emoji = {
+        EventReason.TASK_QUEUED.value: "⏳",
+        EventReason.TASK_FINISHED.value: "✅",
+        EventReason.TASK_FAILED.value: "❌",
+        EventReason.TASK_CANCELLED.value: "⚠️",
+        EventReason.TASK_QUEUE_PAUSED.value: "⏸️",
+    }
+    if reason in task_emoji:
+        emoji = task_emoji[reason]
+    elif reason in (
         EventReason.SERVER_ONLINE.value,
         EventReason.SSL_RENEWED.value,
     ):
@@ -78,6 +88,14 @@ async def process_notifications(update, notification_handlers: dict):
 
     remaining = []
     for item in pending:
+        # Читаем журнал непосредственно перед обработкой каждого элемента:
+        # Web UI мог отметить событие прочитанным уже после загрузки очереди.
+        event_id = item.get("event_id")
+        event = get_event(event_id) if event_id else None
+        if event is None or event.get("read") is True:
+            mark_as_sent(item["id"])
+            continue
+
         handler = notification_handlers.get(item["type"])
         if not handler:
             remaining.append(item)

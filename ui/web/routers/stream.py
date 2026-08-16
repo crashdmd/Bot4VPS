@@ -20,6 +20,7 @@ def _snapshot():
         "events": None,
         "summary": None,
         "monitor": None,
+        "task_history_revision": None,
     }
     try:
         from core.storage import load_servers
@@ -85,6 +86,7 @@ def _snapshot():
 
         out["servers"] = servers
         out["queues"] = queues
+        out["task_history_revision"] = task_manager.history_revision()
         out["summary"] = {
             "servers": len(servers),
             "online": online_n,

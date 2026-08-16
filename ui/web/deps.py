@@ -34,6 +34,9 @@ def task_brief(t) -> Optional[dict[str, Any]]:
         "server_name": t.server_name,
         "duration": t.duration_human(),
         "duration_seconds": t.duration_seconds,
+        "created_at": t.created_at.isoformat(),
+        "started_at": t.started_at.isoformat() if t.started_at else None,
+        "finished_at": t.finished_at.isoformat() if t.finished_at else None,
         "is_done": t.is_done,
         "error": t.error,
         # История и очереди используют краткое представление, но результат

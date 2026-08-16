@@ -193,7 +193,13 @@ _EVENT_SUCCESS_REASONS = {
     "service_installed", "service_removed", "database_restored",
 }
 _EVENT_FAIL_REASONS = {
-    "task_failed", "server_offline", "ssl_expired", "task_queue_paused",
+    "task_failed", "server_offline", "ssl_expired",
+}
+_EVENT_TASK_ICONS = {
+    "task_queued": "⏳",
+    "task_started": "▶️",
+    "task_cancelled": "⚠️",
+    "task_queue_paused": "⏸️",
 }
 
 
@@ -207,8 +213,8 @@ def _event_list_icon(e: dict) -> str:
         return "✅"
     if reason in _EVENT_FAIL_REASONS:
         return "❌"
-    if reason in ("task_queued", "task_started"):
-        return "▶️"
+    if reason in _EVENT_TASK_ICONS:
+        return _EVENT_TASK_ICONS[reason]
     if level == "critical":
         return "🔴"
     if level == "warning":

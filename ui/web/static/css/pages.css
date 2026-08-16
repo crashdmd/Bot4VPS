@@ -159,6 +159,175 @@ label{
   color:var(--text);
 }
 
+/* Постоянная история Task Manager: компактная таблица без inline-логов. */
+.task-history-head{
+  gap:1rem;
+}
+.task-history-wrap{
+  max-width:100%;
+  max-height:34rem;
+  overflow-y:auto;
+  overflow-x:hidden;
+  border:1px solid var(--border);
+  border-radius:var(--radius-md);
+  background:var(--card);
+}
+.task-history-wrap > .empty{
+  border:0;
+}
+.task-history-table{
+  width:100%;
+  table-layout:fixed;
+  border-collapse:collapse;
+  font-size:.875rem;
+}
+.task-history-table th{
+  position:sticky;
+  top:0;
+  z-index:1;
+  padding:.7rem .8rem;
+  text-align:left;
+  color:var(--text-muted);
+  background:var(--panel);
+  border-bottom:1px solid var(--border);
+  font-size:.75rem;
+  font-weight:600;
+  letter-spacing:.025em;
+}
+.task-history-table td{
+  min-width:0;
+  padding:.65rem .8rem;
+  border-bottom:1px solid var(--border);
+  vertical-align:middle;
+  overflow-wrap:anywhere;
+}
+.task-history-table tbody tr:last-child td{
+  border-bottom:0;
+}
+.task-history-table tbody tr:hover{
+  background:var(--hover);
+}
+.task-history-table th:nth-child(1){width:10.5rem}
+.task-history-table th:nth-child(2){width:auto}
+.task-history-table th:nth-child(3){width:10rem}
+.task-history-table th:nth-child(4){width:8.5rem}
+.task-history-date{
+  color:var(--text-muted);
+  white-space:nowrap;
+  font-variant-numeric:tabular-nums;
+}
+.task-history-name{
+  color:var(--text);
+  font-weight:600;
+  line-height:1.35;
+}
+.task-status{
+  display:inline-flex;
+  align-items:center;
+  max-width:100%;
+  padding:.25rem .55rem;
+  border-radius:999px;
+  font-size:.75rem;
+  font-weight:600;
+  line-height:1.2;
+}
+.task-status.success{color:var(--ok);background:var(--ok-bg)}
+.task-status.failed{color:var(--err);background:var(--err-bg)}
+.task-status.warning{color:var(--warn);background:var(--warn-bg)}
+.task-history-actions{
+  white-space:nowrap;
+}
+.task-history-actions button{
+  min-height:2rem;
+  padding:.35rem .55rem;
+  font-size:.78rem;
+}
+.task-history-delete{
+  width:2rem;
+  padding:.35rem!important;
+}
+.task-log-modal-panel{
+  width:min(860px,100%);
+  max-height:85dvh;
+  display:flex;
+  flex-direction:column;
+  overflow:hidden;
+}
+.task-log-modal-head{
+  flex:0 0 auto;
+  margin-bottom:.75rem;
+}
+.task-log-modal-body{
+  flex:1 1 auto;
+  min-height:10rem;
+  max-height:none;
+  margin:0;
+  overflow:auto;
+  white-space:pre-wrap;
+  overflow-wrap:anywhere;
+  word-break:break-word;
+}
+.task-log-modal-actions{
+  flex:0 0 auto;
+  justify-content:flex-start;
+  margin-top:.75rem;
+}
+
+@media(max-width:640px){
+  .task-history-head{
+    align-items:flex-start;
+  }
+  .task-history-head .actions,
+  .task-history-head button{
+    width:100%;
+  }
+  .task-history-wrap{
+    overflow-x:hidden;
+    max-height:60dvh;
+  }
+  .task-history-table,
+  .task-history-table tbody{
+    display:block;
+    width:100%;
+  }
+  .task-history-table thead{
+    display:none;
+  }
+  .task-history-table tr{
+    display:grid;
+    grid-template-columns:minmax(0,1fr) auto;
+    grid-template-rows:auto auto auto;
+    gap:.2rem .65rem;
+    padding:.7rem;
+    border-bottom:1px solid var(--border);
+  }
+  .task-history-table tbody tr:last-child{
+    border-bottom:0;
+  }
+  .task-history-table td{
+    display:block;
+    width:auto;
+    padding:0;
+    border:0;
+  }
+  .task-history-name{grid-column:1;grid-row:1}
+  .task-history-date{grid-column:1;grid-row:2;font-size:.75rem}
+  .task-history-status{grid-column:1;grid-row:3}
+  .task-history-actions{
+    grid-column:2;
+    grid-row:1 / span 3;
+    align-self:center;
+    display:flex;
+    gap:.35rem;
+  }
+  .task-log-modal-panel{
+    max-height:90dvh;
+  }
+  .task-log-modal-body{
+    min-height:12rem;
+  }
+}
+
 /* Логи и терминал */
 .logbox,.term,.script-view{
   background:var(--bg-base);

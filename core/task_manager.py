@@ -15,6 +15,8 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Awaitable, Callable, Dict, List, Optional
 
+from core.task_history_store import TaskHistoryStore
+
 
 # --------------------------------------------------
 # Статусы / результат
@@ -35,7 +37,7 @@ STATUS_EMOJI = {
     TaskStatus.SUCCESS: "✅",
     TaskStatus.SUCCESS_WITH_WARNINGS: "⚠️",
     TaskStatus.FAILED: "❌",
-    TaskStatus.CANCELLED: "⛔",
+    TaskStatus.CANCELLED: "⚠️",
 }
 
 _TERMINAL = {
@@ -192,6 +194,65 @@ class Task:
             } if self.result else None,
         }
 
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "Task":
+        """Восстановить завершённую задачу из результата :meth:`to_dict`."""
+        if not isinstance(data, dict):
+            raise ValueError("запись задачи должна быть объектом")
+
+        status = TaskStatus(data["status"])
+        if status not in _TERMINAL:
+            raise ValueError(f"статус {status.value!r} не является завершённым")
+
+        def parse_datetime(value: Any, field_name: str, required: bool = False):
+            if value in (None, ""):
+                if required:
+                    raise ValueError(f"отсутствует {field_name}")
+                return None
+            try:
+                return datetime.fromisoformat(str(value))
+            except (TypeError, ValueError) as exc:
+                raise ValueError(f"некорректное поле {field_name}") from exc
+
+        result_data = data.get("result")
+        result = None
+        if result_data is not None:
+            if not isinstance(result_data, dict):
+                raise ValueError("поле result должно быть объектом или null")
+            result = TaskResult(
+                success=bool(result_data.get("success")),
+                exit_code=result_data.get("exit_code"),
+                output=str(result_data.get("output") or ""),
+                error=result_data.get("error"),
+                warnings=bool(result_data.get("warnings")),
+            )
+
+        payload = data.get("payload") or {}
+        output_lines = data.get("output_lines") or []
+        if not isinstance(payload, dict):
+            raise ValueError("поле payload должно быть объектом")
+        if not isinstance(output_lines, list):
+            raise ValueError("поле output_lines должно быть массивом")
+
+        task = cls(
+            id=str(data["id"]),
+            name=str(data["name"]),
+            server_id=str(data["server_id"]),
+            server_name=str(data.get("server_name") or data["server_id"]),
+            status=status,
+            created_at=parse_datetime(data.get("created_at"), "created_at", required=True),
+            kind=str(data.get("kind") or "custom"),
+            payload=dict(payload),
+            started_at=parse_datetime(data.get("started_at"), "started_at"),
+            finished_at=parse_datetime(data.get("finished_at"), "finished_at"),
+            output_lines=[str(line) for line in output_lines],
+            result=result,
+            error=data.get("error"),
+            attempt=max(1, int(data.get("attempt") or 1)),
+        )
+        task._done_event.set()
+        return task
+
 
 @dataclass
 class QueueState:
@@ -251,14 +312,46 @@ def _task_output_for_event(task: "Task") -> Optional[str]:
 
 
 class TaskManager:
-    def __init__(self, history_limit: int = 100):
+    def __init__(
+        self,
+        history_limit: int = 100,
+        history_store: Optional[TaskHistoryStore] = None,
+    ):
         self._queues: Dict[str, List[Task]] = {}
         self._running: Dict[str, Task] = {}
         self._queue_state: Dict[str, QueueState] = {}
-        self._history: List[Task] = []
         self._history_limit = history_limit
+        self._history_store = history_store or TaskHistoryStore(
+            "logs/tasks.json", limit=history_limit
+        )
+        # Хранилище проверяет записи каноническим восстановлением Task, поэтому
+        # частично повреждённые объекты обнаруживаются до любой перезаписи.
+        self._history_store.set_validator(Task.from_dict)
+        self._history: List[Task] = []
         self._lock = asyncio.Lock()
         self._live_subscribers: Dict[str, List[Callable[[str], Awaitable[None]]]] = {}
+        self._refresh_history()
+
+    def _tasks_from_records(self, records: List[Dict[str, Any]]) -> List[Task]:
+        tasks: List[Task] = []
+        for index, record in enumerate(records):
+            try:
+                tasks.append(Task.from_dict(record))
+            except Exception as exc:
+                task_id = record.get("id") if isinstance(record, dict) else None
+                print(
+                    f"[TASK HISTORY] Пропущена запись #{index}"
+                    f"{f' ({task_id})' if task_id else ''}: {exc}",
+                    flush=True,
+                )
+        return tasks[-self._history_limit :]
+
+    def _refresh_history(self) -> None:
+        """Синхронизировать RAM-кэш с актуальным состоянием хранилища."""
+        try:
+            self._history = self._tasks_from_records(self._history_store.load())
+        except Exception as exc:
+            print(f"[TASK HISTORY] Ошибка загрузки: {exc}", flush=True)
 
     def _state(self, server_id: str) -> QueueState:
         if server_id not in self._queue_state:
@@ -294,12 +387,14 @@ class TaskManager:
         )
 
         async with self._lock:
-            self._queues.setdefault(server_id, []).append(task)
+            queue = self._queues.setdefault(server_id, [])
             st = self._state(server_id)
-            was_idle = server_id not in self._running and not st.paused
+            will_wait = server_id in self._running or bool(queue) or st.paused
+            queue.append(task)
 
-        self._emit_task_event(task, "queued")
-        if was_idle:
+        if will_wait:
+            self._emit_task_event(task, "queued")
+        else:
             asyncio.create_task(self._pump(server_id))
         return task
 
@@ -345,6 +440,7 @@ class TaskManager:
 
     async def retry_last_failed(self, server_id: str) -> Optional[Task]:
         async with self._lock:
+            self._refresh_history()
             st = self._state(server_id)
             failed = None
             if st.failed_task_id:
@@ -404,6 +500,9 @@ class TaskManager:
     def is_paused(self, server_id: str) -> bool:
         return self._state(server_id).paused
 
+    def history_revision(self) -> str:
+        return self._history_store.revision()
+
     def get_task(self, task_id: str) -> Optional[Task]:
         for t in self._running.values():
             if t.id == task_id:
@@ -412,16 +511,34 @@ class TaskManager:
             for t in q:
                 if t.id == task_id:
                     return t
+        self._refresh_history()
         for t in self._history:
             if t.id == task_id:
                 return t
         return None
 
     def get_history(self, limit: int = 20, server_id: Optional[str] = None) -> List[Task]:
+        if limit <= 0:
+            return []
+        self._refresh_history()
         items = self._history
         if server_id:
             items = [t for t in items if t.server_id == server_id]
         return list(reversed(items[-limit:]))
+
+    async def delete_history_task(self, task_id: str) -> bool:
+        """Удалить только завершённую запись, не затрагивая очередь и events."""
+        async with self._lock:
+            deleted, records = self._history_store.delete(task_id)
+            self._history = self._tasks_from_records(records)
+            return deleted
+
+    async def clear_history(self) -> int:
+        """Очистить только историю Task Manager, сохранив в файле ``[]``."""
+        async with self._lock:
+            cleared = self._history_store.clear()
+            self._history = []
+            return cleared
 
     def subscribe_live(self, task_id: str, callback: Callable[[str], Awaitable[None]]):
         self._live_subscribers.setdefault(task_id, []).append(callback)
@@ -445,8 +562,6 @@ class TaskManager:
             task.status = TaskStatus.RUNNING
             task.started_at = datetime.now()
             self._running[server_id] = task
-
-        self._emit_task_event(task, "started")
 
         async def progress_cb(line: str):
             task.append_output(line)
@@ -518,9 +633,17 @@ class TaskManager:
             asyncio.create_task(self._pump(server_id))
 
     def _push_history(self, task: Task):
-        self._history.append(task)
-        if len(self._history) > self._history_limit:
-            self._history = self._history[-self._history_limit:]
+        if not task.is_done:
+            return
+        try:
+            records = self._history_store.append(task.to_dict())
+            self._history = self._tasks_from_records(records)
+        except Exception as exc:
+            # Ошибка диска не должна менять результат уже выполненной SSH-задачи.
+            print(f"[TASK HISTORY] Не удалось сохранить задачу {task.id}: {exc}", flush=True)
+            self._history = [t for t in self._history if t.id != task.id]
+            self._history.append(task)
+            self._history = self._history[-self._history_limit :]
 
     def _emit_task_event(self, task: Task, kind: str):
         try:
@@ -529,14 +652,12 @@ class TaskManager:
 
             reason_map = {
                 "queued": EventReason.TASK_QUEUED,
-                "started": EventReason.TASK_STARTED,
                 "finished": EventReason.TASK_FINISHED,
                 "failed": EventReason.TASK_FAILED,
                 "cancelled": EventReason.TASK_CANCELLED,
             }
             titles = {
                 "queued": f"Задача в очереди: {task.name}",
-                "started": f"Задача запущена: {task.name}",
                 "finished": f"Задача завершена: {task.name}",
                 "failed": f"Задача с ошибкой: {task.name}",
                 "cancelled": f"Задача отменена: {task.name}",
@@ -544,7 +665,7 @@ class TaskManager:
             level = EventLevel.INFO
             if kind == "failed":
                 level = EventLevel.CRITICAL
-            elif task.status == TaskStatus.SUCCESS_WITH_WARNINGS:
+            elif kind == "cancelled" or task.status == TaskStatus.SUCCESS_WITH_WARNINGS:
                 level = EventLevel.WARNING
 
             create_event(
@@ -576,7 +697,7 @@ class TaskManager:
                         else None
                     ),
                 },
-                notify = (kind == "failed")
+                notify=(kind in ("queued", "finished", "failed", "cancelled"))
             )
         except Exception as e:
             print(f"[TASK] event error: {e}", flush=True)

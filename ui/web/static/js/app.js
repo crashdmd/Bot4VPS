@@ -1,22 +1,22 @@
 import { tickClock, showPage, toast, parseEmoji, initEmojiObserver, confirmAction } from './ui.js';
-import { loadDashboard, loadSummary, bindDashboard, stopDashMetrics, updateDashboardData } from './dashboard.js';
-import { loadEvents, openEventDetail, applyEventsSnapshot, initSystemMonitor, stopSystemMonitor } from './monitor.js?v=20260815-fixes-v1';
+import { loadDashboard, loadSummary, bindDashboard, stopDashMetrics, updateDashboardData } from './dashboard.js?v=20260816-server-singleton-v1';
+import { loadEvents, openEventDetail, applyEventsSnapshot, initSystemMonitor, stopSystemMonitor } from './monitor.js?v=20260816-task-history-v3';
 import { loadServers, loadQueues, loadHistory, loadGroupsAndKeys,
   bindServerUI, stopWatchers, openServer, lastServerTab,
-} from './servers.js?v=20260815-empty-result-v1';
-import { loadScripts, bindScriptsUI } from './scripts.js?v=20260816-mobile-actions-v1';
-import { loadWireguard, bindWireguardUI, stopWgTimers, openWgServerById } from './wireguard.js?v=20260815-empty-result-v2';
-import { loadDocker, bindDockerUI, stopDockerTimers, openDockerServerById } from './docker.js?v=20260815-empty-result-v2';
-import { bindTasksUI } from './tasks.js?v=20260815-empty-result-v1';
-import { loadFiles, bindFilesUI } from './files.js?v=20260815-files-tabs-v2';
+} from './servers.js?v=20260816-task-history-v3';
+import { loadScripts, bindScriptsUI } from './scripts.js?v=20260816-server-singleton-v1';
+import { loadWireguard, bindWireguardUI, stopWgTimers, openWgServerById } from './wireguard.js?v=20260816-service-singleton-v1';
+import { loadDocker, bindDockerUI, stopDockerTimers, openDockerServerById } from './docker.js?v=20260816-service-singleton-v1';
+import { bindTasksUI } from './tasks.js?v=20260816-task-history-v3';
+import { loadFiles, bindFilesUI } from './files.js?v=20260816-service-singleton-v1';
 import { bindEditorUI } from './editor.js?v=20260815-scripts-table-v1';
 import { bindTerminalUI, closeTerminal } from './terminal.js';
-import { bindSettingsUI, loadAccount, loadTelegramSettings, loadGroupsAdmin, initTheme } from './settings.js?v=20260815-fixes-v1';
-import { startSSE } from './sse.js';
+import { bindSettingsUI, loadAccount, loadTelegramSettings, loadGroupsAdmin, initTheme } from './settings.js?v=20260816-server-singleton-v1';
+import { startSSE, registerNotificationsRefresh } from './sse.js?v=20260816-task-history-v3';
 import { state, setPage } from './state.js';
 import { j } from './api.js';
 import { initAuth, bindAuthUI } from './auth.js';
-import { bindGlobalSearch } from './search.js';
+import { bindGlobalSearch } from './search.js?v=20260816-server-singleton-v1';
 
 async function refreshAll() {
   await Promise.all([
@@ -87,9 +87,15 @@ document.getElementById('nav-toggle')?.addEventListener('click', () => {
 backdrop?.addEventListener('click', closeDrawer);
 document.addEventListener('keydown', e => { if (e.key === 'Escape') closeDrawer(); });
 
+document.getElementById('btn-events-mark-read')?.addEventListener('click', () => {
+  markAllNotificationsRead();
+});
 document.getElementById('btn-journal')?.addEventListener('click', () => loadEvents(100)); // expanded
 document.getElementById('btn-events-clear')?.addEventListener('click', async () => {
-  if (!await confirmAction({ message: 'Очистить журнал событий?' })) return;
+  if (!await confirmAction({
+    message: 'Очистить журнал событий?',
+    confirmFirst: true,
+  })) return;
   try {
     await j('/api/events', { method: 'DELETE' });
     toast('Очищено', true);
@@ -213,6 +219,7 @@ async function boot() {
 
   // Инициализация выпадающего меню уведомлений
   initNotificationsDropdown();
+  registerNotificationsRefresh(refreshOpenNotificationsDropdown);
   initProfileMenu();
 
 
@@ -257,7 +264,7 @@ async function boot() {
     loadSummary();
     loadHeaderData(); // обновляем хедер
     if (state.page === 'servers') loadServers();
-    if (state.page === 'queues') loadQueues();
+    if (state.page === 'queues') { loadQueues(); loadHistory(); }
   }, 8000);
 }
 
@@ -338,6 +345,13 @@ function initNotificationsDropdown() {
   });
 }
 
+// SSE вызывает этот helper после snapshot событий. Закрытый dropdown не
+// трогаем; открытый обновляем через уже существующий загрузчик.
+export function refreshOpenNotificationsDropdown() {
+  const dropdown = document.getElementById('notifications-dropdown');
+  if (dropdown?.classList.contains('show')) loadNotificationsDropdown();
+}
+
 // Загрузка данных для выпадающего меню
 async function loadNotificationsDropdown() {
   try {
@@ -375,18 +389,16 @@ async function loadNotificationsDropdown() {
         });
       });
 
-      // Кнопка "Очистить" — гасит ВСЕ непрочитанные, а не только
-      // показанную пятёрку (иначе бейдж не сходится со списком)
-      const clearBtn = document.createElement('button');
-      clearBtn.className = 'dropdown-btn';
-      clearBtn.textContent = allUnread.length > unread.length
-        ? `Очистить все (${allUnread.length})`
-        : 'Очистить';
-      clearBtn.addEventListener('click', e => {
+      // Действие относится ко всем непрочитанным, а не только к показанной
+      // пятёрке. Сами события остаются в журнале.
+      const markReadBtn = document.createElement('button');
+      markReadBtn.className = 'dropdown-btn';
+      markReadBtn.textContent = '✓ Пометить все как прочитанные';
+      markReadBtn.addEventListener('click', e => {
         e.stopPropagation();
-        clearNotifications(allUnread.map(x => x.id));
+        markAllNotificationsRead(allUnread);
       });
-      list.appendChild(clearBtn);
+      list.appendChild(markReadBtn);
     }
 
     // Обновляем бейдж с количеством непрочитанных
@@ -413,23 +425,36 @@ function notificationClick(eventId) {
   document.getElementById('notifications-dropdown')?.classList.remove('show');
 }
 
-// Гасим все переданные уведомления. Пачками по 10 — mark_as_read
-// на бэкенде синхронный и под блокировкой, сотня разом её задавит.
-async function clearNotifications(ids) {
-  const markRead = id => j('/api/events/mark-read', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ event_id: id }),
-  });
+// Массовая отметка прочитанными. API принимает один event_id, поэтому
+// сохраняем существующую пакетную отправку, но локальный UI меняем только
+// после успешного завершения всех запросов.
+async function markAllNotificationsRead(unreadEvents) {
   try {
-    const queue = ids || [];
-    for (let i = 0; i < queue.length; i += 10) {
-      await Promise.all(queue.slice(i, i + 10).map(markRead));
+    let events = Array.isArray(unreadEvents) ? unreadEvents : null;
+    if (!events) {
+      const response = await j('/api/events?limit=100');
+      const snapshot = Array.isArray(response) ? response : (response?.events || []);
+      applyEventsSnapshot(snapshot);
+      events = snapshot.filter(event => !event.read);
     }
-    await loadNotificationsDropdown();
+
+    const ids = events.map(event => event.id).filter(id => id != null);
+    const markRead = id => j('/api/events/mark-read', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ event_id: id }),
+    });
+    for (let i = 0; i < ids.length; i += 10) {
+      await Promise.all(ids.slice(i, i + 10).map(markRead));
+    }
+
+    applyEventsSnapshot(events.map(event => ({ ...event, read: true })));
     await loadHeaderData();
+    const dropdown = document.getElementById('notifications-dropdown');
+    if (dropdown?.classList.contains('show')) await loadNotificationsDropdown();
   } catch (err) {
-    console.error('Failed to clear notifications:', err);
+    console.error('Failed to mark all notifications as read:', err);
+    toast(err.message, false);
   }
 }
 

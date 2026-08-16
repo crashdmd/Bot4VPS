@@ -3,8 +3,8 @@ import { ansiToHtml } from './ansi.js';
 import { toast, showPage, onlineBadge, onlineBadgeWithPing, sslBadge, metricTile, bindPasswordToggles, parseEmoji, confirmAction } from './ui.js';
 import { state, setServers, setGroups, setKeys, setOpenServer, setPage, setServerTab } from './state.js';
 import { openTerminal, closeTerminal } from './terminal.js';
-import { openEventDetail, applyEventsSnapshot } from './monitor.js?v=20260815-fixes-v1';
-import { openTaskLog, cancelTaskAPI } from './tasks.js';
+import { openEventDetail, applyEventsSnapshot } from './monitor.js?v=20260816-task-history-v3';
+import { openTaskLog, cancelTaskAPI } from './tasks.js?v=20260816-task-history-v3';
 
 /** @deprecated use state.servers */
 export let lastServers = state.servers;
@@ -20,6 +20,8 @@ let logTimer = null;
 // stopWgTimers/stopDockerTimers при уходе со страницы сервиса.
 let taskWatchTimer = null;
 let lastRunningTaskId = null;
+let historyRenderRevision = 0;
+let quickActionsRevision = 0;
 
 // История метрик для графиков (последние 20 значений)
 const metricsHistory = {
@@ -257,7 +259,13 @@ function startWatchers() {
 async function renderQuickActions(id) {
   const qa = document.getElementById('srv-quick-actions');
   if (!qa) return;
-  qa.innerHTML = '';
+
+  // Несколько источников могут запросить обновление одновременно (openServer,
+  // watcher задачи, refreshAfterServiceChange). Собираем кнопки вне DOM и
+  // публикуем только результат последнего вызова, чтобы stale-render не дописал
+  // дубли после своих await.
+  const revision = ++quickActionsRevision;
+  const fragment = document.createDocumentFragment();
   const addAction = (text, icon, cls, fn, styles) => {
     const b = document.createElement('button');
     b.innerHTML = icon ? `${icon} ${text}` : text;
@@ -265,22 +273,28 @@ async function renderQuickActions(id) {
     b.onclick = fn;
     b.style.textAlign = 'left';
     if (styles) Object.assign(b.style, styles);
-    qa.appendChild(b);
+    fragment.appendChild(b);
   };
+
+  const [wireGuardInstalled, dockerInstalled] = await Promise.all([
+    checkWireGuardStatus(id),
+    checkDockerStatus(id),
+  ]);
+  if (revision !== quickActionsRevision) return;
 
   // 1. Запустить скрипт
   addAction('Запустить скрипт', '▶', 'secondary',
-    () => import('./scripts.js').then(m => m.openRunModal(id, null)));
+    () => import('./scripts.js?v=20260816-server-singleton-v1').then(m => m.openRunModal(id, null)));
 
   // 2. WireGuard
-  if (await checkWireGuardStatus(id)) {
+  if (wireGuardInstalled) {
     addAction('Панель управления WireGuard', '🔒', 'secondary', () => openWireGuardServer(id));
   } else {
     addAction('Установить WireGuard', '🔒', 'secondary', () => confirmInstallWireGuard(id));
   }
 
   // 3. Docker
-  if (await checkDockerStatus(id)) {
+  if (dockerInstalled) {
     addAction('Панель управления Docker', '🐳', 'secondary', () => openDockerServer(id));
   } else {
     addAction('Установить Docker', '🐳', 'secondary', () => confirmInstallDocker(id));
@@ -306,6 +320,9 @@ async function renderQuickActions(id) {
   // 6. Удалить сервер
   addAction('Удалить сервер', '🗑', '', deleteServer,
     { background: 'rgba(255, 59, 92, 0.1)', color: '#ff5c7c' });
+
+  if (revision !== quickActionsRevision) return;
+  qa.replaceChildren(fragment);
 }
 
 
@@ -639,24 +656,24 @@ const checkDockerStatus = id => checkServiceInstalled('docker', id);
 
 // Открыть панель WireGuard для сервера
 function openWireGuardServer(serverId) {
-  import('./wireguard.js').then(m => m.openWgServerById(serverId));
+  import('./wireguard.js?v=20260816-service-singleton-v1').then(m => m.openWgServerById(serverId));
 }
 
 // Открыть модальное окно установки WireGuard
 function confirmInstallWireGuard(serverId) {
-  import('./wireguard.js')
+  import('./wireguard.js?v=20260816-service-singleton-v1')
     .then(m => m.openInstall(serverId))
     .catch(err => console.error('Ошибка загрузки модуля WireGuard:', err));
 }
 
 // Открыть панель Docker для сервера
 function openDockerServer(serverId) {
-  import('./docker.js?v=20260815-file-modal-v2').then(m => m.openDockerServerById(serverId));
+  import('./docker.js?v=20260816-service-singleton-v1').then(m => m.openDockerServerById(serverId));
 }
 
 // Открыть модальное окно установки Docker
 function confirmInstallDocker(serverId) {
-  import('./docker.js?v=20260815-file-modal-v2')
+  import('./docker.js?v=20260816-service-singleton-v1')
     .then(m => m.openInstall(serverId))
     .catch(err => console.error('Ошибка загрузки модуля Docker:', err));
 }
@@ -992,27 +1009,100 @@ export async function loadQueues() {
   }
 }
 
-function taskResultPreview(t) {
-  const lines = Array.isArray(t.output_lines) ? t.output_lines : [];
-  const resultOutput = t.result?.output || '';
-  const resultError = t.result?.error || '';
-  const value = lines.length
-    ? lines.join('\n')
-    : resultOutput || t.error || resultError || '(нет вывода)';
-  return esc(value).replace(/\n/g, '<br>');
+const HISTORY_STATUS = {
+  success: { label: 'Выполнено', cls: 'success' },
+  success_warn: { label: 'С предупреждениями', cls: 'warning' },
+  failed: { label: 'Ошибка', cls: 'failed' },
+  cancelled: { label: 'Отменена', cls: 'warning' },
+};
+
+function formatTaskHistoryDate(value) {
+  if (!value) return '—';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '—';
+  const pad = n => String(n).padStart(2, '0');
+  return `${pad(date.getDate())}.${pad(date.getMonth() + 1)}.${date.getFullYear()} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+function renderTaskHistoryEmpty(message = 'История задач пуста') {
+  const el = document.getElementById('history');
+  if (el) el.innerHTML = `<div class="empty">${esc(message)}</div>`;
+}
+
+async function deleteTaskHistoryRow(task, row) {
+  const approved = await confirmAction({
+    title: 'Удалить запись истории?',
+    message: `Запись задачи «${task.name}» будет удалена из истории задач.`,
+    confirmText: 'Удалить',
+    cancelText: 'Отмена',
+    confirmFirst: true,
+  });
+  if (!approved) return;
+  try {
+    await j(`/api/tasks/history/${encodeURIComponent(task.id)}`, { method: 'DELETE' });
+    historyRenderRevision += 1;
+    row?.remove();
+    if (!document.querySelector('#history tbody tr')) renderTaskHistoryEmpty();
+    toast('Запись истории удалена', true);
+  } catch (e) {
+    toast(e.message, false);
+  }
+}
+
+export async function clearTaskHistory() {
+  const approved = await confirmAction({
+    title: 'Очистить историю задач?',
+    message: 'Все завершённые задачи будут удалены из истории Task Manager. Это действие нельзя отменить.',
+    confirmText: 'Очистить историю',
+    cancelText: 'Отмена',
+    confirmFirst: true,
+  });
+  if (!approved) return;
+  try {
+    await j('/api/tasks/history', { method: 'DELETE' });
+    historyRenderRevision += 1;
+    renderTaskHistoryEmpty();
+    toast('История задач очищена', true);
+  } catch (e) {
+    toast(e.message, false);
+  }
 }
 
 export async function loadHistory() {
+  const renderRevision = ++historyRenderRevision;
   try {
-    const data = await j('/api/tasks/history?limit=12');
+    const data = await j('/api/tasks/history?limit=100');
+    if (renderRevision !== historyRenderRevision) return;
     const tasks = data.tasks || [];
     const el = document.getElementById('history');
-    if (!tasks.length) { el.innerHTML = '<div class="empty">Пусто (RAM)</div>'; return; }
-    el.innerHTML = tasks.map(t => `<div class="card" style="min-height:0"><h3>${esc(t.emoji || '')} ${esc(t.name)}</h3>
-      <div class="row">${esc(t.status)} · ${esc(t.duration)}</div><div class="row">${esc(t.server_name)}</div>
-      <div class="row" style="white-space:pre-wrap">${taskResultPreview(t)}</div></div>`).join('');
+    if (!tasks.length) { renderTaskHistoryEmpty(); return; }
+    el.innerHTML = `<table class="task-history-table">
+      <thead><tr><th>Дата</th><th>Задача</th><th>Статус</th><th>Действие</th></tr></thead>
+      <tbody>${tasks.map(t => {
+        const status = HISTORY_STATUS[t.status] || { label: 'Завершена', cls: 'warning' };
+        return `<tr data-history-id="${esc(t.id)}">
+          <td class="task-history-date" data-label="Дата">${esc(formatTaskHistoryDate(t.finished_at || t.created_at))}</td>
+          <td class="task-history-name" data-label="Задача">${esc(t.name)}</td>
+          <td class="task-history-status" data-label="Статус"><span class="task-status ${status.cls}">${esc(status.label)}</span></td>
+          <td class="task-history-actions" data-label="Действие">
+            <button type="button" class="secondary task-history-log" data-history-log="${esc(t.id)}">Лог</button>
+            <button type="button" class="secondary task-history-delete" data-history-delete="${esc(t.id)}" title="Удалить запись" aria-label="Удалить запись задачи ${esc(t.name)}">🗑</button>
+          </td>
+        </tr>`;
+      }).join('')}</tbody>
+    </table>`;
+    const byId = new Map(tasks.map(t => [String(t.id), t]));
+    el.querySelectorAll('[data-history-log]').forEach(button => {
+      button.onclick = () => openTaskLog(button.dataset.historyLog);
+    });
+    el.querySelectorAll('[data-history-delete]').forEach(button => {
+      button.onclick = () => {
+        const task = byId.get(String(button.dataset.historyDelete));
+        if (task) deleteTaskHistoryRow(task, button.closest('tr'));
+      };
+    });
   } catch (e) {
-    document.getElementById('history').innerHTML = '<div class="empty">' + esc(e.message) + '</div>';
+    if (renderRevision === historyRenderRevision) renderTaskHistoryEmpty(e.message);
   }
 }
 
@@ -1219,6 +1309,7 @@ export function bindServerUI() {
     });
   }
   document.getElementById('btn-add-server')?.addEventListener('click', openAddServerModal);
+  document.getElementById('btn-task-history-clear')?.addEventListener('click', clearTaskHistory);
   document.getElementById('btn-groups-panel')?.addEventListener('click', openGroupsPanel);
   document.getElementById('btn-back-servers')?.addEventListener('click', () => {
     openServerId = null;
