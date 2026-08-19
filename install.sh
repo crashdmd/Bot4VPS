@@ -23,6 +23,25 @@ ok()    { echo -e "${GREEN}[OK]${NC} $*"; }
 warn()  { echo -e "${YELLOW}[WARN]${NC} $*"; }
 err()   { echo -e "${RED}[ERROR]${NC} $*" >&2; }
 
+
+# Безопасный интерактивный ввод: работает и при curl | bash, и при обычном запуске
+ask() {
+    # ask "prompt" varname [default]
+    local prompt="$1"
+    local __var="$2"
+    local __def="${3-}"
+    local __reply=""
+    # /dev/tty — настоящий терминал, даже если stdin = pipe
+    if ! read -rp "$prompt" __reply < /dev/tty; then
+        __reply=""
+    fi
+    if [[ -z "$__reply" && -n "$__def" ]]; then
+        __reply="$__def"
+    fi
+    printf -v "$__var" '%s' "$__reply"
+}
+
+
 require_root() {
     if [[ $EUID -ne 0 ]]; then
         err "Запускайте от root (sudo)."
@@ -133,8 +152,7 @@ read_web_port() {
     local input_port
 
     while true; do
-        read -rp "Порт Web UI [${default_port}]: " input_port
-        input_port=${input_port:-$default_port}
+        ask "Порт Web UI [${default_port}]: " input_port "$default_port"
 
         if [[ "$input_port" =~ ^[0-9]+$ ]] && (( input_port >= 1 && input_port <= 65535 )); then
             echo "$input_port"
@@ -337,7 +355,7 @@ do_install() {
 
     if is_installed; then
         warn "Bot4VPS уже установлен в $INSTALL_DIR"
-        read -rp "Переустановить? [y/N]: " ans
+        ask "Переустановить? [y/N]: " ans "N"
         [[ "${ans,,}" == "y" ]] || { info "Отмена."; return; }
         do_remove --keep-data
     fi
@@ -360,8 +378,7 @@ do_install() {
     echo "  1) Только Telegram"
     echo "  2) Web + Telegram (рекомендуется)"
     echo
-    read -rp "Ваш выбор [1/2]: " MODE
-    MODE=${MODE:-2}
+    ask "Ваш выбор [1/2]: " MODE "2"
 
     case "$MODE" in
         1) MODE_NAME="tg-only" ;;
@@ -398,13 +415,13 @@ do_install() {
         echo
         echo -e "${CYAN}── Настройка Telegram ─────────────────${NC}"
         while true; do
-            read -rp "Токен бота (от @BotFather): " BOT_TOKEN
+            ask "Токен бота (от @BotFather): " BOT_TOKEN
             BOT_TOKEN=$(echo "$BOT_TOKEN" | xargs)
             [[ -n "$BOT_TOKEN" && "$BOT_TOKEN" != YOUR_* ]] && break
             warn "Введите настоящий токен."
         done
         while true; do
-            read -rp "Ваш Telegram User ID: " USER_ID
+            ask "Ваш Telegram User ID: " USER_ID
             USER_ID=$(echo "$USER_ID" | xargs)
             [[ "$USER_ID" =~ ^[0-9]+$ ]] && break
             warn "Нужно целое число (@userinfobot)."
@@ -427,8 +444,7 @@ do_install() {
     systemctl daemon-reload
     systemctl enable ${SERVICE_NAME}.service
 
-    read -rp "Запустить сейчас? [Y/n]: " start_now
-    start_now=${start_now:-Y}
+    ask "Запустить сейчас? [Y/n]: " start_now "Y"
     if [[ "${start_now,,}" == "y" ]]; then
         systemctl restart ${SERVICE_NAME}.service
         sleep 2
@@ -490,8 +506,7 @@ do_update() {
     echo -e "${YELLOW}Доступны обновления:${NC}"
     git log --oneline --no-decorate "$LOCAL..$REMOTE"
     echo
-    read -rp "Обновить сейчас? [Y/n]: " ans
-    ans=${ans:-Y}
+    ask "Обновить сейчас? [Y/n]: " ans "Y"
     [[ "${ans,,}" == "y" ]] || { info "Отмена."; return; }
 
     info "Обновляю код..."
@@ -606,8 +621,7 @@ do_remove() {
         echo "     (сохранить config.json, servers.json, keys/, scripts/, data/, backup/)"
         echo "  2) Удалить всё полностью"
         echo
-        read -rp "Ваш выбор [1/2]: " rm_choice
-        rm_choice=${rm_choice:-1}
+        ask "Ваш выбор [1/2]: " rm_choice "1"
         case "$rm_choice" in
             1) keep_data=true ;;
             2) keep_data=false ;;
@@ -619,12 +633,11 @@ do_remove() {
             echo "  • $INSTALL_DIR (код + все данные)"
             echo "  • systemd-юнит ${SERVICE_NAME}"
             echo
-            read -rp "Точно удалить всё? [y/N]: " ans
+            ask "Точно удалить всё? [y/N]: " ans "N"
             [[ "${ans,,}" == "y" ]] || { info "Отмена."; return; }
         else
             info "Код и сервис будут удалены, пользовательские данные останутся."
-            read -rp "Продолжить? [Y/n]: " ans
-            ans=${ans:-Y}
+            ask "Продолжить? [Y/n]: " ans "Y"
             [[ "${ans,,}" == "y" ]] || { info "Отмена."; return; }
         fi
     fi
@@ -707,7 +720,7 @@ case "${1:-}" in
         echo "  5) Удалить"
         echo "  0) Выход"
         echo
-        read -rp "Выбор: " choice
+        ask "Выбор: " choice
         case "$choice" in
             1) do_install ;;
             2) do_update  ;;
