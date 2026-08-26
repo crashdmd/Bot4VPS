@@ -32,6 +32,44 @@ DEFAULT_CONFIG = {
     # Top-level: _patch_config_keys патчит только ключи верхнего уровня.
     "update_check": {
         "enabled": False
+    },
+    # Лимиты хранения (число файлов): logs/tasks/<id>.json и logs/events/<id>.json.
+    # Правятся через Настройки → История и данные (горячая смена + перезапуск не нужен).
+    "logs": {
+        "tasks": 100,
+        "events": 200
+    },
+    # Backup Manager v1. Runtime state хранится отдельно в data/backup/.
+    "backup": {
+        "schema_version": 1,
+        "storage": {
+            "backend": "local",
+            "root": "/var/backups/bot4vps"
+        },
+        "bot4vps": {
+            "automatic": {
+                "enabled": True,
+                "daily_time": "02:30",
+                "timezone": "Europe/Kaliningrad",
+                "keep_last": 7
+            },
+            "limits": {
+                "max_source_bytes": None,
+                "max_archive_bytes": 10737418240
+            },
+            "notifications": {
+                "backup": {"enabled": False, "success": False, "error": True},
+                "restore": {"enabled": True, "success": False, "error": True}
+            }
+        },
+        "safety": {
+            "warning_free_bytes": 5368709120,
+            "critical_free_bytes": 2147483648,
+            "emergency_free_bytes": 524288000,
+            "recovery_free_bytes": 1073741824,
+            "staging_ttl_seconds": 86400,
+            "claim_ttl_seconds": 3600
+        }
     }
 }
 
@@ -61,6 +99,15 @@ def load_config():
     for name, settings in DEFAULT_CONFIG["monitor"].items():
         if name not in monitor:
             monitor[name] = settings
+            changed = True
+    logs = config.setdefault("logs", {})
+    for name, default in DEFAULT_CONFIG["logs"].items():
+        value = logs.get(name)
+        if name not in logs:
+            logs[name] = default
+            changed = True
+        elif not isinstance(value, int) or isinstance(value, bool) or value < 1:
+            logs[name] = default
             changed = True
     if changed:
         save_config(config)
@@ -115,6 +162,34 @@ def set_monitor_interval(name, interval):
 
 
 # ==========================================================
+# Лимиты хранения истории (Настройки → История и данные)
+# ==========================================================
+
+def get_logs_limits():
+    """Секция config.json -> logs: лимиты задач и событий (число файлов)."""
+    logs = load_config().get("logs") or DEFAULT_CONFIG["logs"]
+    return {
+        "tasks": logs.get("tasks", DEFAULT_CONFIG["logs"]["tasks"]),
+        "events": logs.get("events", DEFAULT_CONFIG["logs"]["events"]),
+    }
+
+
+def set_logs_limits(tasks=None, events=None):
+    """Точечно заменить изменённые ключи секции logs.
+
+    ``_patch_config_keys`` заменяет top-level ключ целиком, поэтому секция
+    читается нормализованной (load_config доливает дефолты), объединяется
+    с изменениями и записывается целиком — соседний лимит не сбрасывается.
+    """
+    merged = get_logs_limits()
+    if tasks is not None:
+        merged["tasks"] = int(tasks)
+    if events is not None:
+        merged["events"] = int(events)
+    _patch_config_keys({"logs": merged})
+
+
+# ==========================================================
 # Проверка обновлений (встроенный updater, 4.0+)
 # ==========================================================
 
@@ -162,6 +237,44 @@ def set_web_auth(enabled):
     web["auth_enabled"] = bool(enabled)
 
     save_config(config)
+
+
+# ==========================================================
+# Backup Manager
+# ==========================================================
+
+def get_backup_config() -> dict:
+    """Вернуть валидированную секцию config.json -> backup."""
+    from core.backup.validation import normalize_backup_config
+
+    raw = load_config().get("backup", DEFAULT_CONFIG["backup"])
+    return normalize_backup_config(raw)
+
+
+def set_backup_config(backup: dict) -> dict:
+    """Атомарно заменить только top-level секцию backup после валидации."""
+    from core.backup.validation import normalize_backup_config
+
+    normalized = normalize_backup_config(backup)
+    _patch_config_keys({"backup": normalized})
+    return normalized
+
+
+def patch_backup_config(patch: dict) -> dict:
+    """Рекурсивно обновить секцию backup, не затрагивая другие настройки."""
+    if not isinstance(patch, dict):
+        raise ValueError("backup patch должен быть объектом")
+
+    def merge(target: dict, updates: dict) -> dict:
+        result = dict(target)
+        for key, value in updates.items():
+            if isinstance(value, dict) and isinstance(result.get(key), dict):
+                result[key] = merge(result[key], value)
+            else:
+                result[key] = value
+        return result
+
+    return set_backup_config(merge(get_backup_config(), patch))
 
 
 # ==========================================================
@@ -278,6 +391,35 @@ def _patch_config_keys(updates: dict) -> None:
         f.flush()
         os.fsync(f.fileno())
     os.replace(TEMP_FILE, CONFIG_FILE)
+
+
+# ==========================================================
+# Часовой пояс локального хоста Bot4VPS
+# ==========================================================
+
+def get_host_timezone_config() -> str | None:
+    """Последняя подтверждённая UI-сменой IANA timezone (не source of truth)."""
+    value = _read_config_raw().get("host_timezone")
+    return value if isinstance(value, str) and value else None
+
+
+def set_host_timezone_config(timezone_name: str) -> str:
+    """Атомарно сохранить только подтверждённый IANA ID без UTC offset."""
+    from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+    if (
+        not isinstance(timezone_name, str)
+        or not timezone_name
+        or timezone_name != timezone_name.strip()
+    ):
+        raise ValueError("host_timezone должен быть непустым IANA ID")
+    try:
+        ZoneInfo(timezone_name)
+    except (ZoneInfoNotFoundError, ValueError) as exc:
+        raise ValueError("host_timezone должен быть IANA ID") from exc
+    _patch_config_keys({"host_timezone": timezone_name})
+    return timezone_name
+
 
 
 def set_telegram_enabled(enabled: bool) -> None:

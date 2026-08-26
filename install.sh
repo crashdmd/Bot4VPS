@@ -23,6 +23,25 @@ ok()    { echo -e "${GREEN}[OK]${NC} $*"; }
 warn()  { echo -e "${YELLOW}[WARN]${NC} $*"; }
 err()   { echo -e "${RED}[ERROR]${NC} $*" >&2; }
 
+
+# Безопасный интерактивный ввод: работает и при curl | bash, и при обычном запуске
+ask() {
+    # ask "prompt" varname [default]
+    local prompt="$1"
+    local __var="$2"
+    local __def="${3-}"
+    local __reply=""
+    # /dev/tty — настоящий терминал, даже если stdin = pipe
+    if ! read -rp "$prompt" __reply < /dev/tty; then
+        __reply=""
+    fi
+    if [[ -z "$__reply" && -n "$__def" ]]; then
+        __reply="$__def"
+    fi
+    printf -v "$__var" '%s' "$__reply"
+}
+
+
 require_root() {
     if [[ $EUID -ne 0 ]]; then
         err "Запускайте от root (sudo)."
@@ -80,6 +99,94 @@ path.write_text(
 PY
 }
 
+install_apt_packages() {
+    if ! command -v apt-get &>/dev/null; then
+        err "Автоматическая установка пакетов поддерживается только через apt-get."
+        err "Установите вручную: $*"
+        return 1
+    fi
+
+    info "Устанавливаю системные пакеты: $*"
+    if ! apt-get update -qq; then
+        err "Не удалось обновить список пакетов apt."
+        return 1
+    fi
+    if ! DEBIAN_FRONTEND=noninteractive apt-get install -y -qq "$@"; then
+        err "Не удалось установить системные пакеты: $*"
+        return 1
+    fi
+}
+
+check_python_venv() {
+    local probe_dir
+    local result=0
+
+    probe_dir=$(mktemp -d)
+    "$PYTHON" -m venv "$probe_dir/venv" >/dev/null 2>&1 || result=$?
+    rm -rf "$probe_dir"
+    return "$result"
+}
+
+ensure_install_prerequisites() {
+    if ! command -v git &>/dev/null; then
+        install_apt_packages git
+    fi
+
+    if ! command -v "$PYTHON" &>/dev/null; then
+        install_apt_packages python3 python3-venv
+    fi
+
+    if ! check_python_venv; then
+        warn "Модуль Python venv недоступен — устанавливаю python3-venv..."
+        install_apt_packages python3-venv
+        if ! check_python_venv; then
+            err "Не удалось создать Python virtualenv. Проверьте установку python3-venv."
+            return 1
+        fi
+    fi
+}
+
+clone_repository() {
+    if [[ -e "$INSTALL_DIR" && ! -d "$INSTALL_DIR" ]]; then
+        err "Путь $INSTALL_DIR существует и не является каталогом."
+        return 1
+    fi
+
+    if [[ -d "$INSTALL_DIR" && -n "$(ls -A "$INSTALL_DIR" 2>/dev/null)" ]]; then
+        local clone_tmp
+        local clone_dir
+        clone_tmp=$(mktemp -d)
+        clone_dir="$clone_tmp/repository"
+
+        if ! git clone --depth 1 --branch "$BRANCH" "$REPO" "$clone_dir"; then
+            rm -rf "$clone_tmp"
+            err "Не удалось клонировать репозиторий."
+            return 1
+        fi
+        if ! cp -a "$clone_dir"/. "$INSTALL_DIR"/; then
+            rm -rf "$clone_tmp"
+            err "Не удалось перенести код в $INSTALL_DIR."
+            return 1
+        fi
+
+        rm -rf "$clone_tmp"
+        return 0
+    fi
+
+    git clone --depth 1 --branch "$BRANCH" "$REPO" "$INSTALL_DIR"
+}
+
+enable_web_auth() {
+    "$INSTALL_DIR/venv/bin/python" <<'PY'
+from core.config import set_web_auth
+from ui.web.security import ensure_web_secrets
+
+set_web_auth(True)
+web = ensure_web_secrets()
+print(f"[WEB] Логин: {web.get('username') or 'admin'}")
+PY
+}
+
 write_web_unit() {
     local port="$1"
     cat > /etc/systemd/system/${SERVICE_NAME}.service <<EOF
@@ -133,8 +240,7 @@ read_web_port() {
     local input_port
 
     while true; do
-        read -rp "Порт Web UI [${default_port}]: " input_port
-        input_port=${input_port:-$default_port}
+        ask "Порт Web UI [${default_port}]: " input_port "$default_port"
 
         if [[ "$input_port" =~ ^[0-9]+$ ]] && (( input_port >= 1 && input_port <= 65535 )); then
             echo "$input_port"
@@ -295,19 +401,23 @@ do_enable_web() {
     echo
     echo -e "${CYAN}── Включение Web UI ───────────────────${NC}"
     echo "  Текущий режим: только Telegram"
-    echo "  config.json и данные не изменяются"
+    echo "  Данные серверов и настройки Telegram сохраняются"
     echo
 
     local WEB_PORT
     WEB_PORT=$(read_web_port 8080)
-
-    open_web_port "$WEB_PORT"
 
     info "Проверяю зависимости..."
     cd "$INSTALL_DIR"
     # shellcheck disable=SC1091
     source venv/bin/activate
     pip install -q -r requirements.txt
+
+    info "Включаю авторизацию Web UI..."
+    enable_web_auth
+    echo "  Если показан одноразовый пароль, сохраните и смените его после первого входа."
+
+    open_web_port "$WEB_PORT"
 
     info "Переключаю сервис на Web + Telegram..."
     systemctl stop ${SERVICE_NAME}.service 2>/dev/null || true
@@ -334,21 +444,13 @@ do_enable_web() {
 # ─────────────────────────────────────────────
 do_install() {
     require_root
+    ensure_install_prerequisites
 
     if is_installed; then
         warn "Bot4VPS уже установлен в $INSTALL_DIR"
-        read -rp "Переустановить? [y/N]: " ans
+        ask "Переустановить? [y/N]: " ans "N"
         [[ "${ans,,}" == "y" ]] || { info "Отмена."; return; }
         do_remove --keep-data
-    fi
-
-    if ! command -v git &>/dev/null; then
-        info "Устанавливаю git..."
-        apt-get update -qq && apt-get install -y -qq git
-    fi
-    if ! command -v "$PYTHON" &>/dev/null; then
-        err "Не найден $PYTHON"
-        exit 1
     fi
 
     echo
@@ -360,8 +462,7 @@ do_install() {
     echo "  1) Только Telegram"
     echo "  2) Web + Telegram (рекомендуется)"
     echo
-    read -rp "Ваш выбор [1/2]: " MODE
-    MODE=${MODE:-2}
+    ask "Ваш выбор [1/2]: " MODE "2"
 
     case "$MODE" in
         1) MODE_NAME="tg-only" ;;
@@ -376,7 +477,7 @@ do_install() {
     fi
 
     info "Клонирую репозиторий..."
-    git clone --depth 1 --branch "$BRANCH" "$REPO" "$INSTALL_DIR"
+    clone_repository
     cd "$INSTALL_DIR"
 
     info "Создаю venv и ставлю зависимости..."
@@ -398,19 +499,24 @@ do_install() {
         echo
         echo -e "${CYAN}── Настройка Telegram ─────────────────${NC}"
         while true; do
-            read -rp "Токен бота (от @BotFather): " BOT_TOKEN
+            ask "Токен бота (от @BotFather): " BOT_TOKEN
             BOT_TOKEN=$(echo "$BOT_TOKEN" | xargs)
             [[ -n "$BOT_TOKEN" && "$BOT_TOKEN" != YOUR_* ]] && break
             warn "Введите настоящий токен."
         done
         while true; do
-            read -rp "Ваш Telegram User ID: " USER_ID
+            ask "Ваш Telegram User ID: " USER_ID
             USER_ID=$(echo "$USER_ID" | xargs)
             [[ "$USER_ID" =~ ^[0-9]+$ ]] && break
             warn "Нужно целое число (@userinfobot)."
         done
         update_tg_config "$BOT_TOKEN" "$USER_ID"
         ok "Токен, User ID и telegram_enabled=true записаны в config.json"
+    else
+        echo
+        echo -e "${CYAN}── Настройка Web UI ───────────────────${NC}"
+        enable_web_auth
+        echo "  Если показан одноразовый пароль, сохраните и смените его после первого входа."
     fi
 
     info "Настраиваю systemd..."
@@ -427,8 +533,7 @@ do_install() {
     systemctl daemon-reload
     systemctl enable ${SERVICE_NAME}.service
 
-    read -rp "Запустить сейчас? [Y/n]: " start_now
-    start_now=${start_now:-Y}
+    ask "Запустить сейчас? [Y/n]: " start_now "Y"
     if [[ "${start_now,,}" == "y" ]]; then
         systemctl restart ${SERVICE_NAME}.service
         sleep 2
@@ -490,8 +595,7 @@ do_update() {
     echo -e "${YELLOW}Доступны обновления:${NC}"
     git log --oneline --no-decorate "$LOCAL..$REMOTE"
     echo
-    read -rp "Обновить сейчас? [Y/n]: " ans
-    ans=${ans:-Y}
+    ask "Обновить сейчас? [Y/n]: " ans "Y"
     [[ "${ans,,}" == "y" ]] || { info "Отмена."; return; }
 
     info "Обновляю код..."
@@ -606,8 +710,7 @@ do_remove() {
         echo "     (сохранить config.json, servers.json, keys/, scripts/, data/, backup/)"
         echo "  2) Удалить всё полностью"
         echo
-        read -rp "Ваш выбор [1/2]: " rm_choice
-        rm_choice=${rm_choice:-1}
+        ask "Ваш выбор [1/2]: " rm_choice "1"
         case "$rm_choice" in
             1) keep_data=true ;;
             2) keep_data=false ;;
@@ -619,12 +722,11 @@ do_remove() {
             echo "  • $INSTALL_DIR (код + все данные)"
             echo "  • systemd-юнит ${SERVICE_NAME}"
             echo
-            read -rp "Точно удалить всё? [y/N]: " ans
+            ask "Точно удалить всё? [y/N]: " ans "N"
             [[ "${ans,,}" == "y" ]] || { info "Отмена."; return; }
         else
             info "Код и сервис будут удалены, пользовательские данные останутся."
-            read -rp "Продолжить? [Y/n]: " ans
-            ans=${ans:-Y}
+            ask "Продолжить? [Y/n]: " ans "Y"
             [[ "${ans,,}" == "y" ]] || { info "Отмена."; return; }
         fi
     fi
@@ -707,7 +809,7 @@ case "${1:-}" in
         echo "  5) Удалить"
         echo "  0) Выход"
         echo
-        read -rp "Выбор: " choice
+        ask "Выбор: " choice
         case "$choice" in
             1) do_install ;;
             2) do_update  ;;

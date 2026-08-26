@@ -31,7 +31,9 @@ _INFO_CMD = (
     "echo '" + _INFO_SEP + "'; "
     "uname -r 2>/dev/null || echo N/A; "
     "echo '" + _INFO_SEP + "'; "
-    "uname -m 2>/dev/null || echo N/A"
+    "uname -m 2>/dev/null || echo N/A; "
+    "echo '" + _INFO_SEP + "'; "
+    "awk '{print $1}' /proc/uptime 2>/dev/null || echo N/A"
 )
 
 
@@ -67,6 +69,7 @@ def _probe_ssh(server):
         "ssh": False,
         "ssh_error": None,
         "uptime": "N/A",
+        "uptime_seconds": None,
         "load": "N/A",
         "ram": "N/A",
         "disk": "N/A",
@@ -87,8 +90,12 @@ def _probe_ssh(server):
             def _part(i):
                 return parts[i] if i < len(parts) and parts[i] else "N/A"
 
-            # 0..3 — прежние метрики; 4..8 — system
+            # 0..3 — прежние метрики; 4..8 — system; 9 — точный uptime.
             out["uptime"] = _part(0)
+            try:
+                out["uptime_seconds"] = float(_part(9))
+            except (TypeError, ValueError):
+                out["uptime_seconds"] = None
             out["load"] = _part(1)
             out["ram"] = _part(2)
             out["disk"] = _part(3)
@@ -115,6 +122,7 @@ def get_server_info(server):
         "ssh": False,
         "ssh_error": None,
         "uptime": "N/A",
+        "uptime_seconds": None,
         "load": "N/A",
         "ram": "N/A",
         "disk": "N/A",

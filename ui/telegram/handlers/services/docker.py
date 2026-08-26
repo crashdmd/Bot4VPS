@@ -224,7 +224,7 @@ async def _server_list(query, mode: str) -> None:
     Так «Управлять» и «Установить» симметричны и не смешивают серверы.
     """
     manage = (mode == "manage")
-    rows: List[List[InlineKeyboardButton]] = []
+    server_buttons: List[InlineKeyboardButton] = []
     has_unknown = False
     for s in load_servers():
         inst = (await _get_status(s["id"])).get("installed")
@@ -241,18 +241,18 @@ async def _server_list(query, mode: str) -> None:
                 label += " · нет данных"
                 has_unknown = True
             op = "dk_install_one"
-        rows.append([InlineKeyboardButton(label, callback_data=_svc_cb(op, SERVICE_ID, s["id"]))])
+        server_buttons.append(InlineKeyboardButton(label, callback_data=_svc_cb(op, SERVICE_ID, s["id"])))
 
     if manage:
         lines = ["⚙️ Управление Docker", ""]
-        if rows:
+        if server_buttons:
             lines.append("Выберите сервер:")
         else:
             lines += ["Нет серверов с установленным Docker.",
                       "", "Установите Docker или выполните «Проверить все серверы»."]
     else:
         lines = ["🛠 Установка Docker", ""]
-        if rows:
+        if server_buttons:
             lines.append("Выберите сервер:")
             if has_unknown:
                 lines += ["", "«нет данных» — сервер ещё не проверялся."]
@@ -260,6 +260,10 @@ async def _server_list(query, mode: str) -> None:
             lines += ["Docker установлен на всех серверах.",
                       "Если это не так — сначала «Проверить все серверы»."]
 
+    rows = [
+        server_buttons[index:index + 2]
+        for index in range(0, len(server_buttons), 2)
+    ]
     rows.append([InlineKeyboardButton("⬅️ Назад", callback_data=_svc_cb("dk_hub", SERVICE_ID, "-"))])
     await _edit(query, "\n".join(lines), InlineKeyboardMarkup(rows))
 
@@ -1184,20 +1188,24 @@ async def _compose_library_item(query, name: str) -> None:
 
 async def _compose_deploy_targets(query, name: str) -> None:
     """§6: раздел не привязан к серверу — спрашиваем, куда развернуть."""
-    rows: List[List[InlineKeyboardButton]] = []
+    server_buttons: List[InlineKeyboardButton] = []
     for s in load_servers():
         status = await _get_status(s["id"])
         if status.get("installed") is not True:
             continue   # не предлагаем сервер без Docker
-        rows.append([InlineKeyboardButton(
+        server_buttons.append(InlineKeyboardButton(
             f"🖥 {s['name']}",
             callback_data=_svc_cb("cl_deploy_to", SERVICE_ID, s["id"], _token(query.from_user.id, name)),
-        )])
+        ))
     lines = [f"📦 {name}", "", "Куда развернуть?"]
-    if not rows:
+    if not server_buttons:
         lines.append("")
         lines.append("Нет серверов с установленным Docker.")
         lines.append("Сначала «🛠 Установить Docker».")
+    rows = [
+        server_buttons[index:index + 2]
+        for index in range(0, len(server_buttons), 2)
+    ]
     rows.append([InlineKeyboardButton(
         "❌ Отмена", callback_data=_svc_cb("cl_item", SERVICE_ID, "-", _token(query.from_user.id, name)))])
     await _edit(query, "\n".join(lines), InlineKeyboardMarkup(rows))

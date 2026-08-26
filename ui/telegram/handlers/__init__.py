@@ -14,6 +14,7 @@ from .service_handlers import (
     process_service_message,
 )
 from ui.telegram.task_ui import process_task_callback
+from .backup_handlers import process_backup_callback
 
 __all__ = [
     "process_key_callback",
@@ -28,4 +29,5 @@ __all__ = [
     "process_service_document",
     "process_service_message",
     "process_task_callback",
+    "process_backup_callback",
 ]

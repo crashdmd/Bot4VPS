@@ -1,22 +1,38 @@
-import { tickClock, showPage, toast, parseEmoji, initEmojiObserver, confirmAction } from './ui.js';
-import { loadDashboard, loadSummary, bindDashboard, stopDashMetrics, updateDashboardData } from './dashboard.js?v=20260816-server-singleton-v1';
-import { loadEvents, openEventDetail, applyEventsSnapshot, initSystemMonitor, stopSystemMonitor } from './monitor.js?v=20260816-task-history-v3';
+import { tickClock, syncServerClock, showPage, toast, parseEmoji, initEmojiObserver, confirmAction, bindTelegramHealthDialog } from './ui.js';
+import { loadDashboard, loadSummary, bindDashboard, stopDashMetrics, updateDashboardData } from './dashboard.js?v=20260826-host-timezone-v2';
+import { loadEvents, openEventDetail, applyEventsSnapshot, initSystemMonitor, stopSystemMonitor } from './monitor.js?v=20260826-host-timezone-v2';
 import { loadServers, loadQueues, loadHistory, loadGroupsAndKeys,
-  bindServerUI, stopWatchers, openServer, lastServerTab,
-} from './servers.js?v=20260816-task-history-v3';
-import { loadScripts, bindScriptsUI } from './scripts.js?v=20260816-server-singleton-v1';
-import { loadWireguard, bindWireguardUI, stopWgTimers, openWgServerById } from './wireguard.js?v=20260816-service-singleton-v1';
-import { loadDocker, bindDockerUI, stopDockerTimers, openDockerServerById } from './docker.js?v=20260816-service-singleton-v1';
+  bindServerUI, stopWatchers, openServer, closeGroupsPanel, lastServerTab,
+} from './servers.js?v=20260826-host-timezone-v2';
+import { loadScripts, bindScriptsUI } from './scripts.js?v=20260826-host-timezone-v2';
+import { loadWireguard, bindWireguardUI, stopWgTimers, openWgServerById } from './wireguard.js?v=20260826-host-timezone-v2';
+import { loadDocker, bindDockerUI, stopDockerTimers, openDockerServerById } from './docker.js?v=20260826-host-timezone-v2';
 import { bindTasksUI } from './tasks.js?v=20260816-task-history-v3';
 import { loadFiles, bindFilesUI } from './files.js?v=20260816-service-singleton-v1';
 import { bindEditorUI } from './editor.js?v=20260815-scripts-table-v1';
 import { bindTerminalUI, closeTerminal } from './terminal.js';
-import { bindSettingsUI, loadAccount, loadTelegramSettings, loadGroupsAdmin, initTheme } from './settings.js?v=20260816-server-singleton-v1';
 import { startSSE, registerNotificationsRefresh } from './sse.js?v=20260816-task-history-v3';
 import { state, setPage } from './state.js';
 import { j } from './api.js';
 import { initAuth, bindAuthUI } from './auth.js';
 import { bindGlobalSearch } from './search.js?v=20260816-server-singleton-v1';
+import { bindBackupUI, loadBackups, stopBackupTimers } from './backup.js?v=20260826-host-timezone-v2';
+
+// Settings — отдельная подсистема. Загружаем её лениво, чтобы ошибка нового
+// модуля не останавливала Dashboard, Servers и остальные страницы.
+const settingsModule = import('./settings.js?v=20260826-host-timezone-v2')
+  .catch(error => {
+    console.error('[settings] module unavailable:', error);
+    return null;
+  });
+
+function loadSettingsPage() {
+  settingsModule.then(module => module?.loadSettings());
+}
+
+function stopSettingsPageTimers() {
+  settingsModule.then(module => module?.stopSettingsTimers());
+}
 
 async function refreshAll() {
   await Promise.all([
@@ -34,12 +50,15 @@ async function refreshAll() {
 
 function onNav(page) {
   setPage(page);
+  if (page !== 'servers') closeGroupsPanel();
   if (page !== 'server') stopWatchers();
   if (page !== 'server' && page !== 'terminal') closeTerminal();
   if (page !== 'wireguard' && page !== 'wireguard-server') stopWgTimers();
   if (page !== 'docker' && page !== 'docker-server') stopDockerTimers();
   if (page !== 'dashboard') stopDashMetrics();
   if (page !== 'monitor') stopSystemMonitor();
+  if (page !== 'backups') stopBackupTimers();
+  if (page !== 'settings') stopSettingsPageTimers();
   showPage(page);
   if (page === 'dashboard') loadDashboard();
   if (page === 'events') loadEvents();
@@ -48,13 +67,10 @@ function onNav(page) {
   if (page === 'wireguard') loadWireguard();
   if (page === 'docker') loadDocker();
   if (page === 'files') loadFiles();
+  if (page === 'backups') loadBackups();
   if (page === 'queues') { loadQueues(); loadHistory(); }
   if (page === 'monitor') { loadDashboard(); initSystemMonitor(); }
-  if (page === 'settings') {
-    loadAccount();
-    loadTelegramSettings().catch(e => console.warn('[settings] telegram status', e));
-    loadGroupsAdmin();
-  }
+  if (page === 'settings') loadSettingsPage();
 }
 
 // Мобильное меню (боковой дрэвер ≤640px)
@@ -112,12 +128,33 @@ bindDockerUI();
 bindFilesUI();
 bindEditorUI();
 bindTerminalUI();
-bindSettingsUI();
+// Settings подключается лениво вместе с групповой панелью.
+settingsModule.then(module => {
+  module?.bindSettingsUI();
+  module?.initTheme();
+}).catch(() => {});
+// Групповая панель подключается лениво: ошибка её отдельного модуля
+// не должна останавливать загрузку всей панели управления.
+import('./groups_panel.js?v=20260819-groups-panel-v1')
+  .then(m => m.bindGroupsPanelUI())
+  .catch(error => console.warn('[groups] module unavailable:', error));
 bindAuthUI();
 bindGlobalSearch();
-
-// Инициализация темы
-initTheme();
+bindBackupUI();
+bindTelegramHealthDialog();
+window.addEventListener('bot4vps:open-settings-category', async event => {
+  const category = event.detail?.category;
+  if (category !== 'telegram') return;
+  try {
+    const module = await settingsModule;
+    if (!module) throw new Error('settings module unavailable');
+    await module.selectSettingsCategory(category);
+    onNav('settings');
+    closeDrawer();
+  } catch (_) {
+    toast('Не удалось открыть настройки Telegram', false);
+  }
+});
 
 async function restoreSession() {
   await loadGroupsAndKeys();
@@ -185,6 +222,7 @@ async function restoreSession() {
 async function loadVersion() {
   try {
     const ping = await j('/api/ping');
+    syncServerClock(ping);
     const versionInfo = document.getElementById('version-info');
     if (versionInfo && ping.version) versionInfo.textContent = `v${ping.version}`;
   } catch (err) {
@@ -230,14 +268,7 @@ async function boot() {
   tickClock();
   startSSE();
   await restoreSession();
-  // Если восстановили «Настройки» — статус Telegram мог не успеть/не отрисоваться
-  try {
-    if ((localStorage.getItem('bot4vps_page') || '') === 'settings'
-        || document.getElementById('page-settings')?.classList.contains('on')) {
-      await loadTelegramSettings();
-    }
-  } catch (e) { console.warn('[boot] telegram status', e); }
-
+  // Если восстановили «Настройки», onNav уже загрузил активную категорию.
 
   // Инициализируем глобальный наблюдатель за эмодзи
   initEmojiObserver();

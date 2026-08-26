@@ -1,5 +1,5 @@
 import { state, setServers } from './state.js';
-import { renderMonitor, applyEventsSnapshot } from './monitor.js?v=20260816-task-history-v3';
+import { applyEventsSnapshot } from './monitor.js?v=20260826-host-timezone-v2';
 
 let es = null;
 let notificationsRefresh = null;
@@ -47,8 +47,19 @@ export function stopSSE() {
 
 function applySnapshot(data) {
   if (data.servers) {
-    setServers(data.servers.map(s => ({ ...s, has_running: !!s.has_running })));
-    import('./servers.js?v=20260816-task-history-v3').then(m => {
+    const previousById = new Map(state.servers.map(server => [server.id, server]));
+    setServers(data.servers.map(s => {
+      const previous = previousById.get(s.id) || {};
+      return {
+        ...previous,
+        ...s,
+        // Старый Core мог не включать uptime в SSE; не затираем уже загруженный кэш.
+        uptime: s.uptime ?? previous.uptime,
+        uptime_seconds: s.uptime_seconds ?? previous.uptime_seconds,
+        has_running: !!s.has_running,
+      };
+    }));
+    import('./servers.js?v=20260826-host-timezone-v2').then(m => {
       if (state.page === 'servers' && m.renderServersFromState) m.renderServersFromState();
     }).catch(() => {});
   }
@@ -56,14 +67,11 @@ function applySnapshot(data) {
     // KPI-чипы (Серверов/Очередей/▶ задач) убраны из верхней панели —
     // snapshot summary больше никуда не пишет. Монитор берёт своё ниже.
   }
-  if (data.monitor && state.page === 'monitor') {
-    renderMonitor(data.monitor);
-  }
   if (data.task_history_revision !== undefined
       && data.task_history_revision !== taskHistoryRevision) {
     taskHistoryRevision = data.task_history_revision;
     if (state.page === 'queues') {
-      import('./servers.js?v=20260816-task-history-v3').then(m => {
+      import('./servers.js?v=20260826-host-timezone-v2').then(m => {
         m.loadHistory?.();
       }).catch(() => {});
     }
@@ -76,7 +84,7 @@ function applySnapshot(data) {
     }
     // Открытая карточка сервера — обновить блок «Недавние события»
     if (state.page === 'server') {
-      import('./servers.js?v=20260816-task-history-v3').then(m => {
+      import('./servers.js?v=20260826-host-timezone-v2').then(m => {
         if (m.refreshOpenServerEvents) m.refreshOpenServerEvents();
         else if (m.openServerId) {
           // fallback: модуль мог ещё не экспортировать helper

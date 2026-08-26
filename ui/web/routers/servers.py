@@ -18,7 +18,8 @@ _METRICS_CMD = (
     "echo '---'; free -m | awk '/Mem:/ {print $2,$3,$7}'; "
     "echo '---'; df -P / | awk 'NR==2 {print $2,$3,$5}'; "
     "echo '---'; cat /proc/loadavg | awk '{print $1,$2,$3}'; "
-    "echo '---'; uptime -p 2>/dev/null || cat /proc/uptime"
+    "echo '---'; uptime -p 2>/dev/null || cat /proc/uptime; "
+    "echo '---'; awk '{print $1}' /proc/uptime 2>/dev/null"
 )
 
 def _parse_cpu_pair(line1, line2):
@@ -38,7 +39,8 @@ def _metrics_sync(server: dict) -> dict:
     from core.ssh import create_ssh_client
     out = {
         "ok": False, "cpu": None, "ram_pct": None, "ram": "N/A",
-        "disk_pct": None, "disk": "N/A", "load": "N/A", "uptime": "N/A", "error": None,
+        "disk_pct": None, "disk": "N/A", "load": "N/A", "uptime": "N/A",
+        "uptime_seconds": None, "error": None,
     }
     try:
         ssh = create_ssh_client(server, timeout=8)
@@ -71,6 +73,11 @@ def _metrics_sync(server: dict) -> dict:
                     out["disk"] = disk[2]
             out["load"] = blocks[3].strip() or "N/A"
             out["uptime"] = blocks[4].strip() or "N/A"
+            if len(blocks) > 5:
+                try:
+                    out["uptime_seconds"] = float(blocks[5].strip())
+                except (TypeError, ValueError):
+                    out["uptime_seconds"] = None
             out["ok"] = True
         finally:
             ssh.close()
@@ -119,11 +126,14 @@ async def api_servers(group: Optional[str] = None, online: Optional[bool] = None
                 "name": s.get("name"),
                 "group": s.get("group") or "—",
                 "host": s.get("host"),
+                "host_ip": m.get("host_ip"),
                 "port": s.get("port", 22),
                 "user": s.get("user"),
                 "auth_type": s.get("auth_type", "password"),
                 "online": is_online,
                 "availability_checked": avail.get("checked"),
+                "uptime": (m.get("system") or {}).get("uptime"),
+                "uptime_seconds": (m.get("system") or {}).get("uptime_seconds"),
                 "ssl_status": cert.get("status"),
                 "ssl_days_left": cert.get("days_left"),
                 "ssl_expires": cert.get("expires"),
@@ -168,10 +178,19 @@ async def api_server(server_id: str):
 async def api_metrics(server_id: str):
     try:
         from core.storage import find_server
+        from core.monitor import update_server_uptime
         server = find_server(server_id)
         if not server:
             raise HTTPException(404, "Сервер не найден")
-        return await asyncio.to_thread(_metrics_sync, server)
+        result = await asyncio.to_thread(_metrics_sync, server)
+        if result.get("ok"):
+            await asyncio.to_thread(
+                update_server_uptime,
+                server_id,
+                result.get("uptime"),
+                result.get("uptime_seconds"),
+            )
+        return result
     except HTTPException:
         raise
     except Exception as e:

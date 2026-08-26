@@ -1,8 +1,8 @@
 // Bot4VPS Dashboard — Modern UI
 import { j, esc } from './api.js';
-import { showPage, plural, toast, bindPasswordToggles } from './ui.js';
+import { showPage, plural, toast, bindPasswordToggles, serverHour, formatServerTimestamp } from './ui.js';
 import { setPage } from './state.js';
-import { loadEvents, openEventDetail, applyEventsSnapshot, showUpdateModal } from './monitor.js?v=20260816-task-history-v3';
+import { loadEvents, openEventDetail, applyEventsSnapshot, showUpdateModal } from './monitor.js?v=20260826-host-timezone-v2';
 
 
 // ---------- Первоначальная настройка Telegram ----------
@@ -87,15 +87,8 @@ async function tgSetupDisable() {
 
 export async function loadDashboard() {
   try {
-    // Дата и время с днём недели
-    const now = new Date();
-    const dateStr = now.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric', weekday: 'long' });
-    const timeStr = now.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
-    document.getElementById('dash-date').textContent = dateStr;
-    document.getElementById('dash-time').textContent = timeStr;
-
-    // Приветствие по времени суток
-    const hour = now.getHours();
+    // Приветствие по времени локального хоста Bot4VPS
+    const hour = serverHour();
     let greeting = 'Добрый день';
     if (hour >= 5 && hour < 12) greeting = 'Доброе утро';
     else if (hour >= 18 || hour < 5) greeting = 'Добрый вечер';
@@ -302,7 +295,7 @@ function uptimeRu(raw) {
 /** Переиспользуем модалку добавления сервера со страницы «Серверы». */
 function bindDashAdd(box) {
   box.querySelector('[data-dash-add]')?.addEventListener('click', async () => {
-    const m = await import('./servers.js?v=20260816-task-history-v3');
+    const m = await import('./servers.js?v=20260826-host-timezone-v2');
     m.openAddServerModal();
   });
 }
@@ -427,7 +420,7 @@ export function stopDashMetrics() {
 
 async function openServerFromDash(id) {
   stopDashMetrics();
-  const m = await import('./servers.js?v=20260816-task-history-v3');
+  const m = await import('./servers.js?v=20260826-host-timezone-v2');
   setPage('servers');
   showPage('servers');
   m.openServer(id);
@@ -451,7 +444,7 @@ function renderEvents(events) {
         <span style="font-size:0.9rem;line-height:1.4">${icon}</span>
         <div style="flex:1;min-width:0">
           <div class="dash-ev-msg">${esc(e.message || '')}</div>
-          <div class="dash-ev-time">${esc(e.timestamp || '')}</div>
+          <div class="dash-ev-time">${esc(formatServerTimestamp(e.timestamp))}</div>
         </div>
       </div>`;
   }).join('');

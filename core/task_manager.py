@@ -322,7 +322,7 @@ class TaskManager:
         self._queue_state: Dict[str, QueueState] = {}
         self._history_limit = history_limit
         self._history_store = history_store or TaskHistoryStore(
-            "logs/tasks.json", limit=history_limit
+            "logs/tasks", limit=history_limit
         )
         # Хранилище проверяет записи каноническим восстановлением Task, поэтому
         # частично повреждённые объекты обнаруживаются до любой перезаписи.
@@ -540,6 +540,17 @@ class TaskManager:
             self._history = []
             return cleared
 
+    def set_history_limit(self, limit: int) -> None:
+        """Горячая смена лимита истории (Настройки → История и данные).
+
+        Обновляет лимит стора, обрезает файлы сверх лимита и
+        перестраивает RAM-кэш под новый размер.
+        """
+        n = max(1, int(limit))
+        self._history_limit = n
+        self._history_store.set_limit(n)
+        self._history = self._history[-n:]
+
     def subscribe_live(self, task_id: str, callback: Callable[[str], Awaitable[None]]):
         self._live_subscribers.setdefault(task_id, []).append(callback)
 
@@ -733,4 +744,16 @@ class TaskManager:
             print(f"[TASK] pause event error: {e}", flush=True)
 
 
-task_manager = TaskManager()
+def _history_limit_from_config() -> int:
+    """Лимит истории задач из config.json (секция logs.tasks)."""
+    try:
+        from core.config import load_config
+        value = (load_config().get("logs") or {}).get("tasks")
+        if isinstance(value, int) and not isinstance(value, bool) and value >= 1:
+            return value
+    except Exception:
+        pass
+    return 100
+
+
+task_manager = TaskManager(history_limit=_history_limit_from_config())

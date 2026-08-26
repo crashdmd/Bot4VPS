@@ -88,8 +88,12 @@ async def lifespan(_app: FastAPI):
     tg_app = None
     try:
         from bot import start_telegram, stop_telegram, BOT_TOKEN
+        from core.config import get_telegram_config
         token = (BOT_TOKEN or "").strip()
-        if not token or token.startswith("YOUR_"):
+        telegram_enabled = bool(get_telegram_config().get("enabled", True))
+        if not telegram_enabled:
+            print("[WEB] Telegram: выключен в настройках — бот не запущен", flush=True)
+        elif not token or token.startswith("YOUR_"):
             print("[WEB] Telegram: token не задан — бот не запущен", flush=True)
         else:
             tg_app = await start_telegram()
@@ -97,9 +101,35 @@ async def lifespan(_app: FastAPI):
         print(f"[WEB] Telegram start failed: {e}", flush=True)
         tg_app = None
 
+    inventory_indexer = None
+    try:
+        from core.backup.inventory_indexer import start_archive_inventory_indexer
+        inventory_indexer = await start_archive_inventory_indexer()
+    except Exception as e:
+        print(f"[WEB] Backup inventory indexer start failed: {e}", flush=True)
+
+    backup_scheduler = None
+    try:
+        from core.backup.scheduler import start_automatic_backup_scheduler
+        backup_scheduler = await start_automatic_backup_scheduler()
+    except Exception as e:
+        print(f"[WEB] Backup scheduler start failed: {e}", flush=True)
+
     try:
         yield
     finally:
+        if backup_scheduler is not None:
+            try:
+                from core.backup.scheduler import stop_automatic_backup_scheduler
+                await stop_automatic_backup_scheduler()
+            except Exception as e:
+                print(f"[WEB] Backup scheduler stop failed: {e}", flush=True)
+        if inventory_indexer is not None:
+            try:
+                from core.backup.inventory_indexer import stop_archive_inventory_indexer
+                await stop_archive_inventory_indexer()
+            except Exception as e:
+                print(f"[WEB] Backup inventory indexer stop failed: {e}", flush=True)
         if tg_app is not None:
             try:
                 from bot import stop_telegram
@@ -124,7 +154,7 @@ app.add_middleware(
     https_only=False,
 )
 
-from .routers import meta, summary, servers, tasks, scripts, files, monitor, stream, terminal, services, system, update  # noqa: E402
+from .routers import meta, summary, servers, tasks, scripts, files, monitor, stream, terminal, services, system, update, backups, settings  # noqa: E402
 
 app.mount("/static", NoCacheStaticFiles(directory=STATIC), name="static")
 
@@ -138,10 +168,12 @@ app.include_router(servers.router, dependencies=_AUTH)
 app.include_router(tasks.router, dependencies=_AUTH)
 app.include_router(scripts.router, dependencies=_AUTH)
 app.include_router(files.router, dependencies=_AUTH)
+app.include_router(backups.router, dependencies=_AUTH)
 app.include_router(monitor.router, dependencies=_AUTH)
 app.include_router(stream.router, dependencies=_AUTH)
 app.include_router(services.router, dependencies=_AUTH)
 app.include_router(update.router, dependencies=_AUTH)
+app.include_router(settings.router, dependencies=_AUTH)
 
 # Health-check встроенного updater'а: без авторизации (его опрашивает runner
 # после перезапуска, когда сессии ещё нет), но только с loopback.

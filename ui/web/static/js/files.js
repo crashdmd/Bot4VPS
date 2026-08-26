@@ -2,7 +2,7 @@
 import { j, esc } from './api.js';
 import { toast, confirmAction, plural } from './ui.js';
 import { openEditor } from './editor.js?v=20260815-scripts-table-v1';
-import { openDockerProjectFile } from './docker.js?v=20260816-service-singleton-v1';
+import { openDockerProjectFile } from './docker.js?v=20260826-host-timezone-v2';
 
 let fileRoot = 'docker';
 let dockerProject = '';

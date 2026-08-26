@@ -58,9 +58,16 @@ _WIZARD_OPS = {"install_cfg", "install_val", "install_skip", "install_run", "ins
 # --------------------------------------------------------------
 
 async def _services_hub(query, server_id: str):
+    from .backup_handlers import backup_entry_callback
+
     server = find_server(server_id)
     server_name = server["name"] if server else server_id
     rows = []
+    backup_row = [InlineKeyboardButton(
+        "💾 Работа с Backup",
+        callback_data=backup_entry_callback(query.from_user.id, server_id),
+    )]
+    backup_inserted = False
     text = f"🛠 Сервисы · {server_name}\n\nСтатусы — по последней синхронизации."
     for manifest in list_services():
         try:
@@ -75,7 +82,12 @@ async def _services_hub(query, server_id: str):
         else:
             mark = f"❔ {manifest.name}"
         rows.append([InlineKeyboardButton(mark, callback_data=_svc_cb("view", manifest.id, server_id))])
+        if manifest.id == "wireguard":
+            rows.append(backup_row)
+            backup_inserted = True
 
+    if not backup_inserted:
+        rows.append(backup_row)
     rows.append([InlineKeyboardButton("🔄 Перезагрузить сервер", callback_data=f"reboot_confirm:{server_id}")])
     rows.append([InlineKeyboardButton("⬅️ Назад", callback_data=f"server:{server_id}")])
     await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(rows))
@@ -146,7 +158,7 @@ async def _tasks_server_list(query, service_id: str, mode: str):
     title = (manifest.icon + " ") if manifest and manifest.icon else ""
     title += (manifest.name if manifest else service_id)
     servers = load_servers()
-    rows = []
+    server_buttons = []
     shown = 0
     for s in servers:
         sid = s["id"]
@@ -163,11 +175,11 @@ async def _tasks_server_list(query, service_id: str, mode: str):
             label = s["name"]
             if not synced and installed is not False:
                 label += " · нет данных"
-            rows.append([InlineKeyboardButton(label, callback_data=_svc_cb("view", service_id, sid, src=_SRC_TASKS))])
+            server_buttons.append(InlineKeyboardButton(label, callback_data=_svc_cb("view", service_id, sid, src=_SRC_TASKS)))
             shown += 1
         else:
             if installed is True:
-                rows.append([InlineKeyboardButton(s["name"], callback_data=_svc_cb("view", service_id, sid, src=_SRC_TASKS))])
+                server_buttons.append(InlineKeyboardButton(s["name"], callback_data=_svc_cb("view", service_id, sid, src=_SRC_TASKS)))
                 shown += 1
 
     if mode == "install":
@@ -178,6 +190,10 @@ async def _tasks_server_list(query, service_id: str, mode: str):
         empty = "Нет серверов с установленным сервисом. Сначала «Полная проверка» или «Установить»."
 
     text = head if shown else head + "\n\n" + empty
+    rows = [
+        server_buttons[index:index + 2]
+        for index in range(0, len(server_buttons), 2)
+    ]
     rows.append([InlineKeyboardButton("⬅️ Назад", callback_data=f"tasks_svc:{service_id}")])
     await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(rows))
 

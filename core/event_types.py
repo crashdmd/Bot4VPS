@@ -12,6 +12,7 @@ class EventType(str, Enum):
     TASK = "task"
     SERVICE = "service"
     UPDATE = "update"
+    BACKUP = "backup"
 
 
 class EventLevel(str, Enum):
@@ -41,3 +42,19 @@ class EventReason(str, Enum):
     UPDATE_FAILED = "update_failed"
     ROLLBACK_DONE = "rollback_done"
     ROLLBACK_FAILED = "rollback_failed"
+    BACKUP_STARTED = "backup_started"
+    BACKUP_COMPLETED = "backup_completed"
+    BACKUP_FAILED = "backup_failed"
+    BACKUP_CANCELLED = "backup_cancelled"
+    BACKUP_RETENTION_COMPLETED = "backup_retention_completed"
+    BACKUP_RETENTION_FAILED = "backup_retention_failed"
+    BACKUP_PUBLISH_RECOVERED = "backup_publish_recovered"
+    BACKUP_RECONCILIATION = "backup_reconciliation"
+    BACKUP_DISK_WARNING = "backup_disk_warning"
+    BACKUP_DISK_CRITICAL = "backup_disk_critical"
+    BACKUP_DISK_EMERGENCY = "backup_disk_emergency"
+    BACKUP_DISK_RECOVERED = "backup_disk_recovered"
+    BACKUP_INTEGRITY_FAILED = "backup_integrity_failed"
+    RESTORE_COMPLETED = "restore_completed"
+    RESTORE_FAILED = "restore_failed"
+    RESTORE_CANCELLED = "restore_cancelled"

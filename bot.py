@@ -60,6 +60,8 @@ NOTIFICATION_HANDLERS = {
     EventType.DATABASE.value: handle_critical_event,
     EventType.SSL.value: handle_critical_event,
     EventType.SERVER.value: handle_critical_event,
+    EventType.TASK.value: handle_critical_event,
+    EventType.BACKUP.value: handle_critical_event,
 }
 
 # Единый экземпляр Application (TG + Web в одном процессе)
@@ -160,7 +162,7 @@ async def start_telegram(app: Application | None = None) -> Application:
     _application = application
 
     async def _immediate_notify(notification, event_id=None):
-        await send_event_notification(application.bot, notification, event_id)
+        return await send_event_notification(application.bot, notification, event_id)
 
     # replace=True — без дублей при reload
     register_notifier(_immediate_notify, replace=True)
@@ -238,7 +240,7 @@ if __name__ == "__main__":
     application = build_application()
 
     async def _immediate_notify(notification, event_id=None):
-        await send_event_notification(application.bot, notification, event_id)
+        return await send_event_notification(application.bot, notification, event_id)
 
     register_notifier(_immediate_notify, replace=True)
     if application.job_queue is not None:
@@ -251,6 +253,20 @@ if __name__ == "__main__":
     async def _post_init(app: Application) -> None:
         if app.job_queue is not None:
             schedule_monitor_jobs(app.job_queue)
+        try:
+            from core.backup.scheduler import start_automatic_backup_scheduler
+            await start_automatic_backup_scheduler()
+        except Exception as exc:
+            print(f"[BOT] Backup scheduler start failed: {exc}", flush=True)
+
+    async def _post_shutdown(app: Application) -> None:
+        del app
+        try:
+            from core.backup.scheduler import stop_automatic_backup_scheduler
+            await stop_automatic_backup_scheduler()
+        except Exception as exc:
+            print(f"[BOT] Backup scheduler stop failed: {exc}", flush=True)
 
     application.post_init = _post_init
+    application.post_shutdown = _post_shutdown
     application.run_polling()

@@ -40,6 +40,39 @@ def get_server_monitor(server_id):
     return data.get(server_id)
 
 
+def update_server_uptime(
+    server_id: str,
+    uptime: str,
+    uptime_seconds: float | None = None,
+):
+    """Сохраняет последнее успешно полученное значение uptime в кэше."""
+    if not uptime or uptime == "N/A":
+        return
+
+    with _MONITOR_LOCK:
+        monitor = load_monitor()
+        entry = monitor.setdefault(server_id, {})
+        system = entry.setdefault("system", {})
+        changed = system.get("uptime") != uptime
+        if changed:
+            system["uptime"] = uptime
+
+        if uptime_seconds is not None:
+            try:
+                seconds = float(uptime_seconds)
+            except (TypeError, ValueError):
+                seconds = None
+            if seconds is not None and seconds >= 0:
+                cached_seconds = system.get("uptime_seconds")
+                if changed or cached_seconds is None:
+                    if cached_seconds != seconds:
+                        system["uptime_seconds"] = seconds
+                        changed = True
+
+        if changed:
+            save_monitor(monitor)
+
+
 STATUS_VALID = "valid"
 STATUS_WARNING = "warning"
 STATUS_EXPIRED = "expired"
@@ -291,6 +324,7 @@ def check_server_availability(server):
             "kernel": info.get("kernel") or "N/A",
             "arch": info.get("arch") or "N/A",
             "uptime": info.get("uptime") or "N/A",
+            "uptime_seconds": info.get("uptime_seconds"),
         }
 
     event = update_server_availability(

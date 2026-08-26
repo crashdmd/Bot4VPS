@@ -1,7 +1,7 @@
 import { j, esc } from './api.js';
-import { toast, confirmAction } from './ui.js';
+import { toast, confirmAction, formatServerDateTime } from './ui.js';
 import { openEditor } from './editor.js?v=20260815-scripts-table-v1';
-import { openServer, openServerTerminal } from './servers.js?v=20260816-task-history-v3';
+import { openServer, openServerTerminal } from './servers.js?v=20260826-host-timezone-v2';
 import { state, setScripts } from './state.js';
 
 const SCRIPT_PAGE_SIZE = 9;
@@ -17,16 +17,7 @@ function displayName(script) {
 }
 
 function formatModified(value) {
-  if (value == null || value === '') return '—';
-  const numeric = Number(value);
-  const date = Number.isFinite(numeric)
-    ? new Date(numeric < 1_000_000_000_000 ? numeric * 1000 : numeric)
-    : new Date(value);
-  if (Number.isNaN(date.getTime())) return '—';
-  return new Intl.DateTimeFormat('ru-RU', {
-    day: '2-digit', month: '2-digit', year: 'numeric',
-    hour: '2-digit', minute: '2-digit',
-  }).format(date);
+  return formatServerDateTime(value);
 }
 
 function filteredScripts() {

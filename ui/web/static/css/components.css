@@ -511,6 +511,43 @@ button.ghost:hover,.btn.ghost:hover{
   min-width:7.5rem;
 }
 
+.telegram-health-modal{
+  width:min(500px,100%);
+}
+.telegram-health-modal h3{
+  margin:0 0 .75rem;
+}
+.telegram-health-summary{
+  margin:0;
+  color:var(--text-muted);
+  line-height:1.55;
+  white-space:pre-line;
+}
+.telegram-health-reason{
+  margin-top:1rem;
+  padding:.8rem .9rem;
+  border-left:3px solid var(--err);
+  border-radius:var(--radius-sm);
+  background:var(--err-bg);
+}
+.telegram-health-reason strong{
+  display:block;
+  margin-bottom:.25rem;
+  color:var(--text);
+}
+.telegram-health-reason p{
+  margin:0;
+  color:var(--text-muted);
+  line-height:1.5;
+}
+.telegram-health-actions{
+  justify-content:flex-start;
+  margin-top:1.15rem;
+}
+.telegram-health-actions button{
+  min-height:40px;
+}
+
 .modal-head h2{
   margin:0;
 }

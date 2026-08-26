@@ -23,3 +23,8 @@ DOCKER_COMPOSE_UPLOAD = {}
 # Короткие токены для длинных значений в callback_data (лимит Telegram — 64 байта):
 # user_id → {token: value}. Нужен для deployment key внешних Compose-проектов.
 DOCKER_CB_TOKENS = {}
+
+# Telegram Backup flow: user_id → presentation state; tokens/watchers are ephemeral.
+BACKUP_STATE = {}
+BACKUP_CB_TOKENS = {}
+BACKUP_WATCHERS = {}

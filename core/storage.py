@@ -3,6 +3,7 @@ import uuid
 import os
 import shutil
 import threading
+from copy import deepcopy
 from contextlib import contextmanager
 from core.event_service import create_event
 from core.event_types import EventType, EventLevel, EventReason
@@ -215,6 +216,132 @@ def find_server(server_id):
         ),
         None
     )
+
+
+def get_server_backup_profile(server_id: str):
+    """Вернуть валидированный backup profile сервера либо None."""
+    server = find_server(server_id)
+    if server is None:
+        raise ValueError("Сервер не найден")
+    profile = server.get("backup")
+    if profile is None:
+        return None
+    from core.backup.validation import normalize_server_profile
+    return normalize_server_profile(profile)
+
+
+def server_backup_configured(server) -> bool:
+    """Backup сервера считается настроенным только при непустом sources.
+
+    Пустой профиль — легальное состояние (пользователь убрал все адреса), но
+    запускать по нему backup нечего: UI обязан показывать «Backup не настроен» и
+    держать создание выключенным, иначе случайный клик создаст пустой архив.
+    """
+    if not isinstance(server, dict):
+        return False
+    profile = server.get("backup")
+    if not isinstance(profile, dict):
+        return False
+    sources = profile.get("sources")
+    return isinstance(sources, list) and bool(sources)
+
+
+_BACKUP_CONNECTION_FIELDS = (
+    "host",
+    "port",
+    "user",
+    "auth_type",
+    "password",
+    "key_path",
+)
+
+
+class BackupProfileConflictError(ValueError):
+    """Profile or SSH connection changed while remote validation was running."""
+
+
+def _backup_connection_snapshot(server: dict) -> dict:
+    return {
+        field: deepcopy(server.get(field))
+        for field in _BACKUP_CONNECTION_FIELDS
+        if field in server
+    }
+
+
+def get_server_backup_snapshot(server_id: str) -> dict:
+    """Atomically capture profile and connection inputs without opening SSH."""
+    with data_lock():
+        data = load_data()
+        for server in data.get("servers", []):
+            if server.get("id") == server_id:
+                return {
+                    "server": deepcopy(server),
+                    "profile": deepcopy(server.get("backup")),
+                    "connection": _backup_connection_snapshot(server),
+                }
+    raise ValueError("Сервер не найден")
+
+
+def compare_and_set_server_backup_profile(
+    server_id: str,
+    profile: dict,
+    *,
+    expected_profile,
+    expected_connection: dict,
+) -> dict:
+    """Commit one canonical profile iff the captured profile/connection still match."""
+    from core.backup.validation import normalize_server_profile
+
+    normalized = normalize_server_profile(profile)
+    with data_lock():
+        data = load_data()
+        for server in data.get("servers", []):
+            if server.get("id") != server_id:
+                continue
+            if (
+                server.get("backup") != expected_profile
+                or _backup_connection_snapshot(server) != expected_connection
+            ):
+                raise BackupProfileConflictError(
+                    "Профиль или SSH-настройки сервера изменились; обновите данные и повторите"
+                )
+            server["backup"] = normalized
+            save_data(data)
+            return normalized
+    raise ValueError("Сервер не найден")
+
+
+def set_server_backup_profile(server_id: str, profile: dict) -> dict:
+    """Атомарно записать servers[].backup по стабильному server_id."""
+    from core.backup.validation import normalize_server_profile
+    normalized = normalize_server_profile(profile)
+    with data_lock():
+        data = load_data()
+        for server in data.get("servers", []):
+            if server.get("id") == server_id:
+                server["backup"] = normalized
+                save_data(data)
+                return normalized
+    raise ValueError("Сервер не найден")
+
+
+def update_server_backup_profile(server_id: str, patch: dict) -> dict:
+    if not isinstance(patch, dict):
+        raise ValueError("Backup profile patch должен быть объектом")
+
+    def merge(target: dict, updates: dict) -> dict:
+        result = dict(target)
+        for key, value in updates.items():
+            if isinstance(value, dict) and isinstance(result.get(key), dict):
+                result[key] = merge(result[key], value)
+            else:
+                result[key] = value
+        return result
+
+    current = get_server_backup_profile(server_id)
+    if current is None:
+        raise ValueError("Backup profile сервера ещё не настроен")
+    return set_server_backup_profile(server_id, merge(current, patch))
 
 def cleanup_backups():
 

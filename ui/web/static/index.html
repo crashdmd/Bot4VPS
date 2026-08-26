@@ -10,9 +10,9 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://unpkg.com/twemoji@latest/dist/twemoji.min.js" crossorigin="anonymous"></script>
-<link rel="stylesheet" href="/static/css/layout.css?v=20260816-mobile-dashboard-v2"/>
+<link rel="stylesheet" href="/static/css/layout.css?v=20260826-host-timezone-v2"/>
 <link rel="stylesheet" href="/static/css/components.css?v=20260816-task-history-v3"/>
-<link rel="stylesheet" href="/static/css/pages.css?v=20260816-task-history-v3"/>
+<link rel="stylesheet" href="/static/css/pages.css?v=20260826-host-timezone-v2"/>
 <link rel="stylesheet" href="/static/vendor/xterm/xterm.css"/>
 <link rel="stylesheet" href="/static/vendor/codemirror/codemirror.min.css"/>
 <link rel="stylesheet" href="/static/vendor/codemirror/material-darker.min.css"/>
@@ -51,6 +51,9 @@
         <button type="button" data-page="files">
           <span class="icon">📂</span> Файлы
         </button>
+        <button type="button" data-page="backups">
+          <span class="icon">📦</span> Резервные копии
+        </button>
         <button type="button" data-page="queues">
           <span class="icon">📋</span> Задачи
         </button>
@@ -85,6 +88,11 @@
         <span class="search-icon">🔍</span>
       </div>
       <div class="status-line">
+        <div class="header-clock" title="Время локального хоста Bot4VPS">
+          <time id="header-time">—:—</time>
+          <span id="header-date" class="header-clock-date">—</span>
+        </div>
+        <span class="header-divider header-clock-divider"></span>
         <div class="status-item">
           <span class="dropdown-status-dot ok" id="header-system-dot"></span>
           <span id="header-system-status">Система в норме</span>
@@ -174,15 +182,6 @@
             <h1 class="dash-greeting">Добрый день!</h1>
             <p class="dash-subtitle">Вот что происходит с вашей инфраструктурой</p>
           </div>
-          <div class="dash-header-right">
-            <div class="dash-time-block">
-              <span class="dash-time-icon">🕐</span>
-              <div class="dash-time-info">
-                <div class="dash-time" id="dash-time">—</div>
-                <div class="dash-date" id="dash-date">—</div>
-              </div>
-            </div>
-          </div>
         </div>
 
         <!-- Метрики -->
@@ -253,12 +252,15 @@
       </section>
 
       <section class="page" id="page-servers">
-        <div class="section-head">
+        <div class="section-head servers-page-head">
           <h1>Серверы</h1>
-          <div style="display:flex;gap:0.5rem">
+          <div class="servers-page-actions">
             <button type="button" id="btn-add-server">＋ Добавить сервер</button>
             <button type="button" class="secondary" id="btn-groups-panel">⚙ Настройки групп</button>
           </div>
+        </div>
+        <div class="server-list-toolbar">
+          <div class="server-group-tabs tabs" id="server-group-tabs" role="tablist" aria-label="Группы серверов"></div>
         </div>
         <div id="servers"><div class="empty">Загрузка…</div></div>
       </section>
@@ -273,6 +275,10 @@
           <button type="button" class="mon-ip-copy" id="btn-copy-srv-ip"
                   title="Копировать IP" aria-label="Копировать IP">⧉</button>
           <span class="mon-ip-grow"></span>
+          <span class="srv-backup-sep">│</span>
+          <button type="button" class="srv-backup-btn" id="btn-open-backups"
+                  title="Открыть резервные копии сервера">📦 Backup</button>
+          <span class="srv-backup-sep">│</span>
           <span class="srv-ssh-status" id="srv-ssh-status">SSH: —</span>
           <span class="srv-term-sep hidden" id="srv-term-sep">│</span>
           <button type="button" class="srv-term-btn hidden" id="btn-open-terminal"
@@ -483,9 +489,8 @@
           </div>
 
           <div class="info-block">
-            <h2>Настройки мониторинга</h2>
+            <h2>Проверки мониторинга</h2>
             <div id="monitor-cfg" class="mon-cfg"><div class="empty">…</div></div>
-            <div id="monitor-result" class="mon-result"></div>
           </div>
 
           <div class="mon-col">
@@ -535,62 +540,162 @@
         <div id="events"><div class="empty">—</div></div>
       </section>
 
-      <section class="page" id="page-settings">
-        <div class="section-head"><h1>Настройки</h1></div>
-
-        <div class="settings-grid">
-          <div class="card" style="min-height:0">
-            <h3>🔐 Учётная запись</h3>
-            <div class="acc-note" id="acc-status">…</div>
-            <form id="acc-form" class="settings-form" onsubmit="return false;">
-              <label class="row">Логин</label>
-              <input id="acc-user" autocomplete="username"/>
-              <label class="row">Новый пароль <span class="hint">(≥ 6 символов, пусто = не менять)</span></label>
-              <div class="pw-wrap">
-                <input id="acc-pass" type="password" autocomplete="new-password"/>
-                <button type="button" class="eye" data-pw-toggle="acc-pass">👁</button>
-              </div>
-              <label class="row">Старый пароль <span class="hint" id="acc-old-hint"></span></label>
-              <div class="pw-wrap">
-                <input id="acc-old" type="password" autocomplete="current-password"/>
-                <button type="button" class="eye" data-pw-toggle="acc-old">👁</button>
-              </div>
-              <div class="actions" style="margin-top:.8rem">
-                <button type="button" id="acc-save">💾 Сохранить</button>
-                <button type="button" class="secondary" id="acc-toggle">…</button>
-              </div>
-            </form>
+      <section class="page" id="page-backups">
+        <div class="section-head backup-head">
+          <div>
+            <h1>Резервные копии</h1>
+            <p class="backup-lead">Bot4VPS и управляемые серверы</p>
           </div>
-        <div class="card" style="min-height:0">
-            <h3>📱 Telegram</h3>
-            <div class="acc-note" id="tg-status-line">Статус: …</div>
-            <div class="actions" style="margin:.6rem 0 .4rem;flex-wrap:wrap;gap:.4rem">
-              <button type="button" id="tg-start">Включить</button>
-              <button type="button" class="secondary" id="tg-stop">Выключить</button>
-              <button type="button" class="secondary" id="tg-restart">Перезапустить</button>
+        </div>
+        <div class="backup-layout">
+          <aside class="backup-target-panel" aria-label="Управляемые серверы">
+            <h2>Управляемые серверы</h2>
+            <div id="backup-target-list" class="backup-target-list"><div class="empty">Загрузка…</div></div>
+          </aside>
+          <section class="backup-target-workarea">
+            <div class="backup-workspace-main">
+              <div id="backup-target-heading" class="backup-target-heading"><div class="empty">Выберите сервер</div></div>
+              <div class="tabs backup-tabs" role="tablist" aria-label="Раздел Backup Manager">
+                <button type="button" class="on" role="tab" aria-selected="true" data-backup-tab="backups">Резервные копии</button>
+                <button type="button" role="tab" aria-selected="false" data-backup-tab="profile">Профиль</button>
+                <button type="button" role="tab" aria-selected="false" data-backup-tab="settings">Настройки</button>
+              </div>
+              <div id="backup-operations" class="backup-operations"></div>
+              <div id="backup-tab-body" class="backup-tab-body"><div class="empty">Загрузка…</div></div>
             </div>
-            <form id="tg-form" class="settings-form" onsubmit="return false;" style="margin-top:.8rem">
-              <label class="row">Telegram User ID</label>
-              <input id="tg-user-id" inputmode="numeric" autocomplete="off" placeholder="123456789"/>
-              <label class="row">Telegram Bot Token</label>
-              <div class="pw-wrap">
-                <input id="tg-bot-token" type="password" autocomplete="new-password" placeholder="Токен уже сохранён — введите новый, чтобы заменить"/>
-                <button type="button" class="eye" data-pw-toggle="tg-bot-token">👁</button>
-              </div>
-              <div class="hint" id="tg-token-hint" style="margin-top:.35rem"></div>
-              <div class="actions" style="margin-top:.8rem">
-                <button type="button" id="tg-save">💾 Сохранить</button>
-              </div>
-            </form>
-          </div>
+            <section class="backup-history-section" aria-labelledby="backup-history-title">
+              <div id="backup-history"></div>
+            </section>
+          </section>
+        </div>
+      </section>
 
-          </div>
+      <section class="page" id="page-settings">
+        <div class="settings-layout">
+          <aside class="settings-side" aria-label="Разделы настроек">
+            <div class="settings-side-head">
+              <span class="settings-side-eyebrow">BOT4VPS CONTROL</span>
+              <h1>Настройки</h1>
+              <p>Параметры панели и сервисов</p>
+            </div>
+            <nav id="settings-nav" class="settings-nav"></nav>
+          </aside>
+          <main id="settings-content" class="settings-content">
+            <div class="set-loading">Загрузка настроек…</div>
+          </main>
+        </div>
       </section>
     </div>
   </div>
 </div>
 
-<div id="nav-backdrop"></div>
+<div class="modal-bg" id="backup-source-picker-modal">
+  <div class="modal backup-source-picker-modal" role="dialog" aria-modal="true" aria-labelledby="backup-source-picker-title">
+    <div class="section-head backup-source-picker-head">
+      <div>
+        <h3 id="backup-source-picker-title">Выбор данных для backup</h3>
+        <p class="hint">Раскрывайте каталоги по мере необходимости. Корень / используется только для навигации.</p>
+      </div>
+    </div>
+    <div class="backup-source-picker-grid">
+      <section class="backup-source-picker-tree-panel" aria-labelledby="backup-source-picker-tree-title">
+        <div class="backup-source-picker-tree-head">
+          <h4 id="backup-source-picker-tree-title">Файловая система</h4>
+          <div class="backup-source-picker-toolbar">
+            <div>
+              <button type="button" class="secondary" id="backup-source-picker-select-all" disabled>Выбрать всё</button>
+              <button type="button" class="secondary" id="backup-source-picker-clear-all" disabled>Снять все</button>
+            </div>
+          </div>
+        </div>
+        <div id="backup-source-tree" class="backup-source-tree" aria-live="polite"><div class="empty">Загрузка…</div></div>
+      </section>
+      <section class="backup-source-picker-selected-panel" aria-labelledby="backup-source-picker-selected-title">
+        <div class="backup-source-picker-selected-head">
+          <h4 id="backup-source-picker-selected-title">Источники профиля</h4>
+          <span id="backup-source-picker-count">Выбрано источников: 0</span>
+        </div>
+        <div id="backup-source-picker-selected" class="backup-source-picker-selected"><div class="empty">Источники не выбраны</div></div>
+      </section>
+    </div>
+    <p id="backup-source-picker-error" class="form-error" role="alert"></p>
+    <div class="actions">
+      <button type="button" id="backup-source-picker-apply" disabled>Применить</button>
+      <button type="button" class="secondary" id="backup-source-picker-cancel">Отмена</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-bg" id="backup-exclusions-modal">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="backup-exclusions-title">
+    <h3 id="backup-exclusions-title" style="margin:0 0 .6rem">Исключения источника</h3>
+    <p id="backup-exclusions-source" class="hint"></p>
+    <label class="row" for="backup-exclusions-input">По одному относительному POSIX pattern на строку</label>
+    <textarea id="backup-exclusions-input" rows="8" placeholder="cache/**&#10;*.tmp"></textarea>
+    <p class="hint">Проверка выполняется существующим Backup core при сохранении профиля.</p>
+    <div class="actions">
+      <button type="button" id="backup-exclusions-apply">Применить</button>
+      <button type="button" class="secondary" id="backup-exclusions-cancel">Отмена</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-bg" id="backup-preview-modal">
+  <div class="modal backup-preview-modal" role="dialog" aria-modal="true" aria-labelledby="backup-preview-title">
+    <div class="section-head" style="margin-bottom:.6rem">
+      <h3 id="backup-preview-title" style="margin:0">Содержимое архива</h3>
+    </div>
+    <div id="backup-preview-body" class="backup-preview-body"></div>
+    <div class="actions backup-preview-actions">
+      <button type="button" id="backup-preview-refresh">Обновить предварительный просмотр</button>
+      <button type="button" class="secondary" id="backup-preview-close">Закрыть</button>
+      <button type="button" class="secondary backup-preview-inventory-action" id="backup-preview-inventory-action" disabled>Провести инвентаризацию архива</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-bg" id="backup-rename-modal">
+  <div class="modal backup-rename-modal" role="dialog" aria-modal="true" aria-labelledby="backup-rename-title">
+    <h3 id="backup-rename-title" style="margin:0 0 .6rem">Переименовать backup</h3>
+    <p id="backup-rename-message" class="hint"></p>
+    <label class="row" for="backup-rename-input">Имя backup</label>
+    <input id="backup-rename-input" type="text" maxlength="255" autocomplete="off">
+    <p id="backup-rename-error" class="form-error" role="alert"></p>
+    <div class="actions">
+      <button type="button" id="backup-rename-save">Сохранить</button>
+      <button type="button" class="secondary" id="backup-rename-cancel">Отмена</button>
+    </div>
+  </div>
+</div>
+
+<!-- Restore wizard: backup.js рисует в общем shell ровно один шаг за раз.
+     Клик по фону намеренно не закрывает диалог, чтобы не потерять выбор. -->
+<div class="modal-bg" id="backup-restore-modal">
+  <div class="modal backup-restore-modal" role="dialog" aria-modal="true" aria-labelledby="backup-restore-title">
+    <h3 id="backup-restore-title" style="margin:0 0 .6rem">Восстановление из backup</h3>
+    <div id="backup-restore-body" class="backup-restore-body"></div>
+    <p id="backup-restore-error" class="form-error" role="alert"></p>
+    <div class="actions" id="backup-restore-actions">
+      <button type="button" id="backup-restore-submit">Продолжить</button>
+      <button type="button" class="secondary" id="backup-restore-cancel">Отмена</button>
+      <button type="button" class="secondary hidden" id="backup-restore-abort">Отмена</button>
+      <button type="button" class="secondary hidden backup-restore-inventory-action" id="backup-restore-inventory-action" data-restore-inventory-retry>Провести инвентаризацию архива</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-bg" id="backup-import-conflict-modal">
+  <div class="modal backup-import-conflict-modal" role="dialog" aria-modal="true" aria-labelledby="backup-import-conflict-title">
+    <h3 id="backup-import-conflict-title" style="margin:0 0 .6rem">Имя backup уже занято</h3>
+    <p id="backup-import-conflict-message" class="confirm-modal-message"></p>
+    <div class="actions confirm-modal-actions">
+      <button type="button" id="backup-import-rename">Переименовать</button>
+      <button type="button" id="backup-import-replace" class="danger">Заменить</button>
+      <button type="button" id="backup-import-cancel" class="secondary">Отмена</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-bg" id="add-server-modal">
   <div class="modal">
     <h3 style="margin:0 0 .7rem">＋ Новый сервер</h3>
@@ -719,8 +824,23 @@
     <h3 id="confirm-modal-title">Подтвердите действие</h3>
     <div id="confirm-modal-message" class="confirm-modal-message"></div>
     <div class="actions confirm-modal-actions">
-      <button type="button" class="secondary" id="confirm-modal-cancel">Отмена</button>
       <button type="button" class="danger" id="confirm-modal-ok">Подтвердить</button>
+      <button type="button" class="secondary" id="confirm-modal-cancel">Отмена</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-bg" id="telegram-health-modal">
+  <div class="modal telegram-health-modal" role="dialog" aria-modal="true" aria-labelledby="telegram-health-title">
+    <h3 id="telegram-health-title">Telegram</h3>
+    <p id="telegram-health-summary" class="telegram-health-summary"></p>
+    <div id="telegram-health-reason" class="telegram-health-reason">
+      <strong>Причина:</strong>
+      <p id="telegram-health-reason-text"></p>
+    </div>
+    <div class="actions telegram-health-actions">
+      <button type="button" class="secondary" id="telegram-health-ok">ОК</button>
+      <button type="button" id="telegram-health-settings">Перейти в настройки ТГ</button>
     </div>
   </div>
 </div>
@@ -1106,53 +1226,7 @@
 <script src="/static/vendor/codemirror/codemirror.min.js"></script>
 <script src="/static/vendor/codemirror/shell.min.js"></script>
 <script src="/static/vendor/codemirror/yaml.min.js"></script>
-<script type="module" src="/static/js/app.js?v=20260816-journal-confirm-v1"></script>
-
-<script type="module">
-// Fallback: загрузка групп даже если app.js/onNav не вызвал loadGroupsAdmin
-async function __loadGroupsFallback() {
-  const box = document.getElementById('groups-list');
-  if (!box) return;
-  // уже отрисовано модулем?
-  if (box.querySelector('.group-row')) return;
-  try {
-    const r = await fetch('/api/groups', { credentials: 'same-origin' });
-    const t = await r.text();
-    let data;
-    try { data = t ? JSON.parse(t) : {}; } catch { throw new Error(r.status + ' ' + t.slice(0, 120)); }
-    if (!r.ok) throw new Error(data.detail || t || r.status);
-    const groups = data.groups || [];
-    if (!groups.length) {
-      box.innerHTML = '<div class="acc-note">Групп пока нет — создайте первую ниже</div>';
-      return;
-    }
-    const esc = s => String(s ?? '').replace(/[&<>"']/g, c =>
-      ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-    box.innerHTML = groups.map(g => {
-      const name = g.name != null ? String(g.name) : String(g);
-      const ssl = g.ssl_monitor ? 'checked' : '';
-      const n = g.servers != null ? g.servers : 0;
-      return `<div class="group-row" data-name="${esc(name)}">
-        <input class="grp-name" value="${esc(name)}" title="Переименовать"/>
-        <label class="grp-ssl"><input type="checkbox" class="grp-ssl-cb" ${ssl}/> SSL</label>
-        <span class="grp-count">${n} серв.</span>
-        <button type="button" class="secondary grp-save" title="Сохранить">💾</button>
-        <button type="button" class="secondary grp-del" title="Удалить" ${n > 0 ? 'disabled' : ''}>🗑</button>
-      </div>`;
-    }).join('');
-  } catch (e) {
-    box.innerHTML = `<div class="acc-note" style="color:var(--err)">Ошибка: ${String(e.message || e)}</div>`;
-  }
-}
-// сразу и при каждом показе настроек
-__loadGroupsFallback();
-const __ps = document.getElementById('page-settings');
-if (__ps) {
-  new MutationObserver(() => {
-    if (__ps.classList.contains('on')) __loadGroupsFallback();
-  }).observe(__ps, { attributes: true, attributeFilter: ['class'] });
-}
-</script>
+<script type="module" src="/static/js/app.js?v=20260826-host-timezone-v2"></script>
 
 
 <div class="modal-bg" id="tg-setup-modal">

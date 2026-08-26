@@ -1,19 +1,53 @@
-import json
+"""Журнал событий: одна запись — один файл ``logs/events/<event_id>.json``.
+
+Все операции проходят через sidecar lock каталога и атомарную запись
+(tmp + ``os.replace`` + fsync файла и каталога), поэтому журнал безопасен
+при одновременной работе Web, Telegram и фоновых заданий. Повреждённый
+файл изолируется в карантин и не влияет на остальные записи.
+
+Журнал хранит состояние события (``read``); доставка уведомлений
+выполняется через ``event_service`` и ``notification_queue``.
+"""
 import uuid
-import threading
-from pathlib import Path
 from datetime import datetime
+from pathlib import Path
 from typing import Dict, Any, List, Optional
+
+from core.json_store import JsonItemStore
 from .event_types import EventType, EventLevel
 
-EVENTS_FILE = Path("logs/events.json")
-EVENTS_FILE.parent.mkdir(exist_ok=True)
+EVENTS_DIR = Path("logs/events")
+
+
+def _events_limit_from_config() -> int:
+    """Лимит журнала из config.json (секция logs.events)."""
+    try:
+        from core.config import load_config
+        value = (load_config().get("logs") or {}).get("events")
+        if isinstance(value, int) and not isinstance(value, bool) and value >= 1:
+            return value
+    except Exception:
+        pass
+    return 200
+
 
 # Лимит размера журнала событий (старые сверх лимита обрезаются).
-MAX_EVENTS = 100
+MAX_EVENTS = _events_limit_from_config()
 
-# Блокировка для атомарных RMW над журналом (писатели в разных потоках).
-_EVENTS_LOCK = threading.RLock()
+_store = JsonItemStore(EVENTS_DIR, limit=MAX_EVENTS, name="EVENTS")
+
+
+def set_events_limit(limit: int) -> None:
+    """Горячая смена лимита журнала (Настройки → История и данные).
+
+    Обновляет лимит стора и сразу обрезает журнал под новый размер,
+    не дожидаясь следующей записи.
+    """
+    global MAX_EVENTS
+    n = max(1, int(limit))
+    _store.limit = n
+    MAX_EVENTS = n
+    _store.prune()
 
 
 def log_event(
@@ -36,13 +70,7 @@ def log_event(
         "read_time": None
     }
 
-    with _EVENTS_LOCK:
-        events = load_events()
-        events.append(event)
-        # Не даём журналу расти без границы — оставляем свежие.
-        if len(events) > MAX_EVENTS:
-            events = events[-MAX_EVENTS:]
-        save_events(events)
+    _store.append(event)
 
     # Журнал событий только сохраняет событие.
     # Доставка уведомлений выполняется через event_service.
@@ -52,27 +80,18 @@ def log_event(
 
 
 def load_events() -> List[Dict]:
-    if not EVENTS_FILE.exists():
-        return []
-    try:
-        with open(EVENTS_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except Exception:
-        return []
+    """Полный журнал (по возрастанию timestamp)."""
+    return _store.load()
 
 
 def save_events(events: List[Dict]):
-    with open(EVENTS_FILE, "w", encoding="utf-8") as f:
-        json.dump(events, f, ensure_ascii=False, indent=2)
+    """Полная замена журнала (совместимость, фактически — очистка)."""
+    _store.replace_all(events)
 
 
 def get_event(event_id: str) -> Optional[Dict]:
     """Возвращает актуальное событие по id или None, если оно отсутствует."""
-    with _EVENTS_LOCK:
-        for event in load_events():
-            if event.get("id") == event_id:
-                return event
-    return None
+    return _store.get(event_id)
 
 
 def get_events(limit: int = 100, level: Optional[EventLevel] = None) -> List[Dict]:
@@ -83,11 +102,9 @@ def get_events(limit: int = 100, level: Optional[EventLevel] = None) -> List[Dic
 
 
 def mark_as_read(event_id: str):
-    with _EVENTS_LOCK:
-        events = load_events()
-        for e in events:
-            if e["id"] == event_id:
-                e["read"] = True
-                e["read_time"] = datetime.now().isoformat()
-                break
-        save_events(events)
+    _store.update(event_id, read=True, read_time=datetime.now().isoformat())
+
+
+def clear_events() -> int:
+    """Очистить журнал; возвращает число удалённых событий."""
+    return _store.clear()

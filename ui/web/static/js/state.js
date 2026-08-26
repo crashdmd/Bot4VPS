@@ -11,6 +11,8 @@ export const state = {
   watchTaskId: null,
   page: 'dashboard',
   serverTab: 'status',
+  serverGroupTab: '__all__',
+  serverSort: { key: 'name', descending: false },
   // скрипт для запуска сразу после открытия терминала (режим «в терминале»); null — bare shell
   pendingTermScript: null,
   serverQuery: '',
@@ -49,4 +51,16 @@ export function setPage(page) {
 export function setServerTab(tab) {
   state.serverTab = tab;
   try { localStorage.setItem('bot4vps_server_tab', tab); } catch (_) {}
+}
+
+export function setServerGroupTab(tab) {
+  state.serverGroupTab = tab || '__all__';
+}
+
+export function setServerSort(key, descending = false) {
+  state.serverSort = { key, descending: !!descending };
+}
+
+export function setServerQuery(query) {
+  state.serverQuery = String(query || '');
 }

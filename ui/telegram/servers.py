@@ -336,13 +336,17 @@ async def show_group(query, group_name):
 
     keyboard = []
 
-    for server in group_servers:
-        keyboard.append([
-            InlineKeyboardButton(
-                server["name"],
-                callback_data=f"server:{server['id']}"
-            )
-        ])
+    server_buttons = [
+        InlineKeyboardButton(
+            server["name"],
+            callback_data=f"server:{server['id']}"
+        )
+        for server in group_servers
+    ]
+    keyboard.extend(
+        server_buttons[index:index + 2]
+        for index in range(0, len(server_buttons), 2)
+    )
 
     keyboard.append([
         InlineKeyboardButton(

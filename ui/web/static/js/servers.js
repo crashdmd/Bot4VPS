@@ -1,10 +1,11 @@
 import { j, esc } from './api.js';
 import { ansiToHtml } from './ansi.js';
-import { toast, showPage, onlineBadge, onlineBadgeWithPing, sslBadge, metricTile, bindPasswordToggles, parseEmoji, confirmAction } from './ui.js';
-import { state, setServers, setGroups, setKeys, setOpenServer, setPage, setServerTab } from './state.js';
+import { toast, showPage, bindPasswordToggles, parseEmoji, confirmAction, formatServerDateTime, serverDateTimeParts, serverDayDifference, serverNow } from './ui.js';
+import { state, setServers, setGroups, setKeys, setOpenServer, setPage, setServerGroupTab, setServerSort, setServerQuery as updateServerQuery } from './state.js';
 import { openTerminal, closeTerminal } from './terminal.js';
-import { openEventDetail, applyEventsSnapshot } from './monitor.js?v=20260816-task-history-v3';
+import { openEventDetail, applyEventsSnapshot } from './monitor.js?v=20260826-host-timezone-v2';
 import { openTaskLog, cancelTaskAPI } from './tasks.js?v=20260816-task-history-v3';
+import { openBackupsForServer } from './backup.js?v=20260826-host-timezone-v2';
 
 /** @deprecated use state.servers */
 export let lastServers = state.servers;
@@ -31,20 +32,37 @@ const metricsHistory = {
 };
 const HISTORY_MAX = 20;
 
-// Форматирование uptime в русском формате (5д 6ч 8м)
-function formatUptime(uptime) {
-  if (!uptime || uptime === 'N/A') return '—';
+// Форматирование uptime в русском компактном формате.
+function formatUptime(uptime, uptimeSeconds = null) {
+  if (uptime == null || uptime === '' || String(uptime).toUpperCase() === 'N/A') return '—';
 
-  const dMatch = uptime.match(/(\d+)\s+day/);
-  const hMatch = uptime.match(/(\d+)\s+hour/);
-  const mMatch = uptime.match(/(\d+)\s+minute/);
+  let seconds = uptimeSeconds == null || uptimeSeconds === ''
+    ? null
+    : Number(uptimeSeconds);
+  if (!Number.isFinite(seconds) || seconds < 0) {
+    const minutes = uptimeMinutes(uptime);
+    seconds = minutes == null ? null : minutes * 60;
+  }
+  if (!Number.isFinite(seconds) || seconds < 0) return String(uptime);
+  if (seconds < 60) return '<1м';
 
+  let minutes = Math.floor(seconds / 60);
+  const units = [
+    ['г', 365 * 24 * 60],
+    ['н', 7 * 24 * 60],
+    ['д', 24 * 60],
+    ['ч', 60],
+    ['м', 1],
+  ];
   const parts = [];
-  if (dMatch) parts.push(dMatch[1] + 'д');
-  if (hMatch) parts.push(hMatch[1] + 'ч');
-  if (mMatch) parts.push(mMatch[1] + 'м');
-
-  return parts.length > 0 ? parts.join(' ') : uptime;
+  units.forEach(([suffix, size]) => {
+    const count = Math.floor(minutes / size);
+    if (count) {
+      parts.push(`${count}${suffix}`);
+      minutes %= size;
+    }
+  });
+  return parts.join(' ') || '0м';
 }
 
 // Копирование в буфер обмена (как в monitor.js)
@@ -110,96 +128,473 @@ export async function loadServers() {
   }
 }
 
+const ALL_SERVER_GROUP = '__all__';
+const revealedServerHosts = new Set();
+let revealAllServerHosts = false;
+const SORT_DEFAULTS = {
+  name: false,
+  ssl: true,
+  online: false,
+  uptime: false,
+  group: false,
+};
+
+function serverGroupName(server) {
+  const value = String(server?.group ?? '').trim();
+  return value && value !== '—' ? value : '';
+}
+
+function configuredGroupNames() {
+  const names = [];
+  const add = name => {
+    const value = String(name ?? '').trim();
+    if (value && !names.includes(value)) names.push(value);
+  };
+
+  const known = new Set();
+  state.groups.forEach(group => {
+    const name = String(group?.name ?? group ?? '').trim();
+    if (name) known.add(name);
+  });
+  state.servers.forEach(server => {
+    const name = serverGroupName(server);
+    if (name) known.add(name);
+  });
+
+  let savedOrder = [];
+  let visibleGroups = null;
+  try {
+    const rawOrder = localStorage.getItem('bot4vps_group_order');
+    const rawVisible = localStorage.getItem('bot4vps_visible_groups');
+    if (rawOrder) savedOrder = JSON.parse(rawOrder);
+    if (rawVisible) visibleGroups = new Set(JSON.parse(rawVisible));
+  } catch (_) {}
+
+  savedOrder.forEach(name => {
+    if (known.has(String(name).trim())) add(name);
+  });
+  state.groups.forEach(group => add(group?.name ?? group));
+  state.servers.forEach(server => add(serverGroupName(server)));
+
+  if (!visibleGroups) return names;
+  // «Все» всегда содержит все серверы. Скрытую группу можно открыть по её
+  // ссылке в строке — в этом случае временно оставляем её вкладку доступной.
+  return names.filter(name => visibleGroups.has(name) || name === state.serverGroupTab);
+}
+
+function groupCount(name) {
+  return state.servers.filter(server => serverGroupName(server) === name).length;
+}
+
+function renderServerGroupTabs() {
+  const tabs = document.getElementById('server-group-tabs');
+  if (!tabs) return;
+
+  const groups = configuredGroupNames();
+  const active = state.serverGroupTab === ALL_SERVER_GROUP
+    || groups.includes(state.serverGroupTab)
+    ? state.serverGroupTab
+    : ALL_SERVER_GROUP;
+  if (active !== state.serverGroupTab) setServerGroupTab(active);
+
+  const tab = (value, label, count) => `
+    <button type="button" class="${active === value ? 'on' : ''}"
+            data-group-tab="${esc(value)}" role="tab"
+            aria-selected="${active === value ? 'true' : 'false'}">
+      <span>${esc(label)}</span><span class="server-group-count">${count}</span>
+    </button>`;
+
+  tabs.innerHTML = tab(ALL_SERVER_GROUP, 'Все', state.servers.length)
+    + groups.map(name => tab(name, name, groupCount(name))).join('');
+}
+
+function sslDays(server) {
+  if (!server?.certificate_check || server.ssl_days_left == null) return null;
+  const value = Number(server.ssl_days_left);
+  return Number.isFinite(value) ? value : null;
+}
+
+function uptimeMinutes(uptime) {
+  if (uptime == null || uptime === '' || String(uptime).toUpperCase() === 'N/A') {
+    return null;
+  }
+
+  const value = String(uptime).trim().toLowerCase();
+  const unitPatterns = [
+    [365 * 24 * 60, /(\d+(?:[.,]\d+)?)\s*(?:years?|год(?:а|ов)?|лет|г)\.?(?=$|[\s,;])/giu],
+    [7 * 24 * 60, /(\d+(?:[.,]\d+)?)\s*(?:weeks?|недел(?:я|и|ь)|нед)\.?(?=$|[\s,;])/giu],
+    [24 * 60, /(\d+(?:[.,]\d+)?)\s*(?:days?|день|дня|дней|д)\.?(?=$|[\s,;])/giu],
+    [60, /(\d+(?:[.,]\d+)?)\s*(?:hours?|час|часа|часов|ч)\.?(?=$|[\s,;])/giu],
+    [1, /(\d+(?:[.,]\d+)?)\s*(?:minutes?|минута|минуты|минут|м)\.?(?=$|[\s,;])/giu],
+    [1 / 60, /(\d+(?:[.,]\d+)?)\s*(?:seconds?|секунда|секунды|секунд|с)\.?(?=$|[\s,;])/giu],
+  ];
+  let total = 0;
+  let matched = false;
+
+  unitPatterns.forEach(([multiplier, pattern]) => {
+    let match;
+    while ((match = pattern.exec(value)) !== null) {
+      total += Number(match[1].replace(',', '.')) * multiplier;
+      matched = true;
+    }
+  });
+
+  if (matched) return total;
+
+  // Fallback `cat /proc/uptime`: первое число — секунды с запуска.
+  const seconds = Number.parseFloat(value.split(/\s+/)[0]);
+  return Number.isFinite(seconds) ? seconds / 60 : null;
+}
+
+function serverUptimeMinutes(server) {
+  const rawSeconds = server?.uptime_seconds;
+  if (rawSeconds != null && rawSeconds !== '') {
+    const seconds = Number(rawSeconds);
+    if (Number.isFinite(seconds) && seconds >= 0) return seconds / 60;
+  }
+  return uptimeMinutes(server?.uptime);
+}
+
+function sortValue(server, key) {
+  if (key === 'name') return String(server?.name || '').toLocaleLowerCase('ru-RU');
+  if (key === 'group') return serverGroupName(server).toLocaleLowerCase('ru-RU');
+  if (key === 'ssl') return sslDays(server);
+  if (key === 'uptime') return serverUptimeMinutes(server);
+  if (key === 'online') {
+    if (server?.online === true) return 0;
+    if (server?.online === false) return 1;
+    return 2;
+  }
+  return null;
+}
+
+function sortedServers(list) {
+  const sort = state.serverSort || { key: 'name', descending: false };
+  const key = SORT_DEFAULTS[sort.key] === undefined ? 'name' : sort.key;
+  const direction = sort.descending ? -1 : 1;
+  return list
+    .map((server, index) => ({ server, index, value: sortValue(server, key) }))
+    .sort((a, b) => {
+      if (key === 'ssl' || key === 'uptime') {
+        const aMissing = a.value == null;
+        const bMissing = b.value == null;
+        if (aMissing !== bMissing) return aMissing ? 1 : -1;
+      }
+      if (key === 'group') {
+        const aMissing = !a.value;
+        const bMissing = !b.value;
+        if (aMissing !== bMissing) return aMissing ? direction : -direction;
+      }
+      let result = 0;
+      if (typeof a.value === 'number' && typeof b.value === 'number') {
+        result = a.value - b.value;
+      } else {
+        result = String(a.value ?? '').localeCompare(String(b.value ?? ''), 'ru', {
+          sensitivity: 'base',
+          numeric: true,
+        });
+      }
+      return (result * direction) || (a.index - b.index);
+    })
+    .map(item => item.server);
+}
+
 function filteredServers() {
-  const q = (state.serverQuery || '').trim().toLowerCase();
-  const list = state.servers;
-  if (!q) return list;
-  return list.filter(s => {
-    const blob = [s.name, s.host, s.group, s.user, s.id].map(x => String(x || '').toLowerCase()).join(' ');
-    return q.split(/\s+/).every(part => blob.includes(part));
+  const group = state.serverGroupTab || ALL_SERVER_GROUP;
+  let list = state.servers;
+  if (group !== ALL_SERVER_GROUP) {
+    list = list.filter(server => serverGroupName(server) === group);
+  }
+
+  const query = (state.serverQuery || '').trim().toLowerCase();
+  if (query) {
+    list = list.filter(server => {
+      const blob = [server.name, server.host, serverGroupName(server), server.user, server.id]
+        .map(value => String(value || '').toLowerCase())
+        .join(' ');
+      return query.split(/\s+/).every(part => blob.includes(part));
+    });
+  }
+  return sortedServers(list);
+}
+
+function onlineCell(value) {
+  if (value === true) {
+    return '<span class="server-status server-status-online"><span class="server-status-dot"></span>Online</span>';
+  }
+  if (value === false) {
+    return '<span class="server-status server-status-offline"><span class="server-status-dot"></span>Offline</span>';
+  }
+  return '<span class="server-status server-status-unknown"><span class="server-status-dot"></span>Неизвестно</span>';
+}
+
+function sslCell(server) {
+  if (!server?.certificate_check) {
+    return '<span class="server-ssl server-ssl-disabled">SSL: не проверяется</span>';
+  }
+  const days = sslDays(server);
+  const daysText = days == null ? '' : ` · ${days} дн.`;
+  if (server.ssl_status === 'valid') {
+    return `<span class="server-ssl server-ssl-valid">SSL: норма${daysText}</span>`;
+  }
+  if (server.ssl_status === 'warning') {
+    return `<span class="server-ssl server-ssl-warning">SSL: скоро истечёт${daysText}</span>`;
+  }
+  if (server.ssl_status === 'expired') {
+    return '<span class="server-ssl server-ssl-expired">SSL: просрочен</span>';
+  }
+  if (server.ssl_status === 'error') {
+    return '<span class="server-ssl server-ssl-error">SSL: ошибка проверки</span>';
+  }
+  return '<span class="server-ssl server-ssl-unknown">SSL: нет данных</span>';
+}
+
+function sortableServerHeader(key, label) {
+  const sort = state.serverSort || { key: 'name', descending: false };
+  const active = sort.key === key;
+  const descending = active ? !!sort.descending : !!SORT_DEFAULTS[key];
+  const ariaSort = active ? (descending ? 'descending' : 'ascending') : 'none';
+
+  return `<th aria-sort="${ariaSort}">
+    <button type="button" class="server-column-sort${active ? ' on' : ''}"
+            data-sort-key="${esc(key)}" aria-pressed="${active ? 'true' : 'false'}"
+            title="Сортировать по столбцу «${esc(label)}»">
+      <span>${esc(label)}</span>
+      <span class="server-sort-arrow" aria-hidden="true">${active ? (descending ? '↓' : '↑') : ''}</span>
+    </button>
+  </th>`;
+}
+
+function serverHostHeader() {
+  const label = revealAllServerHosts
+    ? 'Скрыть IP всех серверов'
+    : 'Показать IP всех серверов';
+
+  return `<th>
+    <span class="server-host-heading">
+      <span>IP</span>
+      <button type="button" class="server-host-visibility${revealAllServerHosts ? ' on' : ''}"
+              data-host-visibility-toggle aria-pressed="${revealAllServerHosts ? 'true' : 'false'}"
+              title="${label}" aria-label="${label}">
+        <span aria-hidden="true">👁</span>
+      </button>
+    </span>
+  </th>`;
+}
+
+function serverIp(server) {
+  for (const rawValue of [server?.host_ip, server?.host]) {
+    const value = String(rawValue ?? '').trim();
+    if (!value) continue;
+
+    const ipv4 = value.split('.');
+    if (ipv4.length === 4 && ipv4.every(part => /^\d{1,3}$/.test(part)
+        && Number(part) >= 0 && Number(part) <= 255)) {
+      return value;
+    }
+
+    const ipv6 = value.startsWith('[') && value.endsWith(']')
+      ? value.slice(1, -1)
+      : value;
+    if (ipv6.includes(':')) {
+      try {
+        new URL(`http://[${ipv6}]/`);
+        return ipv6;
+      } catch (_) {}
+    }
+  }
+  return '';
+}
+
+function serverHostCell(server) {
+  const id = String(server?.id ?? '');
+  const ip = serverIp(server);
+  if (!ip) return '<span class="server-host-empty">—</span>';
+
+  const value = revealAllServerHosts || revealedServerHosts.has(id)
+    ? `<span class="server-host-value">${esc(ip)}</span>`
+    : `<button type="button" class="server-host-reveal" data-host-reveal="${esc(id)}"
+               title="Показать IP" aria-label="Показать IP сервера «${esc(server?.name || '')}»">
+         <span aria-hidden="true">••••••••</span>
+       </button>`;
+
+  return `<span class="server-host-content">
+    ${value}
+    <button type="button" class="server-host-copy" data-host-copy="${esc(id)}"
+            title="Копировать IP" aria-label="Копировать IP сервера «${esc(server?.name || '')}»">
+      <span aria-hidden="true">⧉</span>
+    </button>
+  </span>`;
+}
+
+function copyServerListIp(serverId, button) {
+  const server = state.servers.find(item => String(item?.id ?? '') === String(serverId ?? ''));
+  const ip = serverIp(server);
+  if (!ip) {
+    toast('IP-адрес недоступен', false);
+    return;
+  }
+
+  writeClipboard(ip).then(() => {
+    toast('IP скопирован', true);
+    button?.classList.add('copied');
+    setTimeout(() => button?.classList.remove('copied'), 1200);
+  }).catch(() => {
+    toast('Не удалось скопировать IP', false);
   });
 }
 
-function pluralizeServers(n) {
-  if (n % 10 === 1 && n % 100 !== 11) return 'сервер';
-  if ([2, 3, 4].includes(n % 10) && ![12, 13, 14].includes(n % 100)) return 'сервера';
-  return 'серверов';
+function renderServersTable(list) {
+  const rows = list.map(server => {
+    const group = serverGroupName(server);
+    const groupCell = group
+      ? `<button type="button" class="server-group-link" data-group-link="${esc(group)}">${esc(group)}</button>`
+      : '<span class="server-no-group">Без группы</span>';
+    return `<tr class="server-table-row" data-sid="${esc(server.id)}" tabindex="0" role="button">
+      <td class="server-name-cell" data-label="Имя"><strong>${esc(server.name || '—')}</strong>${server.has_running ? '<span class="server-running-mark" title="Идёт задача">▶</span>' : ''}</td>
+      <td class="server-host-cell" data-label="IP">${serverHostCell(server)}</td>
+      <td data-label="Статус">${onlineCell(server.online)}</td>
+      <td data-label="SSL">${sslCell(server)}</td>
+      <td class="server-uptime-cell" data-label="Uptime">${esc(formatUptime(server.uptime, server.uptime_seconds))}</td>
+      <td class="server-group-cell" data-label="Группа">${groupCell}</td>
+    </tr>`;
+  }).join('');
+
+  return `<div class="server-table-wrap">
+    <table class="server-table">
+      <thead><tr>
+        ${sortableServerHeader('name', 'Имя сервера')}
+        ${serverHostHeader()}
+        ${sortableServerHeader('online', 'Статус')}
+        ${sortableServerHeader('ssl', 'SSL')}
+        ${sortableServerHeader('uptime', 'Uptime')}
+        ${sortableServerHeader('group', 'Группа')}
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+  </div>`;
 }
 
-export function renderServersFromState() { renderServers(); }
+export function renderServersFromState() {
+  const currentTable = document.querySelector('#servers .server-table-wrap');
+  const scrollTop = currentTable?.scrollTop || 0;
+  const scrollLeft = currentTable?.scrollLeft || 0;
+
+  renderServers();
+
+  const nextTable = document.querySelector('#servers .server-table-wrap');
+  if (nextTable) {
+    nextTable.scrollTop = scrollTop;
+    nextTable.scrollLeft = scrollLeft;
+  }
+}
 
 export function renderServers() {
   const el = document.getElementById('servers');
+  if (!el) return;
+  renderServerGroupTabs();
+
+  if (!state.servers.length) {
+    el.innerHTML = '<div class="empty">Нет серверов</div>';
+    return;
+  }
   const list = filteredServers();
-  const hint = document.getElementById('server-search-hint');
-  if (hint) hint.textContent = state.serverQuery.trim() ? `${list.length} из ${state.servers.length}` : '';
-  if (!state.servers.length) { el.innerHTML = '<div class="empty">Нет серверов</div>'; return; }
-  if (!list.length) { el.innerHTML = '<div class="empty">Ничего не найдено</div>'; return; }
-  const by = {};
-  list.forEach(s => { const g = s.group || '(без группы)'; (by[g] = by[g] || []).push(s); });
+  if (!list.length) {
+    el.innerHTML = '<div class="empty">Ничего не найдено</div>';
+    return;
+  }
+  el.innerHTML = renderServersTable(list);
+}
 
-  // Получаем настройки отображения групп из localStorage
-  let groupOrder = [];
-  let visibleGroups = null;
-  try {
-    const savedOrder = localStorage.getItem('bot4vps_group_order');
-    const savedVisible = localStorage.getItem('bot4vps_visible_groups');
-    if (savedOrder) groupOrder = JSON.parse(savedOrder);
-    if (savedVisible) visibleGroups = new Set(JSON.parse(savedVisible));
-  } catch (_) {}
+export function setServerQuery(query) {
+  updateServerQuery(query);
+  renderServers();
+}
 
-  // Формируем список групп для отображения
-  const allGroups = Object.keys(by);
-  let orderedGroups = [];
+function selectServerGroupTab(tab) {
+  setServerGroupTab(tab);
+  renderServers();
+}
 
-  // Сначала добавляем группы в сохранённом порядке
-  groupOrder.forEach(g => {
-    if (by[g]) orderedGroups.push(g);
-  });
+function toggleServerSort(key) {
+  if (SORT_DEFAULTS[key] === undefined) return;
+  const current = state.serverSort || { key: 'name', descending: false };
+  const descending = current.key === key
+    ? !current.descending
+    : !!SORT_DEFAULTS[key];
+  setServerSort(key, descending);
+  renderServers();
+}
 
-  // Добавляем новые группы, которых нет в сохранённом порядке
-  allGroups.forEach(g => {
-    if (!orderedGroups.includes(g)) orderedGroups.push(g);
-  });
-
-  // Фильтруем по видимости, если настройка задана
-  if (visibleGroups) {
-    orderedGroups = orderedGroups.filter(g => visibleGroups.has(g));
+function bindServerListUI() {
+  const tabs = document.getElementById('server-group-tabs');
+  if (tabs && !tabs.dataset.bound) {
+    tabs.dataset.bound = '1';
+    tabs.addEventListener('click', event => {
+      const button = event.target.closest('[data-group-tab]');
+      if (button) selectServerGroupTab(button.dataset.groupTab);
+    });
   }
 
-  let h = '';
-  orderedGroups.forEach(g => {
-    const count = by[g].length;
-    h += `<div class="group-title">Группа ${esc(g)} · ${count} ${pluralizeServers(count)}</div><div class="grid">`;
-    h += by[g].map(s => `<div class="card clickable" data-sid="${esc(s.id)}">
-      <h3>${esc(s.name)}</h3>
-      <div class="row">${esc(s.host || '—')}</div>
-      <div class="row" style="margin-top:.4rem;gap:.5rem;flex-wrap:nowrap">
-        ${onlineBadgeWithPing(s.online, s.id)}
-        ${s.certificate_check ? sslBadge(s) : ''}
-      </div>
-      ${s.has_running ? '<div class="row">▶ идёт задача</div>' : ''}
-    </div>`).join('');
-    h += '</div>';
-  });
-  el.innerHTML = h;
-  el.querySelectorAll('[data-sid]').forEach(c => c.onclick = () => openServer(c.dataset.sid));
-  list.forEach(s => fillPing(s.id));
-}
+  const list = document.getElementById('servers');
+  if (list && !list.dataset.bound) {
+    list.dataset.bound = '1';
+    const openRow = row => {
+      if (row?.dataset.sid) openServer(row.dataset.sid);
+    };
+    list.addEventListener('click', event => {
+      const sortButton = event.target.closest('[data-sort-key]');
+      if (sortButton) {
+        event.preventDefault();
+        event.stopPropagation();
+        toggleServerSort(sortButton.dataset.sortKey);
+        return;
+      }
 
-async function fillPing(id) {
-  const el = document.getElementById('ping-' + id);
-  if (!el) return;
-  try {
-    const r = await j('/api/servers/' + encodeURIComponent(id) + '/ping');
-    if (r.ok) { el.textContent = r.ms + ' ms'; el.className = 'ping ok'; }
-    else { el.textContent = 'timeout'; el.className = 'ping bad'; }
-  } catch { el.textContent = '—'; el.className = 'ping'; }
-}
+      const hostVisibility = event.target.closest('[data-host-visibility-toggle]');
+      if (hostVisibility) {
+        event.preventDefault();
+        event.stopPropagation();
+        revealAllServerHosts = !revealAllServerHosts;
+        if (!revealAllServerHosts) revealedServerHosts.clear();
+        renderServersFromState();
+        return;
+      }
 
-export function setServerQuery(q) {
-  state.serverQuery = q;
-  renderServers();
+      const hostCopy = event.target.closest('[data-host-copy]');
+      if (hostCopy) {
+        event.preventDefault();
+        event.stopPropagation();
+        copyServerListIp(hostCopy.dataset.hostCopy, hostCopy);
+        return;
+      }
+
+      const hostReveal = event.target.closest('[data-host-reveal]');
+      if (hostReveal) {
+        event.preventDefault();
+        event.stopPropagation();
+        revealedServerHosts.add(String(hostReveal.dataset.hostReveal || ''));
+        renderServersFromState();
+        return;
+      }
+
+      const groupLink = event.target.closest('[data-group-link]');
+      if (groupLink) {
+        event.preventDefault();
+        event.stopPropagation();
+        selectServerGroupTab(groupLink.dataset.groupLink);
+        return;
+      }
+      openRow(event.target.closest('[data-sid]'));
+    });
+    list.addEventListener('keydown', event => {
+      if (event.key !== 'Enter' && event.key !== ' ') return;
+      const row = event.target.closest('[data-sid]');
+      if (!row || event.target.closest('button,a,input,select,textarea')) return;
+      event.preventDefault();
+      openRow(row);
+    });
+  }
 }
 
 export function stopWatchers() {
@@ -284,7 +679,7 @@ async function renderQuickActions(id) {
 
   // 1. Запустить скрипт
   addAction('Запустить скрипт', '▶', 'secondary',
-    () => import('./scripts.js?v=20260816-server-singleton-v1').then(m => m.openRunModal(id, null)));
+    () => import('./scripts.js?v=20260826-host-timezone-v2').then(m => m.openRunModal(id, null)));
 
   // 2. WireGuard
   if (wireGuardInstalled) {
@@ -309,6 +704,7 @@ async function renderQuickActions(id) {
       title: 'Перезагрузить сервер?',
       message: 'Сервер будет перезагружен.',
       confirmText: 'Перезагрузить',
+      confirmFirst: true,
     });
     if (!approved) return;
     try {
@@ -334,25 +730,13 @@ let _srvEventsList = [];
 let _srvEventsServerId = null;
 
 function _formatEventTime(ts) {
-  if (!ts) return '—';
-  const d = new Date(ts);
-  if (Number.isNaN(d.getTime())) {
-    // ISO без таймзоны / уже строка
-    const s = String(ts).replace('T', ' ');
-    return s.length >= 16 ? s.slice(11, 16) : s.slice(0, 16);
-  }
-  const now = new Date();
-  const startToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const startThat = new Date(d.getFullYear(), d.getMonth(), d.getDate());
-  const diffDays = Math.round((startToday - startThat) / 86400000);
-  const hh = String(d.getHours()).padStart(2, '0');
-  const mm = String(d.getMinutes()).padStart(2, '0');
-  if (diffDays === 0) return `${hh}:${mm}`;
+  const parts = serverDateTimeParts(ts);
+  if (!parts) return '—';
+  const diffDays = serverDayDifference(ts);
+  if (diffDays === 0) return `${parts.hour}:${parts.minute}`;
   if (diffDays === 1) return 'вчера';
-  const dd = String(d.getDate()).padStart(2, '0');
-  const mo = String(d.getMonth() + 1).padStart(2, '0');
-  if (d.getFullYear() === now.getFullYear()) return `${dd}.${mo}`;
-  return `${dd}.${mo}.${d.getFullYear()}`;
+  if (parts.year === serverDateTimeParts(serverNow())?.year) return `${parts.day}.${parts.month}`;
+  return `${parts.day}.${parts.month}.${parts.year}`;
 }
 
 function _eventMatchesServer(e, serverId) {
@@ -518,6 +902,7 @@ export function backFromTerminal() {
 
 
 export async function openServer(id) {
+  closeGroupsPanel();
   openServerId = id;
   setOpenServer(id, null);
   const terminalButton = document.getElementById('btn-open-terminal');
@@ -656,24 +1041,24 @@ const checkDockerStatus = id => checkServiceInstalled('docker', id);
 
 // Открыть панель WireGuard для сервера
 function openWireGuardServer(serverId) {
-  import('./wireguard.js?v=20260816-service-singleton-v1').then(m => m.openWgServerById(serverId));
+  import('./wireguard.js?v=20260826-host-timezone-v2').then(m => m.openWgServerById(serverId));
 }
 
 // Открыть модальное окно установки WireGuard
 function confirmInstallWireGuard(serverId) {
-  import('./wireguard.js?v=20260816-service-singleton-v1')
+  import('./wireguard.js?v=20260826-host-timezone-v2')
     .then(m => m.openInstall(serverId))
     .catch(err => console.error('Ошибка загрузки модуля WireGuard:', err));
 }
 
 // Открыть панель Docker для сервера
 function openDockerServer(serverId) {
-  import('./docker.js?v=20260816-service-singleton-v1').then(m => m.openDockerServerById(serverId));
+  import('./docker.js?v=20260826-host-timezone-v2').then(m => m.openDockerServerById(serverId));
 }
 
 // Открыть модальное окно установки Docker
 function confirmInstallDocker(serverId) {
-  import('./docker.js?v=20260816-service-singleton-v1')
+  import('./docker.js?v=20260826-host-timezone-v2')
     .then(m => m.openInstall(serverId))
     .catch(err => console.error('Ошибка загрузки модуля Docker:', err));
 }
@@ -804,6 +1189,26 @@ export async function refreshMetrics() {
       return;
     }
 
+    // Метрики карточки — тот же свежий источник uptime, который сохраняет
+    // backend в monitor.json. Синхронизируем уже загруженную строку сразу,
+    // чтобы после закрытия карточки список не показывал старое значение.
+    if (m.uptime && m.uptime !== 'N/A') {
+      const index = state.servers.findIndex(server => server.id === openServerId);
+      if (index >= 0) {
+        const current = state.servers[index];
+        const uptimeSeconds = m.uptime_seconds ?? current.uptime_seconds;
+        if (current.uptime !== m.uptime || current.uptime_seconds !== uptimeSeconds) {
+          state.servers[index] = {
+            ...current,
+            uptime: m.uptime,
+            uptime_seconds: uptimeSeconds,
+          };
+          lastServers = state.servers;
+          renderServers();
+        }
+      }
+    }
+
     const empty = m.cpu == null && m.ram_pct == null && m.disk_pct == null
       && (!m.load || m.load === 'N/A') && (!m.uptime || m.uptime === 'N/A');
     if (empty) {
@@ -888,7 +1293,7 @@ export async function refreshMetrics() {
             <span class="sw-label">Время работы</span>
             <span class="sw-icon">⏱</span>
           </div>
-          <div class="sw-value" style="font-size:1.2rem">${formatUptime(m.uptime)}</div>
+          <div class="sw-value" style="font-size:1.2rem">${formatUptime(m.uptime, m.uptime_seconds)}</div>
           <div class="sw-graph-empty"></div>
           <div class="sw-stats"><span></span></div>
         </div>
@@ -1017,11 +1422,7 @@ const HISTORY_STATUS = {
 };
 
 function formatTaskHistoryDate(value) {
-  if (!value) return '—';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return '—';
-  const pad = n => String(n).padStart(2, '0');
-  return `${pad(date.getDate())}.${pad(date.getMonth() + 1)}.${date.getFullYear()} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  return formatServerDateTime(value);
 }
 
 function renderTaskHistoryEmpty(message = 'История задач пуста') {
@@ -1240,6 +1641,7 @@ export async function deleteServer() {
     title: 'Удалить сервер?',
     message: `Сервер «${name}» будет удалён из Bot4VPS.`,
     confirmText: 'Удалить',
+    confirmFirst: true,
   });
   if (!approved) return;
   try {
@@ -1301,13 +1703,7 @@ export async function submitAddServer() {
 }
 
 export function bindServerUI() {
-  const search = document.getElementById('server-search');
-  if (search) {
-    search.addEventListener('input', () => setServerQuery(search.value));
-    search.addEventListener('keydown', e => {
-      if (e.key === 'Escape') { search.value = ''; setServerQuery(''); }
-    });
-  }
+  bindServerListUI();
   document.getElementById('btn-add-server')?.addEventListener('click', openAddServerModal);
   document.getElementById('btn-task-history-clear')?.addEventListener('click', clearTaskHistory);
   document.getElementById('btn-groups-panel')?.addEventListener('click', openGroupsPanel);
@@ -1319,6 +1715,10 @@ export function bindServerUI() {
     showPage('servers');
   });
   document.getElementById('btn-copy-srv-ip')?.addEventListener('click', copyServerIp);
+  document.getElementById('btn-open-backups')?.addEventListener('click', () => {
+    const sid = currentOpenServerId();
+    if (sid) openBackupsForServer(sid);
+  });
   document.getElementById('btn-open-terminal')?.addEventListener('click', () => openServerTerminal());
   document.getElementById('btn-back-from-terminal')?.addEventListener('click', () => backFromTerminal());
   document.getElementById('sf-auth')?.addEventListener('change', toggleAuthFields);
@@ -1342,8 +1742,9 @@ function openGroupsPanel() {
   const panel = document.getElementById('groups-panel');
   if (panel) {
     panel.classList.add('open');
-    // Загружаем списки групп при открытии панели
-    import('./settings.js').then(m => {
+    // Загружаем списки групп при открытии панели.
+    // Спецификатор тот же, что в app.js — единый инстанс модуля.
+    import('./groups_panel.js?v=20260819-groups-panel-v1').then(m => {
       m.loadGroupsAdmin();
       m.loadGroupsDisplayOrder();
     });

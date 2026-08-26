@@ -378,6 +378,7 @@ async def show_tasks_menu(query):
             # У Docker собственный хаб (owns_hub): проверка / установка /
             # Compose / серверы — диспетчер отдаст ему op "hub".
             [InlineKeyboardButton("🐳 Docker", callback_data="tasks_svc:docker")],
+            [InlineKeyboardButton("💾 Работа с Backup", callback_data="bk:entry:tasks")],
             [InlineKeyboardButton("📋 Задачи", callback_data="task_queues")],
             [InlineKeyboardButton("⬅️ Главное меню", callback_data="main")],
         ]),
@@ -387,6 +388,7 @@ async def show_tasks_menu(query):
 async def show_queues_overview(query):
     servers = load_servers()
     rows = []
+    server_buttons = []
     text_lines = ["📋 Задачи\n"]
     any_active = False
     for server in servers:
@@ -405,9 +407,13 @@ async def show_queues_overview(query):
         if st.paused:
             parts.append("⏸")
         label = f"{server['name']} · {' · '.join(parts)}"
-        rows.append([InlineKeyboardButton(label, callback_data=f"task_queue:{sid}")])
+        server_buttons.append(InlineKeyboardButton(label, callback_data=f"task_queue:{sid}"))
         text_lines.append(f"• {label}")
     text_lines.append("\nСейчас ничего не выполняется." if not any_active else "\nВыберите сервер:")
+    rows.extend(
+        server_buttons[index:index + 2]
+        for index in range(0, len(server_buttons), 2)
+    )
     rows.append([InlineKeyboardButton("⬅️ Задачи", callback_data="tasks")])
     rows.append([InlineKeyboardButton("🏠 Меню", callback_data="main")])
     await query.edit_message_text("\n".join(text_lines), reply_markup=InlineKeyboardMarkup(rows))

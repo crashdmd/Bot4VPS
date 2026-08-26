@@ -1,8 +1,12 @@
 import { esc } from './api.js';
 
 let serverTimeOffset = 0;
+let serverTimezone = 'UTC';
+const serverTimeFormatters = new Map();
 let confirmResolve = null;
 let confirmReturnFocus = null;
+let telegramHealthReturnFocus = null;
+let telegramHealthSettingsAction = null;
 
 function closeConfirmDialog(result) {
   const modal = document.getElementById('confirm-modal');
@@ -22,7 +26,7 @@ export function confirmAction({
   confirmText = 'Подтвердить',
   cancelText = 'Отмена',
   danger = true,
-  confirmFirst = false,
+  confirmFirst = true,
 } = {}) {
   const modal = document.getElementById('confirm-modal');
   if (!modal) return Promise.resolve(false);
@@ -58,6 +62,62 @@ export function confirmAction({
   return new Promise(resolve => { confirmResolve = resolve; });
 }
 
+export function showTelegramHealthDialog({ ok = false, code = '', reason = '', source = 'settings', onOpenSettings = null } = {}) {
+  const modal = document.getElementById('telegram-health-modal');
+  if (!modal) return;
+  telegramHealthReturnFocus = document.activeElement;
+  telegramHealthSettingsAction = typeof onOpenSettings === 'function' ? onOpenSettings : null;
+
+  const fromBackup = source === 'backup';
+  const notChecked = fromBackup && code === 'NOT_CONFIGURED';
+  document.getElementById('telegram-health-title').textContent = ok
+    ? '✓ Telegram работает'
+    : (notChecked ? 'Уведомления в ТГ не проверены'
+      : (fromBackup ? 'Уведомления в ТГ недоступны' : '✕ Telegram недоступен'));
+  document.getElementById('telegram-health-summary').textContent = ok
+    ? 'Бот доступен.\nТестовое сообщение успешно отправлено.'
+    : (notChecked
+      ? 'Доставка уведомлений через Telegram для сохранённых настроек ещё не проверена.'
+      : (fromBackup ? 'Отправка уведомлений в Telegram в данный момент не работает.' : ''));
+
+  const reasonBlock = document.getElementById('telegram-health-reason');
+  reasonBlock?.classList.toggle('hidden', ok);
+  document.getElementById('telegram-health-reason-text').textContent = reason || 'Причина не определена.';
+
+  const settings = document.getElementById('telegram-health-settings');
+  settings?.classList.toggle('hidden', !fromBackup);
+  modal.classList.add('open');
+  setTimeout(() => document.getElementById('telegram-health-ok')?.focus(), 30);
+}
+
+export function closeTelegramHealthDialog({ openSettings = false } = {}) {
+  const modal = document.getElementById('telegram-health-modal');
+  modal?.classList.remove('open');
+  const action = telegramHealthSettingsAction;
+  telegramHealthSettingsAction = null;
+  const returnFocus = telegramHealthReturnFocus;
+  telegramHealthReturnFocus = null;
+  if (openSettings && action) action();
+  else setTimeout(() => returnFocus?.focus?.(), 0);
+}
+
+export function bindTelegramHealthDialog() {
+  const modal = document.getElementById('telegram-health-modal');
+  if (!modal || modal.dataset.bound) return;
+  modal.dataset.bound = '1';
+  document.getElementById('telegram-health-ok')?.addEventListener('click', () => closeTelegramHealthDialog());
+  document.getElementById('telegram-health-settings')?.addEventListener('click', () => closeTelegramHealthDialog({ openSettings: true }));
+  modal.addEventListener('click', event => {
+    if (event.target === modal) closeTelegramHealthDialog();
+  });
+  modal.addEventListener('keydown', event => {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      closeTelegramHealthDialog();
+    }
+  });
+}
+
 export function toast(m, ok) {
   const e = document.createElement('div');
   e.className = 'toast ' + (ok ? 'ok' : 'err');
@@ -72,26 +132,151 @@ export function syncServerTime(server_ts) {
   }
 }
 
+export function syncServerTimezone(timezoneName) {
+  if (typeof timezoneName !== 'string' || !timezoneName) return false;
+  try {
+    new Intl.DateTimeFormat('ru-RU', { timeZone: timezoneName }).format(new Date());
+  } catch (_) {
+    return false;
+  }
+  if (serverTimezone !== timezoneName) {
+    serverTimezone = timezoneName;
+    serverTimeFormatters.clear();
+  }
+  return true;
+}
+
+export function syncServerClock({ server_ts, timezone } = {}) {
+  syncServerTime(server_ts);
+  syncServerTimezone(timezone);
+  tickClock();
+}
+
 export function serverNow() {
   return new Date(Date.now() + serverTimeOffset);
 }
 
-function pad(n) { return String(n).padStart(2, '0'); }
+function serverFormatter(key, options) {
+  let formatter = serverTimeFormatters.get(key);
+  if (!formatter) {
+    formatter = new Intl.DateTimeFormat('ru-RU', {
+      ...options,
+      timeZone: serverTimezone,
+    });
+    serverTimeFormatters.set(key, formatter);
+  }
+  return formatter;
+}
+
+const naiveServerTimestamp = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2})(?:\.\d+)?)?$/;
+
+function timestampParts(value) {
+  if (typeof value === 'string') {
+    const match = naiveServerTimestamp.exec(value.trim());
+    if (match) {
+      return {
+        year: match[1], month: match[2], day: match[3],
+        hour: match[4], minute: match[5], second: match[6] || '00',
+      };
+    }
+  }
+
+  let date;
+  if (value instanceof Date) {
+    date = value;
+  } else if (typeof value === 'number') {
+    date = new Date(value < 1_000_000_000_000 ? value * 1000 : value);
+  } else {
+    date = new Date(value);
+  }
+  if (Number.isNaN(date.getTime())) return null;
+
+  const parts = serverFormatter('timestamp-parts', {
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23',
+  }).formatToParts(date);
+  const byType = Object.fromEntries(parts.map(part => [part.type, part.value]));
+  return {
+    year: byType.year, month: byType.month, day: byType.day,
+    hour: byType.hour, minute: byType.minute, second: byType.second,
+  };
+}
+
+/**
+ * Разобрать timestamp как время локального хоста. Старые naive ISO-строки уже
+ * содержат host wall-clock и не должны ошибочно интерпретироваться браузером.
+ */
+export function serverDateTimeParts(value) {
+  if (value == null || value === '') return null;
+  return timestampParts(value);
+}
+
+export function serverDayDifference(value, reference = serverNow()) {
+  const valueParts = serverDateTimeParts(value);
+  const referenceParts = serverDateTimeParts(reference);
+  if (!valueParts || !referenceParts) return null;
+  const valueDay = Date.UTC(Number(valueParts.year), Number(valueParts.month) - 1, Number(valueParts.day));
+  const referenceDay = Date.UTC(Number(referenceParts.year), Number(referenceParts.month) - 1, Number(referenceParts.day));
+  return Math.round((referenceDay - valueDay) / 86400000);
+}
+
+export function formatServerTime(value, { seconds = false } = {}) {
+  const parts = serverDateTimeParts(value);
+  if (!parts) return '—';
+  return `${parts.hour}:${parts.minute}${seconds ? `:${parts.second}` : ''}`;
+}
+
+export function formatServerDateTime(value, { seconds = false } = {}) {
+  const parts = serverDateTimeParts(value);
+  if (!parts) return '—';
+  return `${parts.day}.${parts.month}.${parts.year} ${formatServerTime(value, { seconds })}`;
+}
+
+export function formatServerTimestamp(value) {
+  const parts = serverDateTimeParts(value);
+  if (!parts) return '—';
+  return `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute}:${parts.second}`;
+}
 
 export function formatClock(d) {
-  return pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds());
+  return serverFormatter('side-clock', {
+    hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23',
+  }).format(d);
 }
 
 export function formatDate(d) {
-  return pad(d.getDate()) + '.' + pad(d.getMonth() + 1) + '.' + d.getFullYear();
+  return serverFormatter('side-date', {
+    day: '2-digit', month: '2-digit', year: 'numeric',
+  }).format(d);
+}
+
+export function serverHour(d = serverNow()) {
+  const part = serverFormatter('hour', {
+    hour: '2-digit', hourCycle: 'h23',
+  }).formatToParts(d).find(item => item.type === 'hour');
+  return Number(part?.value ?? 0);
 }
 
 export function tickClock() {
   const d = serverNow();
-  const b = document.getElementById('side-clock');
-  const dt = document.getElementById('side-date');
-  if (b) b.textContent = formatClock(d);
-  if (dt) dt.textContent = formatDate(d);
+  const headerTime = document.getElementById('header-time');
+  const headerDate = document.getElementById('header-date');
+  if (headerTime) {
+    headerTime.textContent = serverFormatter('header-time', {
+      hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+    }).format(d);
+    headerTime.dateTime = d.toISOString();
+  }
+  if (headerDate) {
+    headerDate.textContent = serverFormatter('header-date', {
+      weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
+    }).format(d);
+  }
+
+  const sideClock = document.getElementById('side-clock');
+  const sideDate = document.getElementById('side-date');
+  if (sideClock) sideClock.textContent = formatClock(d);
+  if (sideDate) sideDate.textContent = formatDate(d);
 }
 
 /** Русское склонение числительных: 1 день / 2 дня / 5 дней.

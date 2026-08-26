@@ -7,7 +7,7 @@
 // Экраны: список серверов + экран сервера с вкладками
 // Контейнеры | Образы | Compose.
 import { j, esc } from './api.js';
-import { toast, showPage } from './ui.js';
+import { toast, showPage, serverDateTimeParts, serverDayDifference } from './ui.js';
 import { ansiToHtml } from './ansi.js';
 
 const SID = 'docker';
@@ -105,19 +105,16 @@ const srvBase = id => `/api/services/${SID}/${encodeURIComponent(id)}`;
 const stateUrl = id => `${srvBase(id)}/state`;
 const nameOf = id => (statusMap[id] && statusMap[id].name) || id;
 
-function pad(n) { return String(n).padStart(2, '0'); }
 function shortVer(v) {
   const m = String(v || '').match(/\d+\.\d+[\w.-]*/);
   return m ? m[0] : '';
 }
 function fmtSync(iso) {
-  if (!iso) return '';
-  const d = new Date(iso.replace(' ', 'T'));
-  if (isNaN(d)) return esc(iso);
-  const now = new Date();
-  const hm = pad(d.getHours()) + ':' + pad(d.getMinutes());
-  if (d.toDateString() === now.toDateString()) return 'сегодня, ' + hm;
-  return pad(d.getDate()) + '.' + pad(d.getMonth() + 1) + ', ' + hm;
+  const parts = serverDateTimeParts(iso);
+  if (!parts) return '';
+  const hm = `${parts.hour}:${parts.minute}`;
+  if (serverDayDifference(iso) === 0) return 'сегодня, ' + hm;
+  return `${parts.day}.${parts.month}, ${hm}`;
 }
 function stateBadge(st) {
   if (!st || !Object.keys(st).length) return '<span class="badge unk">⚪ не проверен</span>';
@@ -1850,7 +1847,7 @@ function watchTask(taskId, serverId, action) {
           try { localStorage.removeItem('bot4vps_docker_server_id'); } catch (_) {}
           if (dockerEntryContext === 'server' && sid) {
             try {
-              const { openServer } = await import('./servers.js?v=20260816-task-history-v3');
+              const { openServer } = await import('./servers.js?v=20260826-host-timezone-v2');
               await openServer(sid);
             } catch (_) {
               backToDockerList();
@@ -1915,7 +1912,7 @@ export function bindDockerUI() {
   document.getElementById('btn-back-docker-server')?.addEventListener('click', async () => {
     if (!dockerServerId) return;
     try {
-      const { openServer } = await import('./servers.js?v=20260816-task-history-v3');
+      const { openServer } = await import('./servers.js?v=20260826-host-timezone-v2');
       await openServer(dockerServerId);
     } catch (e) {
       console.error(e);

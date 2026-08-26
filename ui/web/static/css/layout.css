@@ -339,6 +339,26 @@ button{font-family:inherit;font-size:inherit}
   gap:1.5rem;
   margin-left:auto;
 }
+.header-clock{
+  display:flex;
+  align-items:baseline;
+  gap:.45rem;
+  min-width:0;
+  color:var(--text-muted);
+  font-size:.82rem;
+  line-height:1.2;
+  white-space:nowrap;
+}
+#header-time{
+  color:var(--text);
+  font-size:.9rem;
+  font-weight:700;
+  font-variant-numeric:tabular-nums;
+}
+.header-clock-date{
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
 .top .status-item{
   display:flex;
   align-items:center;
@@ -615,40 +635,6 @@ button{font-family:inherit;font-size:inherit}
   color:var(--text-muted);
   font-weight:400;
 }
-.dash-header-right{
-  display:flex;
-  align-items:center;
-}
-.dash-time-block{
-  display:flex;
-  align-items:center;
-  gap:0.75rem;
-  padding:0.75rem 1rem;
-  background:var(--card);
-  border:1px solid var(--border);
-  border-radius:var(--radius-md);
-}
-.dash-time-icon{
-  font-size:1.5rem;
-  line-height:1;
-}
-.dash-time-info{
-  display:flex;
-  flex-direction:column;
-  gap:0.15rem;
-}
-.dash-time{
-  font-size:0.95rem;
-  font-weight:700;
-  line-height:1.2;
-  color:var(--text);
-  font-variant-numeric:tabular-nums;
-}
-.dash-date{
-  font-size:0.8rem;
-  color:var(--text-muted);
-  line-height:1.2;
-}
 
 .grid{
   display:grid;
@@ -661,6 +647,7 @@ button{font-family:inherit;font-size:inherit}
 /* Адаптив — планшет */
 @media(max-width:1024px){
   :root{--side:224px}
+  .header-clock-date{display:none}
   .content{padding:1.25rem}
   .grid{grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:1rem}
 }
@@ -690,6 +677,9 @@ button{font-family:inherit;font-size:inherit}
   .top .status-line{gap:.35rem;flex-shrink:0}
   .top .status-line .status-item,
   .top .status-line .header-divider{display:none}
+  .header-clock{flex:0 0 auto;gap:0;font-size:.8rem}
+  .header-clock-date{display:none}
+  #header-time{font-size:.85rem}
   /* Контейнер кнопок оставляем как есть: свой display:flex он получает
      инлайново, а трогать его через `> div` нельзя — под тот же селектор
      попадает .dropdown-menu, который обязан оставаться скрытым до .show. */
@@ -717,8 +707,6 @@ button{font-family:inherit;font-size:inherit}
   .top{gap:.35rem}
   .top .search{padding:0.55rem 1rem 0.55rem 2.35rem;font-size:16px}
 
-  /* Дашборд на телефоне: сначала приветствие, ниже компактные часы. Так блоки
-     не конкурируют за одну строку и часы не накрывают текст. */
   .dash-header{
     flex-direction:column;
     align-items:stretch;
@@ -726,20 +714,6 @@ button{font-family:inherit;font-size:inherit}
     margin-bottom:1.25rem;
   }
   .dash-header-left{width:100%}
-  .dash-header-right{
-    width:100%;
-    justify-content:flex-end;
-  }
-  .dash-time-block{
-    width:max-content;
-    max-width:100%;
-    gap:.45rem;
-    padding:.4rem .6rem;
-    border-radius:var(--radius-sm);
-  }
-  .dash-time-icon{font-size:1rem}
-  .dash-time{font-size:.8rem}
-  .dash-date{font-size:.7rem}
   .dash-subtitle{
     line-height:1.35;
     overflow-wrap:normal;
@@ -821,8 +795,7 @@ button{font-family:inherit;font-size:inherit}
   .page,
   .section-head,
   .dash-header,
-  .dash-header-left,
-  .dash-header-right{
+  .dash-header-left{
     min-width:0;
     max-width:100%;
   }

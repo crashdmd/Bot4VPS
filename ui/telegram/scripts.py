@@ -71,12 +71,16 @@ async def view_script(query, script_name, page: int = 0):
 
 async def run_script_select_server(query, script_name, page: int = 0):
     servers = load_servers()
-    keyboard = [
-        [InlineKeyboardButton(
+    server_buttons = [
+        InlineKeyboardButton(
             s["name"],
             callback_data=f"run_script_server:{script_name}:{s['id']}:{page}",
-        )]
+        )
         for s in servers
+    ]
+    keyboard = [
+        server_buttons[index:index + 2]
+        for index in range(0, len(server_buttons), 2)
     ]
     keyboard.append([
         InlineKeyboardButton("❌ Отмена", callback_data=f"script:{script_name}:{page}")

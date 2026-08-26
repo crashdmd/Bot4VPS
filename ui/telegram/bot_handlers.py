@@ -5,6 +5,7 @@ from telegram.error import BadRequest
 
 from core.auth import is_allowed
 from core.event_types import EventType
+from core.telegram_health import TEST_MESSAGE_OK_CALLBACK
 from core.upload import process_upload_callback
 
 from ui.telegram.notifications import (
@@ -17,6 +18,7 @@ NOTIFICATION_HANDLERS = {
     EventType.SSL.value: handle_critical_event,
     EventType.SERVER.value: handle_critical_event,
     EventType.TASK.value: handle_critical_event,
+    EventType.BACKUP.value: handle_critical_event,
 }
 
 from ui.telegram.common import show_main_menu
@@ -28,6 +30,7 @@ from ui.telegram.handlers import (
     process_admin_callback,
     process_service_callback,
     process_task_callback,
+    process_backup_callback,
 )
 
 logger = logging.getLogger(__name__)
@@ -56,7 +59,9 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     data = query.data
 
-    if data == "main":
+    # Кнопка [ОК] под тестовым сообщением проверки Telegram возвращает в
+    # главное меню тем же механизмом, что и обычный callback "main".
+    if data == "main" or data == TEST_MESSAGE_OK_CALLBACK:
         await show_main_menu(query)
         return
     elif await process_upload_callback(query, data):
@@ -66,6 +71,8 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif await process_server_callback(query, data):
         return
     elif await process_admin_callback(query, data, context):
+        return
+    elif await process_backup_callback(query, data, context):
         return
     elif await process_key_callback(query, data):
         return

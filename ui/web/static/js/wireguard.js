@@ -6,7 +6,7 @@
 // конкретного сервера (#page-wireguard-server), а НЕ раскрытие внутри карточки.
 // Все диалоги — в стиле интерфейса (модалка #wg-dialog), без браузерных alert/prompt.
 import { j, esc } from './api.js';
-import { toast, showPage } from './ui.js';
+import { toast, showPage, serverDateTimeParts, serverDayDifference } from './ui.js';
 import { ansiToHtml } from './ansi.js';
 
 const SID = 'wireguard';
@@ -35,18 +35,15 @@ const stateUrl = id => `${srvBase(id)}/state`;
 const nameOf = id => (statusMap[id] && statusMap[id].name) || id;
 const profileCount = st => Array.isArray(st && st.profiles) ? st.profiles.length : 0;
 
-function pad(n) { return String(n).padStart(2, '0'); }
 function shortVer(v) { const m = String(v || '').match(/v?\d+\.\d+[\w.-]*/); return m ? m[0] : ''; }
 function fmtSync(iso) {
-  if (!iso) return '';
-  const d = new Date(iso.replace(' ', 'T'));
-  if (isNaN(d)) return esc(iso);
-  const now = new Date();
-  const hm = pad(d.getHours()) + ':' + pad(d.getMinutes());
-  if (d.toDateString() === now.toDateString()) return 'сегодня, ' + hm;
-  const y = new Date(now); y.setDate(now.getDate() - 1);
-  if (d.toDateString() === y.toDateString()) return 'вчера, ' + hm;
-  return pad(d.getDate()) + '.' + pad(d.getMonth() + 1) + ', ' + hm;
+  const parts = serverDateTimeParts(iso);
+  if (!parts) return '';
+  const hm = `${parts.hour}:${parts.minute}`;
+  const diffDays = serverDayDifference(iso);
+  if (diffDays === 0) return 'сегодня, ' + hm;
+  if (diffDays === 1) return 'вчера, ' + hm;
+  return `${parts.day}.${parts.month}, ${hm}`;
 }
 function isPrivateHost(h) {
   const m = String(h || '').trim().match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
@@ -1072,7 +1069,7 @@ function watchTask(taskId, serverId, action) {
 
             if (returnToServer) {
               try {
-                const { openServer } = await import('./servers.js?v=20260816-task-history-v3');
+                const { openServer } = await import('./servers.js?v=20260826-host-timezone-v2');
                 await openServer(serverId);
               } catch (_) {
                 backToWgList();
@@ -1231,7 +1228,7 @@ export function bindWireguardUI() {
     if (!wgServerId) return;
 
     try {
-      const { openServer } = await import('./servers.js?v=20260816-task-history-v3');
+      const { openServer } = await import('./servers.js?v=20260826-host-timezone-v2');
       await openServer(wgServerId);
     } catch (e) {
       console.error('Не удалось открыть карточку сервера:', e);

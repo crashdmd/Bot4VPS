@@ -1,91 +1,43 @@
 import { j, esc } from './api.js';
-import { toast, plural, confirmAction } from './ui.js';
+import { toast, plural, confirmAction, formatServerTimestamp } from './ui.js';
 
 // Кэш состояния updater'а (обновляется по кликам и во время установки;
 // SSE-перерисовки блока мониторинга используют кэш, запросов не плодят).
 let updateState = null;
 let updatePollTimer = null;
 
-export function renderMonitor(m) {
-  m = m || {};
-  const o = m.online || {}, s = m.ssl || {};
-  const u = m.update || {};
+// Карточка «Проверки мониторинга»: только ручные проверки.
+// Конфигурация (Online/SSL интервалы и тумблеры, автопроверка обновлений)
+// переехала в Настройки (settings.js: категории «Общие» и «Обновления»).
+export function renderMonitorChecks() {
   const el = document.getElementById('monitor-cfg');
   if (!el) return;
-  const updAvailable = !!(updateState && updateState.available);
-  const busy = !!(updateState && ['checking', 'downloading', 'installing', 'rolling_back'].includes(updateState.status));
-  const failed = !!(updateState && updateState.status === 'failed');
   el.innerHTML = `
     <div class="mon-cfg-item">
       <div class="mon-cfg-title">📡 Online</div>
-      <div class="mon-cfg-state">${o.enabled ? '🟢 Включён' : '⚪ Выключен'} · ${o.interval ?? '—'} мин</div>
+      <div class="mon-cfg-state">Доступность серверов (ping/SSH)</div>
       <div class="actions mon-cfg-actions">
-        <button type="button" class="secondary" data-m="online" data-en="${o.enabled ? 0 : 1}">${o.enabled ? 'Выкл' : 'Вкл'}</button>
-        <button type="button" class="secondary" data-mi="online" data-iv="1">1м</button>
-        <button type="button" class="secondary" data-mi="online" data-iv="5">5м</button>
-        <button type="button" class="secondary" data-mi="online" data-iv="15">15м</button>
         <button type="button" data-check="online">▶ Проверить</button>
       </div>
     </div>
     <div class="mon-cfg-item">
       <div class="mon-cfg-title">🔒 SSL</div>
-      <div class="mon-cfg-state">${s.enabled ? '🟢 Включён' : '⚪ Выключен'} · ${s.interval ?? '—'} мин</div>
+      <div class="mon-cfg-state">Срок действия сертификатов</div>
       <div class="actions mon-cfg-actions">
-        <button type="button" class="secondary" data-m="ssl" data-en="${s.enabled ? 0 : 1}">${s.enabled ? 'Выкл' : 'Вкл'}</button>
-        <button type="button" class="secondary" data-mi="ssl" data-iv="60">1ч</button>
-        <button type="button" class="secondary" data-mi="ssl" data-iv="1440">1д</button>
         <button type="button" data-check="ssl">▶ Проверить</button>
       </div>
-    </div>
-    <div class="mon-cfg-item">
-      <div class="mon-update-row">
-        <label class="mon-update-label"><input type="checkbox" data-upd-en ${u.enabled ? 'checked' : ''}> Проверять обновления</label>
-        <div class="actions mon-cfg-actions" ${u.enabled ? '' : 'style="display:none"'}>
-          <button type="button" ${busy ? 'disabled' : ''} ${updAvailable ? 'data-upd-install' : 'data-upd-check'}>${updAvailable ? 'Обновить' : 'Проверить обновления'}</button>
-          <button type="button" class="secondary" ${busy ? 'disabled' : ''} data-upd-history>История обновлений</button>
-        </div>
-      </div>
-      ${(failed && updateState && updateState.last_error) ? `<div class="mon-cfg-state" style="margin-top:.4rem;color:var(--danger,#e5484d)">⚠ ${esc(updateState.last_error)}</div>` : ''}
     </div>`;
-  el.querySelectorAll('[data-m]').forEach(b => b.onclick = async () => {
-    try {
-      await j('/api/monitor/config', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: b.dataset.m, enabled: b.dataset.en === '1' }),
-      });
-      toast('Сохранено', true);
-      const { loadSummary } = await import('./dashboard.js');
-      loadSummary();
-    } catch (e) { toast(e.message, false); }
-  });
-  el.querySelectorAll('[data-mi]').forEach(b => b.onclick = async () => {
-    try {
-      await j('/api/monitor/config', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: b.dataset.mi, interval: +b.dataset.iv }),
-      });
-      toast('Сохранено', true);
-      const { loadSummary } = await import('./dashboard.js');
-      loadSummary();
-    } catch (e) { toast(e.message, false); }
-  });
   el.querySelectorAll('[data-check]').forEach(b => b.onclick = () => runCheck(b));
-  bindUpdateControls(el);
 }
 
 // ==================== Обновления Bot4VPS ====================
 
-/** Загрузить состояние updater'а и перерисовать блок мониторинга. */
+/** Загрузить состояние updater'а и разослать подписчикам.
+ *  Подписчик — страница Настройки (категория «Обновления»). */
 export async function loadUpdateState() {
   try {
     updateState = await j('/api/update/state');
-    const el = document.getElementById('monitor-cfg');
-    if (el) {
-      // Перерисовка с сохранением актуального конфига: он приходит в SSE,
-      // но при ручном обновлении после клика конфиг мог не измениться.
-      const cfg = await j('/api/monitor/config').catch(() => null);
-      renderMonitor(cfg || {});
-    }
+    window.dispatchEvent(new CustomEvent('bot4vps:update-state', { detail: updateState }));
     scheduleUpdatePolling();
   } catch { /* блок недоступен — молча */ }
 }
@@ -102,7 +54,7 @@ function scheduleUpdatePolling() {
       if (prev && prev.status !== updateState.status) {
         if (updateState.status === 'idle' && prev.status !== 'idle') {
           toast('Обновление установлено', true);
-          const { loadSummary } = await import('./dashboard.js');
+          const { loadSummary } = await import('./dashboard.js?v=20260826-host-timezone-v2');
           loadSummary();
         } else if (updateState.status === 'failed') {
           toast('Ошибка обновления: ' + (updateState.last_error || 'неизвестная ошибка'), false);
@@ -114,68 +66,8 @@ function scheduleUpdatePolling() {
         loadUpdateState();
         return;
       }
-      // Лёгкое обновление кнопок без полного ре-рендера
-      const el = document.getElementById('monitor-cfg');
-      if (el) {
-        const checkBtn = el.querySelector('[data-upd-check],[data-upd-install]');
-        if (checkBtn) {
-          const map = { downloading: 'Скачивание…', installing: 'Установка… (перезапуск)', rolling_back: 'Откат…' };
-          checkBtn.textContent = map[updateState.status] || checkBtn.textContent;
-          checkBtn.disabled = true;
-        }
-      }
     } catch { /* сервер перезапускается —/network blip; продолжаем опрос */ }
   }, 2000);
-}
-
-function bindUpdateControls(el) {
-  const cb = el.querySelector('[data-upd-en]');
-  if (cb) cb.onchange = async () => {
-    const enabled = cb.checked;
-    try {
-      await j('/api/monitor/config', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: 'update', enabled }),
-      });
-      toast('Сохранено', true);
-      // Показать/скрыть кнопки на месте, без полного ре-рендера
-      const actions = el.querySelector('.mon-update-row .actions');
-      if (actions) actions.style.display = enabled ? '' : 'none';
-    } catch (e) {
-      cb.checked = !enabled;
-      toast(e.message, false);
-    }
-  };
-
-  const checkBtn = el.querySelector('[data-upd-check]');
-  if (checkBtn) checkBtn.onclick = () => runUpdateCheck(checkBtn);
-
-  const installBtn = el.querySelector('[data-upd-install]');
-  if (installBtn) installBtn.onclick = () => showUpdateModal();
-
-  const histBtn = el.querySelector('[data-upd-history]');
-  if (histBtn) histBtn.onclick = () => showHistoryModal();
-}
-
-async function runUpdateCheck(btn) {
-  const old = btn.textContent;
-  btn.disabled = true;
-  btn.textContent = 'Проверка…';
-  try {
-    const res = await j('/api/update/check', { method: 'POST' });
-    await loadUpdateState();
-    if (res.update_available) {
-      toast(`Доступна новая версия ${res.version}`, true);
-    } else if (res.error) {
-      toast('Ошибка проверки: ' + res.error, false);
-    } else {
-      toast('Обновлений нет', true);
-    }
-  } catch (e) {
-    btn.disabled = false;
-    btn.textContent = old;
-    toast(e.message, false);
-  }
 }
 
 /** Динамическая модалка (паттерн openEventDetail) с confirm/cancel. */
@@ -231,8 +123,9 @@ export async function showUpdateModal() {
   });
 }
 
-/** Модалка «История обновлений»: changelog текущей + Откатить (ТЗ п.13-14). */
-async function showHistoryModal() {
+/** Модалка «История обновлений»: changelog текущей + Откатить (ТЗ п.13-14).
+ *  Экспортирована для страницы Настроек («Обновления», «О программе»). */
+export async function showHistoryModal() {
   let data;
   try {
     data = await j('/api/update/changelog');
@@ -370,7 +263,6 @@ async function runCheck(b) {
     if (modalBody) modalBody.innerHTML = html;
     if (modalTitle) modalTitle.textContent = 'Результат проверки ' + kind;
     toast('Проверка ' + kind + ' завершена', true);
-    const { loadEvents } = await import('./dashboard.js').catch(() => ({}));
   } catch (e) {
     if (modalBody) modalBody.innerHTML = '<div class="empty" style="color:var(--err)">' + esc(e.message) + '</div>';
     if (modalTitle) modalTitle.textContent = 'Ошибка проверки';
@@ -470,7 +362,7 @@ export function renderEvents(list, id) {
     return `<div class="event ${esc(visualClass)} ${unreadClass}" data-event-id="${esc(eid)}" title="Открыть детали">
       <div class="barline"></div>
       <div class="body"><div class="title">${esc(e.title)}</div>
-      <div class="meta">${esc((e.timestamp || '').slice(0, 19).replace('T', ' '))}${sn ? ' · ' + esc(sn) : ''}${readLabel}</div></div></div>`;
+      <div class="meta">${esc(formatServerTimestamp(e.timestamp))}${sn ? ' · ' + esc(sn) : ''}${readLabel}</div></div></div>`;
   }).join('');
   el.scrollTop = prevScroll;
   el.querySelectorAll('[data-event-id]').forEach(node => {
@@ -514,7 +406,7 @@ export async function openEventDetail(eventId) {
   }
 
   const d = e.details || {};
-  const ts = (e.timestamp || '').slice(0, 19).replace('T', ' ');
+  const ts = formatServerTimestamp(e.timestamp);
   const lines = [
     ['Время', ts],
     ['Уровень', (e.level || '').toUpperCase()],
@@ -979,7 +871,8 @@ function renderServices(data) {
   else if (bot.state === 'disabled' || bot.detail === 'Выключен') botLabel = 'Выключен';
   else botLabel = bot.error ? `Ошибка · ${bot.error}` : 'Ошибка';
   const webOk = !!data.web?.ok;
-  const webDetail = (data.web && data.web.detail) || (webOk ? 'Работает' : 'Ошибка');
+  const rawWebDetail = (data.web && data.web.detail) || (webOk ? 'Работает' : 'Ошибка');
+  const webDetail = rawWebDetail === 'работает' ? 'Работает' : rawWebDetail;
   const rows = [
     { name: 'Telegram-бот', ok: botOk, label: botLabel, off: botLabel === 'Выключен' },
     { name: 'Web', ok: webOk, label: webDetail, off: false },
@@ -1000,13 +893,9 @@ function renderServices(data) {
 }
 
 async function loadMonitorConfig() {
-  const el = document.getElementById('monitor-cfg');
-  if (!el) return;
-  try {
-    renderMonitor(await j('/api/monitor/config'));
-  } catch (err) {
-    el.innerHTML = '<div class="empty">Не удалось загрузить настройки</div>';
-  }
+  // Карточка статична (только кнопки «Проверить»); конфиг мониторинга
+  // редактируется в Настройках — fetch больше не нужен.
+  renderMonitorChecks();
 }
 
 /* navigator.clipboard существует только в защищённом контексте (HTTPS или
@@ -1059,12 +948,12 @@ function copyIpAddress() {
 }
 
 async function restartBotService() {
-  if (!await confirmAction({ message: 'Перезапустить службу bot4vps?' })) return;
+  if (!await confirmAction({ message: 'Перезапустить службу bot4vps?', confirmFirst: true })) return;
   try {
     const res = await j('/api/system/restart', { method: 'POST' });
     toast(res.message || 'Служба перезапускается', true);
   } catch (err) {
-    toast('Ошибка при перезапуске службы', false);
+    toast(err.message || 'Ошибка при перезапуске службы', false);
   }
 }
 

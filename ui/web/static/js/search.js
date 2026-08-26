@@ -2,6 +2,7 @@
 import { esc } from './api.js';
 import { state, setPage } from './state.js';
 import { showPage } from './ui.js';
+import { setServerQuery as setServerListQuery } from './servers.js?v=20260826-host-timezone-v2';
 
 let searchResults = [];
 
@@ -10,8 +11,11 @@ export function bindGlobalSearch() {
   const resultsBox = createResultsBox();
 
   input?.addEventListener('input', (e) => {
-    const query = e.target.value.trim().toLowerCase();
+    const rawQuery = e.target.value;
+    const query = rawQuery.trim().toLowerCase();
+    setServerListQuery(rawQuery);
     if (query.length < 2) {
+      searchResults = [];
       resultsBox.style.display = 'none';
       return;
     }
@@ -28,6 +32,9 @@ export function bindGlobalSearch() {
 
   input?.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
+      input.value = '';
+      setServerListQuery('');
+      searchResults = [];
       resultsBox.style.display = 'none';
       input.blur();
     }
@@ -148,7 +155,7 @@ function renderResults(box, results) {
       const id = item.dataset.id;
 
       if (type === 'server') {
-        import('./servers.js?v=20260816-task-history-v3').then(m => {
+        import('./servers.js?v=20260826-host-timezone-v2').then(m => {
           setPage('servers');
           showPage('servers');
           m.openServer(id);
@@ -160,6 +167,8 @@ function renderResults(box, results) {
 
       box.style.display = 'none';
       document.getElementById('global-search').value = '';
+      setServerListQuery('');
+      searchResults = [];
     });
   });
 }

@@ -10,7 +10,9 @@ import asyncio
 import os
 import shutil
 import time
+from datetime import datetime, timezone
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
@@ -372,18 +374,25 @@ def _kernel() -> str:
 
 
 def _timezone() -> str:
-    """Часовой пояс."""
+    """Фактический IANA timezone локального хоста Bot4VPS."""
+    from core.timezone import (
+        HostTimezoneError,
+        current_timezone_name,
+        fallback_local_timezone_name,
+    )
+
     try:
-        import time
-        return time.tzname[time.daylight]
-    except Exception:
-        return "N/A"
+        return current_timezone_name()
+    except HostTimezoneError:
+        return fallback_local_timezone_name()
 
 
-def _server_time() -> str:
-    """Локальное время хоста, где запущен Bot4VPS: «ДД.ММ.ГГГГ ЧЧ:ММ:СС»."""
+def _server_time(timezone_name: str) -> str:
+    """Время хоста в подтверждённой IANA-зоне: «ДД.ММ.ГГГГ ЧЧ:ММ:СС»."""
     try:
-        return time.strftime("%d.%m.%Y %H:%M:%S", time.localtime())
+        return datetime.now(timezone.utc).astimezone(
+            ZoneInfo(timezone_name)
+        ).strftime("%d.%m.%Y %H:%M:%S")
     except Exception:
         return "N/A"
 
@@ -551,6 +560,7 @@ async def api_system():
         traffic, net_rx, net_tx = await _traffic()
         temp = _temp()
         os_info = _os_info()
+        timezone_name = await asyncio.to_thread(_timezone)
         return {
             "ok": True,
             "cpu": cpu,
@@ -565,8 +575,8 @@ async def api_system():
             "os": os_info["name"],
             "os_version": os_info["version"],
             "kernel": os_info["kernel"],
-            "timezone": _timezone(),
-            "server_time": _server_time(),
+            "timezone": timezone_name,
+            "server_time": _server_time(timezone_name),
             "uptime_seconds": _uptime(),
             # аптайм самого сервиса — виджет показывает его отдельно от хоста
             "service_uptime_seconds": await _service_uptime(),
@@ -652,11 +662,15 @@ async def api_system_journal(request: Request):
 
 @router.post("/api/system/restart")
 async def api_system_restart():
-    """Перезапуск службы bot4vps через systemctl."""
+    """Поставить перезапуск службы bot4vps в очередь через systemctl."""
     import subprocess
     try:
-        subprocess.run(
-            ["systemctl", "restart", "bot4vps"],
+        # Обработчик живёт внутри того же юнита. Обычный `restart` ждёт
+        # остановки текущего процесса, который в итоге убивает и systemctl
+        # вместе с HTTP-запросом. --no-block возвращает после постановки job.
+        await asyncio.to_thread(
+            subprocess.run,
+            ["systemctl", "--no-block", "restart", "bot4vps"],
             check=True,
             capture_output=True,
             timeout=5,
@@ -684,17 +698,47 @@ class TelegramSettingsBody(BaseModel):
     bot_token: str | None = None
 
 
+class TelegramHealthBody(BaseModel):
+    # Значения текущей формы. bot_token=None/"" означает «использовать
+    # сохранённый токен», потому что секрет никогда не возвращается в Web UI.
+    chat_id: str | int | None = None
+    bot_token: str | None = None
+
+
+def _saved_telegram_credentials() -> tuple[str, int | None]:
+    """Прочитать секрет только внутри backend, не добавляя его в payload."""
+    from core.config import (
+        _is_bot_token_configured,
+        _read_config_raw,
+        get_telegram_config,
+    )
+
+    raw = _read_config_raw()
+    token = str(raw.get("bot_token") or "").strip()
+    if not _is_bot_token_configured(token):
+        token = ""
+    return token, get_telegram_config().get("user_id")
+
+
 def _telegram_status_payload() -> dict:
     from core.config import get_telegram_config
+    from core.telegram_health import health_for_configuration
+
     cfg = get_telegram_config()
+    token, user_id = _saved_telegram_credentials()
     status = _bot_status()
     return {
         "ok": True,
         "enabled": bool(cfg.get("enabled", True)),
-        "user_id": cfg.get("user_id"),
+        "user_id": user_id,
         "token_set": bool(cfg.get("token_set")),
         "needs_setup": bool(cfg.get("needs_setup")),
         "status": status,
+        "health": health_for_configuration(
+            enabled=bool(cfg.get("enabled", True)),
+            token=token,
+            chat_id=user_id,
+        ),
     }
 
 
@@ -702,6 +746,60 @@ def _telegram_status_payload() -> dict:
 async def api_telegram_status():
     """Статус + настройки Telegram (токен никогда не отдаётся)."""
     return _telegram_status_payload()
+
+
+@router.post("/api/telegram/health")
+async def api_telegram_health(body: TelegramHealthBody):
+    """Проверить текущие значения формы реальной доставкой без сохранения."""
+    from bot import get_application
+    from core.config import get_telegram_config
+    from core.telegram_health import CHAT_UNAVAILABLE, check_health
+
+    cfg = get_telegram_config()
+    saved_token, saved_chat_id = _saved_telegram_credentials()
+
+    # Пустое поле Token в интерфейсе означает «оставить сохранённый» и не даёт
+    # Web UI получить секрет обратно. Непустое значение проверяется как есть.
+    submitted_token = str(body.bot_token or "").strip()
+    token = submitted_token or saved_token
+
+    if body.chat_id is None:
+        chat_id = saved_chat_id
+    else:
+        raw_chat_id = str(body.chat_id).strip()
+        if not raw_chat_id:
+            chat_id = None
+        else:
+            try:
+                chat_id = int(raw_chat_id)
+            except (TypeError, ValueError):
+                result = {
+                    "ok": False,
+                    "code": CHAT_UNAVAILABLE,
+                    "reason": "ID пользователя/чата должен быть числом.",
+                    "can_fix_in_settings": True,
+                }
+                return {
+                    **result,
+                    "applies_to_saved_config": False,
+                    "health": result,
+                }
+
+    application = get_application()
+    active_bot = application.bot if application is not None else None
+    result = await check_health(
+        enabled=bool(cfg.get("enabled", True)),
+        token=token,
+        chat_id=chat_id,
+        active_bot=active_bot,
+    )
+    payload = result.as_dict()
+    applies_to_saved = token == saved_token and chat_id == saved_chat_id
+    return {
+        **payload,
+        "applies_to_saved_config": applies_to_saved,
+        "health": payload,
+    }
 
 
 @router.post("/api/telegram/start")
@@ -813,14 +911,33 @@ async def api_telegram_restart():
 
 @router.post("/api/telegram/settings")
 async def api_telegram_settings(body: TelegramSettingsBody):
-    """Сохранить User ID и/или Bot Token. Токен пустой — не менять."""
+    """Сохранить User ID и/или Bot Token. Токен пустой — не менять.
+
+    Если токен заменён у работающего бота, Telegram-подсистема сразу
+    перезапускается с новым экземпляром Application. Один refresh глобальной
+    переменной недостаточен: уже созданный PTB Application хранит старый токен.
+    """
     from core.config import set_telegram_credentials
+
+    token_changed = body.bot_token is not None
+    was_running = False
+    if token_changed:
+        try:
+            from bot import is_telegram_running
+            was_running = is_telegram_running()
+        except Exception:
+            pass
 
     try:
         set_telegram_credentials(user_id=body.user_id, bot_token=body.bot_token)
         _refresh_bot_globals_safe()
+        if token_changed and was_running:
+            from bot import restart_telegram
+            await restart_telegram()
     except ValueError as e:
         return {"ok": False, "error": str(e), **_telegram_status_payload()}
     except Exception as e:
         return {"ok": False, "error": str(e), **_telegram_status_payload()}
-    return {"ok": True, "message": "Сохранено", **_telegram_status_payload()}
+
+    message = "Сохранено, Telegram-бот перезапущен" if token_changed and was_running else "Сохранено"
+    return {"ok": True, "message": message, **_telegram_status_payload()}
