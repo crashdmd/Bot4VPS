@@ -164,10 +164,13 @@ async def check_for_update(*, notify: bool) -> dict:
     Никогда не бросает исключение: ошибки сети уходят в
     state.last_check_error. Возвращает срез состояния для UI.
     """
-    if read_state()["status"] in _BUSY_STATUSES:
-        return {"status": read_state()["status"], "update_available": False,
+    state = read_state()
+    if state["status"] in _BUSY_STATUSES:
+        return {"status": state["status"], "update_available": False,
                 "busy": True}
 
+    # Guard и клейминг checking — синхронный код без await: на одном event
+    # loop два вызова не могут interleaving'ом оба пройти guard.
     write_state(status="checking")
     try:
         md = await asyncio.to_thread(fetch_changelog)
@@ -201,14 +204,34 @@ async def check_for_update(*, notify: bool) -> dict:
             status="idle",
         )
         return {"status": "idle", "update_available": False}
+    except asyncio.CancelledError:
+        # CancelledError — потомок BaseException: обычный except Exception
+        # его не ловит, и без этой ветки status навсегда застревал в checking.
+        if read_state().get("status") == "checking":
+            _reset_check_state("Проверка обновления отменена")
+        raise
     except Exception as e:  # сеть/парсинг — не роняем вызывающего
         message = _friendly_check_error(e)
-        write_state(
-            last_check=_now_iso(),
-            last_check_error=message,
-            status="idle",
-        )
+        if read_state().get("status") == "checking":
+            _reset_check_state(message)
+        else:
+            # Результат уже записан (сбой был в уведомлении) — не затираем его
+            write_state(last_check=_now_iso(), last_check_error=message)
         return {"status": "idle", "update_available": False, "error": message}
+
+
+def _reset_check_state(message: str) -> None:
+    """Согласованно завершить неуспешную проверку: выйти из checking и
+    сбросить артефакты ранее найденного обновления (available/changelog_new),
+    чтобы UI не показывал обновление, которого актуальная проверка не нашла."""
+    if CHANGELOG_NEW_FILE.exists():
+        CHANGELOG_NEW_FILE.unlink()
+    write_state(
+        available=None,
+        last_check=_now_iso(),
+        last_check_error=message,
+        status="idle",
+    )
 
 
 def _friendly_check_error(e: Exception) -> str:
@@ -464,6 +487,13 @@ async def init_on_startup() -> None:
                                   encoding="utf-8")
 
     state = read_state()
+    if state.get("status") == "checking":
+        # Проверка шла внутри процесса и не пережила перезапуск (раннер в ней
+        # не участвует, action отсутствует) — без сброса status остался бы
+        # checking навсегда и блокировал бы все последующие проверки.
+        write_state(status="idle",
+                    last_check_error="Проверка обновления прервана перезапуском")
+        state = read_state()
     action = state.get("action")
     if not action or state.get("status") not in _BUSY_STATUSES:
         # Обычный старт: синхронизировать current_version с кодом.
