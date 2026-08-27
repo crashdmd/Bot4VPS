@@ -158,6 +158,21 @@ def fetch_changelog() -> str:
 # Проверка обновлений
 # ==================================================================
 
+def _stale_available(state: dict) -> bool:
+    """available, не превосходящий установленную версию — показывать
+    «Доступна X» на установленной X бессмысленно. Оставался до фикса
+    _finalize_success; также покрывает ручную подмену кода без updater."""
+    available = state.get("available")
+    if not available:
+        return False
+    try:
+        return parse_version(str(available.get("version") or "")) <= parse_version(
+            APP_VERSION
+        )
+    except ValueError:
+        return True
+
+
 async def check_for_update(*, notify: bool) -> dict:
     """Сравнить верхнюю версию changelog из main с установленной.
 
@@ -499,6 +514,13 @@ async def init_on_startup() -> None:
         # Обычный старт: синхронизировать current_version с кодом.
         if state.get("current_version") != APP_VERSION:
             write_state(current_version=APP_VERSION)
+        # Лечение зависшего available (не новее установленной — мог
+        # остаться до фикса _finalize_success): баннер «Доступна X» на
+        # установленной X не должен переживать рестарт.
+        if _stale_available(state):
+            if CHANGELOG_NEW_FILE.exists():
+                CHANGELOG_NEW_FILE.unlink()
+            write_state(available=None)
         return
 
     # Старт после обновления/отката: сравнить код с целью операции.
@@ -527,6 +549,10 @@ def _finalize_success(state: dict, action: dict) -> None:
         current_version=APP_VERSION,
         previous_version=action.get("previous_version"),
         last_update_at=_now_iso(),
+        # available обязан сбрасываться вместе с changelog_new: иначе UI
+        # показывает «Доступна X» уже на установленной X, а клик по кнопке
+        # падает 404 «Нет доступного обновления» (changelog_new удалён).
+        available=None,
         action=None,
         pid=None,
         last_error=None,
