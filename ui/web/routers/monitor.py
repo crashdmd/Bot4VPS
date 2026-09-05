@@ -53,13 +53,12 @@ async def api_monitor_set(body: MonitorPatch):
                 set_monitor_interval(body.name, int(body.interval))
         else:
             raise HTTPException(400, "name: online|ssl|update")
-        # В unified-процессе пересоздаём jobs сразу (раньше только TG умел)
+        # Jobs мониторинга — собственность ядра: пересоздаём в ядерной
+        # очереди (раньше дёргали JobQueue PTB-приложения, что ломало
+        # мониторинг при выключенном Telegram).
         try:
-            from bot import get_application
-            from core.monitor import schedule_monitor_jobs
-            tg = get_application()
-            if tg is not None and tg.job_queue is not None:
-                schedule_monitor_jobs(tg.job_queue)
+            from core.jobs_runtime import reschedule_core_jobs
+            reschedule_core_jobs()
         except Exception as e:
             print(f"[WEB] monitor reschedule: {e}", flush=True)
         cfg = get_monitor_config()
@@ -125,7 +124,12 @@ def _tcp_ping_ms(host: str, port: int, timeout: float = 2.0):
         return False, round((time.perf_counter() - t0) * 1000, 1)
 
 
-def _snapshot_online():
+def _snapshot_online(probe_results: dict[str, dict] | None = None):
+    """Снимок статусов для модалки «Проверить».
+
+    probe_results — {server_id: {online, ms, method}} из лёгкого чека:
+    если переданы, сеть второй раз не трогаем, ping-мс берём из пробы.
+    """
     from core.storage import load_servers
     from core.monitor import get_server_monitor
     rows = []
@@ -133,7 +137,8 @@ def _snapshot_online():
     for s in load_servers():
         mon = get_server_monitor(s["id"]) or {}
         avail = mon.get("availability") or {}
-        on = avail.get("online")
+        probe = (probe_results or {}).get(s["id"]) or {}
+        on = probe.get("online", avail.get("online"))
         if on is True:
             online_n += 1
             st = "online"
@@ -143,28 +148,17 @@ def _snapshot_online():
         else:
             unk += 1
             st = "unknown"
-        host = s.get("host") or ""
-        ms, method = None, "—"
-        try:
-            from core.servers import _probe_network
-            latency, net = _probe_network(host)
-            if latency is not None:
-                ms = latency
-            method = "Ping" if net == "ping" else ("HTTP" if net == "http" else "—")
-        except Exception:
-            port = int(s.get("port") or 22)
-            ok_ping, ms2 = _tcp_ping_ms(host, port)
-            if ok_ping:
-                ms = ms2
-                method = "Ping"
+        ms = probe.get("ms")
+        method = probe.get("method") or "—"
         rows.append({
             "id": s["id"],
             "name": s.get("name"),
             "status": st,
             "online": on,
-            "ms": ms if st == "online" else (ms if ms is not None else None),
-            "method": method if st == "online" else method,
+            "ms": ms,
+            "method": method,
             "error": avail.get("last_error") or "",
+            "ssh_error": avail.get("ssh_error") or "",
         })
     return {
         "rows": rows,
@@ -173,6 +167,54 @@ def _snapshot_online():
         "unknown": unk,
         "total": len(rows),
     }
+
+
+def _light_online_check(servers: list[dict]) -> tuple[dict[str, dict], list[dict]]:
+    """Параллельная лёгкая проба всех серверов (новый критерий: ICMP →
+    TCP port → 80 → 443). Возвращает ({server_id: {online, ms, method}},
+    [events]).
+
+    Статус и событие смены пишутся/создаются здесь один раз;
+    network-зонд один — snapshot сеть второй раз не трогает.
+    """
+    from concurrent.futures import ThreadPoolExecutor
+
+    from core.monitor import update_server_availability
+    from core.servers import _probe_network
+
+    def _one(server: dict) -> tuple[dict, dict | None]:
+        host = server.get("host") or ""
+        port = server.get("port") or 22
+        try:
+            ms, network = _probe_network(host, port)
+        except Exception:
+            ms, network = None, "none"
+        online = network != "none"
+        method = "Ping" if network == "ping" else ("TCP" if network == "tcp" else ("HTTP" if network == "http" else "—"))
+        result = {"online": online, "ms": ms, "method": method}
+        event = None
+        try:
+            event = update_server_availability(server, online=online, error="")
+        except Exception as e:
+            print(f"[MONITOR CHECK] {server.get('name', '?')}: {e}", flush=True)
+        return result, event
+
+    results: dict[str, dict] = {}
+    events: list[dict] = []
+    if not servers:
+        return results, events
+    with ThreadPoolExecutor(max_workers=min(16, len(servers))) as ex:
+        futures = {ex.submit(_one, s): s for s in servers}
+        for future, server in futures.items():
+            try:
+                result, event = future.result()
+                results[server["id"]] = result
+                if event:
+                    events.append(event)
+            except Exception as e:
+                print(f"[MONITOR CHECK] {server.get('name', '?')}: {e}", flush=True)
+                results[server["id"]] = {"online": None, "ms": None, "method": "—"}
+    return results, events
 
 
 def _snapshot_ssl():
@@ -214,23 +256,22 @@ async def api_monitor_check(kind: str):
 
         if kind == "online":
             from core.storage import load_servers
-            from core.monitor import check_server_availability
 
-            for server in load_servers():
+            # Лёгкий параллельный чек: новый критерий доступности
+            # (ICMP → TCP port → 80 → 443), без SSH. События о смене
+            # статуса собираются в самой пробе (один network-зонд).
+            servers = load_servers()
+            probe_results, events = await asyncio.to_thread(
+                _light_online_check, servers
+            )
+            for event in events:
+                changed.append(event)
                 try:
-                    _info, event = await asyncio.to_thread(
-                        check_server_availability, server
-                    )
-                    if event:
-                        changed.append(event)
-                        try:
-                            await _notify_online_event(event)
-                        except Exception as ne:
-                            print(f"[WEB] notify online: {ne}", flush=True)
-                except Exception as e:
-                    print(f"[WEB] online check {server.get('name')}: {e}", flush=True)
+                    await _notify_online_event(event)
+                except Exception as ne:
+                    print(f"[WEB] notify online: {ne}", flush=True)
 
-            snap = _snapshot_online()
+            snap = _snapshot_online(probe_results)
             return {
                 "ok": True,
                 "kind": "online",

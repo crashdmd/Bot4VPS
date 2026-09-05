@@ -23,7 +23,13 @@ class TaskHistoryStore:
         validator: Optional[Callable[[dict[str, Any]], Any]] = None,
     ):
         self._store = JsonItemStore(
-            path, limit=limit, name="TASK HISTORY", validator=validator
+            path,
+            limit=limit,
+            name="TASK HISTORY",
+            validator=validator,
+            # Записи задач несут created_at (timestamp — поле событий);
+            # записи без обоих полей упорядочиваются по id, как раньше.
+            sort_fields=("created_at", "timestamp"),
         )
 
     @property

@@ -12,7 +12,7 @@
 <script src="https://unpkg.com/twemoji@latest/dist/twemoji.min.js" crossorigin="anonymous"></script>
 <link rel="stylesheet" href="/static/css/layout.css?v=20260826-host-timezone-v2"/>
 <link rel="stylesheet" href="/static/css/components.css?v=20260816-task-history-v3"/>
-<link rel="stylesheet" href="/static/css/pages.css?v=20260826-host-timezone-v2"/>
+<link rel="stylesheet" href="/static/css/pages.css?v=20260905-revokesudo-v3"/>
 <link rel="stylesheet" href="/static/vendor/xterm/xterm.css"/>
 <link rel="stylesheet" href="/static/vendor/codemirror/codemirror.min.css"/>
 <link rel="stylesheet" href="/static/vendor/codemirror/material-darker.min.css"/>
@@ -291,7 +291,7 @@
               <div id="srv-info"></div>
             </div>
             <div class="info-block">
-              <h2>Быстрые действия</h2>
+              <h2>Действия с сервером</h2>
               <div id="srv-quick-actions" style="display:flex;flex-direction:column;gap:0.5rem"></div>
             </div>
           </div>
@@ -314,6 +314,27 @@
           <button type="button" class="secondary" id="term-reconnect">⟳ Переподключить</button>
         </div>
         <div id="term-xterm" class="term-host term-host-full"></div>
+      </section>
+
+      <section class="page" id="page-quick-setup">
+        <button type="button" class="back" id="btn-back-from-quick-setup">← Вернуться к серверу</button>
+        <div class="settings-layout qs-layout">
+          <aside class="settings-side" aria-label="Разделы настроек сервера">
+            <div class="settings-side-head">
+              <span class="settings-side-eyebrow">SERVER SETUP</span>
+              <h1>⚙ Настройки сервера</h1>
+              <p id="qs-server-meta">
+                <span id="qs-server-name">—</span>
+                <span class="qs-meta-sep">·</span>
+                <span id="qs-server-ip">—</span>
+              </p>
+            </div>
+            <nav id="qs-nav" class="settings-nav" aria-label="Разделы"></nav>
+          </aside>
+          <main id="qs-body" class="settings-content qs-body">
+            <div class="empty">Загрузка…</div>
+          </main>
+        </div>
       </section>
 
       <section class="page" id="page-scripts">
@@ -819,6 +840,16 @@
   </div>
 </div>
 
+<div class="modal-bg" id="qs-list-modal">
+  <div class="modal" style="width:min(480px,100%)" role="dialog" aria-modal="true" aria-labelledby="qs-list-modal-title">
+    <div class="modal-head">
+      <h2 id="qs-list-modal-title">Список</h2>
+      <button type="button" class="modal-close" id="qs-list-modal-close" aria-label="Закрыть">×</button>
+    </div>
+    <div id="qs-list-modal-body" class="qs-list-modal-body"></div>
+  </div>
+</div>
+
 <div class="modal-bg" id="confirm-modal">
   <div class="modal confirm-modal" role="dialog" aria-modal="true" aria-labelledby="confirm-modal-title">
     <h3 id="confirm-modal-title">Подтвердите действие</h3>
@@ -1147,77 +1178,6 @@
 
 <div class="toast-wrap" id="toasts"></div>
 
-<!-- Модальное окно редактирования сервера -->
-<div class="modal-bg server-settings-modal" id="edit-server-modal">
-  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="edit-server-title">
-    <h2 id="edit-server-title">Изменить настройки сервера</h2>
-    <form id="srv-settings-form" class="settings-form server-settings-form" onsubmit="return false;">
-      <div class="server-settings-fields">
-        <div class="server-settings-field">
-          <label for="sf-name">Имя</label>
-          <input id="sf-name"/>
-        </div>
-        <div class="server-settings-field">
-          <label for="sf-group">Группа</label>
-          <select id="sf-group"></select>
-        </div>
-        <div class="server-settings-field server-settings-host">
-          <label for="sf-host">Host</label>
-          <input id="sf-host"/>
-        </div>
-        <div class="server-settings-field server-settings-port">
-          <label for="sf-port">SSH порт</label>
-          <input id="sf-port" type="number" min="1" max="65535"/>
-        </div>
-        <div class="server-settings-field">
-          <label for="sf-user">User</label>
-          <input id="sf-user"/>
-        </div>
-        <div class="server-settings-field">
-          <label for="sf-auth">Auth</label>
-          <select id="sf-auth">
-            <option value="password">password</option>
-            <option value="key">key</option>
-          </select>
-        </div>
-        <div class="server-settings-field" id="sf-pass-wrap">
-          <label for="sf-password">Пароль <span class="hint">пусто = не менять</span></label>
-          <div class="pw-wrap">
-            <input id="sf-password" type="password" autocomplete="new-password"/>
-            <button type="button" class="eye" data-pw-toggle="sf-password" title="Показать">👁</button>
-          </div>
-        </div>
-        <div class="server-settings-field hidden" id="sf-key-wrap">
-          <label for="sf-key">SSH-ключ</label>
-          <select id="sf-key"></select>
-        </div>
-        <div class="server-settings-field server-sudo-control hidden" id="sf-sudo-control">
-          <label class="server-settings-placeholder" aria-hidden="true">&nbsp;</label>
-          <button type="button" class="secondary server-sudo-toggle" id="sf-sudo-change">Сменить пароль</button>
-          <div class="pw-wrap server-sudo-input hidden" id="sf-sudo-wrap">
-            <input id="sf-sudo-password" type="password" autocomplete="new-password" placeholder="Новый sudo-пароль"/>
-            <button type="button" class="eye" data-pw-toggle="sf-sudo-password" title="Показать">👁</button>
-          </div>
-        </div>
-        <div class="server-settings-field server-ssl-check-wrap">
-          <label class="server-settings-placeholder" aria-hidden="true">&nbsp;</label>
-          <label class="server-settings-check" for="sf-cert">
-            <input type="checkbox" id="sf-cert"/> Проверка SSL
-          </label>
-        </div>
-        <div class="server-settings-field hidden" id="sf-ssl-host-wrap">
-          <label for="sf-ssl-host">SSL host</label>
-          <input id="sf-ssl-host" placeholder="domain.com"/>
-        </div>
-      </div>
-      <div class="actions server-settings-actions">
-        <button type="button" id="sf-save">💾 Сохранить</button>
-        <button type="button" class="secondary" id="sf-test">🔌 Тест SSH</button>
-        <button type="button" class="secondary" id="esm-cancel">Отмена</button>
-      </div>
-    </form>
-  </div>
-</div>
 
 <script src="/static/vendor/xterm/xterm.js"></script>
 <script src="/static/vendor/xterm/addon-fit.js"></script>
@@ -1226,7 +1186,7 @@
 <script src="/static/vendor/codemirror/codemirror.min.js"></script>
 <script src="/static/vendor/codemirror/shell.min.js"></script>
 <script src="/static/vendor/codemirror/yaml.min.js"></script>
-<script type="module" src="/static/js/app.js?v=20260826-host-timezone-v2"></script>
+<script type="module" src="/static/js/app.js?v=20260904-local-v33"></script>
 
 
 <div class="modal-bg" id="tg-setup-modal">

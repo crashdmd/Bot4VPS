@@ -1,11 +1,9 @@
 import asyncio
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-from core.servers import get_server_info
 from core.monitor import (
     load_monitor,
     run_monitor,
-    check_server_availability,
     STATUS_ERROR,
     STATUS_EXPIRED,
     STATUS_WARNING,
@@ -15,8 +13,7 @@ from core.storage import (
 )
 
 PRIORITY_OFFLINE = 0
-PRIORITY_PARTIAL = 1
-PRIORITY_FULL = 2
+PRIORITY_FULL = 1
 
 def format_days(days: int) -> str:
     if 11 <= days % 100 <= 14:
@@ -99,50 +96,48 @@ async def _check_servers(query, group=None):
     if group:
         servers = [s for s in servers if s["group"] == group]
 
+    # Лёгкий параллельный чек: ядерный критерий доступности
+    # (ICMP → TCP port → 80 → 443), без SSH. SSH-сбор — отдельная
+    # забота ядерного system-sync job'а, кнопке он не нужен.
+    from ui.web.routers.monitor import _light_online_check
+
+    probe_results, _events = await asyncio.to_thread(
+        _light_online_check, servers
+    )
+
     stats = {
         "total": len(servers),
-        "full": 0,
-        "partial": 0,
+        "online": 0,
         "offline": 0,
     }
     lines = []
     max_name_len = max((len(server["name"]) for server in servers), default=0)
     for server in servers:
-        info, _ = await asyncio.to_thread(
-            check_server_availability,
-            server
-        )
+        probe = probe_results.get(server["id"]) or {}
+        online = probe.get("online")
+        name = server["name"].ljust(max_name_len)
 
-        if info["network"] == "offline":
+        if online is False:
             stats["offline"] += 1
-
             lines.append({
                 "priority": PRIORITY_OFFLINE,
                 "name": server["name"],
-                "text": f"🔴 {server['name'].ljust(max_name_len)}  Недоступен"
+                "text": f"🔴 {name}  Недоступен"
             })
+            continue
 
+        stats["online"] += 1
+        ping = probe.get("ms")
+        method = probe.get("method") or "—"
+        if isinstance(ping, (int, float)):
+            ping = f"{ping:.1f}".rstrip("0").rstrip(".")
         else:
-            method = "HTTP" if info["network"] == "http" else "Ping"
-            if info.get("ssh"):
-                stats["full"] += 1
-                icon = "🟢"
-            else:
-                stats["partial"] += 1
-                icon = "🟡"
-            ping = info.get("ping", "—")
-            if isinstance(ping, (int, float)):
-                ping = f"{ping:.1f}".rstrip("0").rstrip(".")
-            name = server["name"].ljust(max_name_len)
-            line = f"{icon} {name}  {ping} ms ({method})"
-            if not info.get("ssh"):
-                line += "\n   🔐 SSH недоступен"
-            priority = PRIORITY_FULL if info.get("ssh") else PRIORITY_PARTIAL
-            lines.append({
-                "priority": priority,
-                "name": server["name"],
-                "text": line
-            })
+            ping = "—"
+        lines.append({
+            "priority": PRIORITY_FULL,
+            "name": server["name"],
+            "text": f"🟢 {name}  {ping} ms ({method})"
+        })
 
     lines.sort(key=lambda x: (x["priority"], x["name"].lower()))
 
@@ -151,8 +146,7 @@ async def _check_servers(query, group=None):
     text = (
         f"📊 Проверка {title}\n\n"
         f"🖥 Всего: {stats['total']}\n"
-        f"🟢 Полностью доступны: {stats['full']}\n"
-        f"🟡 Частично доступны: {stats['partial']}\n"
+        f"🟢 Доступны: {stats['online']}\n"
         f"🔴 Недоступны: {stats['offline']}\n"
         f"{'─' * 20}\n"
         + "\n".join(item["text"] for item in lines)

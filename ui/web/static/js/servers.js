@@ -2,7 +2,7 @@ import { j, esc } from './api.js';
 import { ansiToHtml } from './ansi.js';
 import { toast, showPage, bindPasswordToggles, parseEmoji, confirmAction, formatServerDateTime, serverDateTimeParts, serverDayDifference, serverNow } from './ui.js';
 import { state, setServers, setGroups, setKeys, setOpenServer, setPage, setServerGroupTab, setServerSort, setServerQuery as updateServerQuery } from './state.js';
-import { openTerminal, closeTerminal } from './terminal.js';
+import { openTerminal, closeTerminal } from './terminal.js?v=20260904-termfit-v1';
 import { openEventDetail, applyEventsSnapshot } from './monitor.js?v=20260826-host-timezone-v2';
 import { openTaskLog, cancelTaskAPI } from './tasks.js?v=20260816-task-history-v3';
 import { openBackupsForServer } from './backup.js?v=20260826-host-timezone-v2';
@@ -23,6 +23,7 @@ let taskWatchTimer = null;
 let lastRunningTaskId = null;
 let historyRenderRevision = 0;
 let quickActionsRevision = 0;
+let quickSetupOpener = null;
 
 // История метрик для графиков (последние 20 значений)
 const metricsHistory = {
@@ -605,7 +606,7 @@ export function stopWatchers() {
 }
 
 /**
- * Следит за running_task открытого сервера и перерисовывает «Быстрые действия»,
+ * Следит за running_task открытого сервера и перерисовывает «Действия с сервером»,
  * когда задача завершилась.
  *
  * Зачем: установка/удаление сервиса ставится в очередь сервера, а поллинг задачи
@@ -643,14 +644,24 @@ function startWatchers() {
 }
 
 /**
- * Блок «Быстрые действия» карточки сервера.
+ * Блок «Действия с сервером» карточки сервера.
  *
- * Порядок кнопок фиксирован: статусы WG/Docker ждём через await ДО отрисовки,
- * иначе кнопки сервисов дорисовывались бы позже остальных и прыгали.
+ * Кнопка настроек публикуется сразу, а необязательные статусы
+ * WG/Docker догружаются отдельно. Так сбой вспомогательной проверки не скрывает
+ * основной вход в Quick Setup.
  * Вынесено из openServer(), чтобы после установки/удаления сервиса можно было
  * перерисовать только этот блок — без showPage('server'), который выдернул бы
  * пользователя со страницы WireGuard/Docker.
  */
+async function openQuickSetupFromCard(id) {
+  const serverId = String(id ?? '').trim();
+  if (!serverId) throw new Error('Сервер для настроек не выбран');
+  if (typeof quickSetupOpener !== 'function') {
+    throw new Error('Модуль настроек сервера недоступен');
+  }
+  await quickSetupOpener(serverId);
+}
+
 async function renderQuickActions(id) {
   const qa = document.getElementById('srv-quick-actions');
   if (!qa) return;
@@ -660,7 +671,7 @@ async function renderQuickActions(id) {
   // публикуем только результат последнего вызова, чтобы stale-render не дописал
   // дубли после своих await.
   const revision = ++quickActionsRevision;
-  const fragment = document.createDocumentFragment();
+  let fragment = document.createDocumentFragment();
   const addAction = (text, icon, cls, fn, styles) => {
     const b = document.createElement('button');
     b.innerHTML = icon ? `${icon} ${text}` : text;
@@ -669,17 +680,35 @@ async function renderQuickActions(id) {
     b.style.textAlign = 'left';
     if (styles) Object.assign(b.style, styles);
     fragment.appendChild(b);
+    return b;
   };
 
-  const [wireGuardInstalled, dockerInstalled] = await Promise.all([
+  // 1. Настройки сервера (Quick Setup)
+  addAction('Настройки сервера', '⚙', 'secondary', async event => {
+    const button = event.currentTarget;
+    button.disabled = true;
+    try {
+      await openQuickSetupFromCard(id);
+    } catch (error) {
+      toast(error?.message || 'Не удалось открыть настройки сервера', false);
+    } finally {
+      if (button?.isConnected) button.disabled = false;
+    }
+  });
+  if (revision !== quickActionsRevision) return;
+  qa.replaceChildren(fragment);
+
+  const [wireGuardResult, dockerResult] = await Promise.allSettled([
     checkWireGuardStatus(id),
     checkDockerStatus(id),
   ]);
   if (revision !== quickActionsRevision) return;
+  const wireGuardInstalled = wireGuardResult.status === 'fulfilled'
+    && wireGuardResult.value === true;
+  const dockerInstalled = dockerResult.status === 'fulfilled'
+    && dockerResult.value === true;
 
-  // 1. Запустить скрипт
-  addAction('Запустить скрипт', '▶', 'secondary',
-    () => import('./scripts.js?v=20260826-host-timezone-v2').then(m => m.openRunModal(id, null)));
+  fragment = document.createDocumentFragment();
 
   // 2. WireGuard
   if (wireGuardInstalled) {
@@ -695,8 +724,9 @@ async function renderQuickActions(id) {
     addAction('Установить Docker', '🐳', 'secondary', () => confirmInstallDocker(id));
   }
 
-  // 4. Изменить настройки
-  addAction('Изменить настройки', '⚙', 'secondary', openEditServerModal);
+  // 4. Запустить скрипт
+  addAction('Запустить скрипт', '▶', 'secondary',
+    () => import('./scripts.js?v=20260826-host-timezone-v2').then(m => m.openRunModal(id, null)));
 
   // 5. Перезагрузить сервер
   addAction('Перезагрузить сервер', '🔄', 'secondary', async () => {
@@ -718,7 +748,7 @@ async function renderQuickActions(id) {
     { background: 'rgba(255, 59, 92, 0.1)', color: '#ff5c7c' });
 
   if (revision !== quickActionsRevision) return;
-  qa.replaceChildren(fragment);
+  qa.appendChild(fragment);
 }
 
 
@@ -1000,7 +1030,7 @@ export async function openServer(id) {
       }
     }
 
-    await renderQuickActions(id);
+    renderQuickActions(id);
     loadServerRecentEvents(id);
 
     if (data.running_task) { watchTaskId = data.running_task.id; state.watchTaskId = watchTaskId; }
@@ -1061,15 +1091,6 @@ function confirmInstallDocker(serverId) {
   import('./docker.js?v=20260826-host-timezone-v2')
     .then(m => m.openInstall(serverId))
     .catch(err => console.error('Ошибка загрузки модуля Docker:', err));
-}
-
-// Открыть модальное окно редактирования сервера
-function openEditServerModal() {
-  const modal = document.getElementById('edit-server-modal');
-  if (modal) {
-    fillSettingsForm();
-    modal.classList.add('open');
-  }
 }
 
 /** @deprecated вкладки карточки убраны; terminal → openServerTerminal() */
@@ -1507,133 +1528,6 @@ export async function loadHistory() {
   }
 }
 
-function toggleAuthFields() {
-  const isKey = document.getElementById('sf-auth').value === 'key';
-  document.getElementById('sf-pass-wrap').classList.toggle('hidden', isKey);
-  document.getElementById('sf-key-wrap').classList.toggle('hidden', !isKey);
-  document.getElementById('sf-sudo-control').classList.toggle('hidden', !isKey);
-}
-
-function toggleSslFields() {
-  const enabled = document.getElementById('sf-cert')?.checked === true;
-  document.getElementById('sf-ssl-host-wrap')?.classList.toggle('hidden', !enabled);
-}
-
-function enableSudoPasswordEditor() {
-  const toggle = document.getElementById('sf-sudo-change');
-  const wrap = document.getElementById('sf-sudo-wrap');
-  if (!toggle || !wrap) return;
-  toggle.classList.add('hidden');
-  wrap.classList.remove('hidden');
-  document.getElementById('sf-sudo-password')?.focus();
-}
-
-export function fillSettingsForm() {
-  const data = state.openServerData || window._openServerData;
-  if (!data || !data.server) return;
-  const s = data.server;
-  document.getElementById('sf-name').value = s.name || '';
-  document.getElementById('sf-host').value = s.host || '';
-  document.getElementById('sf-port').value = s.port || 22;
-  document.getElementById('sf-user').value = s.user || '';
-  document.getElementById('sf-auth').value = s.auth_type || 'password';
-  document.getElementById('sf-password').value = '';
-  document.getElementById('sf-sudo-password').value = '';
-  document.getElementById('sf-sudo-wrap').classList.add('hidden');
-  document.getElementById('sf-sudo-change').classList.remove('hidden');
-  document.getElementById('sf-ssl-host').value = s.ssl_host || '';
-  document.getElementById('sf-cert').checked = !!s.certificate_check;
-  const gsel = document.getElementById('sf-group');
-  gsel.innerHTML = state.groups.map(g =>
-    `<option value="${esc(g.name)}" ${g.name === s.group ? 'selected' : ''}>${esc(g.name)}</option>`
-  ).join('') || `<option value="${esc(s.group || '')}">${esc(s.group || '')}</option>`;
-  const ksel = document.getElementById('sf-key');
-  ksel.innerHTML = state.keys.map(k => {
-    const sel = (s.key_path || '').endsWith(k.name) || s.key_path === k.path;
-    return `<option value="${esc(k.path)}" ${sel ? 'selected' : ''}>${esc(k.name)}</option>`;
-  }).join('') || '<option value="">— нет ключей —</option>';
-  toggleAuthFields();
-  toggleSslFields();
-  bindPasswordToggles();
-}
-
-export async function saveServerSettings() {
-  if (!openServerId) return;
-  const body = {
-    name: document.getElementById('sf-name').value.trim(),
-    host: document.getElementById('sf-host').value.trim(),
-    port: +document.getElementById('sf-port').value,
-    user: document.getElementById('sf-user').value.trim(),
-    group: document.getElementById('sf-group').value,
-    auth_type: document.getElementById('sf-auth').value,
-    certificate_check: document.getElementById('sf-cert').checked,
-    ssl_host: document.getElementById('sf-ssl-host').value.trim() || null,
-  };
-  const pass = document.getElementById('sf-password').value;
-  if (body.auth_type === 'password' && pass) body.password = pass;
-  if (body.auth_type === 'key') {
-    body.key_path = document.getElementById('sf-key').value || null;
-    const sudoWrap = document.getElementById('sf-sudo-wrap');
-    const sudoPass = document.getElementById('sf-sudo-password').value;
-    if (!sudoWrap.classList.contains('hidden') && sudoPass) body.password = sudoPass;
-  }
-  try {
-    await j('/api/servers/' + encodeURIComponent(openServerId), {
-      method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
-    });
-    toast('Сохранено', true);
-    document.getElementById('edit-server-modal')?.classList.remove('open');
-    await openServer(openServerId);
-    loadServers();
-  } catch (e) { toast(e.message, false); }
-}
-
-/**
- * Тест SSH строго по полям формы (host/port/user/auth).
- * Пароль/ключ: из формы, если пусто — с сохранённого сервера (тот же id).
- * Никогда не тестирует «старый» host/port из БД, если в форме другие.
- */
-export async function testServerForm() {
-  if (!openServerId) {
-    toast('Нет открытого сервера', false);
-    return;
-  }
-  const auth = document.getElementById('sf-auth').value;
-  const host = document.getElementById('sf-host').value.trim();
-  const port = +document.getElementById('sf-port').value || 22;
-  const user = document.getElementById('sf-user').value.trim();
-  if (!host) { toast('Укажите host', false); return; }
-
-  const body = {
-    server_id: openServerId,
-    host,
-    port,
-    user,
-    auth_type: auth,
-  };
-  if (auth === 'password') {
-    const pass = document.getElementById('sf-password').value;
-    if (pass) body.password = pass;
-  } else {
-    const key_path = document.getElementById('sf-key').value || '';
-    if (key_path) body.key_path = key_path;
-  }
-
-  try {
-    const r = await j('/api/ssh/test', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
-    const where = r.tested
-      ? ` (${r.tested.host}:${r.tested.port})`
-      : ` (${host}:${port})`;
-    toast((r.ok ? 'SSH OK' : (r.message || 'Ошибка')) + where, r.ok);
-  } catch (e) {
-    toast(e.message, false);
-  }
-}
-
 export async function deleteServer() {
   if (!openServerId) return;
   const name = state.openServerData?.server?.name || window._openServerData?.server?.name || 'сервер';
@@ -1702,7 +1596,10 @@ export async function submitAddServer() {
   } catch (e) { toast(e.message, false); }
 }
 
-export function bindServerUI() {
+export function bindServerUI(options = {}) {
+  quickSetupOpener = typeof options.openQuickSetup === 'function'
+    ? options.openQuickSetup
+    : null;
   bindServerListUI();
   document.getElementById('btn-add-server')?.addEventListener('click', openAddServerModal);
   document.getElementById('btn-task-history-clear')?.addEventListener('click', clearTaskHistory);
@@ -1721,16 +1618,6 @@ export function bindServerUI() {
   });
   document.getElementById('btn-open-terminal')?.addEventListener('click', () => openServerTerminal());
   document.getElementById('btn-back-from-terminal')?.addEventListener('click', () => backFromTerminal());
-  document.getElementById('sf-auth')?.addEventListener('change', toggleAuthFields);
-  document.getElementById('sf-cert')?.addEventListener('change', toggleSslFields);
-  document.getElementById('sf-sudo-change')?.addEventListener('click', enableSudoPasswordEditor);
-  document.getElementById('sf-save')?.addEventListener('click', saveServerSettings);
-  document.getElementById('sf-test')?.addEventListener('click', testServerForm);
-  document.getElementById('esm-cancel')?.addEventListener('click', () =>
-    document.getElementById('edit-server-modal').classList.remove('open'));
-  document.getElementById('edit-server-modal')?.addEventListener('keydown', e => {
-    if (e.key === 'Escape') document.getElementById('edit-server-modal').classList.remove('open');
-  });
   document.getElementById('af-auth')?.addEventListener('change', toggleAddAuth);
   document.getElementById('af-save')?.addEventListener('click', submitAddServer);
   document.getElementById('af-cancel')?.addEventListener('click', () =>
@@ -1756,7 +1643,7 @@ export function closeGroupsPanel() {
   if (panel) panel.classList.remove('open');
 }
 
-// Установка/удаление сервиса меняет кнопки «Быстрых действий» — вызывается из
+// Установка/удаление сервиса меняет кнопки «Действий с сервером» — вызывается из
 // wireguard.js / docker.js. Перерисовываем только этот блок: openServer() внутри
 // делает showPage('server') и выдернул бы пользователя со страницы WG/Docker.
 // Карточка остаётся в DOM после ухода на страницу сервиса, поэтому обновляем её

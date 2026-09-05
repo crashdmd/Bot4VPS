@@ -136,9 +136,12 @@ async def _toggle_monitor(query, name: str, context):
     new_enabled = not monitor[name]["enabled"]
     set_monitor_enabled(name, new_enabled)
 
-    if context and context.application and context.application.job_queue:
-        from core.monitor import schedule_monitor_jobs
-        schedule_monitor_jobs(context.application.job_queue)
+    # Jobs мониторинга — собственность ядра: пересоздаём в ядерной очереди
+    try:
+        from core.jobs_runtime import reschedule_core_jobs
+        reschedule_core_jobs()
+    except Exception as e:
+        print(f"[TG] monitor reschedule: {e}", flush=True)
 
     status = "включена" if new_enabled else "выключена"
     title = "Проверка статуса серверов" if name == "online" else "Проверка SSL"
@@ -149,9 +152,12 @@ async def _toggle_monitor(query, name: str, context):
 async def _set_interval(query, name: str, minutes: int, context):
     set_monitor_interval(name, minutes)
 
-    if context and context.application and context.application.job_queue:
-        from core.monitor import schedule_monitor_jobs
-        schedule_monitor_jobs(context.application.job_queue)
+    # Jobs мониторинга — собственность ядра: пересоздаём в ядерной очереди
+    try:
+        from core.jobs_runtime import reschedule_core_jobs
+        reschedule_core_jobs()
+    except Exception as e:
+        print(f"[TG] monitor reschedule: {e}", flush=True)
 
     await query.answer(f"Интервал: {_format_interval(minutes)}")
     await _show_monitor_type(query, name)

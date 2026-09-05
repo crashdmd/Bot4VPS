@@ -31,6 +31,15 @@ function ensureTerm() {
   if (!host || !window.Terminal) { toast('xterm.js не загрузился', false); return null; }
   const FitCls = window.FitAddon && (window.FitAddon.FitAddon || window.FitAddon);
 
+  // xterm монтируется в отдельный внутренний контейнер без рамки и padding:
+  // FitAddon меряет computed height родителя .xterm, и при монтировании
+  // прямо в .term-host (border + padding, box-sizing:border-box) высота
+  // родителя оказывалась больше видимой области — rows завышались на 1–2,
+  // и последняя строка уходила за нижнюю границу, недостижимая скроллом.
+  const mount = document.createElement('div');
+  mount.className = 'term-mount';
+  host.appendChild(mount);
+
   term = new window.Terminal({
     cursorBlink: true,
     fontFamily: 'ui-monospace,Consolas,monospace',
@@ -39,7 +48,7 @@ function ensureTerm() {
     theme: XTERM_THEME[resolvedTheme()],
   });
   if (FitCls) { fitAddon = new FitCls(); term.loadAddon(fitAddon); }
-  term.open(host);
+  term.open(mount);
   if (fitAddon) { try { fitAddon.fit(); } catch {} }
   // ввод пользователя → PTY
   term.onData(d => sendMsg({ type: 'input', data: d }));
@@ -48,7 +57,7 @@ function ensureTerm() {
   // авто-fit при ресайзе контейнера
   if (window.ResizeObserver) {
     ro = new ResizeObserver(() => { if (fitAddon) { try { fitAddon.fit(); } catch {} } });
-    ro.observe(host);
+    ro.observe(mount);
   }
   return term;
 }
@@ -123,6 +132,8 @@ export function closeTerminal() {
   closeWs();
   if (ro) { try { ro.disconnect(); } catch {} ro = null; }
   if (term) { try { term.dispose(); } catch {} term = null; fitAddon = null; }
+  // term-mount создаётся заново в ensureTerm(); снести за собой
+  document.getElementById('term-xterm')?.replaceChildren();
   setStatus('SSH · отключено');
 }
 

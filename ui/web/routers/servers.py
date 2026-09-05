@@ -664,6 +664,35 @@ async def api_server_create(body: ServerCreate):
             except Exception as e:
                 print(f"[WEB] ssl on create: {e}", flush=True)
 
+        # Доступность сразу: новый сервер не должен висеть в «Неизвестно»
+        # до ближайшего прогона online_monitor (может быть выключен).
+        try:
+            from core.monitor import check_server_availability
+            info, event = await asyncio.to_thread(check_server_availability, server)
+            if event:
+                from core.event_service import notify_event
+                from core.event_types import EventType, EventLevel, EventReason
+                kind = event["event"]
+                if kind == "offline":
+                    details = {**event, "reason": EventReason.SERVER_OFFLINE.value}
+                    message = (
+                        f"Сервер «{event['server_name']}» недоступен."
+                        + (f"\nОшибка: {event.get('error')}" if event.get("error") else "")
+                    )
+                    await notify_event(
+                        EventType.SERVER, EventLevel.CRITICAL,
+                        "Сервер недоступен", message, details,
+                    )
+                else:
+                    details = {**event, "reason": EventReason.SERVER_ONLINE.value}
+                    await notify_event(
+                        EventType.SERVER, EventLevel.INFO,
+                        "Сервер доступен",
+                        f"Сервер «{event['server_name']}» в сети.", details,
+                    )
+        except Exception as e:
+            print(f"[WEB] availability on create: {e}", flush=True)
+
         return {"ok": True, "id": server["id"], "server": server}
     except HTTPException:
         raise
@@ -680,6 +709,12 @@ async def api_server_delete(server_id: str):
         if len(new) == len(servers):
             raise HTTPException(404, "Сервер не найден")
         save_servers(new)
+        # Реестр ключей: секция удалённого сервера больше не нужна.
+        try:
+            from core.quick_setup import key_registry
+            key_registry.forget_server(server_id)
+        except Exception as e:
+            print(f"[WEB] key registry cleanup on server delete: {e}", flush=True)
         return {"ok": True}
     except HTTPException:
         raise

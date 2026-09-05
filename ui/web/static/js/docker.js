@@ -1847,7 +1847,7 @@ function watchTask(taskId, serverId, action) {
           try { localStorage.removeItem('bot4vps_docker_server_id'); } catch (_) {}
           if (dockerEntryContext === 'server' && sid) {
             try {
-              const { openServer } = await import('./servers.js?v=20260826-host-timezone-v2');
+              const { openServer } = await import('./servers.js?v=20260904-local-v33');
               await openServer(sid);
             } catch (_) {
               backToDockerList();
@@ -1912,7 +1912,7 @@ export function bindDockerUI() {
   document.getElementById('btn-back-docker-server')?.addEventListener('click', async () => {
     if (!dockerServerId) return;
     try {
-      const { openServer } = await import('./servers.js?v=20260826-host-timezone-v2');
+      const { openServer } = await import('./servers.js?v=20260904-local-v33');
       await openServer(dockerServerId);
     } catch (e) {
       console.error(e);

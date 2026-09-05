@@ -64,7 +64,66 @@ PYTHONPATH=. uvicorn ui.web.app:app --reload --host 127.0.0.1 --port 8080
   in-memory, по одной на сервер, без тайм-аута простоя (закрываются через
   `/shell/close` или перезапуск).
 
-## API
+## Базовые настройки (Quick Setup)
+
+Страница открывается только из карточки конкретного сервера и закрепляет его ID в
+`state.quickSetupServerId`. Этот ID используется всеми операциями страницы — System,
+Diagnostics, Packages, Firewall, SSH и Fail2ban — без повторного выбора сервера из
+глобального состояния. Адрес синхронизируется в узком формате
+`?page=quick-setup&server_id=<id>`; F5, прямое открытие и browser Back/Forward
+восстанавливают тот же контекст без отдельного URL-router. Кнопка «Назад» открывает
+карточку исходного сервера.
+
+Quick Setup выполняет синхронные операции ядра через `asyncio.to_thread` и
+**не создаёт задачи Task Manager**. Ответ операции ограничен envelope:
+`{ok, message, output, error, data?, details?}`. Технический output и вложенные
+структуры bounded; API Quick Setup не возвращает пароль сервера, содержимое
+приватного ключа или полный `servers.json`.
+
+### SSH и Firewall
+
+- Privileged-команды используют общий `core.ssh.exec_sudo`, в том числе при
+  non-root подключении.
+- Операции с аккаунтами разделены на «Создать», «Переключить» и «Пользователи».
+  Создание не меняет рабочую учётную запись. Переключение сначала проверяет реальный
+  SSH login и sudo, затем compare-and-set обновляет только connection fields.
+  При password auth нужен пароль целевого пользователя; пароль другого аккаунта
+  не переиспользуется. При key auth сохраняется проверенный `key_path`.
+- Смена SSH-порта выполняется как staged transaction: verified firewall allow нового
+  порта → временное прослушивание старого и нового портов → реальный login на новом
+  порту → CAS в storage → закрытие отдельного старого правила → финальный login.
+  Firewall cleanup удаляет только правило, созданное текущей операцией, и никогда не
+  удаляет существовавшее ранее правило. Если полный безопасный rollback невозможен,
+  новый allow сохраняется, а UI явно сообщает:
+  `Новый порт <port> оставлен открытым для повторной попытки`.
+- Поддерживаются UFW, firewalld и управляемая конфигурация nftables. Неопределённое
+  состояние firewall блокирует миграцию SSH-порта вместо предположения, что
+  фильтрации нет.
+
+### Fail2ban
+
+Статус различает `absent`, `stopped` и `running`. Установка использует обнаруженный
+package manager (apt, dnf, yum, zypper или pacman) и не включает SSH jail молча.
+Jails и Filters обнаруживаются на VPS динамически; bans возвращаются как точные пары
+`{jail, ip}`, поэтому unban применяется только к выбранной паре.
+
+Whitelist объединяет effective `ignoreip` с управляемым overlay и показывает
+provenance. Через Quick Setup можно удалять только управляемые записи; для inherited
+или неизвестного source UI направляет в **Configuration**. IP и CIDR проверяются
+через `ipaddress`.
+
+Configuration разрешает только:
+
+- jail-файлы `jail.conf`, `jail.local` и `jail.d/*.conf|*.local`;
+- filter-файлы `filter.d/*.conf`.
+
+Имена и пути валидируются повторно в API и core. Traversal, control chars,
+symlink/hardlink и arbitrary files отклоняются; содержимое ограничено 512 КБ.
+Создание публикуется atomic create-only без clobber, изменение требует существующий
+файл, а стандартные jail-файлы удалить через Quick Setup нельзя. Настройки,
+Whitelist и Configuration проходят snapshot → atomic write/delete →
+`fail2ban-client -t` → reload → verification. При ошибке выполняется точный rollback
+с повторной проверкой содержимого/metadata и конфигурации Fail2ban.
 
 ### Авторизация (без auth-гейта)
 | Метод | Путь | Описание |

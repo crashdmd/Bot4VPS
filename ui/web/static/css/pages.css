@@ -1859,83 +1859,6 @@ label{
   margin:1rem 0 0.5rem;
 }
 
-/* Настройки сервера: на desktop форма раскладывается в две колонки, поэтому
-   все поля и действия видны одновременно без внутренней прокрутки. */
-.server-settings-modal .modal{
-  width:min(720px,100%);
-  max-height:calc(100vh - 2rem);
-  overflow:visible;
-  padding:1.15rem 1.25rem;
-}
-.server-settings-modal h2{
-  margin:0 0 .9rem;
-  font-size:1.25rem;
-}
-.server-settings-fields{
-  display:grid;
-  grid-template-columns:minmax(0,1fr) minmax(0,1fr);
-  gap:.72rem 1rem;
-}
-.server-settings-field{
-  min-width:0;
-}
-.server-settings-field label{
-  display:block;
-  margin:0 0 .3rem;
-  font-size:.82rem;
-  color:var(--text-muted);
-}
-.server-settings-field input:not([type="checkbox"]),
-.server-settings-field select{
-  width:100%;
-}
-.server-settings-placeholder{
-  visibility:hidden;
-  pointer-events:none;
-}
-.server-sudo-control{
-  min-width:0;
-}
-.server-sudo-toggle,
-.server-sudo-input{
-  width:100%;
-  min-width:0;
-}
-.server-sudo-toggle{
-  min-height:42px;
-  justify-content:center;
-}
-.server-sudo-input{
-  max-width:none;
-}
-.server-ssl-check-wrap{
-  grid-column:1;
-  min-width:0;
-}
-.server-settings-check{
-  display:inline-flex!important;
-  align-items:center;
-  gap:.5rem;
-  min-height:42px;
-  margin:0!important;
-  padding:0;
-  border:0;
-  border-radius:0;
-  background:transparent;
-  color:var(--text);
-  cursor:pointer;
-}
-.server-settings-field .server-settings-check input[type="checkbox"]{
-  width:18px;
-  height:18px;
-  flex:0 0 18px;
-  margin:0;
-}
-.server-settings-actions{
-  justify-content:flex-start;
-  margin-top:.9rem;
-}
-
 /* Files: все кнопки создания/загрузки стоят на одной линии и имеют одинаковую геометрию. */
 #page-files > .file-actions{
   align-items:center;
@@ -1955,30 +1878,6 @@ label{
   font-size:.875rem;
   line-height:1;
   vertical-align:middle;
-}
-
-@media(max-width:640px), (max-height:680px){
-  .server-settings-modal .modal{
-    max-height:calc(100vh - 1rem);
-    overflow:auto;
-  }
-}
-@media(max-width:640px){
-  .server-settings-modal{
-    padding:.5rem;
-  }
-  .server-settings-modal .modal{
-    padding:1rem;
-  }
-  .server-settings-fields{
-    grid-template-columns:1fr;
-  }
-  .server-settings-placeholder{
-    display:none!important;
-  }
-  .server-settings-actions button{
-    flex:1 1 auto;
-  }
 }
 
 /* WireGuard специфика */
@@ -2271,6 +2170,13 @@ label{
   max-height:calc(100vh - 260px);
   min-height:240px;
   box-sizing:border-box;
+  overflow:hidden;
+}
+/* Чистый внутренний контейнер для xterm: FitAddon меряет его computed
+   height — он равен видимой области, rows не завышаются (см. terminal.js) */
+.term-mount{
+  height:100%;
+  width:100%;
   overflow:hidden;
 }
 .term-host.term-host-full .xterm{
@@ -3324,7 +3230,6 @@ label{
     white-space:normal;
   }
 
-  .server-settings-actions,
   .scripts-head-actions,
   .file-actions{
     width:100%;
@@ -3714,4 +3619,393 @@ button.server-host-copy:hover,button.server-host-copy:focus-visible{background:v
   .server-host-cell{grid-column:1;grid-row:2;font-size:.75rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .server-table td:nth-child(3){grid-column:2;grid-row:1 / span 2;align-self:center}
   .server-table td:nth-child(4),.server-table td:nth-child(5),.server-table td:nth-child(6){display:none}
+}
+
+/* ===== Quick Setup / Базовые настройки ===== */
+.qs-head h1{margin-bottom:.25rem}
+.qs-server-meta{
+  display:flex;flex-wrap:wrap;align-items:center;gap:.35rem .75rem;
+  color:var(--text-dim);font-size:.9rem;margin:0 0 1rem;
+}
+.qs-server-meta strong{color:var(--text);font-weight:600}
+.qs-meta-sep{opacity:.5}
+.qs-body{display:flex;flex-direction:column;gap:1.25rem;max-width:52rem}
+.qs-section{
+  border:1px solid var(--border);border-radius:var(--radius);
+  background:var(--card);padding:.85rem 1rem 1rem;
+}
+.qs-section-title{
+  font-size:.95rem;font-weight:600;margin:0 0 .75rem;
+  display:flex;align-items:center;gap:.4rem;
+}
+.qs-rows{display:flex;flex-direction:column;gap:.45rem}
+.qs-row{
+  display:grid;grid-template-columns:minmax(9rem,12rem) 1fr auto;
+  gap:.5rem .75rem;align-items:center;
+  padding:.35rem 0;border-bottom:1px solid var(--border);
+  font-size:.88rem;
+}
+.qs-row:last-child{border-bottom:none}
+.qs-row-label{color:var(--text-dim)}
+.qs-row-value{color:var(--text);word-break:break-word}
+.qs-row-actions{display:flex;flex-wrap:wrap;gap:.35rem;justify-content:flex-end}
+.qs-row-actions button{font-size:.8rem;padding:.3rem .65rem}
+.qs-section-actions{display:flex;flex-wrap:wrap;gap:.5rem;margin-top:.75rem}
+.qs-section-actions button{font-size:.85rem}
+.qs-ssh-keys-hint{margin-top:.6rem}
+.qs-muted{color:var(--text-dim);font-size:.82rem}
+.qs-warn{
+  color:var(--warn,#d99a32);font-size:.84rem;padding:.45rem .55rem;
+  border:1px solid color-mix(in srgb,var(--warn,#d99a32) 55%,var(--border));
+  border-radius:var(--radius);background:var(--warn-bg,transparent)
+}
+.qs-status-dot{display:inline-block;width:.55rem;height:.55rem;border-radius:50%;margin-right:.3rem;vertical-align:middle}
+.qs-status-dot.on{background:#3ecf8e}
+.qs-status-dot.off{background:#e05d5d}
+.qs-status-dot.unk{background:#888}
+.qs-placeholder{
+  color:var(--text-dim);font-size:.85rem;padding:.25rem 0;
+  font-style:italic;
+}
+.qs-busy{opacity:.65;pointer-events:none}
+@media (max-width:640px){
+  .qs-row{grid-template-columns:1fr;gap:.2rem}
+  .qs-row-actions{justify-content:flex-start}
+}
+
+/* Quick Setup — packages & firewall */
+.qs-pkg-list{display:flex;flex-direction:column;gap:.35rem;margin:.25rem 0 .5rem}
+.qs-pkg-group{margin:.45rem 0;padding:.55rem 0;border-top:1px solid var(--border)}
+.qs-pkg-group:first-child{border-top:none;padding-top:0}
+.qs-pkg-group-title{
+  font-size:.78rem;font-weight:600;color:var(--text-dim);
+  text-transform:uppercase;letter-spacing:.04em;margin-bottom:.2rem;
+}
+.qs-pkg-row{
+  display:grid;grid-template-columns:auto 1fr auto;gap:.6rem;align-items:center;
+  padding:.3rem .15rem;border-bottom:1px solid var(--border);font-size:.88rem;cursor:pointer;
+}
+.qs-pkg-row:last-child{border-bottom:none}
+.qs-pkg-name{font-family:ui-monospace,monospace}
+.qs-pkg-st{color:var(--text-dim);font-size:.82rem}
+.qs-pkg-st-wrap{display:flex;align-items:center;gap:.55rem;white-space:nowrap}
+/* Установленный пакет — явно выделен: зелёный текст + мягкий чип */
+.qs-pkg-st.on{
+  color:var(--ok);font-weight:600;
+  background:var(--ok-bg);padding:.12rem .45rem;border-radius:.4rem;
+}
+.qs-pkg-st.on .qs-pkg-name,.qs-pkg-row .qs-pkg-st.on{font-size:.78rem}
+/* Инлайн-«установить»: как заголовок группы — без окантовки/фона,
+   синий шрифт; появляется у отмеченной строки. [hidden] продублирован
+   явно: flex-контейнер блочит display потомка и перебивает UA-стиль. */
+.qs-pkg-install{
+  background:none;border:none;padding:0;margin:0;
+  font:inherit;font-size:.78rem;font-weight:600;color:var(--accent);
+  cursor:pointer;text-decoration:underline dotted;text-underline-offset:.18em;
+}
+.qs-pkg-install[hidden]{display:none}
+.qs-pkg-install:hover{color:var(--accent);text-decoration:underline solid}
+/* Quick Setup — Система: строка «Обновления». Оранжевый индикатор доступных
+   обновлений + маленькая кнопка «Обновить» (прозрачная, оранжевая окантовка,
+   размер как у «Сохранить» имени/группы). */
+.qs-status-dot-warn{background:var(--warn)}
+.qs-updates-upgrade{
+  margin-left:.55rem;padding:.22rem .6rem;font-size:.78rem;font-weight:600;
+  background:transparent;border:1px solid var(--warn);border-radius:var(--radius);
+  color:var(--warn);cursor:pointer;
+}
+.qs-updates-upgrade:hover{background:var(--warn-bg)}
+/* «проверить» — в строке Пакеты, справа; вид как у инлайн-«установить»
+   в пакетах (синий, без окантовки), но без нижнего подчёркивания-разрыва */
+.qs-updates-check{font-size:.8rem}
+.qs-port-form{
+  display:flex;flex-wrap:wrap;gap:.5rem;align-items:center;margin:.6rem 0;
+  font-size:.85rem;
+}
+.qs-port-form input,.qs-port-form select{
+  background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);
+  color:var(--text);padding:.25rem .4rem;font-size:.85rem;
+}
+.qs-rules{display:flex;flex-direction:column;gap:.25rem;margin-top:.35rem;font-size:.82rem}
+.qs-rule{
+  padding:.25rem .5rem;border:1px solid var(--border);border-radius:calc(var(--radius) - 2px);
+  background:var(--hover,transparent);font-family:ui-monospace,monospace;
+}
+.qs-fw-candidates{display:flex;flex-direction:column;gap:.4rem;margin:.5rem 0}
+.qs-fw-candidate{
+  display:flex;flex-wrap:wrap;gap:.5rem;align-items:center;justify-content:space-between;
+  padding:.4rem .55rem;border:1px solid var(--border);border-radius:calc(var(--radius) - 2px);
+  font-size:.85rem;
+}
+.qs-fw-candidate-name{display:inline-flex;gap:.4rem;align-items:center}
+.qs-fw-candidate button{font-size:.8rem}
+.qs-fw-candidate-actions{display:inline-flex;flex-wrap:wrap;gap:.4rem;align-items:center}
+.qs-btn-danger-outline{
+  font-size:.78rem;padding:.28rem .65rem;cursor:pointer;
+  border:1px solid var(--danger,#d9534f);border-radius:calc(var(--radius) - 2px);
+  background:transparent;color:var(--danger,#d9534f);
+}
+.qs-btn-danger-outline:hover{background:color-mix(in srgb,var(--danger,#d9534f) 8%,transparent)}
+.qs-fw-conflict{
+  display:grid;gap:.2rem;margin:.55rem 0;padding:.55rem .65rem;
+  border:1px solid var(--warn,#d99a32);border-radius:var(--radius);
+  background:color-mix(in srgb,var(--warn,#d99a32) 9%,transparent);font-size:.84rem;
+}
+.qs-fw-conflict span{color:var(--text-dim);line-height:1.45}
+.qs-fw-enable-choice p{margin:.15rem 0 .65rem;color:var(--text-dim)}
+.qs-fw-plan{display:grid;gap:.55rem}
+.qs-fw-plan-head{display:flex;flex-wrap:wrap;justify-content:space-between;gap:.4rem}
+.qs-fw-plan h4{margin:.2rem 0 0;font-size:.84rem}
+.qs-fw-plan-actions{margin:.1rem 0;padding-left:1.25rem;color:var(--text-dim);font-size:.82rem;line-height:1.45}
+.qs-fw-rule-choices{padding-left:0;list-style:none}
+.qs-fw-rule-choice{display:flex;align-items:center;gap:.45rem;cursor:pointer}
+.qs-fw-rule-note{margin:0;color:var(--warn,#d99a32);font-size:.8rem;line-height:1.45}
+.qs-fw-plan-competitor{display:grid;gap:.3rem;padding:.5rem .6rem;border:1px solid var(--border);border-radius:var(--radius)}
+.qs-fw-plan-competitor>div{display:flex;flex-wrap:wrap;justify-content:space-between;gap:.4rem}
+.qs-fw-plan-competitor p{margin:0;color:var(--text-dim);font-size:.82rem}
+.qs-fw-plan-competitor.unsafe{border-color:var(--warn,#d99a32)}
+.qs-fw-safe{color:var(--ok);font-size:.78rem}
+.qs-fw-unsafe{color:var(--warn,#d99a32);font-size:.78rem}
+.qs-fw-plan-note{margin:.2rem 0;color:var(--text-dim);font-size:.82rem;line-height:1.45}
+
+.qs-f2b-settings{
+  display:flex;flex-wrap:wrap;gap:.5rem;align-items:center;margin:.6rem 0;
+  font-size:.85rem;
+}
+.qs-f2b-settings input,.qs-f2b-settings select{
+  background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);
+  color:var(--text);padding:.25rem .4rem;font-size:.85rem;
+}
+
+.qs-ssh-forms{display:flex;flex-direction:column;gap:.75rem;margin-top:.5rem}
+.qs-ssh-block{
+  border:1px solid var(--border);border-radius:var(--radius);
+  padding:.55rem .7rem;background:var(--hover,transparent);
+}
+.qs-ssh-block-title{font-size:.82rem;font-weight:600;margin-bottom:.35rem;color:var(--text-dim)}
+.qs-ssh-block textarea{
+  background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);
+  color:var(--text);padding:.35rem .5rem;resize:vertical;
+}
+/* SSH / Доступ: компактные кнопки форм; элементы каждой формы
+   на одной горизонтальной линии */
+.qs-port-form .qs-compact{
+  padding:.32rem .7rem;font-size:.8rem;gap:.3rem;
+}
+.qs-port-form.qs-ssh-inline{align-items:center;padding-bottom:0}
+.qs-port-form.qs-ssh-inline label{
+  flex-direction:row;align-items:center;position:static;white-space:nowrap;
+}
+.qs-port-form.qs-ssh-inline button{align-self:center}
+
+/* Строка «Авторизоваться по:» над формой переключения пользователя —
+   отдельной строкой, чтобы основная форма не переносилась */
+.qs-port-form.qs-ssh-auth-row{
+  margin-bottom:0;padding-bottom:.1rem;
+}
+.qs-port-form.qs-ssh-auth-row label{
+  flex-direction:row;align-items:center;position:static;white-space:nowrap;color:var(--text-dim);
+}
+
+/* SSH Key Manager (Ч8.4): строки ключей и подтверждение паролем root */
+.qs-key-manager .qs-key-row .qs-user-info strong{font-family:ui-monospace,monospace;font-size:.82rem}
+.qs-key-manager .qs-list-row{align-items:center}
+.qs-key-manager .qs-port-form.qs-ssh-inline{margin:.35rem 0}
+.qs-user-actions{flex-wrap:wrap;justify-content:flex-end;gap:.25rem}
+/* Строка пользователя: кнопки в два яруса — верх обычные (Выбрать/Выдать
+   sudo/Сменить пароль), низ деструктивные (Отозвать sudo/Удалить) */
+.qs-user-row .qs-user-info{min-width:0;flex:1 1 12rem}
+.qs-user-btn-cols{display:flex;flex-direction:column;align-items:flex-end;gap:.25rem;flex:0 0 auto}
+.qs-user-actions button{flex:0 0 auto}
+/* sudo-редактор нижнего яруса: вид как у обычных secondary, но с цветной
+   окантовкой — синяя (выдача sudo), оранжевая (отзыв), красная (удаление) */
+.qs-user-actions-danger .qs-user-sudo{
+  border-color:var(--info);color:var(--text);
+}
+.qs-user-actions-danger .qs-user-sudo:hover{
+  background:var(--info-bg);box-shadow:none;
+}
+.qs-user-actions-danger .qs-user-revoke-sudo{
+  border-color:var(--warn);color:var(--text);
+}
+.qs-user-actions-danger .qs-user-revoke-sudo:hover{
+  background:var(--warn-bg);box-shadow:none;
+}
+.qs-user-actions-danger .qs-user-delete{
+  border-color:var(--err);color:var(--text);background:var(--card);
+}
+.qs-user-actions-danger .qs-user-delete:hover{
+  background:var(--err-bg);box-shadow:none;
+}
+
+/* Модалка смены пароля: вертикальная форма — подписи, поля друг под
+   другом, кнопки отдельной строкой ниже (без горизонтального скролла) */
+.qs-prompt-form{display:flex;flex-direction:column;align-items:stretch;gap:.45rem;margin:.6rem 0}
+.qs-prompt-form label{font-size:.82rem;color:var(--text-dim)}
+.qs-prompt-form input{
+  background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);
+  color:var(--text);padding:.35rem .5rem;font-size:.9rem;width:100%;
+  box-sizing:border-box;max-width:22rem;
+}
+.qs-prompt-form .qs-section-actions{margin-top:.15rem}
+
+/* Кнопка-«глаз» внутри поля пароля (показать/скрыть ввод) */
+.qs-pass-wrap{position:relative;display:inline-flex;align-items:center;max-width:100%}
+.qs-pass-wrap input{padding-right:2.1rem}
+.qs-eye{
+  position:absolute;right:.2rem;
+  background:transparent;border:none;cursor:pointer;
+  padding:.15rem .25rem;font-size:.95rem;line-height:1;opacity:.7;
+}
+.qs-eye:hover{opacity:1}
+.qs-prompt-form .qs-pass-wrap{display:flex;max-width:22rem}
+.qs-prompt-form .qs-pass-wrap input{flex:1;width:auto;max-width:none}
+
+/* Quick Setup toolbars — одна линия, перенос только на узких экранах */
+.qs-port-form,
+.qs-f2b-settings{
+  display:flex;flex-wrap:nowrap;align-items:center;gap:.45rem .55rem;
+  margin:.6rem 0;font-size:.85rem;overflow-x:auto;max-width:100%;
+}
+.qs-port-form label,
+.qs-f2b-settings label{
+  display:inline-flex;align-items:center;gap:.3rem;white-space:nowrap;flex:0 0 auto;
+}
+.qs-port-form button,
+.qs-f2b-settings button{flex:0 0 auto;white-space:nowrap}
+/* Firewall: форма правил — Source/Протокол/Порт в одну линию.
+   Подписи над полями, поля на одном уровне; подсказка Source
+   левее поля и не влияет на высоту колонки (position:absolute). */
+.qs-port-form{align-items:flex-start;padding-bottom:1.15rem}
+.qs-port-form label{
+  flex-direction:column;align-items:flex-start;position:relative;
+  white-space:normal;gap:.15rem;
+}
+.qs-port-form label>small{white-space:normal}
+.qs-port-form button{align-self:flex-end}
+.qs-fw-source-input{min-width:13rem}
+.qs-fw-source-input.qs-invalid{border-color:var(--danger,#d9534f)}
+.qs-fw-source-hint.qs-invalid{color:var(--danger,#d9534f)}
+#qs-fw-open:disabled{opacity:.55;cursor:not-allowed}
+.qs-fw-source-hint{
+  position:absolute;top:100%;left:0;margin-top:.2rem;
+  font-size:.72rem;line-height:1.3;white-space:nowrap;
+}
+.qs-list-modal-body{max-height:min(70vh,42rem);overflow-y:auto;margin-top:.35rem;overscroll-behavior:contain}
+.qs-list-row{
+  display:flex;align-items:center;justify-content:space-between;gap:.75rem;
+  padding:.4rem .55rem;border:1px solid var(--border);border-radius:var(--radius);
+  margin-bottom:.35rem;font-size:.85rem;font-family:ui-monospace,monospace;
+}
+.qs-list-row>span:first-child{min-width:0;overflow-wrap:anywhere}
+.qs-list-row small{display:block;margin-top:.15rem;color:var(--text-dim);font-family:inherit}
+.qs-list-row button{flex:0 0 auto;padding:.2rem .45rem;font-size:.8rem;line-height:1}
+.qs-list-empty{color:var(--text-dim);font-size:.88rem;padding:.5rem 0}
+.qs-no-rights{display:grid;gap:.3rem;padding:.9rem 1rem;border:1px solid var(--warn);border-radius:var(--radius-sm);background:var(--warn-bg,transparent);color:var(--text-muted);font-size:.88rem;line-height:1.45}
+.qs-f2b-list{margin-top:.75rem}
+.qs-f2b-whitelist-form>label{display:block;color:var(--text-dim);font-size:.82rem}
+.qs-f2b-config-create{
+  display:flex;flex-direction:column;gap:.45rem;padding:.55rem;
+  border:1px solid var(--border);border-radius:var(--radius);background:var(--hover,transparent)
+}
+.qs-f2b-config-create textarea,
+.qs-f2b-config-editor textarea{
+  width:100%;min-height:8rem;box-sizing:border-box;resize:vertical;
+  background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);
+  color:var(--text);padding:.5rem;font: .8rem/1.45 ui-monospace,SFMono-Regular,Menlo,monospace;
+  tab-size:2
+}
+.qs-f2b-config-editor textarea{min-height:min(48vh,24rem)}
+.qs-f2b-uninstall-choice p{margin:.15rem 0 .65rem;color:var(--text-dim)}
+.qs-f2b-uninstall-choice .qs-section-actions{align-items:center}
+.qs-f2b-config-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:.35rem}
+.qs-f2b-config-row{align-items:flex-start}
+@media (max-width:640px){
+  .qs-port-form,.qs-f2b-settings{flex-wrap:wrap}
+  /* На перенесённых строках подсказка Source возвращается в поток,
+     чтобы не перекрывать следующую строку полей */
+  .qs-port-form{padding-bottom:0}
+  .qs-fw-source-hint{position:static;margin-top:.15rem}
+  .qs-list-row{align-items:flex-start;flex-direction:column}
+  .qs-f2b-config-actions{justify-content:flex-start;width:100%}
+}
+
+/* Quick Setup — Fail2ban: подзаголовки, настройки защиты, preset и опасная зона */
+.qs-subhead{
+  margin:1rem 0 .35rem;color:var(--text-muted);
+  font-size:.72rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;
+}
+/* Подзаголовок с горизонтальным разделителем: линия слева от текста —
+   читается как «граница блока», мягче сплошной полосы */
+.qs-subhead-div{
+  display:flex;align-items:center;gap:.6rem;margin-top:1.15rem;
+}
+.qs-subhead-div::after{
+  content:"";flex:1;height:1px;
+  background:linear-gradient(90deg,var(--border),transparent);
+}
+.qs-setting-row{align-items:center}
+.qs-setting-row .qs-row-label{display:grid;gap:.1rem}
+.qs-setting-row .qs-row-label strong{color:var(--text);font-size:.88rem;font-weight:600}
+.qs-setting-row .qs-row-label small{color:var(--text-dim);font-size:.76rem;line-height:1.35}
+.qs-setting-control select{
+  background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);
+  color:var(--text);padding:.3rem .45rem;font-size:.85rem;max-width:100%;
+}
+/* Quick Setup — Система: локальные поля имя/группа (ввод + компактная кнопка) */
+.qs-setting-control input{
+  background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);
+  color:var(--text);padding:.3rem .45rem;font-size:.85rem;max-width:100%;
+}
+.qs-setting-control .qs-compact{
+  padding:.32rem .7rem;font-size:.8rem;
+}
+.qs-setting-control{display:flex;gap:.4rem;align-items:center;flex-wrap:wrap}
+.qs-f2b-preset{margin:.5rem 0 0;font-size:.8rem;color:var(--text-dim)}
+.qs-f2b-preset.ok{color:var(--ok)}
+.qs-f2b-preset.diff{color:var(--warn,#d99a32)}
+.qs-f2b-danger{margin-top:.9rem;padding-top:.65rem;border-top:1px dashed var(--border)}
+.qs-f2b-danger .qs-section-actions{margin-top:0}
+.qs-f2b-error{display:inline-block;vertical-align:middle;font-size:.78rem}
+.qs-f2b-error summary{cursor:pointer;color:var(--accent);white-space:nowrap}
+.qs-f2b-error pre{
+  margin:.35rem 0 0;padding:.45rem .55rem;max-width:min(34rem,90vw);max-height:9rem;overflow:auto;
+  border:1px solid var(--border);border-radius:var(--radius-sm);
+  background:var(--field);color:var(--text-dim);white-space:pre-wrap;overflow-wrap:anywhere;
+  font:.72rem/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+.qs-list-note{margin:.1rem 0 .6rem;color:var(--text-dim);font-size:.82rem;line-height:1.45}
+.qs-jail-group{margin-bottom:.75rem}
+.qs-jail-group-head,.qs-jail-group-manual summary{
+  margin-bottom:.4rem;color:var(--text-muted);font-size:.72rem;font-weight:700;
+  letter-spacing:.08em;text-transform:uppercase;cursor:default;
+}
+.qs-jail-group-manual summary{cursor:pointer;color:var(--accent)}
+.qs-jail-group-manual[open] summary{margin-bottom:.5rem}
+.qs-jail-row{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:.35rem .75rem;align-items:center}
+.qs-jail-info{min-width:0}
+.qs-jail-info small{margin-top:.1rem}
+.qs-jail-state{display:inline-flex;align-items:center;white-space:nowrap;font-size:.82rem;color:var(--text-dim)}
+.qs-jail-actions{display:flex;justify-content:flex-end}
+.qs-jail-actions button{white-space:nowrap}
+@media (max-width:640px){
+  .qs-setting-control select{width:100%}
+  .qs-jail-row{grid-template-columns:1fr;gap:.3rem}
+  .qs-jail-actions{justify-content:flex-start}
+}
+
+/* Quick Setup — layout как у Settings */
+#page-quick-setup .qs-layout{margin-top:.35rem}
+#page-quick-setup .qs-body{
+  max-width:none;display:grid;gap:.9rem;min-width:0;
+}
+#page-quick-setup .qs-panel[hidden]{display:none!important}
+#page-quick-setup .qs-section-body{margin-top:.15rem}
+#page-quick-setup .qs-server-meta,
+#page-quick-setup #qs-server-meta{
+  margin:0;color:var(--text-dim);font-size:.78rem;line-height:1.35;
+}
+#page-quick-setup .qs-meta-sep{opacity:.5;margin:0 .15rem}
+@media(max-width:760px){
+  #page-quick-setup .qs-layout{grid-template-columns:1fr}
 }

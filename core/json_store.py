@@ -201,8 +201,11 @@ class JsonDocumentStore:
 class JsonItemStore:
     """Одна запись — один файл ``<id>.json`` + store-wide sidecar lock.
 
-    Порядок записей — по возрастанию ``(timestamp, id)``. Для дешёвых
-    частых чтений (SSE ~3 c, опрос задач ~1.5 c) держится кэш в процессе,
+    Порядок записей — по возрастанию ``(*time_field, id)``, где время —
+    первое непустое из ``sort_fields`` (по умолчанию ``timestamp``);
+    записи без всех полей времени падают в конец кластера одинаковых
+    ключей и упорядочиваются по ``id``. Для дешёвых частых чтений
+    (SSE ~3 c, опрос задач ~1.5 c) держится кэш в процессе,
     валидируемый дешёвым ``revision()`` (один ``os.scandir`` без открытия
     файлов).
     """
@@ -214,12 +217,14 @@ class JsonItemStore:
         limit: int = 100,
         name: str = "ITEM STORE",
         validator: Optional[Callable[[dict[str, Any]], Any]] = None,
+        sort_fields: tuple[str, ...] = ("timestamp",),
     ):
         self.dir_path = Path(dir_path)
         self.limit = max(1, int(limit))
         self.name = name
         self.lock_path = self.dir_path / ".lock"
         self._validator = validator
+        self._sort_fields = tuple(sort_fields) or ("timestamp",)
         self._thread_lock = threading.RLock()
         self._cache: Optional[list[dict[str, Any]]] = None
         self._cache_stamp: Optional[str] = None
@@ -451,8 +456,16 @@ class JsonItemStore:
                 quarantine(path)
                 continue
             records.append(dict(raw))
-        records.sort(key=lambda r: (str(r.get("timestamp") or ""), str(r.get("id") or "")))
+        records.sort(key=self._record_sort_key)
         return records
+
+    def _record_sort_key(self, record: dict[str, Any]) -> tuple[str, str]:
+        """Ключ порядка: первое непустое поле времени + id (стабильно)."""
+        for field in self._sort_fields:
+            value = str(record.get(field) or "")
+            if value:
+                return (value, str(record.get("id") or ""))
+        return ("", str(record.get("id") or ""))
 
     def _stamp_unlocked(self) -> str:
         if not self.dir_path.exists():

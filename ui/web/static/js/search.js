@@ -2,7 +2,7 @@
 import { esc } from './api.js';
 import { state, setPage } from './state.js';
 import { showPage } from './ui.js';
-import { setServerQuery as setServerListQuery } from './servers.js?v=20260826-host-timezone-v2';
+import { setServerQuery as setServerListQuery } from './servers.js?v=20260904-local-v33';
 
 let searchResults = [];
 
@@ -155,7 +155,7 @@ function renderResults(box, results) {
       const id = item.dataset.id;
 
       if (type === 'server') {
-        import('./servers.js?v=20260826-host-timezone-v2').then(m => {
+        import('./servers.js?v=20260904-local-v33').then(m => {
           setPage('servers');
           showPage('servers');
           m.openServer(id);

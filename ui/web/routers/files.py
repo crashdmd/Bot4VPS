@@ -35,6 +35,26 @@ TEXT_NAMES = {".env", "Dockerfile", "Makefile"}
 
 MAX_EDIT_SIZE = 512 * 1024
 
+# Имя приватного ключа в keys/: буквы/цифры/._- без расширений и без .pub.
+_KEY_NAME_RE = re.compile(r"^(?!\.)[A-Za-z0-9._-]{1,64}$")
+
+
+# Известные расширения «не-ключей», которые прячем из keys/.
+_NON_KEY_SUFFIXES = {
+    ".json", ".txt", ".md", ".log", ".lock", ".bak", ".tmp",
+    ".tar", ".gz", ".zip", ".old", ".swp", ".conf", ".yml", ".yaml",
+}
+
+
+def _is_key_name(name: str) -> bool:
+    """Пригодно ли имя для показа как приватный ключ (не служебный файл)."""
+    if name.endswith(".pub"):  # уже отфильтрован выше, но пусть будет
+        return False
+    lowered = name.lower()
+    if any(lowered.endswith(suffix) for suffix in _NON_KEY_SUFFIXES):
+        return False
+    return bool(_KEY_NAME_RE.match(name))
+
 
 def _root_path(root: str) -> Path:
     if root not in FILE_ROOTS:
@@ -122,8 +142,14 @@ async def api_files(
         for f in sorted(base.iterdir(), key=lambda x: (not x.is_file(), x.name.lower())):
             if f.name.startswith("."):
                 continue
-            if root == "keys" and f.name.endswith(".pub"):
-                continue
+            if root == "keys":
+                # Показываем только сами ключи: приватный + .pub в одной
+                # записи (создание/удаление/просмотр работают по приватному).
+                # Реестр v28, его lock и прочие служебные файлы не смущают.
+                if f.name.endswith(".pub") or f.name == "registry.json" or f.name.endswith(".lock"):
+                    continue
+                if not _is_key_name(f.name):
+                    continue
             if not f.is_file():
                 continue
             st = f.stat()

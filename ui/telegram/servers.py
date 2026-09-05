@@ -469,6 +469,13 @@ async def delete_server(query, server_id):
 
     save_servers(servers)
 
+    # Реестр ключей: секция удалённого сервера больше не нужна.
+    try:
+        from core.quick_setup import key_registry
+        key_registry.forget_server(server_id)
+    except Exception as e:
+        print(f"[TG] key registry cleanup on server delete: {e}", flush=True)
+
     await show_servers(
         query,
         f"✅ Сервер {server_name} удалён."

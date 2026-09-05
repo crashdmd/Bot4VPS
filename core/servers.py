@@ -5,7 +5,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 from ping3 import ping
 
-from core.ssh import create_ssh_client
+from core.ssh import create_ssh_client, exec_sudo
 from core.storage import find_server
 
 
@@ -37,8 +37,14 @@ _INFO_CMD = (
 )
 
 
-def _probe_network(host):
-    """Сетевая доступность: ping, затем TCP 80/443. Возвращает (ping_ms, network)."""
+def _probe_network(host, port: int | None = None):
+    """Сетевая доступность: ICMP → TCP на порт сервера (обычно SSH) → 80 → 443.
+
+    Критерий ONLINE: ответил хотя бы один зонд. Порядок от дешёвого к
+    fallback'у: ICMP не грузит сервер, TCP на известный port честно ловит
+    «закрытый» VPS без ICMP и без веба, 80/443 — последний fallback.
+    Возвращает (ping_ms, network): network — "ping" | "tcp" | "http" | "none".
+    """
     try:
         latency = ping(host, timeout=2)
         if latency:
@@ -46,12 +52,17 @@ def _probe_network(host):
     except Exception:
         pass
 
-    for port in (80, 443):
+    ports = []
+    if port:
+        ports.append(int(port))
+    ports.extend((80, 443))
+
+    for tcp_port in ports:
         sock = None
         try:
             start = time.perf_counter()
-            sock = socket.create_connection((host, port), timeout=2)
-            return round((time.perf_counter() - start) * 1000, 1), "http"
+            sock = socket.create_connection((host, tcp_port), timeout=2)
+            return round((time.perf_counter() - start) * 1000, 1), "tcp"
         except Exception:
             continue
         finally:
@@ -138,7 +149,7 @@ def get_server_info(server):
     # Сетевая проверка и SSH идут параллельно:
     # общее время ~ max(network, ssh), а не их сумма.
     with ThreadPoolExecutor(max_workers=2) as ex:
-        net_future = ex.submit(_probe_network, host)
+        net_future = ex.submit(_probe_network, host, server.get("port"))
         ssh_future = ex.submit(_probe_ssh, server)
         result["ping"], result["network"] = net_future.result()
         result.update(ssh_future.result())
@@ -216,22 +227,27 @@ def format_ssh_error(error):
 
 
 def reboot_server(server):
+    ssh = None
     try:
         ssh = create_ssh_client(server)
-
-        cmd = "/sbin/reboot" if server["user"].lower() == "root" else "sudo /sbin/reboot"
-        print(f"→ Executing on {server['name']}: {cmd}", flush=True)
-
-        _, stdout, stderr = ssh.exec_command(cmd)
-        err = stderr.read().decode().strip()
-        status = stdout.channel.recv_exit_status()
-        
-        print(f"Reboot {server['name']} | status={status} | stderr='{err}'", flush=True)
-        ssh.close()
-        return True
+        print(f"→ Executing reboot on {server['name']}", flush=True)
+        status, out, err = exec_sudo(ssh, server, "/sbin/reboot", timeout=30)
+        print(
+            f"Reboot {server['name']} | status={status} | stderr='{(err or '')[:300]}'",
+            flush=True,
+        )
+        # После принятой reboot-команды канал может оборваться, поэтому успех
+        # определяет exit status; пустой transport после этого не считается ошибкой.
+        return status == 0
     except Exception as e:
         print(f"Reboot FAILED {server.get('name')}: {e}", flush=True)
         return False
+    finally:
+        if ssh:
+            try:
+                ssh.close()
+            except Exception:
+                pass
 
 
 async def wait_for_reboot(server, timeout=120):

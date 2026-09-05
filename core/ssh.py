@@ -321,20 +321,17 @@ def classify_tar_stream(
     }
 
 
-def exec_sudo(
+def _exec_remote(
     ssh,
-    server,
-    command: str,
+    full_command: str,
+    timeout: int,
     emit: Optional[Callable[[str], None]] = None,
-    timeout: int = 600,
+    stdin_data: Optional[str] = None,
 ) -> Tuple[int, str, str]:
-    """Выполнить текстовую команду на SSH с учётом sudo для не-root."""
-    is_root = (server.get("user", "") or "").lower() == "root"
-    quoted = shlex.quote(command)
-    full = f"bash -c {quoted}" if is_root else f"sudo -S -p '' bash -c {quoted}"
-    stdin, stdout, stderr = ssh.exec_command(full, timeout=timeout)
-    if not is_root:
-        stdin.write((server.get("password", "") or "") + "\n")
+    """Общий прогон команды: чтение stdout/stderr и exit status."""
+    stdin, stdout, stderr = ssh.exec_command(full_command, timeout=timeout)
+    if stdin_data is not None:
+        stdin.write(stdin_data)
         stdin.flush()
         stdin.channel.shutdown_write()
     out_lines = []
@@ -356,3 +353,33 @@ def exec_sudo(
     exit_code = chan.recv_exit_status()
     err = stderr.read().decode("utf-8", errors="ignore")
     return exit_code, "\n".join(out_lines), err
+
+
+def exec_sudo(
+    ssh,
+    server,
+    command: str,
+    emit: Optional[Callable[[str], None]] = None,
+    timeout: int = 600,
+) -> Tuple[int, str, str]:
+    """Выполнить текстовую команду на SSH с учётом sudo для не-root."""
+    is_root = (server.get("user", "") or "").lower() == "root"
+    quoted = shlex.quote(command)
+    full = f"bash -c {quoted}" if is_root else f"sudo -S -p '' bash -c {quoted}"
+    stdin_data = None if is_root else (server.get("password", "") or "") + "\n"
+    return _exec_remote(ssh, full, timeout, emit=emit, stdin_data=stdin_data)
+
+
+def exec_plain(
+    ssh,
+    server,
+    command: str,
+    emit: Optional[Callable[[str], None]] = None,
+    timeout: int = 600,
+) -> Tuple[int, str, str]:
+    """Выполнить команду без sudo — операции с собственными файлами пользователя.
+
+    server не используется и оставлен для совместимости сигнатуры с exec_sudo
+    (условный выбор исполнителя: sudo подтверждён → exec_sudo, иначе → здесь).
+    """
+    return _exec_remote(ssh, f"bash -c {shlex.quote(command)}", timeout, emit=emit)

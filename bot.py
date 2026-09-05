@@ -15,7 +15,6 @@ from telegram.ext import (
 import core.scripts  # noqa: F401 — register_executor
 from core.storage import ensure_server_ids
 from core.config import load_config
-from core.monitor import schedule_monitor_jobs
 from core.event_types import EventType
 from core.event_service import register_notifier, clear_notifiers
 
@@ -170,12 +169,9 @@ async def start_telegram(app: Application | None = None) -> Application:
     global _last_start_error
     try:
         await application.initialize()
-        if application.job_queue is not None:
-            schedule_monitor_jobs(application.job_queue)
-        else:
-            print("[BOT] job_queue отсутствует — мониторинг не запланирован "
-                  "(нужен пакет python-telegram-bot[job-queue])", flush=True)
-
+        # Jobs мониторинга больше не планируются здесь: жизненным циклом
+        # фоновых задач владеет ядро (core.jobs_runtime), стартует с любым
+        # входом Bot4VPS независимо от Telegram. TG — только уведомления.
         await application.start()
         await application.updater.start_polling(drop_pending_updates=False)
     except Exception as e:
@@ -243,16 +239,16 @@ if __name__ == "__main__":
         return await send_event_notification(application.bot, notification, event_id)
 
     register_notifier(_immediate_notify, replace=True)
-    if application.job_queue is not None:
-        # job_queue доступен после initialize; run_polling сам init'ит
-        pass
 
     print("🤖 Bot standalone (run_polling) — для TG+Web используйте uvicorn ui.web.app:app", flush=True)
 
-    # post_init: schedule jobs после initialize внутри run_polling
+    # post_init: ядерная JobQueue (собственность ядра, не TG) + backup-scheduler
     async def _post_init(app: Application) -> None:
-        if app.job_queue is not None:
-            schedule_monitor_jobs(app.job_queue)
+        try:
+            from core.jobs_runtime import start_core_jobs
+            await start_core_jobs()
+        except Exception as exc:
+            print(f"[BOT] Core jobs start failed: {exc}", flush=True)
         try:
             from core.backup.scheduler import start_automatic_backup_scheduler
             await start_automatic_backup_scheduler()
@@ -261,6 +257,11 @@ if __name__ == "__main__":
 
     async def _post_shutdown(app: Application) -> None:
         del app
+        try:
+            from core.jobs_runtime import stop_core_jobs
+            await stop_core_jobs()
+        except Exception as exc:
+            print(f"[BOT] Core jobs stop failed: {exc}", flush=True)
         try:
             from core.backup.scheduler import stop_automatic_backup_scheduler
             await stop_automatic_backup_scheduler()

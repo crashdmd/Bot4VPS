@@ -3,20 +3,42 @@ import { loadDashboard, loadSummary, bindDashboard, stopDashMetrics, updateDashb
 import { loadEvents, openEventDetail, applyEventsSnapshot, initSystemMonitor, stopSystemMonitor } from './monitor.js?v=20260826-host-timezone-v2';
 import { loadServers, loadQueues, loadHistory, loadGroupsAndKeys,
   bindServerUI, stopWatchers, openServer, closeGroupsPanel, lastServerTab,
-} from './servers.js?v=20260826-host-timezone-v2';
+} from './servers.js?v=20260904-local-v33';
 import { loadScripts, bindScriptsUI } from './scripts.js?v=20260826-host-timezone-v2';
 import { loadWireguard, bindWireguardUI, stopWgTimers, openWgServerById } from './wireguard.js?v=20260826-host-timezone-v2';
 import { loadDocker, bindDockerUI, stopDockerTimers, openDockerServerById } from './docker.js?v=20260826-host-timezone-v2';
 import { bindTasksUI } from './tasks.js?v=20260816-task-history-v3';
 import { loadFiles, bindFilesUI } from './files.js?v=20260816-service-singleton-v1';
 import { bindEditorUI } from './editor.js?v=20260815-scripts-table-v1';
-import { bindTerminalUI, closeTerminal } from './terminal.js';
+import { bindTerminalUI, closeTerminal } from './terminal.js?v=20260904-termfit-v1';
 import { startSSE, registerNotificationsRefresh } from './sse.js?v=20260816-task-history-v3';
-import { state, setPage } from './state.js';
+import { state, setPage, clearQuickSetupServer } from './state.js';
 import { j } from './api.js';
 import { initAuth, bindAuthUI } from './auth.js';
 import { bindGlobalSearch } from './search.js?v=20260816-server-singleton-v1';
 import { bindBackupUI, loadBackups, stopBackupTimers } from './backup.js?v=20260826-host-timezone-v2';
+
+const QUICK_SETUP_MODULE_URL = './quick_setup.js?v=20260905-revokesudo-v37';
+const quickSetupModule = import(QUICK_SETUP_MODULE_URL).catch(error => {
+  console.error('[quick-setup] module unavailable:', error);
+  return null;
+});
+
+async function openQuickSetupFromCard(serverId) {
+  const normalizedId = String(serverId ?? '').trim();
+  if (!normalizedId) throw new Error('Сервер для настроек не выбран');
+
+  const module = await quickSetupModule;
+  if (!module?.openQuickSetup) {
+    throw new Error('Модуль настроек сервера недоступен');
+  }
+  const opened = await module.openQuickSetup(normalizedId, {
+    historyMode: 'push',
+    throwOnError: true,
+  });
+  if (opened === false) throw new Error('Не удалось открыть настройки сервера');
+  return opened;
+}
 
 // Settings — отдельная подсистема. Загружаем её лениво, чтобы ошибка нового
 // модуля не останавливала Dashboard, Servers и остальные страницы.
@@ -48,7 +70,19 @@ async function refreshAll() {
   ]);
 }
 
+function clearQuickSetupLocation() {
+  const url = new URL(window.location.href);
+  if (url.searchParams.get('page') !== 'quick-setup' && !url.searchParams.has('server_id')) return;
+  url.searchParams.delete('page');
+  url.searchParams.delete('server_id');
+  history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
+}
+
 function onNav(page) {
+  if (state.page === 'quick-setup' && page !== 'quick-setup') {
+    clearQuickSetupServer();
+    clearQuickSetupLocation();
+  }
   setPage(page);
   if (page !== 'servers') closeGroupsPanel();
   if (page !== 'server') stopWatchers();
@@ -120,7 +154,7 @@ document.getElementById('btn-events-clear')?.addEventListener('click', async () 
 });
 
 bindDashboard();
-bindServerUI();
+bindServerUI({ openQuickSetup: openQuickSetupFromCard });
 bindScriptsUI();
 bindTasksUI();
 bindWireguardUI();
@@ -142,6 +176,10 @@ bindAuthUI();
 bindGlobalSearch();
 bindBackupUI();
 bindTelegramHealthDialog();
+quickSetupModule.then(module => module?.bindQuickSetupNav({
+  openServer,
+  openServers: () => onNav('servers'),
+})).catch(() => {});
 window.addEventListener('bot4vps:open-settings-category', async event => {
   const category = event.detail?.category;
   if (category !== 'telegram') return;
@@ -166,6 +204,38 @@ async function restoreSession() {
     page = localStorage.getItem('bot4vps_page') || 'servers';
     serverId = localStorage.getItem('bot4vps_server_id');
   } catch (_) {}
+
+  const query = new URLSearchParams(window.location.search);
+  let quickSetupServerId = null;
+  if (query.get('page') === 'quick-setup') {
+    quickSetupServerId = (query.get('server_id') || '').trim() || null;
+  } else if (page === 'quick-setup') {
+    try {
+      quickSetupServerId = localStorage.getItem('bot4vps_quick_setup_server_id');
+    } catch (_) {}
+  }
+  if (quickSetupServerId) {
+    try {
+      const module = await quickSetupModule;
+      if (!module) throw new Error('Модуль настроек сервера недоступен');
+      await module.openQuickSetup(quickSetupServerId, {
+        historyMode: 'replace',
+        throwOnError: true,
+      });
+      return;
+    } catch (_) {
+      clearQuickSetupServer();
+      clearQuickSetupLocation();
+      try { localStorage.setItem('bot4vps_page', 'servers'); } catch (_) {}
+      onNav('servers');
+      return;
+    }
+  } else if (page === 'quick-setup') {
+    clearQuickSetupServer();
+    clearQuickSetupLocation();
+    onNav('servers');
+    return;
+  }
 
   if (page === 'server' && serverId) {
     try {
@@ -218,6 +288,31 @@ async function restoreSession() {
     onNav(page);
   }
 }
+
+window.addEventListener('popstate', async () => {
+  const query = new URLSearchParams(window.location.search);
+  const queryServerId = query.get('page') === 'quick-setup'
+    ? (query.get('server_id') || '').trim()
+    : '';
+  if (queryServerId) {
+    const module = await quickSetupModule;
+    if (module) {
+      await module.openQuickSetup(queryServerId, { historyMode: 'none' });
+    }
+    return;
+  }
+  if (state.page === 'quick-setup') {
+    const serverId = state.quickSetupServerId;
+    clearQuickSetupServer();
+    if (serverId) {
+      try {
+        await openServer(serverId);
+        return;
+      } catch (_) {}
+    }
+    onNav('servers');
+  }
+});
 
 async function loadVersion() {
   try {

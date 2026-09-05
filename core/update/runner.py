@@ -155,10 +155,12 @@ def _swap_code(app_dir: Path, new_dir: Path) -> None:
         src = new_dir / name
         if src.exists():
             shutil.move(str(src), str(dst))
-    # Почистить __pycache__ в новом дереве (переехал из архива)
+    # Почистить __pycache__ ПО ВСЕМУ дереву: новые файлы приезжают с mtime
+    # из tar-архива (старый коммит), и если размер совпадает — Python верит
+    # протухшему .pyc (было: core/version.py 4.1.0 → 4.5.0 при той же длине
+    # строки и старом mtime; UI показывал 4.1.0). Раньше cleanup пропускал
+    # каталоги из CODE_PATHS — ровно там, где меняется код.
     for pycache in app_dir.rglob("__pycache__"):
-        if any(pycache.match(c) for c in CODE_PATHS):
-            continue
         shutil.rmtree(pycache, ignore_errors=True)
 
 

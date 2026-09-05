@@ -84,6 +84,15 @@ async def lifespan(_app: FastAPI):
     except Exception as e:
         print(f"[WEB] update init failed: {e}", flush=True)
 
+    # Ядерная JobQueue: фоновые задачи мониторинга (system_sync,
+    # availability, SSL, updates) принадлежат ядру и стартуют вместе
+    # с процессом — независимо от Telegram и открытых вкладок Web.
+    try:
+        from core.jobs_runtime import start_core_jobs
+        await start_core_jobs()
+    except Exception as e:
+        print(f"[WEB] Core jobs start failed: {e}", flush=True)
+
     # Telegram (опционально: BOT_TOKEN пустой/заглушка — пропускаем)
     tg_app = None
     try:
@@ -115,9 +124,27 @@ async def lifespan(_app: FastAPI):
     except Exception as e:
         print(f"[WEB] Backup scheduler start failed: {e}", flush=True)
 
+    key_registry_scheduler = None
+    try:
+        from core.quick_setup.registry_scheduler import start_key_registry_scheduler
+        key_registry_scheduler = await start_key_registry_scheduler()
+    except Exception as e:
+        print(f"[WEB] Key registry scheduler start failed: {e}", flush=True)
+
     try:
         yield
     finally:
+        try:
+            from core.jobs_runtime import stop_core_jobs
+            await stop_core_jobs()
+        except Exception as e:
+            print(f"[WEB] Core jobs stop failed: {e}", flush=True)
+        if key_registry_scheduler is not None:
+            try:
+                from core.quick_setup.registry_scheduler import stop_key_registry_scheduler
+                await stop_key_registry_scheduler()
+            except Exception as e:
+                print(f"[WEB] Key registry scheduler stop failed: {e}", flush=True)
         if backup_scheduler is not None:
             try:
                 from core.backup.scheduler import stop_automatic_backup_scheduler
@@ -154,7 +181,7 @@ app.add_middleware(
     https_only=False,
 )
 
-from .routers import meta, summary, servers, tasks, scripts, files, monitor, stream, terminal, services, system, update, backups, settings  # noqa: E402
+from .routers import meta, summary, servers, tasks, scripts, files, monitor, stream, terminal, services, system, update, backups, settings, quick_setup  # noqa: E402
 
 app.mount("/static", NoCacheStaticFiles(directory=STATIC), name="static")
 
@@ -174,6 +201,7 @@ app.include_router(stream.router, dependencies=_AUTH)
 app.include_router(services.router, dependencies=_AUTH)
 app.include_router(update.router, dependencies=_AUTH)
 app.include_router(settings.router, dependencies=_AUTH)
+app.include_router(quick_setup.router, dependencies=_AUTH)
 
 # Health-check встроенного updater'а: без авторизации (его опрашивает runner
 # после перезапуска, когда сессии ещё нет), но только с loopback.

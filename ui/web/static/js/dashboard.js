@@ -295,7 +295,7 @@ function uptimeRu(raw) {
 /** Переиспользуем модалку добавления сервера со страницы «Серверы». */
 function bindDashAdd(box) {
   box.querySelector('[data-dash-add]')?.addEventListener('click', async () => {
-    const m = await import('./servers.js?v=20260826-host-timezone-v2');
+    const m = await import('./servers.js?v=20260904-local-v33');
     m.openAddServerModal();
   });
 }
@@ -420,7 +420,7 @@ export function stopDashMetrics() {
 
 async function openServerFromDash(id) {
   stopDashMetrics();
-  const m = await import('./servers.js?v=20260826-host-timezone-v2');
+  const m = await import('./servers.js?v=20260904-local-v33');
   setPage('servers');
   showPage('servers');
   m.openServer(id);

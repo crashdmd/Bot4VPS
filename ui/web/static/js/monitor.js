@@ -226,7 +226,7 @@ async function runCheck(b) {
 
   // Открываем модалку сразу с индикатором загрузки
   if (modalTitle) modalTitle.textContent = 'Проверка ' + kind + '…';
-  if (modalBody) modalBody.innerHTML = '<div class="empty">Проверка ' + kind + '…<br><span style="opacity:.7;font-size:.9rem">Может занять до минуты</span></div>';
+  if (modalBody) modalBody.innerHTML = '<div class="empty">Идёт проверка...</div>';
   if (modal) modal.style.display = 'flex';
 
   try {

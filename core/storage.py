@@ -260,12 +260,140 @@ class BackupProfileConflictError(ValueError):
     """Profile or SSH connection changed while remote validation was running."""
 
 
-def _backup_connection_snapshot(server: dict) -> dict:
+class ConnectionStateConflictError(ValueError):
+    """SSH connection fields changed while a verified operation was running."""
+
+
+def server_connection_snapshot(server: dict) -> dict:
+    """Вернуть копию только полей, влияющих на SSH-подключение."""
     return {
         field: deepcopy(server.get(field))
         for field in _BACKUP_CONNECTION_FIELDS
         if field in server
     }
+
+
+def get_server_connection_snapshot(server_id: str) -> dict:
+    """Атомарно получить сервер и его SSH connection snapshot."""
+    with data_lock():
+        data = load_data()
+        for server in data.get("servers", []):
+            if server.get("id") == server_id:
+                return {
+                    "server": deepcopy(server),
+                    "connection": server_connection_snapshot(server),
+                }
+    raise ValueError("Сервер не найден")
+
+
+def compare_and_set_server_connection(
+    server_id: str,
+    patch: dict,
+    *,
+    expected_connection: dict,
+) -> dict:
+    """Изменить только SSH-поля, если проверенный snapshot ещё актуален."""
+    if not isinstance(patch, dict) or not patch:
+        raise ValueError("Пустое изменение SSH-настроек")
+    unsupported = set(patch) - set(_BACKUP_CONNECTION_FIELDS)
+    if unsupported:
+        raise ValueError("Недопустимые SSH-поля: " + ", ".join(sorted(unsupported)))
+    with data_lock():
+        data = load_data()
+        for server in data.get("servers", []):
+            if server.get("id") != server_id:
+                continue
+            if server_connection_snapshot(server) != expected_connection:
+                raise ConnectionStateConflictError(
+                    "SSH-настройки сервера изменились; обновите данные и повторите"
+                )
+            for field, value in patch.items():
+                if value is None:
+                    server.pop(field, None)
+                else:
+                    server[field] = deepcopy(value)
+            save_data(data)
+            return deepcopy(server)
+    raise ValueError("Сервер не найден")
+
+
+def compare_and_set_nftables_input_chain(
+    server_id: str,
+    token: dict,
+    *,
+    expected_connection: dict,
+) -> dict:
+    """Сохранить validated chain, если SSH snapshot не изменился."""
+    fields = {"family", "table", "chain"}
+    if not isinstance(token, dict) or set(token) != fields:
+        raise ValueError("Ожидаются family, table и chain")
+    if not all(
+        isinstance(token[field], str)
+        and bool(token[field])
+        and len(token[field]) <= 128
+        and "\x00" not in token[field]
+        for field in fields
+    ):
+        raise ValueError("Некорректный nftables chain token")
+    normalized = {field: token[field] for field in ("family", "table", "chain")}
+
+    with data_lock():
+        data = load_data()
+        for server in data.get("servers", []):
+            if server.get("id") != server_id:
+                continue
+            if server_connection_snapshot(server) != expected_connection:
+                raise ConnectionStateConflictError(
+                    "SSH-настройки сервера изменились; обновите данные и повторите"
+                )
+            quick_setup = server.get("quick_setup")
+            if quick_setup is None:
+                quick_setup = {}
+                server["quick_setup"] = quick_setup
+            if not isinstance(quick_setup, dict):
+                raise ValueError("Некорректные Quick Setup настройки сервера")
+            firewall = quick_setup.get("firewall")
+            if firewall is None:
+                firewall = {}
+                quick_setup["firewall"] = firewall
+            if not isinstance(firewall, dict):
+                raise ValueError("Некорректные firewall настройки сервера")
+            firewall["nftables_input_chain"] = deepcopy(normalized)
+            save_data(data)
+            return deepcopy(normalized)
+    raise ValueError("Сервер не найден")
+
+
+def clear_nftables_input_chain(server_id: str) -> bool:
+    """Удалить сохранённый выбор nftables input chain (если он был).
+
+    Возвращает True, если выбор существовал и был удалён; False — если
+    выбора не было. Используется при удалении nftables (Ч5): сохранённый
+    выбор относится к конкретной установке и не должен переживать uninstall.
+    """
+    with data_lock():
+        data = load_data()
+        for server in data.get("servers", []):
+            if server.get("id") != server_id:
+                continue
+            quick_setup = server.get("quick_setup")
+            firewall = (
+                quick_setup.get("firewall")
+                if isinstance(quick_setup, dict)
+                else None
+            )
+            if not isinstance(firewall, dict):
+                return False
+            if "nftables_input_chain" not in firewall:
+                return False
+            del firewall["nftables_input_chain"]
+            save_data(data)
+            return True
+    raise ValueError("Сервер не найден")
+
+
+def _backup_connection_snapshot(server: dict) -> dict:
+    return server_connection_snapshot(server)
 
 
 def get_server_backup_snapshot(server_id: str) -> dict:

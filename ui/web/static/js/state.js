@@ -8,6 +8,7 @@ export const state = {
   scripts: [],
   openServerId: null,
   openServerData: null,
+  quickSetupServerId: null,
   watchTaskId: null,
   page: 'dashboard',
   serverTab: 'status',
@@ -44,6 +45,24 @@ export function setOpenServer(id, data) {
     }
   } catch (_) {}
 }
+export function setQuickSetupServer(id) {
+  const normalized = id == null ? null : String(id).trim();
+  state.quickSetupServerId = normalized || null;
+  try {
+    if (state.quickSetupServerId) {
+      localStorage.setItem('bot4vps_quick_setup_server_id', state.quickSetupServerId);
+      localStorage.setItem('bot4vps_page', 'quick-setup');
+    } else {
+      localStorage.removeItem('bot4vps_quick_setup_server_id');
+    }
+  } catch (_) {}
+}
+
+export function clearQuickSetupServer() {
+  state.quickSetupServerId = null;
+  try { localStorage.removeItem('bot4vps_quick_setup_server_id'); } catch (_) {}
+}
+
 export function setPage(page) {
   state.page = page;
   try { localStorage.setItem('bot4vps_page', page); } catch (_) {}

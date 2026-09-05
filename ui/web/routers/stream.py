@@ -11,6 +11,38 @@ from fastapi.responses import StreamingResponse
 router = APIRouter(tags=["stream"])
 
 
+async def _light_checks():
+    """Фоновые лёгкие TCP-пинги для stale-серверов + события в журнал."""
+    try:
+        from core.storage import load_servers
+        from core.monitor import light_check_servers
+        from core.event_service import notify_event
+        from core.event_types import EventType, EventLevel, EventReason
+
+        events = await asyncio.to_thread(light_check_servers, load_servers())
+        for event in events:
+            kind = event["event"]
+            if kind == "offline":
+                details = {**event, "reason": EventReason.SERVER_OFFLINE.value}
+                message = (
+                    f"Сервер «{event['server_name']}» стал недоступен."
+                    + (f"\nОшибка: {event.get('error')}" if event.get('error') else "")
+                )
+                await notify_event(
+                    EventType.SERVER, EventLevel.CRITICAL,
+                    "Сервер недоступен", message, details,
+                )
+            elif kind == "online":
+                details = {**event, "reason": EventReason.SERVER_ONLINE.value}
+                await notify_event(
+                    EventType.SERVER, EventLevel.INFO,
+                    "Сервер снова доступен",
+                    f"Сервер «{event['server_name']}» снова в сети.", details,
+                )
+    except Exception as e:
+        print(f"[STREAM] light checks: {e}", flush=True)
+
+
 def _snapshot():
     """Короткий снимок для SSE (без тяжёлых SSH)."""
     out = {
@@ -127,10 +159,16 @@ async def api_stream(request: Request):
     async def event_gen():
         # hello
         yield f"event: hello\ndata: {json.dumps({'ok': True})}\n\n"
+        # Лёгкие TCP-пинги stale-серверов идут в фоне, пока есть хоть один
+        # подключённый SSE-клиент (панель открыта). Следующий снапшот (через 3 с)
+        # подхватит обновлённый статус. Событие online/offline — в журнал.
+        light_task = None
         while True:
             if await request.is_disconnected():
                 break
             try:
+                if light_task is None or light_task.done():
+                    light_task = asyncio.create_task(_light_checks())
                 snap = await asyncio.to_thread(_snapshot)
                 yield f"event: snapshot\ndata: {json.dumps(snap, ensure_ascii=False, default=str)}\n\n"
             except Exception as e:
