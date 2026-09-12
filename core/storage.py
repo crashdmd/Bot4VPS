@@ -560,6 +560,10 @@ def restore_backup():
                 DATA_FILE
             )
 
+            # Бэкап мог быть снят до перевода на 0600 — восстановление
+            # не должно возвращать мир-читаемые права рабочей базе.
+            DATA_FILE.chmod(0o600)
+
             print(
                 "✔ Восстановлено из latest.json"
             )
@@ -609,10 +613,14 @@ def restore_backup():
                 DATA_FILE
             )
 
+            DATA_FILE.chmod(0o600)
+
             shutil.copy2(
                 backup,
                 LATEST_BACKUP
             )
+
+            LATEST_BACKUP.chmod(0o600)
 
             print(f"✔ Восстановлено из {backup.name}")
             
@@ -638,6 +646,46 @@ def restore_backup():
     raise RuntimeError(
         "Не удалось восстановить servers.json."
     )
+
+def _encrypt_passwords_for_disk(data):
+    """Копия данных с зашифрованными servers[].password (для записи).
+
+    Входной dict не мутируем: вызывающий код продолжает работать
+    с plaintext-копиями в памяти (compare-and-set циклы, wizard).
+    Функция — единственная точка преобразования перед save_data,
+    поэтому все ~15 путей записи покрываются без рефакторинга.
+    """
+    from core.secretbox import encrypt
+
+    servers = data.get("servers")
+    if not isinstance(servers, list):
+        return data
+    out = deepcopy(data)
+    for server in out.get("servers", []):
+        if isinstance(server, dict):
+            password = server.get("password")
+            if isinstance(password, str) and password:
+                server["password"] = encrypt(password)
+    return out
+
+
+def _decrypt_passwords(data):
+    """Расшифровать servers[].password после чтения с диска.
+
+    plaintext (старые установки) проходит как есть; повреждённый
+    ciphertext → SecretBoxError (см. core/secretbox.decrypt).
+    """
+    from core.secretbox import decrypt
+
+    servers = data.get("servers")
+    if isinstance(servers, list):
+        for server in servers:
+            if isinstance(server, dict):
+                password = server.get("password")
+                if isinstance(password, str) and password:
+                    server["password"] = decrypt(password)
+    return data
+
 
 def load_data():
 
@@ -669,7 +717,7 @@ def load_data():
             encoding="utf-8"
         ) as f:
 
-            return json.load(f)
+            return _decrypt_passwords(json.load(f))
 
     except json.JSONDecodeError:
 
@@ -677,10 +725,11 @@ def load_data():
             "⚠ servers.json поврежден."
         )
 
-        return restore_backup()
+        return _decrypt_passwords(restore_backup())
 
 def save_data(data):
 
+    # Пароли серверов пишем на диск зашифрованными (core/secretbox).
     with open(
         TEMP_FILE,
         "w",
@@ -688,7 +737,7 @@ def save_data(data):
     ) as f:
 
         json.dump(
-            data,
+            _encrypt_passwords_for_disk(data),
             f,
             indent=4,
             ensure_ascii=False
@@ -704,6 +753,11 @@ def save_data(data):
         TEMP_FILE,
         DATA_FILE
     )
+
+    # Топология и SSH-пользователи управляемых серверов — не мир-читаемые
+    # (пароли и так enc1:, но метаданные тоже персданные). Точка та же,
+    # что у config.json (_write_config_atomic): chmod после replace.
+    DATA_FILE.chmod(0o600)
 
     create_backup()
 
@@ -775,7 +829,8 @@ def create_backup_readme():
 
             "-------------------------\n\n"
 
-            "Ручное восстановление:\n\n"
+            "Ручное восстановление servers.json\n"
+            "(latest.json — последняя сохранённая копия):\n\n"
 
             "cp latest.json ../servers.json\n"
 
@@ -784,7 +839,28 @@ def create_backup_readme():
             "Если latest.json поврежден,\n"
             "используйте любой файл\n"
             "servers_YYYY-MM-DD_HH-MM-SS.json\n"
-            "и также перезапустите бота.\n"
+            "и также перезапустите бота.\n\n"
+
+            "-------------------------\n\n"
+
+            "Ручное восстановление config.json\n"
+            "(config_latest.json — последняя проверенная\n"
+            "рабочая копия; config_YYYY-MM-DD_HH-MM-SS.json —\n"
+            "история изменений):\n\n"
+
+            "cp config_latest.json ../config.json\n"
+
+            "systemctl restart bot4vps\n\n"
+
+            "Поврежденный config.json приложение\n"
+            "спасает как corrupt_config_*.json — это\n"
+            "материал для разбора, НЕ копия для\n"
+            "восстановления.\n\n"
+
+            "Обычно config.json восстанавливается\n"
+            "автоматически из config_latest.json при\n"
+            "повреждении; ручной рецепт нужен, только\n"
+            "если автоматика не справилась.\n"
         ),
         encoding="utf-8"
     )

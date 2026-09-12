@@ -63,15 +63,135 @@ def set_web_password(new_password: str) -> None:
     set_web_config(web)
 
 
+# ------------------------------------------------------------------
+# Двухфакторная аутентификация (TOTP)
+#
+# Секрет хранится в config.json -> web.totp_secret, зашифрованный
+# enc1: (core.secretbox) — как Telegram Bot Token. Пустого поля/отсутствия
+# ключа достаточно: 2FA «выключена» = секрета нет.
+# ------------------------------------------------------------------
+
+def get_totp_secret() -> str:
+    """Активный TOTP-секрет (расшифрованный) или '' если 2FA выключена."""
+    from core.config import get_web_config
+    from core.secretbox import decrypt
+
+    try:
+        return decrypt(str(get_web_config().get("totp_secret") or ""))
+    except Exception:
+        # Повреждённый ciphertext не должен ронять логин: считаем 2FA
+        # невключённой и ждём диагностики (консольный сброс это лечит)
+        return ""
+
+
+def totp_enabled() -> bool:
+    return bool(get_totp_secret())
+
+
+def make_totp_secret() -> str:
+    """Новый секрет для приложения-аутентификатора (Base32)."""
+    import pyotp
+
+    return pyotp.random_base32()
+
+
+def totp_provisioning_uri(secret: str, username: str) -> str:
+    """otpauth://-URI: то, что кодируется в QR и показывается вручную."""
+    import pyotp
+
+    return pyotp.totp.TOTP(secret).provisioning_uri(
+        name=username, issuer_name="Bot4VPS"
+    )
+
+
+def verify_totp_code(code: str, secret: str) -> bool:
+    """Проверить 6-значный код; окно ±1 шаг (30 c) на рассинхрон часов."""
+    import pyotp
+
+    if not code or not secret:
+        return False
+    try:
+        return pyotp.TOTP(secret).verify(code.strip(), valid_window=1)
+    except Exception:
+        return False
+
+
+def set_totp_secret(secret: str) -> None:
+    """Активировать 2FA: секрет на диск только в зашифрованном виде."""
+    from core.config import get_web_config, set_web_config
+    from core.secretbox import encrypt
+
+    web = get_web_config()
+    web["totp_secret"] = encrypt(secret)
+    set_web_config(web)
+
+
+def clear_totp_secret() -> None:
+    """Выключить 2FA (консольный аварийный сброс или отключение по коду)."""
+    from core.config import get_web_config, set_web_config
+
+    web = get_web_config()
+    web.pop("totp_secret", None)
+    set_web_config(web)
+
+
+# ------------------------------------------------------------------
+# Аварийный режим (Этап 1 «Стойкость config.json»)
+#
+# Единственная причина — ConfigCorruptedError: config.json повреждён и
+# валидных копий не нашлось. Отсутствие файла аварией НЕ является
+# (тихо создаётся DEFAULT_CONFIG, как всегда). Определяется один раз
+# при старте в ensure_web_secrets() — это самый ранний переключатель:
+# до создания FastAPI, SessionMiddleware и импорта роутеров.
+# ------------------------------------------------------------------
+
+# None | "corrupt"
+EMERGENCY: str | None = None
+
+
+def emergency_state() -> str | None:
+    """Аварийный режим Web ('corrupt') или None (обычный запуск)."""
+    return EMERGENCY
+
+
 def ensure_web_secrets() -> dict:
     """
-    Гарантирует наличие ``secret_key`` (подпись сессионной куки) и, если
-    авторизация включена, — валидного ``password_hash``. Вызывается при старте.
-    Если auth включён, а пароль пуст — генерирует одноразовый и печатает в лог.
-    """
-    from core.config import load_config, save_config
+    Гарантирует наличие ``secret_key`` (подпись сессионной куки). Вызывается
+    при старте.
 
-    config = load_config()
+    Пароль здесь больше НЕ генерируется: администратора создаёт мастер
+    первичной установки (код + /api/setup/complete, см. app.py). Если
+    авторизация включена, а пароль пуст — это состояние «заглушки»
+    (вход невозможен, подсказка с командой CLI), а не повод печатать
+    одноразовый пароль в журнал.
+
+    При повреждённом config.json без валидных копий не падает, а включает
+    аварийный режим: приложение поднимется, но все API (кроме статической
+    страницы и health) закроет гейт в app.py.
+    """
+    from core.config import ConfigCorruptedError, load_config, save_config
+
+    global EMERGENCY
+
+    try:
+        config = load_config()
+    except ConfigCorruptedError as e:
+        EMERGENCY = "corrupt"
+        print(f"[WEB] АВАРИЙНЫЙ РЕЖИМ: {e}", flush=True)
+        print(
+            "[WEB] Восстановите конфигурацию: "
+            "cp backup/config_latest.json config.json && systemctl restart bot4vps",
+            flush=True,
+        )
+        # Возвратить нечего: конфига нет. Секрет сессии — заглушка
+        # (сессий в аварийном режиме не существует, гейт закрывает всё).
+        return {
+            "auth_enabled": False,
+            "username": "",
+            "password_hash": "",
+            "secret_key": "",
+        }
+
     web = config.get("web")
     if not isinstance(web, dict):
         web = {
@@ -86,18 +206,76 @@ def ensure_web_secrets() -> dict:
         web["secret_key"] = secrets.token_hex(32)
         changed = True
 
-    if web.get("auth_enabled") and not web.get("password_hash"):
-        one_time = secrets.token_urlsafe(12)
-        web["password_hash"] = make_password(one_time)
-        changed = True
-        print("[WEB] Авторизация включена, но пароль не задан.", flush=True)
-        print(f"[WEB] Одноразовый пароль: {one_time}", flush=True)
-        print("[WEB] Смените его через POST /api/auth/password.", flush=True)
-
     if changed:
         config["web"] = web
         save_config(config)
     return web
+
+
+# ------------------------------------------------------------------
+# Первичная настройка (Этап 2): состояния входа
+#
+# Состояния различаются ПРИЧИНОЙ, а не только наличием админа:
+#   normal  — администратор задан (password_hash непуст) → обычный логин;
+#   wizard  — код первичной установки есть И админа нет → всё закрыто
+#             кроме мастера, НЕЗАВИСИМО от auth_enabled (у дефолтного
+#             конфига свежей установки auth_enabled=False — панель не
+#             должна открыться «сама»);
+#   stub    — авторизация включена, пароля нет, кода нет → вход
+#             невозможен, заглушка с командой CLI (миграция со старого
+#             механизма одноразовых паролей, сброс без кода);
+#   emergency — config.json повреждён (владелец — EMERGENCY выше).
+# ------------------------------------------------------------------
+
+def admin_exists() -> bool:
+    """Администратор задан = password_hash непуст (логин вторичен)."""
+    from core.config import get_web_config
+
+    return bool(get_web_config().get("password_hash"))
+
+
+def setup_wizard_active() -> bool:
+    """Мастер первичной установки активен: код есть И админа нет.
+
+    Истёкший код кодом не считается (TTL, см. core/setup_code.py):
+    current_setup_code() возвращает None — мастер закрывается.
+    """
+    from core.setup_code import current_setup_code
+
+    if admin_exists():
+        return False
+    return bool(current_setup_code())
+
+
+def setup_expired_active() -> bool:
+    """Код установки выдан, но истёк: панель остаётся закрытой.
+
+    Без этого состояния истёкший код на свежей установке
+    (auth_enabled=False) переоткрыл бы панель: мастер закрылся (кода
+    «нет»), а заглушка не активна (авторизация выключена). Страница
+    показывает, как перевыпустить код (CLI «Восстановление»).
+    """
+    from core.setup_code import setup_code_state
+
+    if admin_exists():
+        return False
+    return bool(setup_code_state()["expired"])
+
+
+def login_stub_active() -> bool:
+    """Заглушка: авторизация включена, пароля нет, кода не выдано.
+
+    auth_enabled=False + нет админа + нет кода — НЕ заглушка (обычный
+    открытый режим tg-only установок, как сегодня); admin_exists
+    проверяется первым — с админом заглушки не бывает.
+    """
+    from core.setup_code import current_setup_code
+
+    if admin_exists():
+        return False
+    if current_setup_code():
+        return False
+    return auth_enabled()
 
 
 # ------------------------------------------------------------------

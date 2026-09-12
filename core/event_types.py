@@ -58,3 +58,5 @@ class EventReason(str, Enum):
     RESTORE_COMPLETED = "restore_completed"
     RESTORE_FAILED = "restore_failed"
     RESTORE_CANCELLED = "restore_cancelled"
+    CONFIG_RESTORED = "config_restored"
+    SSH_KEY_MISSING = "ssh_key_missing"

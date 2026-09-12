@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Annotated, Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from fastapi import APIRouter, BackgroundTasks, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, BackgroundTasks, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -287,6 +287,15 @@ class CreateBody(BaseModel):
     target: str = Field(pattern="^(server|bot4vps)$")
     server_id: str | None = None
     label: str | None = Field(default=None, max_length=200)
+    # Разовый пароль резервных копий для этого архива: переопределяет
+    # сохранённый (enc1:). Не задан и сохранённый не настроен — архив
+    # создаётся без шифрования.
+    password: str | None = Field(default=None, min_length=1, max_length=256)
+    # Явный выбор из модала создания: True — архив обязан быть зашифрован
+    # (одноразовым паролем выше или сохранённым), False — plain-архив даже
+    # при настроенном сохранённом пароле. None (по умолчанию) — авто:
+    # сохранённый пароль, если настроен.
+    encrypt: bool | None = None
 
 
 class FilenameBody(BaseModel):
@@ -308,6 +317,10 @@ class RestorePlanBody(BaseModel):
         max_length=512,
     )
     include_directory_tree: bool = True
+    # Пароль резервных копий: нужен только для зашифрованного архива (B4VE).
+    # Не задан — используется сохранённый (enc1:), при его отсутствии план
+    # по зашифрованному архиву вернёт ENCRYPTION_PASSWORD_REQUIRED.
+    password: str | None = Field(default=None, min_length=1, max_length=256)
 
     @model_validator(mode="after")
     def validate_selection(self):
@@ -340,6 +353,11 @@ class RestoreBody(BaseModel):
     confirm: bool = False
     confirm_without_protective: bool = False
     request_id: str | None = Field(default=None, max_length=256)
+    # Пароль резервных копий (только для зашифрованных архивов). Допустим в
+    # ОБЕИХ фазах: apply внутри пересобирает план и снова расшифровывает
+    # архив, поэтому пароль передаётся и при применении. Может быть паролем,
+    # которым архив был создан (текущий сохранённый не подошёл — смена пароля).
+    password: str | None = Field(default=None, min_length=1, max_length=256)
 
     @model_validator(mode="after")
     def validate_restore_phase(self):
@@ -379,6 +397,11 @@ class RestoreInventoryPrepareBody(BaseModel):
     retry: bool = False
     rebuild: bool = False
     view: Literal["restore", "archive"] = "restore"
+    # Пароль резервных копий — только для зашифрованного (B4VE) импорта без
+    # готового сайдкара: состав файлов читается расшифровкой. Не задан —
+    # используется сохранённый (enc1:); нет ни того, ни другого —
+    # ENCRYPTION_PASSWORD_REQUIRED.
+    password: str | None = Field(default=None, min_length=1, max_length=256)
 
     @model_validator(mode="after")
     def validate_mode(self):
@@ -388,6 +411,23 @@ class RestoreInventoryPrepareBody(BaseModel):
             raise ValueError("rebuild доступен только для archive view")
         if self.view == "archive" and self.target_root is not None:
             raise ValueError("archive view не принимает target_root")
+        return self
+
+
+class RestorePasswordProbeBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    # Явный пароль (введённый в модалке) или тихая проба сохранённого на
+    # сервере. Сам пароль в ответе не участвует — только факт совпадения.
+    password: str | None = Field(default=None, min_length=1, max_length=256)
+    use_stored: bool = False
+
+    @model_validator(mode="after")
+    def validate_probe(self):
+        if not self.use_stored and not self.password:
+            raise ValueError("Нужен password или use_stored")
+        if self.use_stored and self.password:
+            raise ValueError("password и use_stored несовместимы")
         return self
 
 
@@ -467,6 +507,8 @@ async def create(body: CreateBody):
             server_id=body.server_id if body.target == "server" else None,
             bot4vps=body.target == "bot4vps",
             label=body.label,
+            password=body.password,
+            encrypt=body.encrypt,
         )
         return {"operation": operation}
     except Exception as exc:
@@ -571,7 +613,28 @@ async def imported_restore_readiness(
             "entry_key": response["entry_key"],
             "eligible": response["eligible"] is True,
             "requires_target_root": response["requires_target_root"] is True,
+            "encrypted": response.get("encrypted") is True,
         }
+    except Exception as exc:
+        _raise_safe(exc, 404 if isinstance(exc, BackupError) else 400)
+
+
+@router.post("/imported/{entry_key}/restore/password-probe")
+async def imported_restore_password_probe(
+    entry_key: str,
+    body: RestorePasswordProbeBody | None = None,
+    server_id: str | None = Query(default=None),
+):
+    """Быстрая проверка пароля зашифрованного импорта (первый кусок B4VE)."""
+    try:
+        request = body or RestorePasswordProbeBody(use_stored=True)
+        return await call(
+            "imported_restore_password_probe",
+            entry_key,
+            server_id=server_id,
+            password=request.password,
+            use_stored=request.use_stored,
+        )
     except Exception as exc:
         _raise_safe(exc, 404 if isinstance(exc, BackupError) else 400)
 
@@ -592,6 +655,7 @@ async def prepare_imported_restore_inventory(
             retry=request.retry,
             rebuild=request.rebuild,
             view=request.view,
+            password=request.password,
         )
         return _restore_inventory_prepare_response(result)
     except Exception as exc:
@@ -677,6 +741,7 @@ async def imported_restore_plan(
             "selection_mode": request.selection_mode,
             "selected_paths": request.selected_paths,
             "include_directory_tree": request.include_directory_tree,
+            "password": request.password,
         }
         if diagnostics_started is not None:
             call_options["include_diagnostics"] = True
@@ -751,6 +816,7 @@ async def imported_restore(
                 "confirm": body.confirm,
                 "confirm_without_protective": body.confirm_without_protective,
                 "request_id": body.request_id,
+                "password": body.password,
             }
         else:
             restore_options = {
@@ -761,6 +827,7 @@ async def imported_restore(
                 "selected_paths": body.selected_paths,
                 "apply": False,
                 "request_id": body.request_id,
+                "password": body.password,
             }
         operation = await call(
             "submit_imported_restore",
@@ -854,6 +921,26 @@ async def preview(backup_id: str, server_id: str | None = Query(default=None)):
         }
     except Exception as exc:
         _raise_safe(exc, 404)
+
+
+@router.post("/{backup_id}/restore/password-probe")
+async def restore_password_probe(
+    backup_id: str,
+    body: RestorePasswordProbeBody | None = None,
+    server_id: str | None = Query(default=None),
+):
+    """Быстрая проверка пароля зашифрованного managed-архива (первый кусок)."""
+    try:
+        request = body or RestorePasswordProbeBody(use_stored=True)
+        return await call(
+            "restore_password_probe",
+            backup_id,
+            server_id=server_id,
+            password=request.password,
+            use_stored=request.use_stored,
+        )
+    except Exception as exc:
+        _raise_inventory_safe(exc)
 
 
 @router.post("/{backup_id}/restore/inventory/prepare")
@@ -957,6 +1044,7 @@ async def restore_plan(
             selection_mode=request.selection_mode,
             selected_paths=request.selected_paths,
             include_directory_tree=request.include_directory_tree,
+            password=request.password,
         )
         record = response["archive"]
         plan = response.get("plan")
@@ -1025,6 +1113,7 @@ async def restore(
                 "confirm": body.confirm,
                 "confirm_without_protective": body.confirm_without_protective,
                 "request_id": body.request_id,
+                "password": body.password,
             }
         else:
             restore_options = {
@@ -1035,6 +1124,7 @@ async def restore(
                 "selected_paths": body.selected_paths,
                 "apply": False,
                 "request_id": body.request_id,
+                "password": body.password,
             }
         operation = await call(
             "submit_restore",
@@ -1092,6 +1182,7 @@ def _write_upload_chunk(output, chunk: bytes, *, written: int, limit: int | None
 @router.post("/import")
 async def import_archive(
     file: UploadFile = File(...),
+    password: str | None = Form(default=None, max_length=256),
     destination_server_id: str | None = Query(default=None),
     request_id: str | None = Query(default=None),
     filename: str | None = Query(default=None, max_length=255),
@@ -1125,6 +1216,7 @@ async def import_archive(
             request_id=request_id,
             replace=replace,
             confirm_bot4vps_replace=confirm_bot4vps_replace,
+            password=password or None,
         )
     except Exception as exc:
         _raise_safe(exc)

@@ -9,6 +9,7 @@
 import { j, esc } from './api.js';
 import { toast, showPage, serverDateTimeParts, serverDayDifference } from './ui.js';
 import { ansiToHtml } from './ansi.js';
+import { DOCKER_ICON } from './icons.js?v=20260905-brandicons-v2';
 
 const SID = 'docker';
 
@@ -222,7 +223,7 @@ function checkCard(s) {
   const installed = !!st.installed;
   const known = !!Object.keys(st).length;
   const goto = known ? (installed ? 'manage' : 'install') : '';
-  let body = `<h3>🐳 ${esc(s.name)}</h3>`;
+  let body = `<h3>${DOCKER_ICON} ${esc(s.name)}</h3>`;
   body += `<div class="row" style="margin-top:.3rem">${stateBadge(st)}</div>`;
   if (known) {
     if (installed) {
@@ -250,7 +251,7 @@ function renderInstall(servers) {
   }
   el.innerHTML = servers.map(s => `<div class="card">
     <div class="card-body">
-      <h3>🐳 ${esc(s.name)} <span class="hint">${esc(s.host || '')}</span></h3>
+      <h3>${DOCKER_ICON} ${esc(s.name)} <span class="hint">${esc(s.host || '')}</span></h3>
       <div class="row" style="margin-top:.3rem">${stateBadge(s.status || {})}</div>
       <div class="wg-note">Docker Engine отсутствует на сервере.
 Установите его, чтобы управлять контейнерами, образами и Compose-проектами.</div>
@@ -284,7 +285,7 @@ function manageCard(s) {
   const v = shortVer(st.version);
   return `<div class="card">
     <div class="card-body">
-      <h3>🐳 ${esc(s.name)} <span class="hint">${esc(s.host || '')}</span></h3>
+      <h3>${DOCKER_ICON} ${esc(s.name)} <span class="hint">${esc(s.host || '')}</span></h3>
       <div class="row" style="margin-top:.3rem">${stateBadge(st)}</div>
       <div class="wg-card-info">Версия: <b>${v ? esc(v) : '—'}</b></div>
       <div class="wg-card-info">Демон: <b>${esc(st.active || '—')}</b></div>
@@ -482,7 +483,7 @@ function renderServerDetail(st) {
 
   if (widgetsEl) {
     widgetsEl.innerHTML = `<div class="svc-widgets-4 docker-widgets">
-      ${widget('🐳', daemonHtml, 'Демон Docker', shortVer(s.version) || '—')}
+      ${widget(DOCKER_ICON, daemonHtml, 'Демон Docker', shortVer(s.version) || '—')}
       ${widget('📦', esc(`${stats.running || 0} / ${stats.total || containers.length}`), 'Контейнеры', 'Запущено / Всего')}
       ${widget('💿', esc(String(stats.images ?? '—')), 'Образы', 'Установлено')}
       ${composeWidget}
@@ -1847,7 +1848,7 @@ function watchTask(taskId, serverId, action) {
           try { localStorage.removeItem('bot4vps_docker_server_id'); } catch (_) {}
           if (dockerEntryContext === 'server' && sid) {
             try {
-              const { openServer } = await import('./servers.js?v=20260904-local-v33');
+              const { openServer } = await import('./servers.js?v=20260912-chlogwrap-v1');
               await openServer(sid);
             } catch (_) {
               backToDockerList();
@@ -1912,7 +1913,7 @@ export function bindDockerUI() {
   document.getElementById('btn-back-docker-server')?.addEventListener('click', async () => {
     if (!dockerServerId) return;
     try {
-      const { openServer } = await import('./servers.js?v=20260904-local-v33');
+      const { openServer } = await import('./servers.js?v=20260912-chlogwrap-v1');
       await openServer(dockerServerId);
     } catch (e) {
       console.error(e);

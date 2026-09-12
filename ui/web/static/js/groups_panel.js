@@ -6,7 +6,7 @@ import { j, esc } from './api.js';
 import { toast, confirmAction } from './ui.js';
 import { state, setGroups, setServerGroupTab } from './state.js';
 
-const MODULE_V = '20260819-groups-panel-v1';
+const MODULE_V = '20260911-groups-v2';
 
 function closeGroupsPanel() {
   const panel = document.getElementById('groups-panel');
@@ -41,7 +41,7 @@ export async function loadGroupsAdmin(groupsOverride = null) {
           <input type="checkbox" class="grp-ssl-cb" ${ssl}/>
           <span>SSL</span>
         </label>
-        <span class="grp-count">${n}</span>
+        <span class="grp-count" title="Серверов в группе">${n}</span>
         <button type="button" class="icon-btn grp-save" title="Сохранить">💾</button>
         <button type="button" class="icon-btn grp-del ${canDelete ? '' : 'group-delete-blocked'}" title="${canDelete ? 'Удалить' : 'Нельзя удалить группу с серверами — сначала переместите серверы'}">🗑</button>
       </div>`;
@@ -69,7 +69,7 @@ async function refreshAfterGroupMutation({ oldName = null, newName = null, creat
   const shownName = createdName || newName;
   if (shownName) ensureGroupDisplayed(shownName, oldName);
 
-  const serversModule = await import('./servers.js?v=20260904-local-v33');
+  const serversModule = await import('./servers.js?v=20260912-chlogwrap-v1');
   await serversModule.loadServers();
   await loadGroupsAdmin(groups);
   await loadGroupsDisplayOrder();
@@ -301,7 +301,7 @@ function saveGroupsDisplaySettings() {
     }
     // Альтернативно через импорт, если доступен.
     // Спецификатор сверить с app.js — тот же ?v=, иначе второй инстанс модуля.
-    import(`./servers.js?v=20260904-local-v33`).then(m => m.renderServers()).catch(() => {});
+    import(`./servers.js?v=20260912-chlogwrap-v1`).then(m => m.renderServers()).catch(() => {});
   } catch (e) {
     console.error('Failed to save group display settings', e);
   }

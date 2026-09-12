@@ -1,4 +1,4 @@
-"""Смена порта Web UI (Настройки → Web).
+"""Смена порта Web UI (Настройки → Безопасность).
 
 Порт живёт только в systemd-юните ``/etc/systemd/system/bot4vps.service``
 (``ExecStart=... --port N``). Смена порта перезапускает сам сервис, а значит
@@ -22,6 +22,7 @@ import json
 import os
 import re
 import shutil
+import ssl
 import subprocess
 import sys
 import tempfile
@@ -190,8 +191,21 @@ def _health_ok(port: int, timeout: float) -> bool:
     Версию сверять не нужно: до смены на новом порту никто не слушает,
     ответить может только перезапущенный сервис (гард loopback-only
     уже встроен в сам эндпоинт).
+
+    Схема — из юнита (``--ssl-certfile`` => https): смена порта не трогает
+    TLS-флаги, значит health идёт по той же схеме, что слушает сервис.
+    Дублирование core/web_tls.py осознанное — раннер живёт без импортов core.
     """
-    url = "http://127.0.0.1:%d/api/upd/health" % port
+    try:
+        unit_text = UNIT_PATH.read_text(encoding="utf-8")
+    except OSError:
+        unit_text = ""
+    if re.search(r"--ssl-certfile\s+\S+", unit_text):
+        url = "https://127.0.0.1:%d/api/upd/health" % port
+        ctx = ssl._create_unverified_context()  # самоподписанные тоже валидны
+    else:
+        url = "http://127.0.0.1:%d/api/upd/health" % port
+        ctx = None
     deadline = time.monotonic() + timeout
     streak = 0
     while time.monotonic() < deadline:
@@ -199,7 +213,7 @@ def _health_ok(port: int, timeout: float) -> bool:
             req = urllib.request.Request(
                 url, headers={"User-Agent": "bot4vps-web-port"}
             )
-            with urllib.request.urlopen(req, timeout=5) as resp:
+            with urllib.request.urlopen(req, timeout=5, context=ctx) as resp:
                 data = json.loads(resp.read().decode("utf-8"))
             if data.get("ok"):
                 streak += 1

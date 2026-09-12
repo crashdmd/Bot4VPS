@@ -179,6 +179,20 @@ function renderSystem(sys, d, local) {
       <button type="button" class="qs-compact" id="qs-set-group-btn">Сохранить</button>
     </span>
   </div>`;
+  // Проверять SSL — как в старой модалке «Изменить настройки»: чекбокс
+  // раскрывает поле домена на той же строке (справа от чекбокса).
+  // Пустой домен = проверка по host.
+  const sslEnabled = !!local?.ssl_enabled;
+  const sslRow = `<div class="qs-row qs-setting-row">
+    <span class="qs-row-label"><strong>Проверять SSL</strong><small>домен для проверки; пусто — по host, стереть и сохранить = удалить</small></span>
+    <span class="qs-row-value qs-setting-control">
+      <input type="checkbox" id="qs-set-cert"${sslEnabled ? ' checked' : ''}>
+      <span class="qs-ssl-host${sslEnabled ? '' : ' hidden'}" id="qs-set-ssl-wrap">
+        <input id="qs-set-ssl" value="${esc(String(local?.ssl_host || ''))}" style="width:9.5rem" maxlength="255" placeholder="domain.com">
+        <button type="button" class="qs-compact" id="qs-set-ssl-btn">Сохранить</button>
+      </span>
+    </span>
+  </div>`;
   let updates = '—';
   let updatesAvailable = false;
   if (sys?.updates_available === true) {
@@ -241,6 +255,7 @@ function renderSystem(sys, d, local) {
     <div class="qs-rows">
       ${nameRow}
       ${groupRow}
+      ${sslRow}
     </div>
   `, 'qs-sec-system');
 }
@@ -1003,6 +1018,16 @@ function bindActions() {
   document.getElementById('qs-set-name')?.addEventListener('keydown', e => {
     if (e.key === 'Enter') onSetName();
   });
+  // SSL: чекбокс раскрывает/прячет строку домена и сразу применяет настройку
+  document.getElementById('qs-set-cert')?.addEventListener('change', () => {
+    const on = document.getElementById('qs-set-cert')?.checked === true;
+    syncSslRow(on);
+    onSetSslCheck();
+  });
+  document.getElementById('qs-set-ssl-btn')?.addEventListener('click', onSetSslHost);
+  document.getElementById('qs-set-ssl')?.addEventListener('keydown', e => {
+    if (e.key === 'Enter') onSetSslHost();
+  });
   document.getElementById('qs-btn-pkg-install')?.addEventListener('click', onPkgInstall);
   document.getElementById('qs-btn-pkg-refresh')?.addEventListener('click', onPkgRefresh);
   bindQsPkgRows();
@@ -1111,6 +1136,65 @@ async function onSetGroup() {
     await reloadOverview({ updates: false }, context);
   } catch (e) {
     showContextToast(context, e.message || 'Не удалось сохранить группу', false);
+  } finally {
+    setBusy(false, context);
+  }
+}
+
+// Показ/скрытие строки домена по чекбоксу «Проверять SSL».
+function syncSslRow(on) {
+  const wrap = document.getElementById('qs-set-ssl-wrap');
+  if (wrap) wrap.classList.toggle('hidden', !on);
+  if (on) setTimeout(() => document.getElementById('qs-set-ssl')?.focus(), 50);
+}
+
+// Чекбокс «Проверять SSL» — как в старой модалке «Изменить настройки»:
+// PATCH certificate_check (сервер заодно пересобирает сертификат в
+// monitor.json). При включении отправляем домен как есть: пустая строка
+// на сервере означает «удалить домен» (проверка по host).
+async function onSetSslCheck() {
+  const context = captureContext();
+  if (busy || !context) return;
+  const box = document.getElementById('qs-set-cert');
+  const on = box?.checked === true;
+  const host = (document.getElementById('qs-set-ssl')?.value || '').trim();
+  const body = on
+    ? { certificate_check: true, ssl_host: host }
+    : { certificate_check: false };
+  setBusy(true, context);
+  try {
+    await requestForContext(context,
+      `/api/servers/${encodeURIComponent(context.serverId)}`,
+      { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) },
+    );
+    showContextToast(context, on ? 'Проверка SSL включена' : 'Проверка SSL выключена', true);
+    await reloadOverview({ updates: false }, context);
+  } catch (e) {
+    showContextToast(context, e.message || 'Не удалось сохранить настройку SSL', false);
+    if (box) box.checked = !on; // вернуть видимое состояние к сохранённому
+    syncSslRow(!on);
+  } finally {
+    setBusy(false, context);
+  }
+}
+
+// «Сохранить» в строке домена: домен + включённая проверка одним PATCH.
+// Пустое поле — осмысленное действие: домен удаляется, проверка уходит
+// по host сервера (раньше пустое молча не трогало старый домен).
+async function onSetSslHost() {
+  const context = captureContext();
+  if (busy || !context) return;
+  const host = (document.getElementById('qs-set-ssl')?.value || '').trim();
+  setBusy(true, context);
+  try {
+    await requestForContext(context,
+      `/api/servers/${encodeURIComponent(context.serverId)}`,
+      { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ certificate_check: true, ssl_host: host }) },
+    );
+    showContextToast(context, host ? 'Домен SSL сохранён' : 'Домен удалён — проверка по host', true);
+    await reloadOverview({ updates: false }, context);
+  } catch (e) {
+    showContextToast(context, e.message || 'Не удалось сохранить домен SSL', false);
   } finally {
     setBusy(false, context);
   }

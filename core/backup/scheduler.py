@@ -109,7 +109,6 @@ class AutomaticBackupScheduler:
                 "target": {"kind": "bot4vps"},
                 "scope": "bot4vps",
                 "daily_time": automatic["daily_time"],
-                "timezone": automatic["timezone"],
                 "keep_last": automatic["keep_last"],
             })
 
@@ -132,7 +131,6 @@ class AutomaticBackupScheduler:
                 "target": {"kind": "server", "server_id": server_id},
                 "scope": f"server:{server_id}",
                 "daily_time": automatic["daily_time"],
-                "timezone": automatic["timezone"],
                 "keep_last": automatic["keep_last"],
             })
         return jobs

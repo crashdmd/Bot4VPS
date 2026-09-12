@@ -1,7 +1,7 @@
 import { j, esc } from './api.js';
 import { toast, confirmAction, formatServerDateTime } from './ui.js';
 import { openEditor } from './editor.js?v=20260815-scripts-table-v1';
-import { openServer, openServerTerminal } from './servers.js?v=20260904-local-v33';
+import { openServer, openServerTerminal } from './servers.js?v=20260912-chlogwrap-v1';
 import { state, setScripts } from './state.js';
 
 const SCRIPT_PAGE_SIZE = 9;

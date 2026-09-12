@@ -3,10 +3,10 @@ from __future__ import annotations
 import posixpath
 import re
 from pathlib import Path, PurePosixPath
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from core.install_paths import assert_storage_root_is_external
 
+from .bot4vps_sources import BOT4VPS_INSTALL_EXCLUSIONS
 from .errors import BackupError, ErrorCode
 from .ids import validate_id
 from .source_selection import (
@@ -19,9 +19,33 @@ from .source_selection import (
 _TIME_RE = re.compile(r"^(?:[01]\d|2[0-3]):[0-5]\d$")
 MAX_ARCHIVE_FILENAME_LENGTH = 255
 
+# Фиксированная политика self-backup — единственный законный источник
+# secret-shaped exclusion: она намеренно исключает сам мастер-ключ
+# (keys/secret.key, см. bot4vps_sources) из архива установки. Это код
+# Bot4VPS, а не пользовательский ввод: пользовательские профили и чужие
+# manifest по-прежнему не могут объявлять secret-shaped exclusions.
+_INTERNAL_POLICY_EXCLUSIONS = frozenset(BOT4VPS_INSTALL_EXCLUSIONS)
+
 
 def _fail(message: str, code: ErrorCode = ErrorCode.PROFILE_INVALID) -> None:
     raise BackupError(code, message)
+
+
+def _normalized_schedule(automatic: dict) -> dict:
+    """Копия automatic без legacy-поля timezone.
+
+    automatic.timezone никогда не участвовало в расчёте расписания:
+    occurrence всегда считается в timezone хоста (scheduler._due_occurrence,
+    test_scheduler_projects_wall_clock_in_host_timezone_only). Поле удалено
+    из контракта — здесь оно вычищается, чтобы старые config.json и серверные
+    профили (в т.ч. восстановленные из старых архивов) перестали возвращать
+    его через GET/PATCH. Остальные неизвестные ключи, как и раньше, проходят
+    насквозь: вырезается только этот известный устаревший атрибут,
+    forward-compat passthrough не меняется.
+    """
+    result = dict(automatic)
+    result.pop("timezone", None)
+    return result
 
 
 def _positive_or_none(value, field: str) -> None:
@@ -38,10 +62,6 @@ def _validate_schedule(automatic: dict, *, sources_present: bool = True) -> None
         _fail("Нельзя включить automatic backup без sources", ErrorCode.PROFILE_NO_SOURCES)
     if not _TIME_RE.fullmatch(str(automatic.get("daily_time", ""))):
         _fail("automatic.daily_time должен иметь формат HH:MM")
-    try:
-        ZoneInfo(str(automatic.get("timezone", "")))
-    except (ZoneInfoNotFoundError, ValueError):
-        _fail("automatic.timezone должна быть валидной IANA timezone")
     keep_last = automatic.get("keep_last")
     if not isinstance(keep_last, int) or isinstance(keep_last, bool) or keep_last < 1:
         _fail("automatic.keep_last должен быть >= 1")
@@ -145,13 +165,27 @@ def normalize_exclusions(
             f"{field}[{index}]",
             error_code=error_code,
         )
-        if _is_secret_shaped_path(pattern):
+        if _is_secret_shaped_path(pattern) and pattern not in _INTERNAL_POLICY_EXCLUSIONS:
             _fail(
                 f"{field}[{index}] не должен раскрывать secret-shaped path",
                 error_code,
             )
         normalized.append(pattern)
     return normalized
+
+
+def _normalize_encrypt_flag(value, *, field: str) -> bool:
+    """Флаг «защищать бэкапы этой цели паролем» (default False).
+
+    Наследуется create() из профиля цели, когда вызов не передал encrypt
+    явно: расписание и Telegram создают архивы без человека, и решение о
+    шифровании живёт в настройках цели, а не в каждом вызове.
+    """
+    if value is None:
+        return False
+    if not isinstance(value, bool):
+        _fail(f"{field} должен быть boolean")
+    return value
 
 
 def parse_server_profile(profile: dict) -> dict:
@@ -184,9 +218,10 @@ def parse_server_profile(profile: dict) -> dict:
     return {
         "schema_version": 1,
         "sources": normalized_sources,
-        "automatic": dict(profile["automatic"]),
+        "automatic": _normalized_schedule(profile["automatic"]),
         "limits": dict(limits),
         "notifications": normalize_notifications(profile.get("notifications")),
+        "encrypt": _normalize_encrypt_flag(profile.get("encrypt"), field="encrypt"),
     }
 
 
@@ -235,9 +270,12 @@ def normalize_backup_config(config: dict, *, install_path: Path | None = None) -
         "schema_version": 1,
         "storage": {"backend": "local", "root": str(Path(root).expanduser())},
         "bot4vps": {
-            "automatic": dict(bot["automatic"]),
+            "automatic": _normalized_schedule(bot["automatic"]),
             "limits": dict(limits),
             "notifications": normalize_notifications(bot.get("notifications")),
+            "encrypt": _normalize_encrypt_flag(
+                bot.get("encrypt"), field="bot4vps.encrypt"
+            ),
         },
         "safety": dict(safety),
     }

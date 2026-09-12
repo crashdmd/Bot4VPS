@@ -103,6 +103,46 @@ def timezone_label(name: str, *, at: datetime | None = None) -> str:
     return f"{name} ({format_utc_offset(name, at=at)})"
 
 
+def _offset_minutes(name: str, *, at: datetime) -> int:
+    offset = at.astimezone(ZoneInfo(name)).utcoffset()
+    if offset is None:
+        raise HostTimezoneError("Не удалось вычислить UTC offset часового пояса")
+    return int(offset.total_seconds() // 60)
+
+
+def _format_offset_short(minutes: int) -> str:
+    """Компактное смещение для заголовка группы: UTC-3, UTC+5:30, UTC."""
+    if minutes == 0:
+        return "UTC"
+    sign = "+" if minutes >= 0 else "-"
+    hours, rem = divmod(abs(minutes), 60)
+    return f"UTC{sign}{hours}" if rem == 0 else f"UTC{sign}{hours}:{rem:02d}"
+
+
+def timezone_option_groups(names: tuple[str, ...], *, at: datetime | None = None) -> list[dict]:
+    """Зоны, сгруппированные по UTC offset: «UTC-3» → все города этого пояса.
+
+    Группы отсортированы по смещению (от западных к восточным), зоны внутри
+    группы — алфавитно. Иначе в списке на ~350 зон творится солянка:
+    +12, 0, +8 вперемежку.
+    """
+    now = at or datetime.now(timezone.utc)
+    groups: dict[int, list[dict]] = {}
+    for name in names:
+        try:
+            minutes = _offset_minutes(name, at=now)
+        except (HostTimezoneError, ZoneInfoNotFoundError, ValueError):
+            continue
+        groups.setdefault(minutes, []).append({"value": name, "label": name})
+    return [
+        {
+            "offset": _format_offset_short(minutes),
+            "zones": sorted(zones, key=lambda zone: zone["value"]),
+        }
+        for minutes, zones in sorted(groups.items())
+    ]
+
+
 def timezone_details(name: str, *, at: datetime | None = None) -> dict:
     now = at or datetime.now(timezone.utc)
     return {
@@ -118,10 +158,9 @@ def timezone_payload(*, include_options: bool) -> dict:
     name = current_timezone_name()
     payload = timezone_details(name, at=now)
     if include_options:
-        payload["options"] = [
-            {"value": candidate, "label": timezone_label(candidate, at=now)}
-            for candidate in available_timezone_names()
-        ]
+        payload["options"] = timezone_option_groups(
+            available_timezone_names(), at=now
+        )
     return payload
 
 

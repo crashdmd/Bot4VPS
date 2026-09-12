@@ -339,7 +339,7 @@ class CatalogStore:
         if (
             archive.get("format") != "tar.gz"
             or archive.get("checksum_algorithm") != "sha256"
-            or archive.get("encrypted") is not False
+            or not isinstance(archive.get("encrypted"), bool)
             or not isinstance(checksum, str)
             or len(checksum) != 64
             or any(char not in "0123456789abcdef" for char in checksum)

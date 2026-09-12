@@ -30,7 +30,13 @@ def create_ssh_client(server, timeout=8):
 
 
 def get_available_keys():
-    return [f for f in os.listdir("/opt/bot4vps/keys") if not f.endswith(".pub")]
+    """SSH-ключи для выбора сервера. Мастер-ключ шифрования (enc1:),
+    реестр v28 и его lock — не SSH-ключи, в выбор не попадают."""
+    return [
+        f for f in os.listdir("/opt/bot4vps/keys")
+        if not f.endswith(".pub") and not f.startswith("registry.")
+        and f != "secret.key"
+    ]
 
 
 def test_connection(server):

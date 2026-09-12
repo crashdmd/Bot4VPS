@@ -1,9 +1,10 @@
 
 from __future__ import annotations
 import asyncio
+import os
 from pathlib import Path
 from typing import Optional
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, BackgroundTasks, HTTPException
 from pydantic import BaseModel, Field
 from ..deps import err, task_brief, queue_state_dict
 
@@ -36,12 +37,23 @@ def _parse_cpu_pair(line1, line2):
         return None
 
 def _metrics_sync(server: dict) -> dict:
+    import os
+
     from core.ssh import create_ssh_client
+    from core.servers import classify_ssh_error
     out = {
         "ok": False, "cpu": None, "ram_pct": None, "ram": "N/A",
         "disk_pct": None, "disk": "N/A", "load": "N/A", "uptime": "N/A",
-        "uptime_seconds": None, "error": None,
+        "uptime_seconds": None, "error": None, "error_kind": "unknown",
     }
+    # Локальная предпроверка: ключ заявлен, но файла нет — SSH даже не
+    # пробуем, сразу честная причина для виджета/карточки.
+    if server.get("auth_type") == "key":
+        key_path = str(server.get("key_path") or "")
+        if key_path and not os.path.exists(key_path):
+            out["error"] = f"SSH-ключ не найден: {key_path}"
+            out["error_kind"] = "key_missing"
+            return out
     try:
         ssh = create_ssh_client(server, timeout=8)
         try:
@@ -83,6 +95,7 @@ def _metrics_sync(server: dict) -> dict:
             ssh.close()
     except Exception as e:
         out["error"] = str(e)
+        out["error_kind"] = classify_ssh_error(str(e))
     return out
 
 def _exec_sync(server: dict, command: str) -> dict:
@@ -131,6 +144,8 @@ async def api_servers(group: Optional[str] = None, online: Optional[bool] = None
                 "user": s.get("user"),
                 "auth_type": s.get("auth_type", "password"),
                 "online": is_online,
+                "ssh_error": avail.get("ssh_error") or "",
+                "last_error": avail.get("last_error") or "",
                 "availability_checked": avail.get("checked"),
                 "uptime": (m.get("system") or {}).get("uptime"),
                 "uptime_seconds": (m.get("system") or {}).get("uptime_seconds"),
@@ -158,11 +173,15 @@ async def api_server(server_id: str):
         if not server:
             raise HTTPException(404, "Сервер не найден")
         mon = get_server_monitor(server_id) or {}
+        # Ключ существует? Для карточки сервера: если файл пропал, карточка
+        # сразу показывает красный баннер вместо «SSH: недоступен» без причины.
+        key_path = str(server.get("key_path") or "") if server.get("auth_type") == "key" else ""
         return {
             "server": {k: server.get(k) for k in (
                 "id", "name", "group", "host", "port", "user",
                 "auth_type", "certificate_check", "ssl_host", "key_path",
             )},
+            "key_exists": os.path.exists(key_path) if key_path else None,
             "monitor": mon,
             "running_task": task_brief(task_manager.get_running(server_id)),
             "queue": [task_brief(t) for t in task_manager.get_queue(server_id)],
@@ -178,11 +197,19 @@ async def api_server(server_id: str):
 async def api_metrics(server_id: str):
     try:
         from core.storage import find_server
-        from core.monitor import update_server_uptime
+        from core.monitor import note_ssh_probe, refresh_ssh_error, update_server_uptime
         server = find_server(server_id)
         if not server:
             raise HTTPException(404, "Сервер не найден")
         result = await asyncio.to_thread(_metrics_sync, server)
+        # причина SSH-проблемы в списке должна заживляться сразу,
+        # а не ждаться system_sync (см. refresh_ssh_error)
+        await asyncio.to_thread(
+            refresh_ssh_error, server, bool(result.get("ok")),
+            result.get("error") or "",
+        )
+        # дедупликация с фоновой развёрткой «Серверов» (тот же такт ~3с)
+        note_ssh_probe(server_id)
         if result.get("ok"):
             await asyncio.to_thread(
                 update_server_uptime,
@@ -200,15 +227,38 @@ async def api_metrics(server_id: str):
 @router.get("/api/servers/{server_id}/probe")
 async def api_probe(server_id: str):
     try:
+        from core.monitor import note_ssh_probe, refresh_ssh_error
         from core.storage import find_server
         from core.servers import get_server_info, format_ssh_error
         server = find_server(server_id)
         if not server:
             raise HTTPException(404, "Сервер не найден")
         info = await asyncio.to_thread(get_server_info, server)
+        await asyncio.to_thread(
+            refresh_ssh_error, server, bool(info.get("ssh")),
+            info.get("ssh_error") or "",
+        )
+        # чтобы фоновая развёртка (страница «Серверы») не пробивала
+        # тот же сервер повторно в том же такте
+        note_ssh_probe(server_id)
         return {"info": info, "ssh_error_human": format_ssh_error(info.get("ssh_error"))}
     except HTTPException:
         raise
+    except Exception as e:
+        return err(e)
+
+
+@router.post("/api/servers/ssh-probe")
+async def api_ssh_probe_all(background_tasks: BackgroundTasks):
+    """Живые SSH-пробы всех серверов: страницу «Серверы» дёргает каждые
+    ~3с, пока открыта (тот же принцип, что метрики дашборда). Развёртка
+    идёт в фоне после ответа; статус приезжает следующим SSE-снапшотом.
+    Гварды внутри ssh_probe_servers не дают пробам наслаиваться."""
+    try:
+        from core.monitor import ssh_probe_servers
+        from core.storage import load_servers
+        background_tasks.add_task(ssh_probe_servers, load_servers())
+        return {"ok": True}
     except Exception as e:
         return err(e)
 
@@ -485,11 +535,16 @@ async def api_group_delete(name: str):
 @router.get("/api/keys")
 async def api_keys_list():
     try:
+        # Тот же белый список, что и в «Файлы → Ключи»: в keys/ лежат
+        # secret.key (мастер-ключ), registry.json и его lock — в списке
+        # SSH-ключей для серверов им не место
+        from .files import _is_key_name
+
         keys_dir = Path("keys")
         keys_dir.mkdir(parents=True, exist_ok=True)
         items = []
         for f in sorted(keys_dir.iterdir()):
-            if f.is_file() and not f.name.startswith(".") and not f.name.endswith(".pub"):
+            if f.is_file() and _is_key_name(f.name):
                 items.append({"name": f.name, "path": str(f)})
         return {"keys": items}
     except Exception as e:
@@ -550,13 +605,18 @@ async def api_server_update(server_id: str, body: ServerUpdate):
 
         for k, v in data.items():
             if v is None and k in ("password", "key_path", "ssl_host"):
-                # явный сброс только если передали пустую строку — None = не трогать already excluded
+                # None = «не трогать»; явный сброс — пустой строкой ниже
                 continue
             if k == "password" and v == "":
                 target.pop("password", None)
                 continue
             if k == "key_path" and v == "":
                 target.pop("key_path", None)
+                continue
+            if k == "ssl_host" and v == "":
+                # явная очистка домена SSL: ключ удаляется, проверка
+                # возвращается к host сервера (см. update_server_certificate)
+                target.pop("ssl_host", None)
                 continue
             target[k] = v
 
@@ -644,6 +704,10 @@ async def api_server_create(body: ServerCreate):
             server["password"] = body.password
         else:
             server["key_path"] = body.key_path
+            # В key-режиме password — отдельный sudo-пароль для non-root
+            # (та же семантика, что в TG-редакторе и exec_sudo).
+            if body.password:
+                server["password"] = body.password
         if body.ssl_host:
             server["ssl_host"] = body.ssl_host.strip()
         elif cert:
@@ -693,7 +757,11 @@ async def api_server_create(body: ServerCreate):
         except Exception as e:
             print(f"[WEB] availability on create: {e}", flush=True)
 
-        return {"ok": True, "id": server["id"], "server": server}
+        # Секреты не возвращаем: список (/api/servers) их фильтрует, а этот
+        # ответ echo'ил пароль целиком — видно в DevTools после добавления.
+        # Фронт после создания читает только id и перезагружает список.
+        public = {k: v for k, v in server.items() if k != "password"}
+        return {"ok": True, "id": server["id"], "server": public}
     except HTTPException:
         raise
     except Exception as e:

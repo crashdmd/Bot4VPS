@@ -18,6 +18,13 @@ DEFAULT_SYSTEMD_UNIT = Path("/etc/systemd/system/bot4vps.service")
 # source. External Backup Manager storage is not below install_path by contract
 # and therefore is never traversed in the first place.
 BOT4VPS_INSTALL_EXCLUSIONS = (
+    # VCS-метаданные транспорта установки, а не состояние панели: обновления
+    # не используют git в install_path. Кроме лишних мегабайт в каждом
+    # архиве, git clone с ЛОКАЛЬНОГО пути (install.sh с REPO-путём) хардлин-
+    # кает .git/objects с источником → ARCHIVE_SPECIAL_FILE_UNSUPPORTED
+    # (hardlinks запрещены в archive v1) и автоматический self-backup падает.
+    ".git",
+    ".git/**",
     "venv/**",
     ".venv/**",
     "__pycache__",
@@ -34,6 +41,14 @@ BOT4VPS_INSTALL_EXCLUSIONS = (
     "**/.lock",
     "*.lock",
     "**/*.lock",
+    # Мастер-ключ НИКОГДА не входит в self-backup: он должен жить только
+    # вне машины (recovery-secret владельца). В архиве он размыкает защиту
+    # enc1:-секретов (включая сохранённый пароль бэкапов из config.json
+    # внутри того же архива). После restore панель поднимет красный баннер
+    # мастер-ключа и попросит ввести ключ. Остальные файлы keys/ (приватные
+    # SSH-ключи) остаются в архиве — без них восстановленная панель теряет
+    # доступ к управляемым серверам.
+    "keys/secret.key",
     # Mutable Backup Manager service state. Active Operation records, disk
     # admission state and scheduler occurrence state are atomically replaced
     # while this self-backup may be built, so they cannot be part of its
@@ -43,6 +58,15 @@ BOT4VPS_INSTALL_EXCLUSIONS = (
     "data/backup/operations/running/**",
     "data/backup/disk_state.json",
     "data/backup/automatic_state.json",
+    # Live-состояние координатора блокировок и индексатора инвентарей: их
+    # пишут фоновые процессы (включая сам защитный backup во время restore
+    # Bot4VPS) атомарной заменой — inode меняется между снимком источника и
+    # чтением, и create падает с «Source изменился во время backup». Восемь
+    # строк выше — тот же класс файлов. Restore-фильтр
+    # (filter_self_restore_live_state) остаётся: старые архивы эти файлы
+    # содержат, и восстанавливать их нельзя.
+    "data/backup/maintenance_state.json",
+    "data/backup/inventory-index-jobs.json",
     "logs/**/*.corrupt-*.json",
     "logs/**/*.log",
 )

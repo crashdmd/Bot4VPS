@@ -54,7 +54,7 @@ function scheduleUpdatePolling() {
       if (prev && prev.status !== updateState.status) {
         if (updateState.status === 'idle' && prev.status !== 'idle') {
           toast('Обновление установлено', true);
-          const { loadSummary } = await import('./dashboard.js?v=20260826-host-timezone-v2');
+          const { loadSummary } = await import('./dashboard.js?v=20260912-chlogwrap-v1');
           loadSummary();
         } else if (updateState.status === 'failed') {
           toast('Ошибка обновления: ' + (updateState.last_error || 'неизвестная ошибка'), false);
@@ -70,11 +70,13 @@ function scheduleUpdatePolling() {
   }, 2000);
 }
 
-/** Динамическая модалка (паттерн openEventDetail) с confirm/cancel. */
-function openActionModal({ title, bodyHtml, okText, cancelText = 'Отмена', danger = false, onOk }) {
+/** Динамическая модалка (паттерн openEventDetail) с confirm/cancel.
+ *  width — CSS-ширина карточки (по умолчанию 640px; changelog-модалки
+ *  передают шире — переносам строк нужен простор). */
+function openActionModal({ title, bodyHtml, okText, cancelText = 'Отмена', danger = false, onOk, width = 'min(640px,100%)' }) {
   const modal = document.createElement('div');
   modal.className = 'modal-bg';
-  modal.innerHTML = `<div class="modal" style="width:min(640px,100%)">
+  modal.innerHTML = `<div class="modal" style="width:${width}">
     <h3 style="margin:0 0 .6rem">${title}</h3>
     <div>${bodyHtml}</div>
     <div class="actions" style="margin-top:.8rem;justify-content:flex-end">
@@ -111,8 +113,9 @@ export async function showUpdateModal() {
   }
   openActionModal({
     title: `🆕 Доступно обновление Bot4VPS — ${esc(data.version)}`,
-    bodyHtml: `<pre class="event-detail-pre" style="max-height:50vh;overflow:auto">${esc(data.changelog)}</pre>`,
+    bodyHtml: `<pre class="event-detail-pre" style="max-height:50vh;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere">${esc(data.changelog)}</pre>`,
     okText: 'Обновить',
+    width: 'min(760px,100%)',
     onOk: async () => {
       try {
         await j('/api/update/install', { method: 'POST' });
@@ -135,10 +138,11 @@ export async function showHistoryModal() {
   }
   openActionModal({
     title: `📋 Bot4VPS ${esc(data.version)}`,
-    bodyHtml: `<pre class="event-detail-pre" style="max-height:50vh;overflow:auto">${esc(data.changelog)}</pre>`,
+    bodyHtml: `<pre class="event-detail-pre" style="max-height:50vh;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere">${esc(data.changelog)}</pre>`,
     okText: 'Откатить',
     cancelText: 'Закрыть',
     danger: true,
+    width: 'min(760px,100%)',
     onOk: async () => showRollbackConfirm(data.version),
   });
 }

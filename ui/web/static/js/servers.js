@@ -2,10 +2,11 @@ import { j, esc } from './api.js';
 import { ansiToHtml } from './ansi.js';
 import { toast, showPage, bindPasswordToggles, parseEmoji, confirmAction, formatServerDateTime, serverDateTimeParts, serverDayDifference, serverNow } from './ui.js';
 import { state, setServers, setGroups, setKeys, setOpenServer, setPage, setServerGroupTab, setServerSort, setServerQuery as updateServerQuery } from './state.js';
+import { WIREGUARD_ICON, DOCKER_ICON } from './icons.js?v=20260905-brandicons-v2';
 import { openTerminal, closeTerminal } from './terminal.js?v=20260904-termfit-v1';
-import { openEventDetail, applyEventsSnapshot } from './monitor.js?v=20260826-host-timezone-v2';
+import { openEventDetail, applyEventsSnapshot } from './monitor.js?v=20260912-chlogwrap-v1';
 import { openTaskLog, cancelTaskAPI } from './tasks.js?v=20260816-task-history-v3';
-import { openBackupsForServer } from './backup.js?v=20260826-host-timezone-v2';
+import { openBackupsForServer } from './backup.js?v=20260912-tzdrop-v1';
 
 /** @deprecated use state.servers */
 export let lastServers = state.servers;
@@ -205,8 +206,15 @@ function renderServerGroupTabs() {
       <span>${esc(label)}</span><span class="server-group-count">${count}</span>
     </button>`;
 
-  tabs.innerHTML = tab(ALL_SERVER_GROUP, 'Все', state.servers.length)
+  const html = tab(ALL_SERVER_GROUP, 'Все', state.servers.length)
     + groups.map(name => tab(name, name, groupCount(name))).join('');
+  // Пишем только при реальном изменении — при SSE-обновлениях вкладки
+  // не должны пересоздаваться (сбивается ховер).
+  const current = tabs.__html !== undefined ? tabs.__html : tabs.innerHTML;
+  if (current !== html) {
+    tabs.__html = html;
+    tabs.innerHTML = html;
+  }
 }
 
 function sslDays(server) {
@@ -319,12 +327,27 @@ function filteredServers() {
   return sortedServers(list);
 }
 
-function onlineCell(value) {
+/**
+ * Статус сервера в таблице:
+ * - Online (зелёный) — сеть и SSH в порядке;
+ * - Online ⚠️ (жёлтый, тултип с причиной) — сервер жив, SSH не проходит
+ *   (нет ключа, пароль не подходит…);
+ * - Offline (красный, тултип с причиной) — недоступен по сети;
+ * - Неизвестно (серый) — ещё не проверяли.
+ */
+function onlineCell(value, sshError, lastError) {
+  const tip = (text) => (text && String(text).trim())
+    ? ` title="${esc(String(text))}"` : '';
   if (value === true) {
+    if (sshError && String(sshError).trim()) {
+      return `<span class="server-status server-status-warn"${tip(sshError)}>`
+        + '<span class="server-status-dot"></span>Online ⚠️</span>';
+    }
     return '<span class="server-status server-status-online"><span class="server-status-dot"></span>Online</span>';
   }
   if (value === false) {
-    return '<span class="server-status server-status-offline"><span class="server-status-dot"></span>Offline</span>';
+    return `<span class="server-status server-status-offline"${tip(lastError)}>`
+      + '<span class="server-status-dot"></span>Offline</span>';
   }
   return '<span class="server-status server-status-unknown"><span class="server-status-dot"></span>Неизвестно</span>';
 }
@@ -445,21 +468,22 @@ function copyServerListIp(serverId, button) {
   });
 }
 
-function renderServersTable(list) {
-  const rows = list.map(server => {
-    const group = serverGroupName(server);
-    const groupCell = group
-      ? `<button type="button" class="server-group-link" data-group-link="${esc(group)}">${esc(group)}</button>`
-      : '<span class="server-no-group">Без группы</span>';
-    return `<tr class="server-table-row" data-sid="${esc(server.id)}" tabindex="0" role="button">
-      <td class="server-name-cell" data-label="Имя"><strong>${esc(server.name || '—')}</strong>${server.has_running ? '<span class="server-running-mark" title="Идёт задача">▶</span>' : ''}</td>
+function serverRowCells(server) {
+  const group = serverGroupName(server);
+  const groupCell = group
+    ? `<button type="button" class="server-group-link" data-group-link="${esc(group)}">${esc(group)}</button>`
+    : '<span class="server-no-group">Без группы</span>';
+  return `<td class="server-name-cell" data-label="Имя"><strong>${esc(server.name || '—')}</strong>${server.has_running ? '<span class="server-running-mark" title="Идёт задача">▶</span>' : ''}</td>
       <td class="server-host-cell" data-label="IP">${serverHostCell(server)}</td>
-      <td data-label="Статус">${onlineCell(server.online)}</td>
+      <td data-label="Статус">${onlineCell(server.online, server.ssh_error, server.last_error)}</td>
       <td data-label="SSL">${sslCell(server)}</td>
       <td class="server-uptime-cell" data-label="Uptime">${esc(formatUptime(server.uptime, server.uptime_seconds))}</td>
-      <td class="server-group-cell" data-label="Группа">${groupCell}</td>
-    </tr>`;
-  }).join('');
+      <td class="server-group-cell" data-label="Группа">${groupCell}</td>`;
+}
+
+function renderServersTable(list) {
+  const rows = list.map(server =>
+    `<tr class="server-table-row" data-sid="${esc(server.id)}" tabindex="0" role="button">${serverRowCells(server)}</tr>`).join('');
 
   return `<div class="server-table-wrap">
     <table class="server-table">
@@ -476,7 +500,35 @@ function renderServersTable(list) {
   </div>`;
 }
 
+// Точечное обновление списка при SSE-снапшотах (каждые ~3с): если состав
+// и порядок строк не изменились, перезаписываем только реально изменившиеся
+// <td> внутри существующих <tr> — DOM списка не пересоздаётся, скролл,
+// ховер и фокус не сбрасываются. Иначе вызывающий делает полный рендер.
+function patchServersTable() {
+  const wrap = document.querySelector('#servers .server-table-wrap');
+  if (!wrap || !state.servers.length) return false;
+  const list = filteredServers();
+  if (!list.length) return false;
+  const rows = wrap.querySelectorAll('tbody tr[data-sid]');
+  if (rows.length !== list.length) return false;
+  for (let i = 0; i < list.length; i++) {
+    if (String(list[i].id) !== rows[i].dataset.sid) return false;
+  }
+  list.forEach((server, i) => {
+    const row = rows[i];
+    const cells = serverRowCells(server);
+    const current = row.__cells !== undefined ? row.__cells : row.innerHTML;
+    if (current !== cells) {
+      row.__cells = cells;
+      row.innerHTML = cells;
+    }
+  });
+  renderServerGroupTabs();
+  return true;
+}
+
 export function renderServersFromState() {
+  if (patchServersTable()) return;
   const currentTable = document.querySelector('#servers .server-table-wrap');
   const scrollTop = currentTable?.scrollTop || 0;
   const scrollLeft = currentTable?.scrollLeft || 0;
@@ -598,6 +650,26 @@ function bindServerListUI() {
   }
 }
 
+// Живые SSH-пробы: страница «Серверы» сама дёргает развёртку каждые 3с,
+// пока открыта (тот же принцип, что метрики дашборда). Пробы идут на
+// бэке в фоне, статус приезжает SSE-снапшотом — точечный патчинг строк
+// подхватит его без пересборки списка.
+let sshProbeTimer = null;
+
+function kickSshProbe() {
+  j('/api/servers/ssh-probe', { method: 'POST' }).catch(() => {});
+}
+
+export function startSshProbeLoop() {
+  stopSshProbeLoop();
+  kickSshProbe();
+  sshProbeTimer = setInterval(kickSshProbe, 3000);
+}
+
+export function stopSshProbeLoop() {
+  if (sshProbeTimer) { clearInterval(sshProbeTimer); sshProbeTimer = null; }
+}
+
 export function stopWatchers() {
   if (metricsTimer) { clearInterval(metricsTimer); metricsTimer = null; }
   if (logTimer) { clearInterval(logTimer); logTimer = null; }
@@ -712,16 +784,16 @@ async function renderQuickActions(id) {
 
   // 2. WireGuard
   if (wireGuardInstalled) {
-    addAction('Панель управления WireGuard', '🔒', 'secondary', () => openWireGuardServer(id));
+    addAction('Панель управления WireGuard', WIREGUARD_ICON, 'secondary', () => openWireGuardServer(id));
   } else {
-    addAction('Установить WireGuard', '🔒', 'secondary', () => confirmInstallWireGuard(id));
+    addAction('Установить WireGuard', WIREGUARD_ICON, 'secondary', () => confirmInstallWireGuard(id));
   }
 
   // 3. Docker
   if (dockerInstalled) {
-    addAction('Панель управления Docker', '🐳', 'secondary', () => openDockerServer(id));
+    addAction('Панель управления Docker', DOCKER_ICON, 'secondary', () => openDockerServer(id));
   } else {
-    addAction('Установить Docker', '🐳', 'secondary', () => confirmInstallDocker(id));
+    addAction('Установить Docker', DOCKER_ICON, 'secondary', () => confirmInstallDocker(id));
   }
 
   // 4. Запустить скрипт
@@ -856,6 +928,20 @@ export function refreshOpenServerEvents() {
 }
 
 /** Обновить индикатор SSH в карточке и на странице терминала. */
+/** Красный баннер проблемы подключения в карточке сервера.
+ *  null — скрыть; {title, message} — показать. */
+export function renderConnWarning(warning) {
+  const el = document.getElementById('srv-conn-warning');
+  if (!el) return;
+  if (!warning) {
+    el.classList.add('hidden');
+    el.innerHTML = '';
+    return;
+  }
+  el.classList.remove('hidden');
+  el.innerHTML = `<strong>${esc(warning.title)}</strong>${esc(warning.message)}`;
+}
+
 export function renderSshStatus(ssh, error) {
   const label = (ok) => {
     if (ok === true) return 'SSH: <span class="ssh-dot ok"></span> OK';
@@ -997,9 +1083,11 @@ export async function openServer(id) {
         </div>
       `;
 
-      // Добавляем SSL если есть сертификат
+      // Добавляем SSL если есть сертификат И проверка включена:
+      // после выключения certificate_check устаревшие данные monitor.json
+      // не должны висеть в карточке
       const cert = mon.certificate;
-      if (cert && mon.ssl_host) {
+      if (cert && mon.ssl_host && s.certificate_check) {
         rows += `
           <div class="info-row">
             <span class="info-label">Домен</span>
@@ -1035,17 +1123,39 @@ export async function openServer(id) {
 
     if (data.running_task) { watchTaskId = data.running_task.id; state.watchTaskId = watchTaskId; }
     await loadGroupsAndKeys();
+    // Ключ заявлен, но файла нет: причина известна локально, probe не нужен
+    const keyMissing = s.auth_type === 'key' && data.key_exists === false;
+    if (keyMissing) {
+      renderConnWarning({
+        title: 'SSH-ключ не найден',
+        message: `Файл ${s.key_path || '—'} отсутствует — подключение к серверу невозможно. `
+          + 'Восстановите ключ из резервной копии или смените способ входа в настройках сервера.',
+      });
+    } else {
+      renderConnWarning(null);
+    }
     // SSH-статус из monitor (сетевой online — ещё не SSH); уточним probe ниже
-    renderSshStatus(null);
+    renderSshStatus(keyMissing ? false : null, keyMissing ? 'SSH-ключ не найден' : '');
     showPage('server');
     setPage('server');
     metricsNA('загрузка...');
     startWatchers();
+    if (keyMissing) return;
     // Точный SSH — существующий /probe (как в refreshMetrics)
     j('/api/servers/' + encodeURIComponent(id) + '/probe').then(p => {
       if (openServerId !== id) return;
       const info = p.info || {};
-      renderSshStatus(!!info.ssh, info.ssh_error || p.ssh_error_human || '');
+      const sshOk = !!info.ssh;
+      renderSshStatus(sshOk, info.ssh_error || p.ssh_error_human || '');
+      // Прочие проблемы (пароль не подходит, сеть, таймаут) — в баннер
+      if (!sshOk) {
+        renderConnWarning({
+          title: 'Не удалось подключиться по SSH',
+          message: p.ssh_error_human || info.ssh_error || 'Причина неизвестна.',
+        });
+      } else {
+        renderConnWarning(null);
+      }
     }).catch(() => {
       if (openServerId === id) renderSshStatus(false, 'probe failed');
     });
@@ -1071,24 +1181,24 @@ const checkDockerStatus = id => checkServiceInstalled('docker', id);
 
 // Открыть панель WireGuard для сервера
 function openWireGuardServer(serverId) {
-  import('./wireguard.js?v=20260826-host-timezone-v2').then(m => m.openWgServerById(serverId));
+  import('./wireguard.js?v=20260911-tabhint-v2').then(m => m.openWgServerById(serverId));
 }
 
 // Открыть модальное окно установки WireGuard
 function confirmInstallWireGuard(serverId) {
-  import('./wireguard.js?v=20260826-host-timezone-v2')
+  import('./wireguard.js?v=20260911-tabhint-v2')
     .then(m => m.openInstall(serverId))
     .catch(err => console.error('Ошибка загрузки модуля WireGuard:', err));
 }
 
 // Открыть панель Docker для сервера
 function openDockerServer(serverId) {
-  import('./docker.js?v=20260826-host-timezone-v2').then(m => m.openDockerServerById(serverId));
+  import('./docker.js?v=20260911-tabhint-v2').then(m => m.openDockerServerById(serverId));
 }
 
 // Открыть модальное окно установки Docker
 function confirmInstallDocker(serverId) {
-  import('./docker.js?v=20260826-host-timezone-v2')
+  import('./docker.js?v=20260911-tabhint-v2')
     .then(m => m.openInstall(serverId))
     .catch(err => console.error('Ошибка загрузки модуля Docker:', err));
 }
@@ -1560,14 +1670,83 @@ export function openAddServerModal() {
       || '<option value="">—</option>';
     document.getElementById('add-server-modal').classList.add('open');
     toggleAddAuth();
+    toggleAddSslHost();
+    toggleAfEmojiPop(false);
     bindPasswordToggles();
   });
 }
 
 function toggleAddAuth() {
   const isKey = document.getElementById('af-auth').value === 'key';
-  document.getElementById('af-pass-wrap').classList.toggle('hidden', isKey);
+  // В key-режиме password хранит отдельный sudo-пароль для non-root
+  // (та же семантика, что в TG-редакторе): поле остаётся, меняется подпись.
   document.getElementById('af-key-wrap').classList.toggle('hidden', !isKey);
+  const label = document.getElementById('af-password-label');
+  const input = document.getElementById('af-password');
+  if (label) label.textContent = isKey ? 'Sudo-пароль' : 'Пароль';
+  if (input) input.placeholder = isKey ? 'если пользователь не root — можно оставить пустым' : '';
+}
+
+/** Эмодзи для имени сервера: кнопка 🙂 у поля ввода → всплывающая сетка.
+ *  Первыми идут флаги стран (с тултипом-названием), затем обычные эмодзи. */
+const AF_NAME_FLAGS = [
+  ['🇩🇪', 'Германия'], ['🇳🇱', 'Нидерланды'], ['🇫🇮', 'Финляндия'], ['🇸🇪', 'Швеция'],
+  ['🇳🇴', 'Норвегия'], ['🇩🇰', 'Дания'], ['🇬🇧', 'Великобритания'], ['🇮🇪', 'Ирландия'],
+  ['🇫🇷', 'Франция'], ['🇧🇪', 'Бельгия'], ['🇱🇺', 'Люксембург'], ['🇦🇹', 'Австрия'],
+  ['🇨🇭', 'Швейцария'], ['🇪🇸', 'Испания'], ['🇵🇹', 'Португалия'], ['🇮🇹', 'Италия'],
+  ['🇵🇱', 'Польша'], ['🇨🇿', 'Чехия'], ['🇸🇰', 'Словакия'], ['🇭🇺', 'Венгрия'],
+  ['🇷🇴', 'Румыния'], ['🇧🇬', 'Болгария'], ['🇬🇷', 'Греция'], ['🇭🇷', 'Хорватия'],
+  ['🇸🇮', 'Словения'], ['🇷🇸', 'Сербия'], ['🇱🇹', 'Литва'], ['🇱🇻', 'Латвия'],
+  ['🇪🇪', 'Эстония'], ['🇺🇦', 'Украина'], ['🇷🇺', 'Россия'], ['🇧🇾', 'Беларусь'],
+  ['🇲🇩', 'Молдова'], ['🇮🇸', 'Исландия'], ['🇲🇹', 'Мальта'], ['🇨🇾', 'Кипр'],
+  ['🇹🇷', 'Турция'], ['🇬🇪', 'Грузия'], ['🇦🇲', 'Армения'], ['🇦🇿', 'Азербайджан'],
+  ['🇰🇿', 'Казахстан'], ['🇮🇱', 'Израиль'], ['🇦🇪', 'ОАЭ'], ['🇸🇬', 'Сингапур'],
+  ['🇯🇵', 'Япония'], ['🇭🇰', 'Гонконг'], ['🇨🇳', 'Китай'], ['🇰🇷', 'Южная Корея'],
+  ['🇮🇳', 'Индия'], ['🇮🇩', 'Индонезия'], ['🇹🇭', 'Таиланд'], ['🇻🇳', 'Вьетнам'],
+  ['🇺🇸', 'США'], ['🇨🇦', 'Канада'], ['🇲🇽', 'Мексика'], ['🇧🇷', 'Бразилия'],
+  ['🇦🇷', 'Аргентина'], ['🇨🇱', 'Чили'], ['🇦🇺', 'Австралия'], ['🇳🇿', 'Новая Зеландия'],
+  ['🇿🇦', 'ЮАР'], ['🇪🇬', 'Египет'], ['🇳🇬', 'Нигерия'], ['🇰🇪', 'Кения'],
+  ['🇶🇦', 'Катар'], ['🇰🇼', 'Кувейт'], ['🇸🇦', 'Саудовская Арабия'], ['🇵🇭', 'Филиппины'],
+  ['🇲🇾', 'Малайзия'], ['🇹🇼', 'Тайвань'], ['🇧🇩', 'Бангладеш'], ['🇵🇰', 'Пакистан'],
+];
+const AF_NAME_EMOJIS = [
+  '🖥', '💻', '🌐', '🌍', '🐧', '🚀', '⚡', '🔥', '🛡', '💾', '🗄', '🗃',
+  '📦', '🧠', '🐳', '🔑', '🔒', '🧩', '⚙', '📡', '🛰', '🎯', '✨', '🌩',
+];
+
+function afEmojiItem(e, title = '') {
+  return `<button type="button" class="af-emoji-item" data-emoji="${e}"${title ? ` title="${title}"` : ''}>${e}</button>`;
+}
+
+function toggleAfEmojiPop(force) {
+  const pop = document.getElementById('af-emoji-pop');
+  if (!pop) return;
+  if (!pop.childElementCount) {
+    pop.innerHTML = AF_NAME_FLAGS.map(([e, t]) => afEmojiItem(e, t)).join('')
+      + '<div class="af-emoji-sep"></div>'
+      + AF_NAME_EMOJIS.map(e => afEmojiItem(e)).join('');
+  }
+  const show = force === undefined ? pop.classList.contains('hidden') : force;
+  pop.classList.toggle('hidden', !show);
+}
+
+function insertAfEmoji(emoji) {
+  const inp = document.getElementById('af-name');
+  if (!inp) return;
+  const start = inp.selectionStart ?? inp.value.length;
+  const end = inp.selectionEnd ?? start;
+  inp.value = inp.value.slice(0, start) + emoji + inp.value.slice(end);
+  const pos = start + emoji.length;
+  inp.focus();
+  inp.setSelectionRange(pos, pos);
+  toggleAfEmojiPop(false);
+}
+
+/** Поле домена живёт в заголовке рядом с чекбоксом «Проверять SSL»:
+ *  без включённой проверки домен не нужен — поле не показываем. */
+function toggleAddSslHost() {
+  const on = document.getElementById('af-cert')?.checked;
+  document.getElementById('af-ssl-wrap')?.classList.toggle('hidden', !on);
 }
 
 export async function submitAddServer() {
@@ -1580,7 +1759,8 @@ export async function submitAddServer() {
     auth_type: document.getElementById('af-auth').value,
     password: document.getElementById('af-password').value || null,
     key_path: document.getElementById('af-key').value || null,
-    ssl_host: document.getElementById('af-ssl').value.trim() || null,
+    ssl_host: (document.getElementById('af-cert').checked
+      && document.getElementById('af-ssl').value.trim()) || null,
     certificate_check: document.getElementById('af-cert').checked,
     test: document.getElementById('af-test').checked,
   };
@@ -1619,6 +1799,19 @@ export function bindServerUI(options = {}) {
   document.getElementById('btn-open-terminal')?.addEventListener('click', () => openServerTerminal());
   document.getElementById('btn-back-from-terminal')?.addEventListener('click', () => backFromTerminal());
   document.getElementById('af-auth')?.addEventListener('change', toggleAddAuth);
+  document.getElementById('af-cert')?.addEventListener('change', toggleAddSslHost);
+  document.getElementById('af-emoji-btn')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    toggleAfEmojiPop();
+  });
+  document.getElementById('af-emoji-pop')?.addEventListener('click', (e) => {
+    const item = e.target.closest('.af-emoji-item');
+    if (item) insertAfEmoji(item.dataset.emoji);
+  });
+  // Клик мимо поля имени — закрыть всплывающий список эмодзи
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('.af-name-wrap')) toggleAfEmojiPop(false);
+  });
   document.getElementById('af-save')?.addEventListener('click', submitAddServer);
   document.getElementById('af-cancel')?.addEventListener('click', () =>
     document.getElementById('add-server-modal').classList.remove('open'));
@@ -1631,7 +1824,7 @@ function openGroupsPanel() {
     panel.classList.add('open');
     // Загружаем списки групп при открытии панели.
     // Спецификатор тот же, что в app.js — единый инстанс модуля.
-    import('./groups_panel.js?v=20260819-groups-panel-v1').then(m => {
+    import('./groups_panel.js?v=20260911-groups-v2').then(m => {
       m.loadGroupsAdmin();
       m.loadGroupsDisplayOrder();
     });

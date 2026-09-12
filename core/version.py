@@ -5,4 +5,4 @@
 должна быть добавлена в core/update/changelog.md в ветке main.
 """
 
-APP_VERSION = "4.7.0"
+APP_VERSION = "5.0.0"

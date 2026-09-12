@@ -1,9 +1,10 @@
 import { state, setServers } from './state.js';
-import { applyEventsSnapshot } from './monitor.js?v=20260826-host-timezone-v2';
+import { applyEventsSnapshot } from './monitor.js?v=20260912-chlogwrap-v1';
 
 let es = null;
 let notificationsRefresh = null;
 let taskHistoryRevision = null;
+let securityRevision = null;
 
 export function registerNotificationsRefresh(handler) {
   notificationsRefresh = typeof handler === 'function' ? handler : null;
@@ -59,7 +60,7 @@ function applySnapshot(data) {
         has_running: !!s.has_running,
       };
     }));
-    import('./servers.js?v=20260904-local-v33').then(m => {
+    import('./servers.js?v=20260912-chlogwrap-v1').then(m => {
       if (state.page === 'servers' && m.renderServersFromState) m.renderServersFromState();
     }).catch(() => {});
   }
@@ -71,10 +72,19 @@ function applySnapshot(data) {
       && data.task_history_revision !== taskHistoryRevision) {
     taskHistoryRevision = data.task_history_revision;
     if (state.page === 'queues') {
-      import('./servers.js?v=20260904-local-v33').then(m => {
+      import('./servers.js?v=20260912-chlogwrap-v1').then(m => {
         m.loadHistory?.();
       }).catch(() => {});
     }
+  }
+  if (data.security_revision
+      && data.security_revision !== securityRevision) {
+    const known = securityRevision !== null;
+    securityRevision = data.security_revision;
+    // Первый снапшот после загрузки — состояние карточек уже актуально,
+    // событие не нужно. Дальше: секреты переписали из CLI/TG или другой
+    // сессии Web — Настройки перечитывают карточки «Безопасность».
+    if (known) window.dispatchEvent(new CustomEvent('bot4vps:security-changed'));
   }
   if (data.events) {
     // Не перетираем раскрытый список коротким срезом — мержим в кэш и
@@ -84,7 +94,7 @@ function applySnapshot(data) {
     }
     // Открытая карточка сервера — обновить блок «Недавние события»
     if (state.page === 'server') {
-      import('./servers.js?v=20260904-local-v33').then(m => {
+      import('./servers.js?v=20260912-chlogwrap-v1').then(m => {
         if (m.refreshOpenServerEvents) m.refreshOpenServerEvents();
         else if (m.openServerId) {
           // fallback: модуль мог ещё не экспортировать helper

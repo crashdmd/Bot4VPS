@@ -45,15 +45,28 @@ _NON_KEY_SUFFIXES = {
     ".tar", ".gz", ".zip", ".old", ".swp", ".conf", ".yml", ".yaml",
 }
 
+# Мастер-ключ шифрования: никогда не попадает в списки keys/, не
+# показывается, не скачивается и не удаляется из Web UI (ТЗ «мастер-ключ»).
+MASTER_KEY_FILENAME = "secret.key"
+
 
 def _is_key_name(name: str) -> bool:
     """Пригодно ли имя для показа как приватный ключ (не служебный файл)."""
     if name.endswith(".pub"):  # уже отфильтрован выше, но пусть будет
         return False
+    if name == MASTER_KEY_FILENAME:  # мастер-ключ не показываем в keys/
+        return False
     lowered = name.lower()
     if any(lowered.endswith(suffix) for suffix in _NON_KEY_SUFFIXES):
         return False
     return bool(_KEY_NAME_RE.match(name))
+
+
+def _reject_master_key(root: str, name: str) -> None:
+    """Мастер-ключ недоступен из файлового API: ни просмотр, ни скачивание,
+    ни удаление (только специальный флоу «Мастер-ключ» с подтверждением)."""
+    if root == "keys" and Path(name).name == MASTER_KEY_FILENAME:
+        raise HTTPException(403, "Мастер-ключ недоступен через раздел Файлы")
 
 
 def _root_path(root: str) -> Path:
@@ -69,6 +82,26 @@ def _safe_name(name: str) -> str:
     if not name or name in (".", ".."):
         raise HTTPException(400, "Некорректное имя")
     return name
+
+
+def _key_used_by_servers(key_name: str) -> list[str]:
+    """Имена серверов, подключающихся этим SSH-ключом.
+
+    key_path в конфиге сервера может быть как абсолютным путём, так и просто
+    именем файла в keys/ — сверяем по хвосту пути. Реестр v28 тут не помощник:
+    он про fingerprints на удалённых машинах, а не про файлы локальной keys/.
+    """
+    from core.storage import load_servers
+
+    suffix = "/" + key_name
+    names = []
+    for s in load_servers():
+        path = str(s.get("key_path") or "")
+        if s.get("auth_type") == "key" and path and (
+            path == key_name or path.endswith(suffix)
+        ):
+            names.append(str(s.get("name") or s.get("host") or s.get("id") or "?"))
+    return names
 
 
 def _safe_rel(base: Path, rel: str) -> Path:
@@ -197,6 +230,7 @@ def _resolve_target(root: str, name: str, project: str = "") -> Path:
 @router.get("/api/files/download")
 async def api_files_download(root: str, name: str, project: str = Query("")):
     try:
+        _reject_master_key(root, name)
         fp = _resolve_target(root, name, project)
         if not fp.is_file():
             raise HTTPException(404, "Файл не найден")
@@ -211,6 +245,7 @@ async def api_files_download(root: str, name: str, project: str = Query("")):
 async def api_files_read(root: str, name: str, project: str = Query("")):
     """Содержимое текстового файла для редактора."""
     try:
+        _reject_master_key(root, name)
         fp = _resolve_target(root, name, project)
         if not fp.is_file():
             raise HTTPException(404, "Файл не найден")
@@ -302,6 +337,7 @@ async def api_files_write(body: FileWriteBody):
 @router.delete("/api/files")
 async def api_files_delete(root: str, name: str, project: str = Query("")):
     try:
+        _reject_master_key(root, name)
         base = _root_path(root)
 
         # Объекты Compose-библиотеки удаляем через слой хранилища: он сам
@@ -324,6 +360,17 @@ async def api_files_delete(root: str, name: str, project: str = Query("")):
         fp = (base / safe).resolve()
         if not str(fp).startswith(str(base)) or not fp.is_file():
             raise HTTPException(404, "Файл не найден")
+        # Ключ, которым подключается хотя бы один сервер, удалить нельзя:
+        # сервер потеряет доступ по SSH.
+        if root == "keys":
+            used_by = _key_used_by_servers(safe)
+            if used_by:
+                raise HTTPException(
+                    409,
+                    "Ключ используется серверами: "
+                    + ", ".join(used_by)
+                    + ". Сначала переключите их на другой способ входа.",
+                )
         fp.unlink()
         # удалить .pub пару если есть
         if root == "keys":
@@ -478,6 +525,8 @@ async def api_files_upload(root: str = Query("scripts"), file: UploadFile = File
             raise HTTPException(400, "Для Docker используйте загрузку внутри проекта")
         base = _root_path(root)
         fname = _safe_name(file.filename or "file")
+        # Загрузкой нельзя перезаписать мастер-ключ (root=keys)
+        _reject_master_key(root, fname)
         data = await file.read()
         if len(data) > 5 * 1024 * 1024:
             raise HTTPException(400, "Макс 5 МБ")
@@ -550,6 +599,7 @@ async def api_keys_create(body: KeyCreateBody):
         name = re.sub(r"[^\w.\-]", "_", body.name.strip())[:64]
         if not name:
             raise HTTPException(400, "Пустое имя")
+        _reject_master_key("keys", name)  # нельзя перезаписать мастер-ключ
         keys = Path("keys")
         keys.mkdir(parents=True, exist_ok=True)
         dest = keys / name
@@ -600,6 +650,7 @@ async def api_keys_create(body: KeyCreateBody):
 async def api_keys_view(name: str):
     """Просмотр содержимого приватного ключа (только keys/)."""
     try:
+        _reject_master_key("keys", name)
         base = _root_path("keys")
         safe = _safe_name(name)
         if safe.endswith(".pub"):

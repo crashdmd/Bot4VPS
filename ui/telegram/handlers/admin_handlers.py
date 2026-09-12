@@ -28,18 +28,68 @@ def _format_interval(minutes: int) -> str:
     return f"{days} дн."
 
 
-async def _show_admin_menu(query):
+def _admin_menu_keyboard():
+    """Клавиатура «Администрирование». «Зашифровать все секреты» — только
+    когда сканер ядра нашёл незашифрованные (перенесённые со старой
+    установки значения); после шифрования кнопка исчезает.
+    """
+    from core.secretbox import scan_plaintext_secrets
+
     keyboard = [
         [InlineKeyboardButton("🔍 Проверить серверы", callback_data="check_servers_menu")],
         [InlineKeyboardButton("⚙️ Автоматический мониторинг", callback_data="monitor_settings")],
         [InlineKeyboardButton("📜 Просмотр уведомлений", callback_data="view_notifications")],
         [InlineKeyboardButton("🔑 Управление SSH-ключами", callback_data="key_manager")],
-        [InlineKeyboardButton("⬅️ Назад", callback_data="main")],
     ]
+    try:
+        found = scan_plaintext_secrets()["found"]
+    except Exception:
+        found = False
+    if found:
+        keyboard.append(
+            [InlineKeyboardButton("🔒 Зашифровать все секреты", callback_data="encrypt_secrets")]
+        )
+    keyboard.append([InlineKeyboardButton("⬅️ Назад", callback_data="main")])
+    return keyboard
+
+
+async def _show_admin_menu(query, note: str = ""):
     await query.edit_message_text(
-        "🛠 Администрирование\n\nВыберите действие:",
-        reply_markup=InlineKeyboardMarkup(keyboard),
+        "🛠 Администрирование\n\nВыберите действие:" + (f"\n\n{note}" if note else ""),
+        reply_markup=InlineKeyboardMarkup(_admin_menu_keyboard()),
     )
+
+
+async def _encrypt_all_secrets(query):
+    """Кнопка «Зашифровать все секреты»: единая функция ядра, значения
+    не показываются — только счётчики. После успеха кнопка исчезает
+    (контрольный скан в ответе ядра пуст)."""
+    import asyncio
+
+    from core.secretbox import encrypt_all_plaintext_secrets
+
+    try:
+        result = await asyncio.to_thread(encrypt_all_plaintext_secrets)
+    except Exception as exc:
+        message = str(exc).strip().splitlines()[0][:200] or exc.__class__.__name__
+        await query.answer(f"✖ {message}", show_alert=True)
+        return
+    encrypted = result.get("encrypted") or {}
+    labels = {
+        "server_passwords": "пароли серверов",
+        "bot_token": "Telegram Bot Token",
+        "totp_secret": "секрет 2FA",
+        "backup_password": "пароль резервных копий",
+    }
+    parts = [
+        f"{labels.get(key, key)}: {count}" if count > 1 else labels.get(key, key)
+        for key, count in encrypted.items()
+    ]
+    note = "✅ Зашифровано: " + (", ".join(parts) if parts else "нечего шифровать")
+    if result.get("plaintext", {}).get("found"):
+        note = "⚠️ Зашифровано частично — повторите позже (данные не потеряны)"
+    await query.answer()
+    await _show_admin_menu(query, note=note)
 
 
 async def _show_monitor_settings(query):
@@ -361,6 +411,9 @@ async def _view_event_detail(query, event_id_prefix: str):
 async def process_admin_callback(query, data: str, context=None) -> bool:
     if data == "admin":
         await _show_admin_menu(query)
+
+    elif data == "encrypt_secrets":
+        await _encrypt_all_secrets(query)
 
     elif await process_check_callback(query, data):
         return True

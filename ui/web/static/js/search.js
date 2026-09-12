@@ -2,7 +2,8 @@
 import { esc } from './api.js';
 import { state, setPage } from './state.js';
 import { showPage } from './ui.js';
-import { setServerQuery as setServerListQuery } from './servers.js?v=20260904-local-v33';
+import { WIREGUARD_ICON, DOCKER_ICON } from './icons.js?v=20260905-brandicons-v2';
+import { setServerQuery as setServerListQuery } from './servers.js?v=20260912-chlogwrap-v1';
 
 let searchResults = [];
 
@@ -68,8 +69,7 @@ function createResultsBox() {
       right:0;
       max-height:400px;
       overflow:auto;
-      background:var(--panel);
-      backdrop-filter:blur(12px);
+      background:var(--bg-base);
       border:1px solid var(--border);
       border-radius:var(--radius-md);
       box-shadow:var(--shadow-lg);
@@ -102,11 +102,11 @@ function performSearch(query) {
 
   // Поиск разделов
   const sections = [
-    { name: 'Обзор', page: 'dashboard', icon: '📊' },
+    { name: 'Дашборд', page: 'dashboard', icon: '📊' },
     { name: 'Серверы', page: 'servers', icon: '🖥' },
     { name: 'Задачи', page: 'queues', icon: '📋' },
-    { name: 'WireGuard', page: 'wireguard', icon: '🌐' },
-    { name: 'Docker', page: 'docker', icon: '🐳' },
+    { name: 'WireGuard', page: 'wireguard', icon: WIREGUARD_ICON },
+    { name: 'Docker', page: 'docker', icon: DOCKER_ICON },
     { name: 'Скрипты', page: 'scripts', icon: '📜' },
     { name: 'Файлы', page: 'files', icon: '📂' },
     { name: 'Мониторинг', page: 'monitor', icon: '📡' },
@@ -120,6 +120,29 @@ function performSearch(query) {
         type: 'section',
         title: sec.name,
         subtitle: 'Раздел',
+        icon: sec.icon,
+        data: sec
+      });
+    }
+  });
+
+  // Поиск по категориям Настроек («общие» → Настройки → Общие):
+  // те же id, что рендерит renderNav() в settings.js
+  const settingsSections = [
+    { name: 'Общие', id: 'common', icon: '◉', desc: 'Мониторинг и интерфейс' },
+    { name: 'Безопасность', id: 'web', icon: '🛡', desc: 'Вход, 2FA, мастер-ключ, порт' },
+    { name: 'Telegram', id: 'telegram', icon: '↗', desc: 'Бот и получатель' },
+    { name: 'История и данные', id: 'data', icon: '▤', desc: 'Лимиты хранения' },
+    { name: 'Обновления', id: 'updates', icon: '⇧', desc: 'Проверка и установка' },
+    { name: 'О программе', id: 'about', icon: 'i', desc: 'Версия и проект' }
+  ];
+
+  settingsSections.forEach(sec => {
+    if (sec.name.toLowerCase().includes(query) || sec.desc.toLowerCase().includes(query)) {
+      results.push({
+        type: 'settings',
+        title: sec.name,
+        subtitle: `Настройки · ${sec.desc}`,
         icon: sec.icon,
         data: sec
       });
@@ -155,7 +178,7 @@ function renderResults(box, results) {
       const id = item.dataset.id;
 
       if (type === 'server') {
-        import('./servers.js?v=20260904-local-v33').then(m => {
+        import('./servers.js?v=20260912-chlogwrap-v1').then(m => {
           setPage('servers');
           showPage('servers');
           m.openServer(id);
@@ -163,6 +186,14 @@ function renderResults(box, results) {
       } else if (type === 'section') {
         setPage(id);
         showPage(id);
+      } else if (type === 'settings') {
+        // Категория настроек: открыть Настройки и выбрать её в меню
+        const cat = searchResults.find(r => r.type === 'settings' && r.data.id === id);
+        setPage('settings');
+        showPage('settings');
+        import('./settings.js?v=20260912-chlogwrap-v1').then(m => {
+          m.selectSettingsCategory?.(id);
+        });
       }
 
       box.style.display = 'none';
@@ -190,10 +221,9 @@ style.textContent = `
   }
   .search-result-item:hover{
     background:var(--card-hover);
-    transform:translateX(2px);
   }
   .search-result-item:active{
-    transform:translateX(0);
+    background:var(--field);
   }
 `;
 document.head.appendChild(style);

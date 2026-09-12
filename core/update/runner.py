@@ -20,6 +20,7 @@ import hashlib
 import json
 import os
 import shutil
+import ssl
 import subprocess
 import sys
 import tarfile
@@ -208,18 +209,24 @@ def _restart_service(job: dict) -> None:
 
 
 def _health(job: dict, expected_version: str) -> tuple[bool, str]:
-    """GET /api/upd/health с 127.0.0.1 до совпадения версии (2 подряд)."""
+    """GET /api/upd/health с 127.0.0.1 до совпадения версии (2 подряд).
+
+    Схема — из job (updater читает юнит при старте): при включённом TLS
+    эндпоинт слушает https; self-signed проверять нечем — unverified context.
+    """
     if job.get("dev_no_systemd"):
         print("[runner] dev_no_systemd: пропуск health-check", flush=True)
         return True, "dev"
-    url = "http://127.0.0.1:%d/api/upd/health" % job["health_port"]
+    scheme = job.get("health_scheme", "http")
+    url = "%s://127.0.0.1:%d/api/upd/health" % (scheme, job["health_port"])
+    ctx = ssl._create_unverified_context() if scheme == "https" else None
     deadline = time.monotonic() + job.get("health_timeout", 120)
     streak = 0
     last = ""
     while time.monotonic() < deadline:
         try:
             req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
-            with urllib.request.urlopen(req, timeout=5) as resp:
+            with urllib.request.urlopen(req, timeout=5, context=ctx) as resp:
                 data = json.loads(resp.read().decode("utf-8"))
             if data.get("version") == expected_version:
                 streak += 1

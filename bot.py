@@ -14,7 +14,7 @@ from telegram.ext import (
 # Core
 import core.scripts  # noqa: F401 — register_executor
 from core.storage import ensure_server_ids
-from core.config import load_config
+from core.config import ConfigCorruptedError, load_config
 from core.event_types import EventType
 from core.event_service import register_notifier, clear_notifiers
 
@@ -47,13 +47,26 @@ ALLOWED_USERS: list = []
 def refresh_bot_globals() -> None:
     """Перечитать bot_token / allowed_users из config.json."""
     global BOT_TOKEN, ALLOWED_USERS
-    from core.config import load_config
+    from core.config import load_config, get_saved_bot_token
     cfg = load_config()
-    BOT_TOKEN = (cfg.get("bot_token") or "").strip()
+    # Токен на диске может быть зашифрован (enc1:) — читаем через
+    # единственную точку с расшифровкой; дальше по коду plaintext.
+    BOT_TOKEN = get_saved_bot_token()
     ALLOWED_USERS = list(cfg.get("allowed_users") or [])
 
 
-refresh_bot_globals()
+# config.json повреждён без валидных копий: импорт bot НЕ падает —
+# Web-вход обязан иметь возможность импортировать этот модуль даже в
+# аварийном режиме (ui/web/app.py). Состояние фиксируем флагом; отказ
+# происходит в build_application() при повторном чтении конфига, где
+# его ловит обработчик настоящего __main__ (чистый выход, без трейсбека).
+_CONFIG_CORRUPTED = False
+
+try:
+    refresh_bot_globals()
+except ConfigCorruptedError:
+    _CONFIG_CORRUPTED = True
+
 
 NOTIFICATION_HANDLERS = {
     EventType.DATABASE.value: handle_critical_event,
@@ -181,9 +194,16 @@ async def start_telegram(app: Application | None = None) -> Application:
         _last_start_error = _humanize_start_error(e)
         print(f"[BOT] start_telegram failed — rolling back: {_last_start_error}", flush=True)
         await stop_telegram(application)
+        from core.telegram_state import write_state
+
+        # после отката (stop_telegram пишет "stopped") фиксируем причину
+        write_state("failed", error=_last_start_error)
         raise
 
     _last_start_error = None
+    from core.telegram_state import write_state
+
+    write_state("running")
     print("🤖 Telegram bot started (manual lifecycle)", flush=True)
     return application
 
@@ -210,6 +230,9 @@ async def stop_telegram(app: Application | None = None) -> None:
         print(f"[BOT] shutdown: {e}", flush=True)
     clear_notifiers()
     _application = None
+    from core.telegram_state import write_state
+
+    write_state("stopped")
     print("🤖 Telegram bot stopped", flush=True)
 
 
@@ -233,7 +256,30 @@ def is_telegram_running() -> bool:
 if __name__ == "__main__":
     # Standalone (без Web): прежний путь run_polling
     ensure_server_ids()
-    application = build_application()
+    # Консольная команда bot4vps — часть ui/cli; tg-only вход тоже
+    # гарантирует её наличие (обновление/перенос/восстановление).
+    try:
+        from ui.cli.bootstrap import ensure_cli_command
+        ensure_cli_command()
+    except Exception as exc:
+        print(f"[BOT] cli command ensure failed: {exc}", flush=True)
+
+    # Повреждённый config.json без валидных копий: tg-only вход не может
+    # подняться (боту нужен токен из конфига). Чистый выход с понятным
+    # сообщением, без трейсбека; Web-вход в этом состоянии живёт в
+    # аварийном режиме (ui/web/app.py).
+    try:
+        application = build_application()
+    except ConfigCorruptedError as exc:
+        import sys
+
+        print(f"[BOT] АВАРИЙНЫЙ РЕЖИМ: {exc}", flush=True)
+        print(
+            "[BOT] Восстановите конфигурацию: "
+            "cp backup/config_latest.json config.json && systemctl restart bot4vps",
+            flush=True,
+        )
+        sys.exit(1)
 
     async def _immediate_notify(notification, event_id=None):
         return await send_event_notification(application.bot, notification, event_id)
@@ -244,6 +290,29 @@ if __name__ == "__main__":
 
     # post_init: ядерная JobQueue (собственность ядра, не TG) + backup-scheduler
     async def _post_init(app: Application) -> None:
+        # tg-only вход идёт через run_polling, минуя start_telegram —
+        # состояние lifecycle пишем здесь (тот же переход "running")
+        from core.telegram_state import write_state
+
+        write_state("running")
+        # Self-restore reconcile: восстановленный юнит может быть tg-only —
+        # тогда финализацию висящей операции делает этот процесс, а не Web.
+        # До core jobs и планировщика (см. тот же hook в ui/web/app.py).
+        try:
+            from core.backup.manager import BackupManager
+            from core.backup.self_restore import reconcile_self_restores
+            from core.config import get_backup_config
+
+            for item in reconcile_self_restores(
+                BackupManager(get_backup_config())
+            ):
+                print(
+                    "[BOT] self-restore reconcile: операция %s → %s"
+                    % (item.get("operation_id"), item.get("status")),
+                    flush=True,
+                )
+        except Exception as exc:
+            print(f"[BOT] self-restore reconcile failed: {exc}", flush=True)
         try:
             from core.jobs_runtime import start_core_jobs
             await start_core_jobs()
@@ -257,6 +326,9 @@ if __name__ == "__main__":
 
     async def _post_shutdown(app: Application) -> None:
         del app
+        from core.telegram_state import write_state
+
+        write_state("stopped")
         try:
             from core.jobs_runtime import stop_core_jobs
             await stop_core_jobs()

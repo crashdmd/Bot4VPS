@@ -8,6 +8,7 @@
 import { j, esc } from './api.js';
 import { toast, showPage, serverDateTimeParts, serverDayDifference } from './ui.js';
 import { ansiToHtml } from './ansi.js';
+import { WIREGUARD_ICON } from './icons.js?v=20260905-brandicons-v2';
 
 const SID = 'wireguard';
 const timers = {};                  // taskId -> polling-интервал
@@ -222,7 +223,7 @@ function checkCard(s) {
   const installed = !!st.installed;
   const known = !!Object.keys(st).length;
   const goto = known ? (installed ? 'manage' : 'install') : '';
-  let body = `<h3>🖥 ${esc(s.name)}</h3><div class="row" style="margin-top:.3rem">${stateBadge(st)}</div>`;
+  let body = `<h3>${WIREGUARD_ICON} ${esc(s.name)}</h3><div class="row" style="margin-top:.3rem">${stateBadge(st)}</div>`;
   if (installed) {
     const v = shortVer(st.version);
     body += `<div class="wg-card-info">Версия: <b>${v ? esc(v) : '—'}</b></div>`;
@@ -248,7 +249,7 @@ function renderInstall(servers) {
   }
   el.innerHTML = servers.map(s => `<div class="card">
     <div class="card-body">
-      <h3>🖥 ${esc(s.name)}</h3>
+      <h3>${WIREGUARD_ICON} ${esc(s.name)}</h3>
       <div class="row" style="margin-top:.3rem">${stateBadge(s.status || {})}</div>
       <div class="wg-note">WireGuard отсутствует на сервере.
 Установите и настройте сервис, чтобы начать управлять VPN-профилями.</div>
@@ -289,7 +290,7 @@ function manageCard(s) {
   if (classic) {
     return `<div class="card">
       <div class="card-body">
-        <h3>🖥 ${esc(s.name)} <span class="hint">${esc(s.host || '')}</span></h3>
+        <h3>${WIREGUARD_ICON} ${esc(s.name)} <span class="hint">${esc(s.host || '')}</span></h3>
         <div class="row" style="margin-top:.3rem">${stateBadge(st)}</div>
         <div class="wg-card-info">Версия: <b>${v ? esc(v) : '—'}</b></div>
         <div class="wg-note">WireGuard установлен, но конфигурация ещё не переведена в формат Bot4VPS.</div>
@@ -304,7 +305,7 @@ function manageCard(s) {
     : '';
   return `<div class="card">
     <div class="card-body">
-      <h3>🖥 ${esc(s.name)} <span class="hint">${esc(s.host || '')}</span></h3>
+      <h3>${WIREGUARD_ICON} ${esc(s.name)} <span class="hint">${esc(s.host || '')}</span></h3>
       <div class="row" style="margin-top:.3rem">${stateBadge(st)}${importedIndicator}</div>
       <div class="wg-card-info">Версия: <b>${v ? esc(v) : '—'}</b></div>
       <div class="wg-card-info">Endpoint: <b>${st.endpoint ? esc(st.endpoint) : 'не задан'}</b></div>
@@ -1069,7 +1070,7 @@ function watchTask(taskId, serverId, action) {
 
             if (returnToServer) {
               try {
-                const { openServer } = await import('./servers.js?v=20260904-local-v33');
+                const { openServer } = await import('./servers.js?v=20260912-chlogwrap-v1');
                 await openServer(serverId);
               } catch (_) {
                 backToWgList();
@@ -1228,7 +1229,7 @@ export function bindWireguardUI() {
     if (!wgServerId) return;
 
     try {
-      const { openServer } = await import('./servers.js?v=20260904-local-v33');
+      const { openServer } = await import('./servers.js?v=20260912-chlogwrap-v1');
       await openServer(wgServerId);
     } catch (e) {
       console.error('Не удалось открыть карточку сервера:', e);

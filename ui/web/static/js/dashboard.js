@@ -2,7 +2,7 @@
 import { j, esc } from './api.js';
 import { showPage, plural, toast, bindPasswordToggles, serverHour, formatServerTimestamp } from './ui.js';
 import { setPage } from './state.js';
-import { loadEvents, openEventDetail, applyEventsSnapshot, showUpdateModal } from './monitor.js?v=20260826-host-timezone-v2';
+import { loadEvents, openEventDetail, applyEventsSnapshot, showUpdateModal } from './monitor.js?v=20260912-chlogwrap-v1';
 
 
 // ---------- Первоначальная настройка Telegram ----------
@@ -106,26 +106,19 @@ export async function loadDashboard() {
     }
 
     // Загружаем данные параллельно
-    const [summary, servers, events, dockerStatus, sys, updaterState] = await Promise.all([
-      j('/api/summary'),
+    const [servers, events, sys, updaterState] = await Promise.all([
       j('/api/servers'),
-      j('/api/events?limit=4').catch(() => ({ events: [] })),
-      j('/api/services/docker/status').catch(() => ({ servers: [] })),
+      j('/api/events?limit=5').catch(() => ({ events: [] })),
       j('/api/system').catch(() => null),
       j('/api/update/state').catch(() => null)
     ]);
 
-    // Подсчёт контейнеров
-    let totalContainers = 0;
-    (dockerStatus.servers || []).forEach(s => {
-      if (s.status && s.status.containers) {
-        totalContainers += s.status.containers.length;
-      }
-    });
-
-    renderMetrics(summary, servers.servers || [], totalContainers);
+    lastSys = sys;
+    lastUpdaterState = updaterState;
+    const allEvents = events.events || [];
+    pushSysHistory(sys);
     renderServers(servers.servers || []);
-    renderEvents(events.events || []);
+    renderEvents(allEvents);
     renderSystem(sys, updaterState);
     await checkTelegramSetup();
   } catch (e) {
@@ -133,83 +126,71 @@ export async function loadDashboard() {
   }
 }
 
+// Последние данные для периодического пересчёта подзаголовка/системы
+let lastSys = null;
+let lastUpdaterState = null;
+
 // Обновление только данных (без перерисовки списков)
 export async function updateDashboardData() {
   try {
-    const [sys, updaterState] = await Promise.all([
-      j('/api/system').catch(() => null),
-      j('/api/update/state').catch(() => null)
-    ]);
-
-    renderSystem(sys, updaterState);
+    const sys = await j('/api/system').catch(() => null);
+    if (sys) lastSys = sys;
+    pushSysHistory(sys);
+    renderSystem(sys, lastUpdaterState);
   } catch (e) {
     console.error('[DASH UPDATE]', e);
   }
 }
 
-function renderMetrics(summary, servers, containersCount) {
-  const totalServers = servers.length;
-  const onlineServers = servers.filter(s => s.status === 'online' || s.online).length;
-  const offlineServers = servers.filter(s => s.status !== 'online' && !s.online);
-
-  // Серверы - показываем только онлайн
-  document.getElementById('m-servers').textContent = String(onlineServers);
-
-  // Статус серверов
-  const serversStatusEl = document.getElementById('m-servers-status');
-  if (offlineServers.length === 0) {
-    serversStatusEl.innerHTML = '<span class="metric-status ok">Все онлайн</span>';
-  } else {
-    const firstOffline = offlineServers[0].name || offlineServers[0].host || 'Сервер';
-    serversStatusEl.innerHTML = `<span class="metric-status warn">${esc(firstOffline)} недоступен</span>`;
-  }
-
-  // Задачи
-  const tasksCount = (summary.running_tasks || 0) + (summary.queued_tasks || 0);
-  document.getElementById('m-tasks').textContent = String(tasksCount);
-
-  // Статус задач
-  const tasksStatusEl = document.getElementById('m-tasks-status');
-  if (tasksCount === 0) {
-    tasksStatusEl.innerHTML = '<span class="metric-status ok">Нет активных</span>';
-  } else {
-    const running = summary.running_tasks || 0;
-    const queued = summary.queued_tasks || 0;
-    if (running > 0) {
-      tasksStatusEl.innerHTML = `<span class="metric-status ok">Выполняется: ${running}</span>`;
-    } else {
-      tasksStatusEl.innerHTML = `<span class="metric-status warn">В очереди: ${queued}</span>`;
+/**
+ * Периодическое обновление «живых» частей дашборда: статус серверов
+ * в заголовке виджета. Строки серверов не трогаем — их обновляет
+ * refreshDashMetrics (3с). Выборка виджета меняется только при загрузке
+ * страницы; здесь лишь убираем строки серверов, которые удалили из панели.
+ */
+export async function updateDashboardState() {
+  try {
+    const [servers, updaterState] = await Promise.all([
+      j('/api/servers').catch(() => null),
+      j('/api/update/state').catch(() => null),
+    ]);
+    if (!servers || !servers.servers) return;
+    const list = servers.servers;
+    lastUpdaterState = updaterState;
+    // сервер из выборки удалён — строка обязана уйти; новые серверы
+    // появляются только при следующей загрузке страницы
+    if (widgetServers.length) {
+      const ids = new Set(list.map(s => s.id));
+      if (widgetServers.some(s => !ids.has(s.id))) {
+        renderServers(list, new Set(widgetServers.map(s => s.id)));
+      }
+    } else if (list.length) {
+      renderServers(list);
     }
-  }
-
-  // Контейнеры
-  document.getElementById('m-containers').textContent = String(containersCount || 0);
-
-  // Статус контейнеров
-  const containersStatusEl = document.getElementById('m-containers-status');
-  if (containersCount === 0) {
-    containersStatusEl.innerHTML = '<span class="metric-status ok">Нет контейнеров</span>';
-  } else {
-    containersStatusEl.innerHTML = `<span class="metric-status ok">Активно: ${containersCount}</span>`;
+  } catch (e) {
+    console.error('[DASH STATE]', e);
   }
 }
 
-const WIDGET_LIMIT = 3;
+const WIDGET_LIMIT = 6;
 const SPARK_POINTS = 20;     // сколько замеров держит график (20 × 3с ≈ минута)
-let widgetServers = [];      // случайная выборка, живёт до следующего loadDashboard
+const SPARK_W = 96, SPARK_H = 24, SPARK_PAD = 2;
+// Компактные причины недоступности в виджете (см. classify_ssh_error в core)
+const SRV_ERR_LABELS = {
+  key_missing: '🔑 Ключ не найден',
+  auth: '🔑 Пароль/ключ не подходят',
+  port: '🔌 Порт недоступен',
+  network: '🌐 Нет сети',
+  timeout: '⏱ Не отвечает',
+  connect: '⚠ Нет подключения',
+  unknown: '⚠ Недоступен',
+};
+let widgetServers = [];      // текущая выборка: живёт до следующей загрузки страницы
 let metricsTimer = null;
 const cpuHistory = new Map();  // id сервера -> массив последних значений CPU
+const ramHistory = new Map();  // id сервера -> массив последних значений RAM%
 
-function shuffle(arr) {
-  const a = arr.slice();
-  for (let i = a.length - 1; i > 0; i--) {
-    const k = Math.floor(Math.random() * (i + 1));
-    [a[i], a[k]] = [a[k], a[i]];
-  }
-  return a;
-}
-
-const SPARK_W = 96, SPARK_H = 32, SPARK_PAD = 2;
+/** Компактный статус в заголовке виджета «Серверы» (справа). */
 
 /** Сглаженная кривая через точки (Catmull-Rom → кубические Безье). */
 function smoothPath(pts) {
@@ -223,44 +204,6 @@ function smoothPath(pts) {
     d += ` C${c1x.toFixed(1)} ${c1y.toFixed(1)} ${c2x.toFixed(1)} ${c2y.toFixed(1)} ${p2.x} ${p2.y}`;
   }
   return d;
-}
-
-/**
- * Классический линейный график нагрузки CPU с заливкой.
- * `hist` — история значений 0..100, свежие в конце.
- */
-function cpuSpark(hist, offline) {
-  const stroke = offline ? 'var(--err)' : 'var(--accent)';
-  const grid = `<line x1="0" y1="${(SPARK_H / 2).toFixed(1)}" x2="${SPARK_W}" y2="${(SPARK_H / 2).toFixed(1)}"
-      stroke="var(--border)" stroke-width="1" stroke-dasharray="2 3"/>`;
-
-  if (!hist || !hist.length) {
-    return `<svg width="${SPARK_W}" height="${SPARK_H}" viewBox="0 0 ${SPARK_W} ${SPARK_H}"
-      style="display:block;overflow:visible">${grid}</svg>`;
-  }
-
-  // пока замеров мало — прижимаем график к правому краю
-  const step = SPARK_W / (SPARK_POINTS - 1);
-  const y = v => SPARK_PAD + (1 - Math.min(100, Math.max(0, v)) / 100) * (SPARK_H - SPARK_PAD * 2);
-  const pts = hist.map((v, i) => ({
-    x: +(SPARK_W - (hist.length - 1 - i) * step).toFixed(1),
-    y: +y(v).toFixed(1),
-  }));
-  if (hist.length === 1) pts.unshift({ x: pts[0].x - step, y: pts[0].y });
-
-  const line = smoothPath(pts);
-  const area = `${line} L${pts[pts.length - 1].x} ${SPARK_H} L${pts[0].x} ${SPARK_H} Z`;
-  const last = pts[pts.length - 1];
-
-  return `
-    <svg width="${SPARK_W}" height="${SPARK_H}" viewBox="0 0 ${SPARK_W} ${SPARK_H}"
-         style="display:block;overflow:visible">
-      ${grid}
-      <path d="${area}" fill="${stroke}" fill-opacity="0.14"/>
-      <path d="${line}" fill="none" stroke="${stroke}" stroke-width="1.6"
-            stroke-linecap="round" stroke-linejoin="round"/>
-      <circle cx="${last.x}" cy="${last.y}" r="2.1" fill="${stroke}"/>
-    </svg>`;
 }
 
 // plural переехал в ui.js — им пользуется и monitor.js (см. импорт выше).
@@ -295,57 +238,94 @@ function uptimeRu(raw) {
 /** Переиспользуем модалку добавления сервера со страницы «Серверы». */
 function bindDashAdd(box) {
   box.querySelector('[data-dash-add]')?.addEventListener('click', async () => {
-    const m = await import('./servers.js?v=20260904-local-v33');
+    const m = await import('./servers.js?v=20260912-chlogwrap-v1');
     m.openAddServerModal();
   });
 }
 
-function renderServers(servers) {
+/** Разовая выборка виджета: проблемные в первую очередь, затем живые;
+    внутри групп — случайно. Живёт до следующей загрузки страницы. */
+function pickWidgetServers(servers) {
+  const shuffle = arr => {
+    const a = [...arr];
+    for (let i = a.length - 1; i > 0; i--) {
+      const k = Math.floor(Math.random() * (i + 1));
+      [a[i], a[k]] = [a[k], a[i]];
+    }
+    return a;
+  };
+  const isProblem = s => {
+    const netOk = s.status === 'online' || s.online;
+    return !netOk || (s.ssh_error && String(s.ssh_error).trim());
+  };
+  const problems = shuffle(servers.filter(isProblem));
+  const healthy = shuffle(servers.filter(s => !isProblem(s)));
+  const pCount = Math.min(problems.length, WIDGET_LIMIT);
+  const hCount = Math.min(healthy.length, WIDGET_LIMIT - pCount);
+  return [...problems.slice(0, pCount), ...healthy.slice(0, hCount)];
+}
+
+function renderServers(servers, keepIds = null) {
   const box = document.getElementById('dash-servers');
   stopDashMetrics();
   if (!servers.length) {
     widgetServers = [];
     cpuHistory.clear();
+    ramHistory.clear();
     // серверов нет — кнопка добавления здесь нужнее всего
     box.innerHTML = `
       <div class="empty" style="padding:1.25rem 1rem">Нет серверов</div>
       <div class="dash-srv-actions">
-        <button type="button" class="ghost" style="flex:1" data-dash-add="1">＋ Добавить сервер</button>
+        <button type="button" class="ghost" style="flex:1" data-dash-add="1">Добавить сервер</button>
       </div>`;
     bindDashAdd(box);
     return;
   }
 
-  // случайная выборка серверов, а не всегда одни и те же
-  widgetServers = shuffle(servers).slice(0, WIDGET_LIMIT);
+  if (keepIds) {
+    // состав панели изменился: прежняя выборка живёт, исчезнувшие уходят;
+    // освободившиеся слоты не добираем — новые серверы увидит следующая
+    // загрузка страницы
+    widgetServers = servers.filter(s => keepIds.has(s.id));
+    if (!widgetServers.length) widgetServers = pickWidgetServers(servers);
+  } else {
+    widgetServers = pickWidgetServers(servers);
+  }
   // история от серверов, выпавших из выборки, больше не нужна
   const shown = new Set(widgetServers.map(s => s.id));
   [...cpuHistory.keys()].forEach(k => { if (!shown.has(k)) cpuHistory.delete(k); });
+  [...ramHistory.keys()].forEach(k => { if (!shown.has(k)) ramHistory.delete(k); });
 
   box.innerHTML = widgetServers.map(s => {
     const online = s.status === 'online' || s.online;
+    // жив, но SSH не проходит — жёлтый: зелёный обманывал бы, как и в списке
+    const dot = !online ? '🔴' : (s.ssh_error && String(s.ssh_error).trim()) ? '🟡' : '🟢';
     return `
       <div class="dash-srv" data-sid="${esc(s.id)}">
-        <div data-f="dot" class="dash-srv-dot">${online ? '🟢' : '🔴'}</div>
-        <div style="min-width:0">
-          <div class="dash-srv-name">${esc(s.name)}</div>
-          <div class="dash-srv-host">${esc(s.host || '')}</div>
-          <div class="dash-srv-meta"><span data-f="uptime">Uptime: …</span></div>
+        <div class="dash-srv-top">
+          <span data-f="dot" class="dash-srv-dot">${dot}</span>
+          <span class="dash-srv-name">${esc(s.name)}</span>
+          <span class="dash-srv-ping" data-f="ping">—</span>
+          <span class="dash-srv-cpu">
+            <span class="m-cpu" data-f="cpu">—</span>
+            <span class="m-ram" data-f="ram">—</span>
+          </span>
         </div>
-        <div class="dash-srv-chart">
-          <div data-f="chart">${cpuSpark(cpuHistory.get(s.id), !online)}</div>
-          <div class="dash-srv-cpu"><span data-f="cpu">…</span> CPU</div>
+        <div class="dash-srv-chart" data-f="chart">${srvSpark(s.id, !online)}</div>
+        <div class="dash-srv-sub">
+          <span class="dash-srv-host">${esc(s.host || '')}</span>
+          <span class="dash-srv-meta"><span data-f="uptime">Uptime: …</span></span>
         </div>
       </div>`;
   }).join('');
 
-  const showAll = servers.length > WIDGET_LIMIT
+  const showAll = servers.length > widgetServers.length
     ? `<button type="button" class="ghost" style="flex:1" data-dash-all="1">Показать все →</button>`
     : '';
   box.insertAdjacentHTML('beforeend',
     `<div class="dash-srv-actions">
        ${showAll}
-       <button type="button" class="ghost" style="flex:1" data-dash-add="1">＋ Добавить сервер</button>
+       <button type="button" class="ghost" style="flex:1" data-dash-add="1">Добавить сервер</button>
      </div>`);
 
   box.querySelectorAll('.dash-srv').forEach(row => {
@@ -375,35 +355,52 @@ async function refreshDashMetrics() {
       if (el) el.textContent = txt;
     };
     const chart = row.querySelector('[data-f="chart"]');
-    const draw = offline => {
-      if (chart) chart.innerHTML = cpuSpark(cpuHistory.get(s.id), offline);
-    };
-    // недоступен: иконка краснеет сразу же, история обрывается
-    const na = () => {
-      set('dot', '🔴');
-      set('cpu', 'N/A');
+    const draw = offline => { if (chart) chart.innerHTML = srvSpark(s.id, offline); };
+    // недоступен: иконка краснеет, вместо спарклайна — причина
+    const na = (kind) => {
+      // ключ пропал/пароль не подходит — сервер жив, точка жёлтая;
+      // сеть/таймаут — красная
+      set('dot', (kind === 'key_missing' || kind === 'auth') ? '🟡' : '🔴');
+      set('cpu', '');
+      set('ram', '');
       set('uptime', 'Uptime: N/A');
       cpuHistory.delete(s.id);
-      draw(true);
+      ramHistory.delete(s.id);
+      if (chart) chart.innerHTML = `<span class="dash-srv-err">${SRV_ERR_LABELS[kind] || SRV_ERR_LABELS.unknown}</span>`;
     };
     try {
-      const m = await j('/api/servers/' + encodeURIComponent(s.id) + '/metrics');
-      if (!m.ok) { na(); return; }
+      // метрики и TCP-пинг параллельно: пинг живёт своей жизнью —
+      // сервер может отвечать по сети, но не пускать по SSH
+      const [m, ping] = await Promise.all([
+        j('/api/servers/' + encodeURIComponent(s.id) + '/metrics').catch(() => null),
+        j('/api/servers/' + encodeURIComponent(s.id) + '/ping').catch(() => null),
+      ]);
+      setPing(row, ping);
+      if (!m) { na('unknown'); return; }
+      if (!m.ok) { na(m.error_kind); return; }
       // тот же критерий «нет данных», что и в карточке сервера
       const empty = m.cpu == null && m.ram_pct == null && m.disk_pct == null
         && (!m.load || m.load === 'N/A') && (!m.uptime || m.uptime === 'N/A');
-      if (empty) { na(); return; }
+      if (empty) { na('unknown'); return; }
       const pct = m.cpu != null ? Math.round(m.cpu) : null;
+      const ram = m.ram_pct != null ? Math.round(m.ram_pct) : null;
       set('dot', '🟢');
-      set('cpu', pct != null ? pct + '%' : 'N/A');
+      // ram_pct приходит с тем же запросом метрик; CPU и RAM подписаны
+      // цветами своих линий в графике
+      set('cpu', pct != null ? pct + '% CPU' : '');
+      set('ram', ram != null ? ram + '% RAM' : '');
       set('uptime', 'Uptime: ' + uptimeRu(m.uptime));
       const hist = cpuHistory.get(s.id) || [];
       hist.push(pct || 0);
       if (hist.length > SPARK_POINTS) hist.splice(0, hist.length - SPARK_POINTS);
       cpuHistory.set(s.id, hist);
+      const ramHist = ramHistory.get(s.id) || [];
+      ramHist.push(ram || 0);
+      if (ramHist.length > SPARK_POINTS) ramHist.splice(0, ramHist.length - SPARK_POINTS);
+      ramHistory.set(s.id, ramHist);
       draw(false);
     } catch {
-      na();
+      na('unknown');
     }
   }));
 }
@@ -420,11 +417,13 @@ export function stopDashMetrics() {
 
 async function openServerFromDash(id) {
   stopDashMetrics();
-  const m = await import('./servers.js?v=20260904-local-v33');
+  const m = await import('./servers.js?v=20260912-chlogwrap-v1');
   setPage('servers');
   showPage('servers');
   m.openServer(id);
 }
+
+const DASH_EVENTS_SHOWN = 5;
 
 function renderEvents(events) {
   const box = document.getElementById('dash-events');
@@ -433,10 +432,12 @@ function renderEvents(events) {
     return;
   }
 
-  // Синхронизируем события с кэшом monitor.js
+  // Синхронизируем события с кэшом monitor.js (полный список)
   applyEventsSnapshot(events);
 
-  box.innerHTML = events.map((e, i) => {
+  // на показ — только последние; пришли они отсортированными (новые сверху)
+  const shown = events.slice(0, DASH_EVENTS_SHOWN);
+  box.innerHTML = shown.map((e, i) => {
     const level = e.level || 'info';
     const icon = level === 'error' ? '❌' : level === 'warning' ? '⚠️' : level === 'success' ? '✅' : 'ℹ️';
     return `
@@ -451,7 +452,7 @@ function renderEvents(events) {
 
   // Общая карточка из monitor.js — она же помечает событие прочитанным
   box.querySelectorAll('[data-ev-idx]').forEach(node => {
-    node.onclick = () => openEventDetail(events[Number(node.dataset.evIdx)].id);
+    node.onclick = () => openEventDetail(shown[Number(node.dataset.evIdx)].id);
   });
 }
 
@@ -497,49 +498,182 @@ function systemUpdateNotice(state) {
     </div>`;
 }
 
-function bindSystemUpdate(box) {
-  box.querySelector('[data-dash-update]')?.addEventListener('click', showUpdateModal);
+/* История метрик системы для графиков виджета «Состояние системы»:
+   наполняется опросом /api/system (раз в 3с, пока открыт дашборд).
+   60 точек ≈ 3 минуты скользящего окна */
+const SYS_SPARK_POINTS = 60;
+const sysHistory = { cpu: [], ram: [], disk: [], net: { rx: [], tx: [] } };
+
+function pushSysHistory(sys) {
+  if (!sys || !sys.ok) return;
+  const push = (arr, v) => {
+    if (v == null) return;
+    arr.push(Math.max(0, Math.min(100, v)));
+    if (arr.length > SYS_SPARK_POINTS) arr.splice(0, arr.length - SYS_SPARK_POINTS);
+  };
+  push(sysHistory.cpu, sys.cpu);
+  push(sysHistory.ram, sys.ram_pct);
+  push(sysHistory.disk, sys.disk_pct);
+  // сеть — байты/с, не проценты: без clamp, только окно
+  const pushNet = (arr, v) => {
+    if (v == null) return;
+    arr.push(Math.max(0, v));
+    if (arr.length > SYS_SPARK_POINTS) arr.splice(0, arr.length - SYS_SPARK_POINTS);
+  };
+  pushNet(sysHistory.net.rx, sys.net_rx);
+  pushNet(sysHistory.net.tx, sys.net_tx);
+}
+
+/* Универсальный спарклайн (строки серверов + виджет системы):
+   растянут на всю ширину контейнера, x масштабируется по числу
+   накопленных точек — линия всегда занимает весь график (пустоты
+   нет ни в первые секунды, ни после заполнения окна).
+   preserveAspectRatio="none" + vector-effect держат толщину линии,
+   а точка текущего значения — span поверх svg (круг в растянутом
+   viewBox деформировался бы в овал) */
+function sparkline(hist, color) {
+  const grid = `<line x1="0" y1="${(SPARK_H / 2).toFixed(1)}" x2="${SPARK_W}" y2="${(SPARK_H / 2).toFixed(1)}"
+      stroke="var(--border)" stroke-width="1" stroke-dasharray="2 3" vector-effect="non-scaling-stroke"/>`;
+  const open = `<svg viewBox="0 0 ${SPARK_W} ${SPARK_H}" preserveAspectRatio="none"
+      style="display:block;width:100%;height:${SPARK_H}px;overflow:visible">`;
+
+  if (!hist || !hist.length) return `${open}${grid}</svg>`;
+
+  const step = SPARK_W / Math.max(1, hist.length - 1);
+  const y = v => SPARK_PAD + (1 - Math.min(100, Math.max(0, v)) / 100) * (SPARK_H - SPARK_PAD * 2);
+  const pts = hist.map((v, i) => ({
+    x: +(i * step).toFixed(1),
+    y: +y(v).toFixed(1),
+  }));
+  if (pts.length === 1) pts.push({ x: pts[0].x + step, y: pts[0].y });
+
+  const line = smoothPath(pts);
+  const area = `${line} L${pts[pts.length - 1].x} ${SPARK_H} L${pts[0].x} ${SPARK_H} Z`;
+  const last = pts[pts.length - 1];
+
+  return `
+    <div class="dash-spark" style="--dot-y:${last.y}px;--dot-c:${color}">
+      ${open}
+      ${grid}
+      <path d="${area}" fill="${color}" fill-opacity="0.14"/>
+      <path d="${line}" fill="none" stroke="${color}" stroke-width="1.6"
+            stroke-linecap="round" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>
+      </svg>
+      <span class="spark-dot"></span>
+    </div>`;
+}
+
+/* Зеркало humanRate из monitor.js: локальная копия — экспорт из
+   monitor.js потянул бы пересборку версий пяти импортирующих модулей */
+function fmtRate(bytes) {
+  if (bytes === null || bytes === undefined) return '—';
+  const units = ['Б', 'КБ', 'МБ', 'ГБ'];
+  let v = bytes;
+  let i = 0;
+  while (v >= 1024 && i < units.length - 1) { v /= 1024; i++; }
+  return `${v < 10 ? v.toFixed(1) : Math.round(v)} ${units[i]}/с`;
+}
+
+/* Многосерийный растянутый спарклайн: несколько линий в одном svg.
+   series — [{hist, color, dashed}]; шкала общая по всем сериям
+   (фиксированная maxVal или автоподбор по максимуму — иначе линии
+   несравнимы). Пунктир — опционально, для второй серии */
+function sparkMulti(series, maxVal) {
+  const open = `<svg viewBox="0 0 ${SPARK_W} ${SPARK_H}" preserveAspectRatio="none"
+      style="display:block;width:100%;height:${SPARK_H}px;overflow:visible">`;
+  const hists = series.map(s => s.hist || []);
+  if (!hists.some(h => h.length)) return `${open}</svg>`;
+
+  const cap = maxVal != null ? maxVal : Math.max(1, ...hists.flat());
+  const y = v => SPARK_PAD + (1 - Math.min(cap, Math.max(0, v)) / cap) * (SPARK_H - SPARK_PAD * 2);
+  const path = hist => {
+    if (!hist || !hist.length) return '';
+    const step = SPARK_W / Math.max(1, hist.length - 1);
+    const pts = hist.map((v, i) => ({ x: +(i * step).toFixed(1), y: +y(v).toFixed(1) }));
+    if (pts.length === 1) pts.push({ x: pts[0].x + step, y: pts[0].y });
+    return smoothPath(pts);
+  };
+  const lines = series.map(s => {
+    const d = path(s.hist);
+    if (!d) return '';
+    const dash = s.dashed ? ` stroke-dasharray="3 2"` : '';
+    return `<path d="${d}" fill="none" stroke="${s.color}" stroke-width="1.6"${dash}
+      stroke-linecap="round" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>`;
+  }).join('');
+  return `${open}${lines}</svg>`;
+}
+
+/* График плитки сервера: CPU (акцент/красный) + RAM (розовый) в одном
+   svg, фиксированная шкала 0..100 — обе величины процентные */
+function srvSpark(id, offline) {
+  return sparkMulti([
+    { hist: cpuHistory.get(id) || [], color: offline ? 'var(--err)' : 'var(--accent)' },
+    { hist: ramHistory.get(id) || [], color: 'var(--memory-icon)' },
+  ], 100);
+}
+
+/* Пинг-чип рядом с именем: ≤300мс зелёный, ≤500мс жёлтый,
+   выше — красный, недоступен — прочерк */
+function setPing(row, ping) {
+  const el = row.querySelector('[data-f="ping"]');
+  if (!el) return;
+  if (!ping || !ping.ok || ping.ms == null) {
+    el.textContent = '— (tcp)';
+    el.className = 'dash-srv-ping is-bad';
+    return;
+  }
+  el.textContent = ping.ms + ' мс (tcp)';
+  el.className = 'dash-srv-ping ' + (ping.ms <= 300 ? 'is-ok' : ping.ms <= 500 ? 'is-warn' : 'is-bad');
 }
 
 function renderSystem(sys, updaterState) {
   const box = document.getElementById('dash-system');
+  const notice = systemUpdateNotice(updaterState || lastUpdaterState);
 
   // /api/system не ответил — значит и веб-часть недоступна
   if (!sys || !sys.ok) {
-    box.innerHTML =
-      statusPill('Web', { ok: false, detail: 'нет ответа' }) +
-      statusPill('Telegram-бот', { ok: false, detail: 'неизвестно' }) +
-      systemUpdateNotice(updaterState) +
-      sysFooter();
-    bindSystemUpdate(box);
+    box.innerHTML = `
+      <div class="dash-sys-statuses">
+        ${statusPill('Web', { ok: false, detail: 'нет ответа' })}
+        ${statusPill('Telegram-бот', { ok: false, detail: 'неизвестно' })}
+      </div>
+      ${notice}
+      ${sysFooter()}`;
+    box.querySelector('[data-dash-update]')?.addEventListener('click', showUpdateModal);
     return;
   }
 
-  const bars = [
-    { label: 'CPU', pct: sys.cpu, value: sys.cpu != null ? sys.cpu + '%' : 'N/A', color: 'var(--cpu-icon)' },
-    { label: 'RAM', pct: sys.ram_pct, value: sys.ram && sys.ram !== 'N/A' ? sys.ram : 'N/A', color: 'var(--memory-icon)' },
-    { label: 'Диск', pct: sys.disk_pct, value: sys.disk && sys.disk !== 'N/A' ? sys.disk : 'N/A', color: 'var(--disk-icon)' },
-  ];
-
-  box.innerHTML =
-    bars.map(b => {
-      const pct = b.pct != null ? Math.max(0, Math.min(100, b.pct)) : 0;
-      return `
-        <div class="dash-sys-row">
-          <div class="dash-sys-head">
-            <span class="lbl">${esc(b.label)}</span>
-            <span class="val">${esc(b.value)}</span>
-          </div>
-          <div class="dash-sys-track">
-            <div class="dash-sys-fill" style="background:${b.color};width:${pct}%"></div>
-          </div>
-        </div>`;
-    }).join('') +
-    statusPill('Web', sys.web) +
-    statusPill('Telegram-бот', sys.bot) +
-    systemUpdateNotice(updaterState) +
-    sysFooter();
-  bindSystemUpdate(box);
+  // Три мини-виджета: CPU / RAM / Сеть — метка, значение, живой график
+  // по накопленной истории (pushSysHistory, 3с/точка) и мелкая подпись.
+  const temp = sys.temp && sys.temp !== 'N/A' ? sys.temp : '';
+  box.innerHTML = `
+    <div class="dash-sys-tiles">
+      <div class="dash-sys-tile">
+        <span class="lbl">CPU</span>
+        <span class="val">${sys.cpu != null ? esc(String(sys.cpu)) + '%' : 'N/A'}</span>
+        <div class="tile-spark">${sparkline(sysHistory.cpu, 'var(--cpu-icon)')}</div>
+        <span class="sub">${esc(temp)}</span>
+      </div>
+      <div class="dash-sys-tile">
+        <span class="lbl">RAM</span>
+        <span class="val">${sys.ram_pct != null ? esc(String(sys.ram_pct)) + '%' : 'N/A'}</span>
+        <div class="tile-spark">${sparkline(sysHistory.ram, 'var(--memory-icon)')}</div>
+        <span class="sub">${sys.ram && sys.ram !== 'N/A' ? esc(sys.ram) : ''}</span>
+      </div>
+      <div class="dash-sys-tile">
+        <span class="lbl">Сеть</span>
+        <span class="val">↓ ${esc(fmtRate(sys.net_rx))}</span>
+        <div class="tile-spark">${sparkMulti([{ hist: sysHistory.net.rx, color: 'var(--traffic-icon)' }, { hist: sysHistory.net.tx, color: 'var(--cpu-icon)', dashed: true }])}</div>
+        <span class="sub">↑ ${esc(fmtRate(sys.net_tx))}</span>
+      </div>
+    </div>
+    <div class="dash-sys-statuses">
+      ${statusPill('Web', sys.web)}
+      ${statusPill('Telegram-бот', sys.bot)}
+    </div>
+    ${notice}
+    ${sysFooter()}`;
+  box.querySelector('[data-dash-update]')?.addEventListener('click', showUpdateModal);
 }
 
 function sysFooter() {
@@ -549,7 +683,6 @@ function sysFooter() {
 }
 
 export function bindDashboard() {
-  document.getElementById('dash-refresh')?.addEventListener('click', loadDashboard);
   document.getElementById('tg-setup-save')?.addEventListener('click', tgSetupSave);
   bindPasswordToggles(document.getElementById('tg-setup-modal') || document);
 
@@ -561,28 +694,16 @@ export function bindDashboard() {
     showPage('events');
     loadEvents(100);
   });
-
-  // Клик на метрики-карточки → навигация
-  document.addEventListener('click', (e) => {
-    const metricCard = e.target.closest('.metric-card[data-nav]');
-    if (metricCard) {
-      const page = metricCard.dataset.nav;
-      setPage(page);
-      showPage(page);
-
-      // Для Docker переключаем на вкладку «Управление»
-      if (page === 'docker') {
-        setTimeout(() => {
-          const manageTab = document.querySelector('#docker-tabs [data-dktab="manage"]');
-          if (manageTab) manageTab.click();
-        }, 50);
-      }
-    }
-  });
 }
 
-// Хелпер для inline onclick (кнопка «Открыть мониторинг»)
-window.dashShowPage = (page) => { setPage(page); showPage(page); };
+// Хелпер для inline onclick (кнопка «Открыть мониторинг»).
+// b4vNav (app.js) делает полноценную навигацию: останавливает вотчеры
+// и грузит данные целевой страницы.
+function navTo(page) {
+  if (window.b4vNav) window.b4vNav(page);
+  else { setPage(page); showPage(page); }
+}
+window.dashShowPage = navTo;
 
 // Старая функция loadSummary — заглушка для совместимости
 export async function loadSummary() {

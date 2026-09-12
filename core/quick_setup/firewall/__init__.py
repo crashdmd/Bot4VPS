@@ -364,6 +364,46 @@ def _nftables_chain_selection_result(
     )
 
 
+def _nftables_provision_pending(ssh, server: dict) -> bool:
+    """Будет ли ensure_installed nftables создавать базовую таблицу bot4vps.
+
+    Предусловие автопровижининга: сохранённой цепочки нет и в ruleset нет
+    ни одной standalone input chain (state «none») — типично для свежей
+    Ubuntu, где ufw работает через iptables-nft. Результат нужен ДО вызова
+    ensure_installed, чтобы rollback неудачной миграции знал, что таблица —
+    собственность панели и удаляется целиком.
+    """
+    backend = _BY_NAME["nftables"]
+    configured, _ = backend._configured_chain_token(server)
+    if configured:
+        return False
+    try:
+        state, _, _ = backend._selection_state(backend._ruleset(ssh, server))
+    except Exception:
+        return False
+    return state == "none"
+
+
+def _finalize_nftables_persistence(
+    ssh,
+    server: dict,
+) -> Optional[tuple[bool, str]]:
+    """Терминальная синхронизация persistence nftables после успеха install/switch.
+
+    Для админских цепочек возвращает None (persistence — ответственность
+    админа); для собственной таблицы bot4vps дампит правила и включает
+    nftables.service (см. NftablesBackend._persist_owned_ruleset).
+    """
+    backend = _BY_NAME["nftables"]
+    configured, token = backend._configured_chain_token(server)
+    if not configured or not backend._owned_chain_token(token):
+        return None
+    try:
+        return backend._persist_owned_ruleset(ssh, server, sync_service=True)
+    except Exception as exc:
+        return False, str(exc)[:400]
+
+
 def _summarize_without_active(
     detected: list[tuple[FirewallBackend, FirewallInfo]],
     candidates: list[dict],
@@ -608,6 +648,7 @@ def _switch_rollback(
     source_change: Optional[FirewallStateChange],
     target_backend: FirewallBackend,
     target_attempted: bool,
+    target_provisioned: bool = False,
     target_snapshot: Optional[set[tuple[int, str, str]]],
     target_mutations: list[FirewallMutation],
     removed_attempts: list[tuple[int, str, str]],
@@ -716,64 +757,101 @@ def _switch_rollback(
         if target_snapshot is not None
         else None
     )
+    target_unprovisioned = False
     cleanup: list[dict] = []
-    for mutation in reversed(target_mutations):
-        if not mutation.changed or mutation.existed_before:
-            cleanup.append({
-                "attempted": False,
-                "restored": True,
-                "retained": False,
-                "reason": "Правило существовало ранее или не добавлялось операцией",
-                "mutation": mutation.to_dict(),
-            })
-            continue
-        if mutation.port == ssh_port and mutation.protocol == "tcp":
-            cleanup.append({
-                "attempted": False,
-                "restored": bool(
-                    rollback_target_exact is not None
-                    and (ssh_port, "tcp", "") in rollback_target_exact
-                ),
-                "retained": True,
-                "reason": (
-                    "Правило текущего SSH-порта сохранено до деактивации target"
-                ),
-                "mutation": mutation.to_dict(),
-            })
-            continue
-        if not safe_to_reduce_target:
-            cleanup.append({
-                "attempted": False,
-                "restored": False,
-                "retained": True,
-                "reason": (
-                    "Новое правило сохранено: безопасный source не подтверждён"
-                ),
-                "mutation": mutation.to_dict(),
-            })
-            continue
+    if target_provisioned and safe_to_reduce_target:
+        # Таблица bot4vps провижинена панелью в ЭТОЙ операции — собственность
+        # панели: удаляем целиком (ruleset + conf + include + сервис + выбор
+        # цепочки). Per-rule cleanup не нужен: правил без таблицы не бывает.
         try:
-            cleaned = target_backend.cleanup_mutation(ssh, server, mutation)
-            cleanup.append({
-                "attempted": True,
-                "restored": bool(cleaned.ok and cleaned.verified),
-                "retained": not bool(cleaned.ok and cleaned.verified),
-                "mutation": cleaned.to_dict(),
-            })
+            ok, detail = target_backend.rollback_provisioned_ruleset(
+                ssh, server
+            )
         except Exception as exc:
-            cleanup.append({
-                "attempted": True,
-                "restored": False,
-                "retained": True,
-                "error": str(exc)[:800],
-                "mutation": mutation.to_dict(),
-            })
+            ok, detail = False, str(exc)[:800]
+        if ok:
+            target_unprovisioned = True
+            target_state = {
+                "backend": target_backend.name,
+                "operation": "unprovision",
+                "ok": True,
+                "changed": True,
+                "verified": True,
+                "message": "Базовая nftables таблица bot4vps удалена",
+                "error": None,
+            }
+            target_inactive = True
+            cleanup = [
+                {
+                    "attempted": False,
+                    "restored": True,
+                    "retained": False,
+                    "reason": "Таблица bot4vps удалена целиком с persistence",
+                    "mutation": item.to_dict(),
+                }
+                for item in reversed(target_mutations)
+            ]
+    if not target_unprovisioned:
+        for mutation in reversed(target_mutations):
+            if not mutation.changed or mutation.existed_before:
+                cleanup.append({
+                    "attempted": False,
+                    "restored": True,
+                    "retained": False,
+                    "reason": "Правило существовало ранее или не добавлялось операцией",
+                    "mutation": mutation.to_dict(),
+                })
+                continue
+            if mutation.port == ssh_port and mutation.protocol == "tcp":
+                cleanup.append({
+                    "attempted": False,
+                    "restored": bool(
+                        rollback_target_exact is not None
+                        and (ssh_port, "tcp", "") in rollback_target_exact
+                    ),
+                    "retained": True,
+                    "reason": (
+                        "Правило текущего SSH-порта сохранено до деактивации target"
+                    ),
+                    "mutation": mutation.to_dict(),
+                })
+                continue
+            if not safe_to_reduce_target:
+                cleanup.append({
+                    "attempted": False,
+                    "restored": False,
+                    "retained": True,
+                    "reason": (
+                        "Новое правило сохранено: безопасный source не подтверждён"
+                    ),
+                    "mutation": mutation.to_dict(),
+                })
+                continue
+            try:
+                cleaned = target_backend.cleanup_mutation(ssh, server, mutation)
+                cleanup.append({
+                    "attempted": True,
+                    "restored": bool(cleaned.ok and cleaned.verified),
+                    "retained": not bool(cleaned.ok and cleaned.verified),
+                    "mutation": cleaned.to_dict(),
+                })
+            except Exception as exc:
+                cleanup.append({
+                    "attempted": True,
+                    "restored": False,
+                    "retained": True,
+                    "error": str(exc)[:800],
+                    "mutation": mutation.to_dict(),
+                })
 
     target_snapshot_verified = False
     target_snapshot_missing: list[dict] = []
     target_snapshot_unexpected: list[dict] = []
     target_snapshot_error = None
-    if rollback_target_exact is not None:
+    if target_unprovisioned:
+        # Таблица удалена целиком — сверять её правила с baseline не с чем.
+        target_snapshot_verified = True
+    elif rollback_target_exact is not None:
         try:
             (
                 target_snapshot_verified,
@@ -788,29 +866,30 @@ def _switch_rollback(
         except Exception as exc:
             target_snapshot_error = str(exc)[:800]
 
-    target_state = None
-    target_inactive = False
-    target_state_error = None
-    try:
-        target_info = target_backend.detect(ssh, server)
-        if target_info is not None and target_info.active is False:
-            target_inactive = True
-        elif (
-            target_info is not None
-            and target_info.active is True
-            and safe_to_reduce_target
-        ):
-            target_change = target_backend.deactivate(ssh, server)
-            target_state = target_change.to_dict()
-            target_inactive = bool(target_change.ok and target_change.verified)
-        elif target_info is None:
-            target_state_error = "target firewall больше не обнаружен"
-        else:
-            target_state_error = (
-                "Target оставлен активным: безопасный source не подтверждён"
-            )
-    except Exception as exc:
-        target_state_error = str(exc)[:800]
+    if not target_unprovisioned:
+        target_state = None
+        target_inactive = False
+        target_state_error = None
+        try:
+            target_info = target_backend.detect(ssh, server)
+            if target_info is not None and target_info.active is False:
+                target_inactive = True
+            elif (
+                target_info is not None
+                and target_info.active is True
+                and safe_to_reduce_target
+            ):
+                target_change = target_backend.deactivate(ssh, server)
+                target_state = target_change.to_dict()
+                target_inactive = bool(target_change.ok and target_change.verified)
+            elif target_info is None:
+                target_state_error = "target firewall больше не обнаружен"
+            else:
+                target_state_error = (
+                    "Target оставлен активным: безопасный source не подтверждён"
+                )
+        except Exception as exc:
+            target_state_error = str(exc)[:800]
 
     final_inventory: list[dict] = []
     final_state_restored = False
@@ -866,6 +945,7 @@ def _switch_rollback(
         "target_snapshot_error": target_snapshot_error,
         "target": target_state,
         "target_inactive": target_inactive,
+        "target_unprovisioned": target_unprovisioned,
         "target_state_error": target_state_error,
         "final_state_restored": final_state_restored,
         "final_ssh_verified": final_ssh_ok,
@@ -905,6 +985,7 @@ def switch_backend(
     target_mutations: list[FirewallMutation] = []
     removed_attempts: list[tuple[int, str, str]] = []
     target_attempted = False
+    target_provisioned = False
     reconcile = False
     phase = "detection"
     failure_details: dict[str, Any] = {}
@@ -1043,12 +1124,25 @@ def switch_backend(
             ),
             None,
         )
+        # Reconcile определяется наличием активного source, а не
+        # установленностью target: инвентарь правил берётся из source и не
+        # зависит от того, установлен ли target (live-регрессия №12:
+        # ufw→firewalld при неустановленном firewalld переносил только
+        # SSH-порт и молча терял остальные правила, включая порт панели —
+        # decision-prompt о переносимых правилах тоже не показывался).
+        # Установленный target к этому моменту может быть только
+        # inactive+manageable: активный target отсечён проверкой выше,
+        # unmanageable — проверкой unmanaged.
         reconcile = bool(
             source_backend is not None
             and source_name != target
-            and initial_target_info is not None
-            and initial_target_info.active is False
-            and initial_target_info.manageable
+            and (
+                initial_target_info is None
+                or (
+                    initial_target_info.active is False
+                    and initial_target_info.manageable
+                )
+            )
         )
         if accepted and not reconcile:
             return _continuation_error(
@@ -1147,6 +1241,12 @@ def switch_backend(
 
         phase = "target_preparation"
         target_attempted = True
+        # Автопровижининг базовой таблицы bot4vps (см. migrate): rollback
+        # должен знать о ней до вызова ensure_installed.
+        target_provisioned = (
+            target == "nftables"
+            and _nftables_provision_pending(ssh, server)
+        )
         try:
             prepared, detail = target_backend.ensure_installed(ssh, server)
         except Exception as exc:
@@ -1449,9 +1549,20 @@ def switch_backend(
                     phase="final_verification",
                 )
 
+        persistence_warning = None
+        if target == "nftables":
+            finalized = _finalize_nftables_persistence(ssh, server)
+            if finalized is not None and not finalized[0]:
+                persistence_warning = (
+                    "firewall работает, но правила не сохранены для загрузки "
+                    f"при ребуте: {finalized[1]}"
+                )
+        message = f"Firewall переключён: активен только {target}"
+        if persistence_warning:
+            message = f"{message}. Внимание: {persistence_warning}"
         return OpResult(
             ok=True,
-            message=f"Firewall переключён: активен только {target}",
+            message=message,
             data={
                 "source": source_name,
                 "target": target,
@@ -1461,6 +1572,7 @@ def switch_backend(
                     or (source_change is not None and source_change.changed)
                 ),
                 "ssh_verified": True,
+                "nftables_persistence_warning": persistence_warning,
             },
         )
     except ValueError as exc:
@@ -1491,6 +1603,7 @@ def switch_backend(
                         source_change=source_change,
                         target_backend=target_backend,
                         target_attempted=target_attempted,
+                        target_provisioned=target_provisioned,
                         target_snapshot=target_snapshot,
                         target_mutations=target_mutations,
                         removed_attempts=removed_attempts,
@@ -2055,8 +2168,15 @@ def _migration_state_before_source_disable(
     *,
     target: str,
     sources: list[str],
+    require_target: bool = True,
 ) -> list[tuple[FirewallBackend, FirewallInfo]]:
-    """Fresh-read target/source, не считая managed nftables отдельным firewall."""
+    """Fresh-read target/source, не считая managed nftables отдельным firewall.
+
+    require_target=False — для rollback после неудачной ПОДГОТОВКИ target:
+    target тогда никогда не активировался, требовать его active нельзя
+    (иначе rollback сам падал «состояние изменилось» и подменял настоящую
+    ошибку подготовки страхилкой rollback_unverified).
+    """
     detected, errors = _scan_on_ssh(ssh, server)
     nftables_is_logical = target == "nftables" or "nftables" in sources
     relevant_errors = [
@@ -2077,6 +2197,8 @@ def _migration_state_before_source_disable(
 
     by_name = {backend.name: info for backend, info in detected}
     for name in [target, *sources]:
+        if name == target and not require_target:
+            continue
         info = by_name.get(name)
         if info is None or info.active is not True or not info.manageable:
             raise FirewallMigrationError(
@@ -2210,6 +2332,7 @@ def _migration_rollback(
     target_mutations: list[FirewallMutation],
     changed_competitors: list[tuple[FirewallBackend, FirewallStateChange]],
     expected_competitors: list[str],
+    target_provisioned: bool = False,
 ) -> dict:
     lifecycle, lifecycle_ok = _rollback_lifecycle(
         ssh, server, changed_competitors
@@ -2223,6 +2346,9 @@ def _migration_rollback(
             server,
             target=target_backend.name,
             sources=expected_competitors,
+            # target мог и не активироваться (подготовка не удалась до
+            # всяких изменений) — требовать его active нельзя
+            require_target=bool(target_was_active or target_prepared),
         )
         inventory = _candidates_payload(_candidates(detected))
         active_names = {
@@ -2243,7 +2369,46 @@ def _migration_rollback(
     target_inactive = False
 
     cleanup: list[dict] = []
-    if target_was_active or (target_prepared and safe_to_restore_target):
+    target_unprovisioned = False
+    if (
+        target_provisioned
+        and not target_was_active
+        and safe_to_restore_target
+    ):
+        # Таблица bot4vps провижинена панелью в ЭТОЙ операции — собственность
+        # панели: удаляем целиком (ruleset + conf + include + сервис + выбор
+        # цепочки). Per-rule cleanup не нужен: правил без таблицы не бывает.
+        try:
+            ok, detail = target_backend.rollback_provisioned_ruleset(
+                ssh, server
+            )
+        except Exception as exc:
+            ok, detail = False, str(exc)[:800]
+        if ok:
+            target_unprovisioned = True
+            target_state = {
+                "backend": target_backend.name,
+                "operation": "unprovision",
+                "ok": True,
+                "changed": True,
+                "verified": True,
+                "message": "Базовая nftables таблица bot4vps удалена",
+                "error": None,
+            }
+            target_inactive = True
+            cleanup = [
+                {
+                    "attempted": False,
+                    "restored": True,
+                    "retained": False,
+                    "reason": "Таблица bot4vps удалена целиком с persistence",
+                    "mutation": item.to_dict(),
+                }
+                for item in reversed(target_mutations)
+            ]
+    if not target_unprovisioned and (
+        target_was_active or (target_prepared and safe_to_restore_target)
+    ):
         current_ssh_port = _port(server.get("port") or 22)
         for mutation in reversed(target_mutations):
             if (
@@ -2265,7 +2430,7 @@ def _migration_rollback(
                 })
                 continue
             cleanup.append(_cleanup_exact_mutation(ssh, server, mutation))
-    else:
+    elif not target_unprovisioned:
         cleanup = [
             {
                 "attempted": False,
@@ -2282,7 +2447,7 @@ def _migration_rollback(
         ]
     rules_restored = all(item.get("restored") is True for item in cleanup)
 
-    if target_prepared and not target_was_active:
+    if not target_unprovisioned and target_prepared and not target_was_active:
         if safe_to_restore_target:
             try:
                 state_change = target_backend.deactivate(ssh, server)
@@ -2353,6 +2518,7 @@ def _migration_rollback(
         "ssh_verified": access_ok,
         "ssh_error": access_error,
         "target": target_state,
+        "target_unprovisioned": target_unprovisioned,
         "target_preparation_retained": bool(
             target_prepared and not target_was_active and not target_inactive
         ),
@@ -2441,6 +2607,7 @@ def migrate(
     target_backend = _BY_NAME[target]
     target_was_active = False
     target_prepared = False
+    target_provisioned = False
     target_mutations: list[FirewallMutation] = []
     changed_competitors: list[tuple[FirewallBackend, FirewallStateChange]] = []
     lifecycle_results: list[dict] = []
@@ -2651,8 +2818,19 @@ def migrate(
 
         phase = "target_preparation"
         if not target_was_active:
-            target_prepared = True
+            # mutation_started — ДО вызова: ensure_installed может открыть
+            # SSH-порт в target и упасть позже, такие мутации обязан чистить
+            # rollback. target_prepared — только по факту успеха: иначе
+            # rollback после неудачной подготовки думал, что target
+            # активирован, и падал сам вместо честной ошибки подготовки.
             mutation_started = True
+            # Автопровижининг базовой таблицы bot4vps: rollback должен
+            # знать о нём ДО вызова — ensure_installed сохранит выбор
+            # цепочки в storage, и при неудаче его придётся убрать.
+            target_provisioned = (
+                target == "nftables"
+                and _nftables_provision_pending(ssh, server)
+            )
             try:
                 prepared, detail = target_backend.ensure_installed(ssh, server)
             except Exception as exc:
@@ -2667,6 +2845,7 @@ def migrate(
                     code="target_preparation_failed",
                     phase="target_preparation",
                 )
+            target_prepared = True
 
         target_info = target_backend.detect(ssh, server)
         if (
@@ -2760,6 +2939,7 @@ def migrate(
                 target_backend=target_backend,
                 target_was_active=target_was_active,
                 target_prepared=target_prepared,
+                target_provisioned=target_provisioned,
                 target_mutations=target_mutations,
                 changed_competitors=changed_competitors,
                 expected_competitors=expected_competitors,
@@ -2971,9 +3151,20 @@ def migrate(
                 phase="final_rule_verification",
             )
 
+        persistence_warning = None
+        if target == "nftables":
+            finalized = _finalize_nftables_persistence(ssh, server)
+            if finalized is not None and not finalized[0]:
+                persistence_warning = (
+                    "firewall работает, но правила не сохранены для загрузки "
+                    f"при ребуте: {finalized[1]}"
+                )
+        message = f"Firewall переключён: активен только {target}"
+        if persistence_warning:
+            message = f"{message}. Внимание: {persistence_warning}"
         return OpResult(
             ok=True,
-            message=f"Firewall переключён: активен только {target}",
+            message=message,
             data={
                 "target": target,
                 "phase": "complete",
@@ -2984,6 +3175,7 @@ def migrate(
                     or any(item.get("changed") for item in lifecycle_results)
                 ),
                 "ssh_verified": True,
+                "nftables_persistence_warning": persistence_warning,
                 "automatic_rule_migration": continue_without_rules is None,
                 "migrated_rules": migrated,
                 "skipped_ambiguous_rules": (
@@ -3013,6 +3205,7 @@ def migrate(
                 target_backend=target_backend,
                 target_was_active=target_was_active,
                 target_prepared=target_prepared,
+                target_provisioned=target_provisioned,
                 target_mutations=target_mutations,
                 changed_competitors=changed_competitors,
                 expected_competitors=expected_competitors,
@@ -3133,13 +3326,25 @@ def install_backend(
                     "Target уже стал активным, поэтому продолжение устарело",
                     name,
                 )
+            # Повторная установка после автопровижининга могла пройти мимо
+            # finalize (первая попытка оборвалась после создания таблицы) —
+            # синхроним persistence безусловно, предупреждение не фатально.
+            persistence_warning = None
+            if name == "nftables":
+                finalized = _finalize_nftables_persistence(ssh, server)
+                if finalized is not None and not finalized[0]:
+                    persistence_warning = finalized[1]
+            message = f"{name} уже активен"
+            if persistence_warning:
+                message = f"{message}. Внимание: {persistence_warning}"
             return OpResult(
                 ok=True,
-                message=f"{name} уже активен",
+                message=message,
                 data={
                     "backend": name,
                     "phase": "complete",
                     "changed": False,
+                    "nftables_persistence_warning": persistence_warning,
                 },
             )
         if active:
@@ -3326,6 +3531,16 @@ def install_backend(
                     "backends": _candidates_payload(_candidates(final_detected)),
                 },
             )
+        persistence_warning = None
+        if name == "nftables":
+            finalized = _finalize_nftables_persistence(ssh, server)
+            if finalized is not None and not finalized[0]:
+                persistence_warning = (
+                    "правила не сохранены для загрузки при ребуте: "
+                    f"{finalized[1]}"
+                )
+        if persistence_warning:
+            detail = f"{detail}. Внимание: {persistence_warning}"
         return OpResult(
             ok=True,
             message=detail,
@@ -3336,6 +3551,7 @@ def install_backend(
                 "phase": "complete",
                 "changed": True,
                 "ssh_verified": True,
+                "nftables_persistence_warning": persistence_warning,
                 "backends": _candidates_payload(_candidates(final_detected)),
             },
         )

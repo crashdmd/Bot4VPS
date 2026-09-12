@@ -10,19 +10,20 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://unpkg.com/twemoji@latest/dist/twemoji.min.js" crossorigin="anonymous"></script>
-<link rel="stylesheet" href="/static/css/layout.css?v=20260826-host-timezone-v2"/>
-<link rel="stylesheet" href="/static/css/components.css?v=20260816-task-history-v3"/>
-<link rel="stylesheet" href="/static/css/pages.css?v=20260905-revokesudo-v3"/>
+<link rel="stylesheet" href="/static/css/layout.css?v=20260912-mobile-v3"/>
+<link rel="stylesheet" href="/static/css/components.css?v=20260911-paper-v21"/>
+<link rel="stylesheet" href="/static/css/pages.css?v=20260912-mobile-v5"/>
 <link rel="stylesheet" href="/static/vendor/xterm/xterm.css"/>
 <link rel="stylesheet" href="/static/vendor/codemirror/codemirror.min.css"/>
 <link rel="stylesheet" href="/static/vendor/codemirror/material-darker.min.css"/>
-<script>try{var t=localStorage.getItem('bot4vps_theme');var l=t==='light'||(t!=='dark'&&matchMedia('(prefers-color-scheme: light)').matches);if(l)document.documentElement.setAttribute('data-theme','light');}catch(e){}</script>
+<script>try{var t=localStorage.getItem('bot4vps_theme');if(t==='glass')document.documentElement.setAttribute('data-theme','glass');else{var l=t==='light'||(t!=='dark'&&matchMedia('(prefers-color-scheme: light)').matches);if(l)document.documentElement.setAttribute('data-theme','light');}}catch(e){}</script>
 </head>
-<body>
+<body class="boot">
+<!-- boot: интерфейс скрыт до initAuth — без вспышки панели за экраном логина -->
 <div class="layout">
   <aside class="side">
     <div class="logo">
-      <div class="logo-icon"><img src="/static/logo.png" alt="Bot4VPS"></div>
+      <div class="logo-icon"><img src="/static/logo.png?v=20260905-logo-v2" alt="Bot4VPS"></div>
       <div class="logo-text">
         <span class="logo-title">Bot4VPS</span>
         <span class="logo-subtitle">Панель управления</span>
@@ -31,7 +32,7 @@
     <nav id="nav">
       <div class="nav-section">
         <button type="button" data-page="dashboard" class="on">
-          <span class="icon">📊</span> Обзор
+          <span class="icon">📊</span> Дашборд
         </button>
       </div>
       <div class="nav-section">
@@ -40,10 +41,10 @@
           <span class="icon">🖥</span> Серверы
         </button>
         <button type="button" data-page="wireguard">
-          <span class="icon">🌐</span> WireGuard
+          <span class="icon"><svg class="brand-icon brand-wg" viewBox="0 0 24 24" aria-hidden="true"><path d="M23.98 11.645S24.533 0 11.735 0C.418 0 .064 11.17.064 11.17S-1.6 24 11.997 24C25.04 24 23.98 11.645 23.98 11.645zM8.155 7.576c2.4-1.47 5.469-.571 6.618 1.638.218.419.246 1.063.108 1.503-.477 1.516-1.601 2.366-3.145 2.728.455-.39.817-.832.933-1.442a2.112 2.112 0 0 0-.364-1.677 2.14 2.14 0 0 0-2.465-.75c-.95.36-1.47 1.228-1.377 2.294.087.99.839 1.632 2.245 1.876-.21.111-.372.193-.53.281a5.113 5.113 0 0 0-1.644 1.43c-.143.192-.24.208-.458.075-2.827-1.729-3.009-6.067.078-7.956zM6.04 18.258c-.455.116-.895.286-1.359.438.227-1.532 2.021-2.943 3.539-2.782a3.91 3.91 0 0 0-.74 2.072c-.504.093-.98.155-1.44.272zM15.703 3.3c.448.017.898.01 1.347.02a2.324 2.324 0 0 1 .334.047 3.249 3.249 0 0 1-.34.434c-.16.15-.341.296-.573.069-.055-.055-.187-.042-.283-.044-.447-.005-.894-.02-1.34-.003a8.323 8.323 0 0 0-1.154.118c-.072.013-.178.25-.146.338.078.207.191.435.359.567.619.49 1.277.928 1.9 1.413.604.472 1.167.99 1.51 1.7.446.928.46 1.9.267 2.877-.322 1.63-1.147 2.98-2.483 3.962-.538.395-1.205.62-1.821.903-.543.25-1.1.465-1.644.712-.98.446-1.53 1.51-1.369 2.615.149 1.015 1.04 1.862 2.059 2.037 1.223.21 2.486-.586 2.785-1.83.336-1.397-.423-2.646-1.845-3.024l-.256-.066c.38-.17.708-.291 1.012-.458q.793-.437 1.558-.925c.15-.096.231-.096.36.014.977.846 1.56 1.898 1.724 3.187.27 2.135-.74 4.096-2.646 5.101-2.948 1.555-6.557-.215-7.208-3.484-.558-2.8 1.418-5.34 3.797-5.83 1.023-.211 1.958-.637 2.685-1.425.47-.508.697-.944.775-1.141a3.165 3.165 0 0 0 .217-1.158 2.71 2.71 0 0 0-.237-.992c-.248-.566-1.2-1.466-1.435-1.656l-2.24-1.754c-.079-.065-.168-.06-.36-.047-.23.016-.815.048-1.067-.018.204-.155.76-.38 1-.56-.726-.49-1.554-.314-2.315-.46.176-.328 1.046-.831 1.541-.888a7.323 7.323 0 0 0-.135-.822c-.03-.111-.154-.22-.263-.283-.262-.154-.541-.281-.843-.434a1.755 1.755 0 0 1 .906-.28 3.385 3.385 0 0 1 .908.088c.54.123.97.042 1.399-.324-.338-.136-.676-.26-1.003-.407a9.843 9.843 0 0 1-.942-.493c.85.118 1.671.437 2.54.32l.022-.118-2.018-.47c1.203-.11 2.323-.128 3.384.388.299.146.61.266.897.432.14.08.233.24.348.365.09.098.164.23.276.29.424.225.89.234 1.366.223l.01-.16c.479.15 1.017.702 1.017 1.105-.776 0-1.55-.003-2.325.004-.083 0-.165.061-.247.094.078.046.155.128.235.131zM14.703 2.153a.118.118 0 0 0-.016.19.179.179 0 0 0 .246.065c.075-.038.148-.078.238-.125-.072-.062-.13-.114-.19-.163-.106-.087-.193-.032-.278.033z"/></svg></span> WireGuard
         </button>
         <button type="button" data-page="docker">
-          <span class="icon">🐳</span> Docker
+          <span class="icon"><svg class="brand-icon brand-docker" viewBox="0 0 24 24" aria-hidden="true"><path d="M13.983 11.078h2.119a.186.186 0 00.186-.185V9.006a.186.186 0 00-.186-.186h-2.119a.185.185 0 00-.185.185v1.888c0 .102.083.185.185.185m-2.954-5.43h2.118a.186.186 0 00.186-.186V3.574a.186.186 0 00-.186-.185h-2.118a.185.185 0 00-.185.185v1.888c0 .102.082.185.185.185m0 2.716h2.118a.187.187 0 00.186-.186V6.29a.186.186 0 00-.186-.185h-2.118a.185.185 0 00-.185.185v1.887c0 .102.082.185.185.186m-2.93 0h2.12a.186.186 0 00.184-.186V6.29a.185.185 0 00-.185-.185H8.1a.185.185 0 00-.185.185v1.887c0 .102.083.185.185.186m-2.964 0h2.119a.186.186 0 00.185-.186V6.29a.185.185 0 00-.185-.185H5.136a.186.186 0 00-.186.185v1.887c0 .102.084.185.186.186m5.893 2.715h2.118a.186.186 0 00.186-.185V9.006a.186.186 0 00-.186-.186h-2.118a.185.185 0 00-.185.185v1.888c0 .102.082.185.185.185m-2.93 0h2.12a.185.185 0 00.184-.185V9.006a.185.185 0 00-.184-.186h-2.12a.185.185 0 00-.184.185v1.888c0 .102.083.185.185.185m-2.964 0h2.119a.185.185 0 00.185-.185V9.006a.185.185 0 00-.184-.186h-2.12a.186.186 0 00-.186.186v1.887c0 .102.084.185.186.185m-2.92 0h2.12a.185.185 0 00.184-.185V9.006a.185.185 0 00-.184-.186h-2.12a.185.185 0 00-.184.185v1.888c0 .102.082.185.185.185M23.763 9.89c-.065-.051-.672-.51-1.954-.51-.338.001-.676.03-1.01.087-.248-1.7-1.653-2.53-1.716-2.566l-.344-.199-.226.327c-.284.438-.49.922-.612 1.43-.23.97-.09 1.882.403 2.661-.595.332-1.55.413-1.744.42H.751a.751.751 0 00-.75.748 11.376 11.376 0 00.692 4.062c.545 1.428 1.355 2.48 2.41 3.124 1.18.723 3.1 1.137 5.275 1.137.983.003 1.963-.086 2.93-.266a12.248 12.248 0 003.823-1.389c.98-.567 1.86-1.288 2.61-2.136 1.252-1.418 1.998-2.997 2.553-4.4h.221c1.372 0 2.215-.549 2.68-1.009.309-.293.55-.65.707-1.046l.098-.288Z"/></svg></span> Docker
         </button>
         <button type="button" data-page="scripts">
           <span class="icon">📜</span> Скрипты
@@ -71,11 +72,7 @@
       </button>
     </nav>
     <div class="foot">
-      <div class="status">
-        <span class="status-dot"></span>
-        <span id="bot-status">Бот активен</span>
-      </div>
-      <div style="font-size:0.7rem;color:var(--text-dim);margin-top:0.25rem" id="version-info">v—</div>
+      <div style="font-size:0.7rem;color:var(--text-dim)" id="version-info">v—</div>
       <span id="api-err" class="err-hint"></span>
     </div>
   </aside>
@@ -89,8 +86,8 @@
       </div>
       <div class="status-line">
         <div class="header-clock" title="Время локального хоста Bot4VPS">
-          <time id="header-time">—:—</time>
           <span id="header-date" class="header-clock-date">—</span>
+          <time id="header-time">—:—</time>
         </div>
         <span class="header-divider header-clock-divider"></span>
         <div class="status-item">
@@ -145,29 +142,32 @@
 
     <!-- Боковая панель управления группами -->
     <div class="side-panel" id="groups-panel">
-      <div class="side-panel-header">
-        <h2>⚙ Настройки групп</h2>
-        <button type="button" class="icon-btn" id="groups-panel-close" title="Закрыть">✕</button>
-      </div>
+      <button type="button" class="icon-btn side-panel-close" id="groups-panel-close" title="Закрыть">✕</button>
       <div class="side-panel-content">
-        <p class="acc-note" style="margin-bottom:1rem">
-          Управление группами: создание, переименование, SSL-проверка, удаление пустых.
-          Назначение группы серверу — в карточке сервера.
+        <h2 class="grp-panel-title">⚙ Настройки групп</h2>
+        <p class="acc-note grp-panel-note">
+          Создание, переименование, SSL-проверка и удаление пустых групп.
+          Группа серверу назначается в его карточке.
         </p>
 
-        <h4 style="margin:0 0 .6rem;font-size:.95rem">Список групп</h4>
-        <div id="groups-list" class="groups-list">Загрузка…</div>
-
-        <div class="groups-create" style="margin-top:.8rem;display:flex;gap:.5rem;flex-wrap:wrap;align-items:center">
-          <input id="grp-new-name" placeholder="Название новой группы" style="flex:1;min-width:12rem"/>
-          <label class="row" style="margin:0"><input type="checkbox" id="grp-new-ssl"/> SSL</label>
-          <button type="button" id="grp-create">＋ Создать</button>
+        <div class="grp-section">
+          <h4 class="grp-section-title">📂 Список групп</h4>
+          <div id="groups-list" class="groups-list">Загрузка…</div>
+          <div class="groups-create">
+            <input id="grp-new-name" placeholder="Название новой группы"/>
+            <label class="grp-ssl-label" title="SSL-проверка сертификатов для серверов группы">
+              <input type="checkbox" id="grp-new-ssl"/>
+              <span>SSL</span>
+            </label>
+            <button type="button" id="grp-create">＋ Создать</button>
+          </div>
         </div>
 
-        <div style="margin-top:1.5rem;padding-top:1.5rem;border-top:1px solid var(--border)">
-          <h4 style="margin:0 0 .6rem;font-size:.95rem">Отображение в меню</h4>
-          <p class="acc-note" style="margin-bottom:.8rem;font-size:.88rem">
-            Порядок групп и их видимость. Перетащите для изменения порядка, снимите галочку чтобы скрыть группу.
+        <div class="grp-section">
+          <h4 class="grp-section-title">☰ Отображение в меню</h4>
+          <p class="acc-note grp-section-note">
+            Порядок и видимость групп в меню серверов. Перетащите строку,
+            чтобы изменить порядок; снимите галочку, чтобы скрыть группу.
           </p>
           <div id="groups-display-list" class="groups-display-list">Загрузка…</div>
         </div>
@@ -177,75 +177,41 @@
     <div class="content">
       <!-- Дашборд -->
       <section class="page on" id="page-dashboard">
-        <div class="dash-header">
-          <div class="dash-header-left">
-            <h1 class="dash-greeting">Добрый день!</h1>
-            <p class="dash-subtitle">Вот что происходит с вашей инфраструктурой</p>
-          </div>
-        </div>
+        <h1 class="dash-greeting">Добрый день!</h1>
+        <p class="dash-subtitle">Вот что происходит с вашей инфраструктурой</p>
 
-        <!-- Метрики -->
-        <div class="metrics-grid">
-          <div class="metric-card" data-nav="servers" style="cursor:pointer">
-            <div class="metric-head">
-              <div class="metric-icon servers">🖥</div>
-              <div class="metric-info">
-                <div class="metric-label">Серверы</div>
-                <div class="metric-value" id="m-servers">—</div>
-              </div>
-            </div>
-            <div id="m-servers-status" class="metric-status-wrap"></div>
-          </div>
-
-          <div class="metric-card" data-nav="queues" style="cursor:pointer">
-            <div class="metric-head">
-              <div class="metric-icon tasks">📋</div>
-              <div class="metric-info">
-                <div class="metric-label">Задачи</div>
-                <div class="metric-value" id="m-tasks">—</div>
-              </div>
-            </div>
-            <div id="m-tasks-status" class="metric-status-wrap"></div>
-          </div>
-
-          <div class="metric-card" data-nav="docker" style="cursor:pointer">
-            <div class="metric-head">
-              <div class="metric-icon docker">🐳</div>
-              <div class="metric-info">
-                <div class="metric-label">Контейнеры</div>
-                <div class="metric-value" id="m-containers">—</div>
-              </div>
-            </div>
-            <div id="m-containers-status" class="metric-status-wrap"></div>
-          </div>
-        </div>
-
-        <!-- Три колонки -->
+        <!-- Одна строка контента: Серверы (главное) + Система/Журнал -->
         <div class="dash-cols">
           <!-- Серверы -->
-          <div class="card">
-            <h3>🖥 Серверы</h3>
-            <div id="dash-servers" style="display:flex;flex-direction:column;gap:0.5rem">
+          <div class="card dash-card-servers">
+            <div class="dash-widget-head">
+              <h3>🖥 Серверы</h3>
+            </div>
+            <div id="dash-servers" style="display:flex;flex-direction:column;gap:0.4rem">
               <div class="empty" style="padding:1.25rem 1rem">Загрузка...</div>
             </div>
           </div>
 
-          <!-- Журнал уведомлений -->
-          <div class="card">
-            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.75rem">
-              <h3 style="margin:0">📖 Журнал уведомлений</h3>
-              <button type="button" class="ghost" style="font-size:0.8rem;padding:0.3rem 0.5rem" id="dash-events-all">Все →</button>
+          <div class="dash-col-right">
+            <!-- Состояние системы: компактно, бары + пилюли -->
+            <div class="card">
+              <h3>🖥 Состояние системы</h3>
+              <div id="dash-system">
+                <div class="empty" style="padding:1.25rem 1rem">Загрузка...</div>
+              </div>
             </div>
-            <div id="dash-events" style="display:flex;flex-direction:column;gap:0.375rem">
-              <div class="empty" style="padding:1.25rem 1rem">Загрузка...</div>
-            </div>
-          </div>
 
-          <!-- Системный статус -->
-          <div class="card">
-            <h3>🖥 Система</h3>
-            <div id="dash-system">
-              <div class="empty" style="padding:1.25rem 1rem">Загрузка...</div>
+            <!-- Журнал уведомлений -->
+            <div class="card dash-card-events">
+              <div class="dash-widget-head">
+                <h3>📖 Журнал уведомлений</h3>
+                <span class="dash-widget-right">
+                  <button type="button" class="ghost" style="font-size:0.8rem;padding:0.3rem 0.5rem" id="dash-events-all">Все →</button>
+                </span>
+              </div>
+              <div id="dash-events" style="display:flex;flex-direction:column;gap:0.375rem">
+                <div class="empty" style="padding:1.25rem 1rem">Загрузка...</div>
+              </div>
             </div>
           </div>
         </div>
@@ -284,6 +250,9 @@
           <button type="button" class="srv-term-btn hidden" id="btn-open-terminal"
                   title="Открыть терминал">⌘ Терминал</button>
         </div>
+        <!-- Красный баннер: проблема подключения (ключ отсутствует /
+             аутентификация / сеть) — как только причина известна -->
+        <div id="srv-conn-warning" class="srv-conn-warning hidden"></div>
         <div class="sys-widgets" id="srv-widgets"></div>
         <div class="srv-overview-grid">
             <div class="info-block">
@@ -387,7 +356,7 @@
           <button type="button" data-wgtab="install">🟢 Установить</button>
           <button type="button" data-wgtab="manage">⚙️ Управление</button>
         </div>
-        <div class="wg-hint" id="wg-tab-hint"></div>
+        <p class="tabs-hint" id="wg-tab-hint"></p>
         <div class="wg-log-wrap hidden" id="wg-task-log-wrap">
           <div class="wg-log-head"><span id="wg-task-log-title">Вывод задачи</span><button type="button" class="secondary" id="wg-task-log-close" title="Закрыть">✕</button></div>
           <div class="logbox wg-log" id="wg-task-log"></div>
@@ -424,7 +393,7 @@
           <button type="button" data-dktab="install">🟢 Установить</button>
           <button type="button" data-dktab="manage">⚙️ Управление</button>
         </div>
-        <div class="wg-hint" id="docker-tab-hint"></div>
+        <p class="tabs-hint" id="docker-tab-hint"></p>
         <div class="wg-log-wrap hidden" id="docker-task-log-wrap">
           <div class="wg-log-head"><span id="docker-live-log-title">Вывод задачи</span><button type="button" class="secondary" id="docker-live-log-close" title="Закрыть">✕</button></div>
           <div class="logbox wg-log" id="docker-task-log"></div>
@@ -472,11 +441,13 @@
       <section class="page" id="page-files">
         <div class="section-head"><h1>Файлы</h1></div>
         <div class="tabs" id="file-tabs">
-          <button type="button" class="on" data-root="docker">🐳 Docker</button>
+          <button type="button" class="on" data-root="docker"><svg class="brand-icon brand-docker" viewBox="0 0 24 24" aria-hidden="true"><path d="M13.983 11.078h2.119a.186.186 0 00.186-.185V9.006a.186.186 0 00-.186-.186h-2.119a.185.185 0 00-.185.185v1.888c0 .102.083.185.185.185m-2.954-5.43h2.118a.186.186 0 00.186-.186V3.574a.186.186 0 00-.186-.185h-2.118a.185.185 0 00-.185.185v1.888c0 .102.082.185.185.185m0 2.716h2.118a.187.187 0 00.186-.186V6.29a.186.186 0 00-.186-.185h-2.118a.185.185 0 00-.185.185v1.887c0 .102.082.185.185.186m-2.93 0h2.12a.186.186 0 00.184-.186V6.29a.185.185 0 00-.185-.185H8.1a.185.185 0 00-.185.185v1.887c0 .102.083.185.185.186m-2.964 0h2.119a.186.186 0 00.185-.186V6.29a.185.185 0 00-.185-.185H5.136a.186.186 0 00-.186.185v1.887c0 .102.084.185.186.186m5.893 2.715h2.118a.186.186 0 00.186-.185V9.006a.186.186 0 00-.186-.186h-2.118a.185.185 0 00-.185.185v1.888c0 .102.082.185.185.185m-2.93 0h2.12a.185.185 0 00.184-.185V9.006a.185.185 0 00-.184-.186h-2.12a.185.185 0 00-.184.185v1.888c0 .102.083.185.185.185m-2.964 0h2.119a.185.185 0 00.185-.185V9.006a.185.185 0 00-.184-.186h-2.12a.186.186 0 00-.186.186v1.887c0 .102.084.185.186.185m-2.92 0h2.12a.185.185 0 00.184-.185V9.006a.185.185 0 00-.184-.186h-2.12a.185.185 0 00-.184.185v1.888c0 .102.082.185.185.185M23.763 9.89c-.065-.051-.672-.51-1.954-.51-.338.001-.676.03-1.01.087-.248-1.7-1.653-2.53-1.716-2.566l-.344-.199-.226.327c-.284.438-.49.922-.612 1.43-.23.97-.09 1.882.403 2.661-.595.332-1.55.413-1.744.42H.751a.751.751 0 00-.75.748 11.376 11.376 0 00.692 4.062c.545 1.428 1.355 2.48 2.41 3.124 1.18.723 3.1 1.137 5.275 1.137.983.003 1.963-.086 2.93-.266a12.248 12.248 0 003.823-1.389c.98-.567 1.86-1.288 2.61-2.136 1.252-1.418 1.998-2.997 2.553-4.4h.221c1.372 0 2.215-.549 2.68-1.009.309-.293.55-.65.707-1.046l.098-.288Z"/></svg> Docker</button>
           <button type="button" data-root="keys">🔑 Keys</button>
         </div>
+        <!-- Подсказка активной вкладки: маленькая строка под линией табов -->
+        <p class="tabs-hint" id="file-tab-hint"></p>
         <!-- Хлебные крошки: нужны docker-вкладке (проекты → файлы проекта) -->
-        <div id="file-crumbs" class="wg-hint hidden" style="margin:.2rem 0 .6rem"></div>
+        <div id="file-crumbs" class="tabs-hint hidden"></div>
         <div class="card" id="file-list" style="padding:0"><div class="empty" style="padding:.8rem">…</div></div>
         <div class="actions file-actions">
           <label class="btn secondary" style="cursor:pointer" id="upload-label">Загрузить<input type="file" hidden id="upload-file"/></label>
@@ -689,6 +660,8 @@
   </div>
 </div>
 
+<!-- Создание backup: шифрование паролем (B4VE) — необязательный разовый
+     пароль переопределяет сохранённый, галочка снята — plain-архив. -->
 <!-- Restore wizard: backup.js рисует в общем shell ровно один шаг за раз.
      Клик по фону намеренно не закрывает диалог, чтобы не потерять выбор. -->
 <div class="modal-bg" id="backup-restore-modal">
@@ -719,25 +692,39 @@
 
 <div class="modal-bg" id="add-server-modal">
   <div class="modal">
-    <h3 style="margin:0 0 .7rem">＋ Новый сервер</h3>
-    <label class="row">Имя</label><input id="af-name"/>
-    <label class="row">Группа</label><select id="af-group"></select>
-    <label class="row">Host</label><input id="af-host" placeholder="IP или домен"/>
-    <label class="row">Порт</label><input id="af-port" type="number" value="22"/>
-    <label class="row">User</label><input id="af-user" value="root"/>
-    <label class="row">Auth</label>
-    <select id="af-auth"><option value="password">password</option><option value="key">key</option></select>
-    <div id="af-pass-wrap">
-      <label class="row">Пароль</label>
-      <div class="pw-wrap">
-        <input id="af-password" type="password"/>
-        <button type="button" class="eye" data-pw-toggle="af-password">👁</button>
+    <div class="modal-title-row">
+      <h3>Добавить новый сервер</h3>
+      <label class="modal-inline-check"><input type="checkbox" id="af-cert"/> Проверять SSL</label>
+    </div>
+    <div class="modal-grid">
+      <div class="af-cell">
+        <label class="row" for="af-name">Имя</label>
+        <div class="pw-wrap af-name-wrap">
+          <input id="af-name" placeholder="например, Web-1"/>
+          <button type="button" class="eye af-emoji-btn" id="af-emoji-btn" title="Вставить эмодзи">🙂</button>
+          <div class="af-emoji-pop hidden" id="af-emoji-pop"></div>
+        </div>
+      </div>
+      <div class="af-cell"><label class="row" for="af-group">Группа</label><select id="af-group"></select></div>
+      <div class="af-cell"><label class="row" for="af-host">Host</label><input id="af-host" placeholder="IP или домен"/></div>
+      <div class="af-cell"><label class="row" for="af-port">Порт</label><input id="af-port" type="number" value="22"/></div>
+      <div class="af-cell"><label class="row" for="af-user">User</label><input id="af-user" value="root"/></div>
+      <div class="af-cell"><label class="row" for="af-auth">Способ входа</label>
+        <select id="af-auth"><option value="password">password</option><option value="key">key</option></select></div>
+      <div class="af-cell span2 hidden" id="af-key-wrap"><label class="row" for="af-key">Ключ</label><select id="af-key"></select></div>
+      <div class="af-cell span2" id="af-pass-wrap">
+        <label class="row" for="af-password" id="af-password-label">Пароль</label>
+        <div class="pw-wrap">
+          <input id="af-password" type="password" autocomplete="new-password"/>
+          <button type="button" class="eye" data-pw-toggle="af-password">👁</button>
+        </div>
+      </div>
+      <div class="af-cell span2 hidden" id="af-ssl-wrap">
+        <label class="row" for="af-ssl">Домен (SSL)</label>
+        <input id="af-ssl" placeholder="например, example.com"/>
       </div>
     </div>
-    <div id="af-key-wrap" class="hidden"><label class="row">Ключ</label><select id="af-key"></select></div>
-    <label class="row"><input type="checkbox" id="af-cert"/> SSL check</label>
-    <label class="row">SSL host</label><input id="af-ssl"/>
-    <label class="row"><input type="checkbox" id="af-test" checked/> Проверить SSH перед сохранением</label>
+    <label class="modal-inline-check" for="af-test"><input type="checkbox" id="af-test" checked/> Проверить SSH перед сохранением</label>
     <div class="actions">
       <button type="button" id="af-save">Создать</button>
       <button type="button" class="secondary" id="af-cancel">Отмена</button>
@@ -1160,23 +1147,245 @@
   </div>
 </div>
 
-<div class="modal-bg" id="login-overlay">
-  <div class="modal">
-    <h3 style="margin:0 0 .7rem">🔐 Bot4VPS</h3>
-    <label class="row">Логин</label><input id="li-user" value="admin" autocomplete="username"/>
-    <label class="row">Пароль</label>
-    <div class="pw-wrap">
-      <input id="li-pass" type="password" autocomplete="current-password"/>
-      <button type="button" class="eye" data-pw-toggle="li-pass">👁</button>
+<div class="modal-bg login-bg" id="login-overlay">
+  <div class="modal login-card">
+    <div class="login-logo"><img src="/static/logo.png?v=20260905-logo-v2" alt="Bot4VPS"></div>
+    <h3 class="login-title">Bot4VPS</h3>
+    <p class="login-subtitle">Панель управления серверами</p>
+    <div class="login-form">
+      <div id="li-creds">
+        <label class="login-label" for="li-user">Логин</label>
+        <input id="li-user" class="login-input" value="admin" autocomplete="username"/>
+        <label class="login-label" for="li-pass">Пароль</label>
+        <div class="pw-wrap login-pw">
+          <input id="li-pass" class="login-input" type="password" autocomplete="current-password"/>
+          <button type="button" class="eye" data-pw-toggle="li-pass">👁</button>
+        </div>
+      </div>
+      <div id="li-err" class="err-hint login-err"></div>
+      <label class="login-remember"><input type="checkbox" id="li-remember"/>Запомнить пароль</label>
+      <button type="button" id="li-go" class="login-submit">Войти</button>
+      <button type="button" id="li-recover" class="login-recover" hidden>Восстановить пароль</button>
+      <!-- Шаг 2 при включённой 2FA: код из приложения-аутентификатора.
+           Показывается вместо логина/пароля (hidden убирается из JS).
+           display задан с [hidden]-защитой: авторский display не должен
+           перебивать hidden-атрибут. -->
+      <div id="li-otp-wrap" class="login-otp" hidden>
+        <label class="login-label" for="li-otp">Код из приложения</label>
+        <input id="li-otp" class="login-input" inputmode="numeric" maxlength="6" autocomplete="one-time-code" placeholder="000000"/>
+        <button type="button" id="li-otp-back" class="login-otp-back">← Назад</button>
+      </div>
     </div>
-    <div id="li-err" class="err-hint" style="margin:.4rem 0"></div>
-    <div class="actions">
-      <button type="button" id="li-go">Войти</button>
+  </div>
+</div>
+
+<!-- Окно восстановления: отдельная модалка поверх экрана логина.
+     Открывается по кнопке «Восстановить пароль» после отправки кода в TG. -->
+<div class="modal-bg" id="login-recover-modal">
+  <div class="modal login-recover-modal">
+    <h3 class="login-recover-title">🔐 Восстановление пароля</h3>
+    <p class="login-recover-note">Код подтверждения отправляется в Telegram. Введите его и задайте новый пароль.</p>
+    <p class="login-recover-note login-recover-console">Telegram недоступен или код не приходит? Смените пароль через консоль на сервере: <b>bot4vps → 2. Безопасность → 3. Сменить пароль доступа</b></p>
+    <div class="login-form">
+      <label class="login-label" for="li-code">Код из Telegram</label>
+      <input id="li-code" class="login-input" inputmode="numeric" maxlength="6" autocomplete="one-time-code" placeholder="000000"/>
+      <label class="login-label" for="li-newpass">Новый пароль</label>
+      <div class="pw-wrap">
+        <input id="li-newpass" class="login-input" type="password" autocomplete="new-password"/>
+        <button type="button" class="eye" data-pw-toggle="li-newpass">👁</button>
+      </div>
+      <label class="login-label" for="li-newpass2">Новый пароль ещё раз</label>
+      <div class="pw-wrap">
+        <input id="li-newpass2" class="login-input" type="password" autocomplete="new-password"/>
+        <button type="button" class="eye" data-pw-toggle="li-newpass2">👁</button>
+      </div>
+      <div id="li-rec-err" class="err-hint login-err"></div>
+      <div class="login-recover-actions">
+        <button type="button" id="li-recover-go" class="login-submit">Сменить пароль</button>
+        <button type="button" id="li-recover-resend" class="login-recover">Отправить код ещё раз</button>
+        <button type="button" id="li-recover-cancel" class="login-recover">Отменить</button>
+      </div>
     </div>
   </div>
 </div>
 
 <div class="toast-wrap" id="toasts"></div>
+
+<!-- Мастер первичной настройки (Этап 2): показывается вместо экрана логина,
+     пока действует код установки и администратор не создан. Всё остальное
+     в этом состоянии закрыто бэкендом (SetupGateMiddleware). -->
+<div class="modal-bg login-bg" id="setup-overlay">
+  <div class="modal login-card">
+    <!-- Широкая карточка в два столбца: слева логотип, справа форма
+         (стили — блок «Первичная настройка» в components.css) -->
+    <div class="setup-logo-side">
+      <div class="login-logo"><img src="/static/logo-setup.png?v=20260910-setup-v1" alt="Bot4VPS"></div>
+      <!-- Предупреждение о данных существующей установки: показывается
+           только при existing_installation (данные есть, конфиг создаётся
+           заново — возможно, это переустановка поверх). -->
+      <div id="su-existing" class="login-setup-warning" hidden>
+        Обнаружены данные существующей установки (<span id="su-servers">0</span> серверов).
+        Если это не переустановка — сначала восстановите config:
+        <b>bot4vps&nbsp;→&nbsp;Восстановление</b>
+      </div>
+    </div>
+    <div class="setup-form-side">
+      <h3 class="login-title">Первичная настройка</h3>
+      <p class="login-subtitle">Создание администратора Bot4VPS</p>
+      <div class="login-form">
+        <label class="login-label" for="su-user">Логин</label>
+        <input id="su-user" class="login-input" autocomplete="username"/>
+        <label class="login-label" for="su-pass">Пароль</label>
+        <div class="pw-wrap login-pw">
+          <input id="su-pass" class="login-input" type="password" autocomplete="new-password"/>
+          <button type="button" class="eye" data-pw-toggle="su-pass">👁</button>
+        </div>
+        <label class="login-label" for="su-pass2">Пароль ещё раз</label>
+        <div class="pw-wrap login-pw">
+          <input id="su-pass2" class="login-input" type="password" autocomplete="new-password"/>
+          <button type="button" class="eye" data-pw-toggle="su-pass2">👁</button>
+        </div>
+        <label class="login-label" for="su-code">Код первичной установки</label>
+        <input id="su-code" class="login-input" autocomplete="one-time-code"/>
+        <div id="su-err" class="err-hint login-err"></div>
+        <button type="button" id="su-go" class="login-submit">Создать администратора</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Заглушка: авторизация включена, пароля нет, кода не выдано. Вход
+     невозможен; восстановление — только через консоль на сервере. -->
+<div class="modal-bg login-bg" id="setup-stub-overlay">
+  <div class="modal login-card">
+    <div class="login-logo"><img src="/static/logo.png?v=20260905-logo-v2" alt="Bot4VPS"></div>
+    <h3 class="login-title">Вход невозможен</h3>
+    <div class="login-form">
+      <p class="login-subtitle">Администратор не задан, код первичной установки не выдан.</p>
+      <p class="login-setup-warning">Подключитесь к серверу по SSH и выполните:<br>
+        <b>bot4vps → Восстановление → Код первичной установки</b></p>
+      <p class="login-setup-note">Либо задайте пароль напрямую:<br>
+        <b>bot4vps → 2. Безопасность → 3. Сменить пароль доступа</b></p>
+    </div>
+  </div>
+</div>
+
+<!-- Код первичной установки истёк (действует 10 минут): панель остаётся
+     закрытой, пока код не перевыпущен из CLI — иначе свежая установка с
+     выключенной авторизацией открылась бы по просроченному коду. -->
+<div class="modal-bg login-bg" id="setup-expired-overlay">
+  <div class="modal login-card">
+    <div class="login-logo"><img src="/static/logo.png?v=20260905-logo-v2" alt="Bot4VPS"></div>
+    <h3 class="login-title">Код истёк</h3>
+    <div class="login-form">
+      <p class="login-subtitle">Код первичной установки действителен 10 минут и уже истёк.</p>
+      <p class="login-setup-warning">Подключитесь к серверу по SSH и выполните:<br>
+        <b>bot4vps → Восстановление → Код первичной установки</b></p>
+      <p class="login-setup-note">Новый код также будет действителен 10 минут.</p>
+    </div>
+  </div>
+</div>
+
+<!-- Просмотр мастер-ключа (Настройки → Безопасность → Мастер-ключ): пароль →
+     код 2FA/Telegram → ключ. Ключ не уходит в логи/TG/историю. -->
+<div class="modal-bg" id="mk-view-modal">
+  <div class="modal mk-view-modal">
+    <h3 style="margin:0 0 .4rem">🔑 Просмотр мастер-ключа</h3>
+    <div id="mk-view-step1">
+      <p class="mk-view-note">Мастер-ключ критически секретен. Для подтверждения владения введите пароль учётной записи.</p>
+      <label class="totp-code-label" for="mk-view-pass">Пароль</label>
+      <span class="pw-wrap"><input id="mk-view-pass" type="password" autocomplete="current-password"><button type="button" class="eye" data-pw-toggle="mk-view-pass">👁</button></span>
+    </div>
+    <div id="mk-view-confirm-step" class="hidden">
+      <p class="mk-view-note">Пароль принят. Введите код подтверждения, чтобы получить мастер-ключ.</p>
+      <label class="totp-code-label" for="mk-view-code" id="mk-view-code-label">Код подтверждения</label>
+      <input id="mk-view-code" class="totp-code-input" inputmode="numeric" maxlength="6" autocomplete="one-time-code" placeholder="000000"/>
+      <!-- Появляется через 10 секунд (только для канала Telegram): код мог
+           не дойти — повторная отправка доступна через 2 минуты, иначе
+           запасной путь через консоль -->
+      <div class="mk-view-nocode-actions hidden" id="mk-view-nocode-actions">
+        <button type="button" class="mk-view-nocode" id="mk-view-nocode-btn">Не пришёл код?</button>
+        <button type="button" class="mk-view-nocode" id="mk-view-resend-btn">Отправить код ещё раз</button>
+      </div>
+      <p class="mk-view-note hidden" id="mk-view-nocode-hint">Если у вас нет доступа к Telegram или сам сервис в данный момент испытывает трудности, вы можете посмотреть ключ через консоль управления сервисом Bot4VPS (bot4vps → 2. Безопасность → 5. Мастер-ключ).</p>
+    </div>
+    <div id="mk-view-result" class="hidden">
+      <p class="mk-view-warning">⚠️ МАСТЕР-КЛЮЧ — КРИТИЧЕСКИ СЕКРЕТНЫЕ ДАННЫЕ<br>НИКОМУ не сообщайте этот ключ и не передавайте третьим лицам. Храните в безопасном месте. Не сохраняйте в открытого виде в чатах, тикетах, репозиториях. Потеря ключа делает зашифрованные данные невосстановимыми.</p>
+      <div class="totp-key-row"><code id="mk-view-key"></code><button type="button" class="secondary" id="mk-view-reveal-btn" title="Показать ключ">👁</button><button type="button" class="secondary" id="mk-view-copy-btn" title="Копировать">⧉</button></div>
+    </div>
+    <div id="mk-view-err" class="err-hint"></div>
+    <div class="actions">
+      <button type="button" id="mk-view-start-btn">Продолжить</button>
+      <button type="button" id="mk-view-confirm-btn" class="hidden">Подтвердить</button>
+      <button type="button" id="mk-view-cancel-btn" class="secondary">Закрыть</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-bg" id="backup-password-modal">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="bpw-modal-title">
+    <h3 id="bpw-modal-title" style="margin:0 0 .6rem">Задайте пароль для резервных копий</h3>
+    <p id="bpw-modal-note" class="hint"></p>
+    <label class="row hidden" for="bpw-modal-current" id="bpw-modal-current-label">Текущий пароль резервных копий</label>
+    <span class="pw-wrap hidden" id="bpw-modal-current-wrap"><input id="bpw-modal-current" type="password" maxlength="256" autocomplete="current-password" spellcheck="false"><button type="button" class="eye" data-pw-toggle="bpw-modal-current">👁</button></span>
+    <label class="row" for="bpw-modal-input" id="bpw-modal-input-label">Пароль резервных копий</label>
+    <span class="pw-wrap" id="bpw-modal-input-wrap"><input id="bpw-modal-input" type="password" maxlength="256" autocomplete="new-password" spellcheck="false"><button type="button" class="eye" data-pw-toggle="bpw-modal-input">👁</button></span>
+    <small class="hint bpw-field-hint" id="bpw-modal-hint">Рекомендуем не короче 8 символов. Пароль шифруется мастер-ключом и хранится только в Bot4VPS.</small>
+    <label class="row hidden" for="bpw-modal-repeat" id="bpw-modal-repeat-label">Повторите пароль</label>
+    <span class="pw-wrap hidden" id="bpw-modal-repeat-wrap"><input id="bpw-modal-repeat" type="password" maxlength="256" autocomplete="new-password" spellcheck="false"><button type="button" class="eye" data-pw-toggle="bpw-modal-repeat">👁</button></span>
+    <small class="hint bpw-field-hint hidden" id="bpw-modal-repeat-hint">Ещё раз, чтобы исключить опечатку</small>
+    <p id="bpw-modal-err" class="form-error" role="alert"></p>
+    <button type="button" class="modest-link hidden" id="bpw-modal-forgot" title="Удалить пароль резервных копий, подтвердив владение учётной записью">Забыл пароль</button>
+    <div class="actions">
+      <button type="button" id="bpw-modal-ok">ОК</button>
+      <button type="button" class="secondary" id="bpw-modal-cancel">Отмена</button>
+    </div>
+  </div>
+</div>
+
+<!-- Пароль зашифрованного архива (B4VE): импорт (построение древа при импорте)
+     и просмотр (ручная инвентаризация). ОК — всегда слева. Режим импорта
+     показывает «Продолжить без пароля», режим просмотра — «Отмена». Клик по
+     фону не закрывает; Esc закрывает (для импорта это отмена импорта). -->
+<div class="modal-bg" id="backup-archive-password-modal">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="bap-modal-title">
+    <h3 id="bap-modal-title" style="margin:0 0 .6rem">Архив защищён паролем</h3>
+    <p id="bap-modal-note" class="hint">Введите пароль, чтобы прочитать содержимое архива.</p>
+    <label class="row" for="bap-modal-input">Пароль резервных копий</label>
+    <span class="pw-wrap"><input id="bap-modal-input" type="password" maxlength="256" autocomplete="off" spellcheck="false" placeholder="Пароль, которым создан архив"><button type="button" class="eye" data-pw-toggle="bap-modal-input">👁</button></span>
+    <p id="bap-modal-err" class="form-error" role="alert"></p>
+    <div class="actions">
+      <button type="button" id="bap-modal-ok">ОК</button>
+      <button type="button" class="secondary hidden" id="bap-modal-skip">Продолжить без пароля</button>
+      <button type="button" class="secondary hidden" id="bap-modal-cancel">Отмена</button>
+    </div>
+  </div>
+</div>
+
+<!-- Настройка 2FA (Настройки → Безопасность → Двухфакторная аутентификация):
+     QR + ключ для ручного ввода, подтверждение кодом из приложения.
+     До подтверждения секрета 2FA НЕ активна. -->
+<div class="modal-bg" id="totp-setup-modal">
+  <div class="modal totp-setup-modal">
+    <h3 style="margin:0 0 .4rem">🔐 Двухфакторная аутентификация</h3>
+    <p class="totp-setup-note">Отсканируйте QR приложением-аутентификатором (Google Authenticator, Aegis, 2FAS и др.) или введите ключ вручную. Затем подтвердите код из приложения — только после этого 2FA включится.</p>
+    <div class="totp-setup-grid">
+      <img id="totp-qr" class="totp-qr" alt="QR-код для добавления в приложение-аутентификатор"/>
+      <div class="totp-key-block">
+        <span class="totp-key-label">Ключ для ручного ввода</span>
+        <div class="totp-key-row"><code id="totp-secret"></code><button type="button" class="secondary" id="totp-secret-copy" title="Копировать ключ">⧉</button></div>
+        <p class="totp-key-hint">Приложение начнёт показывать 6-значные коды — введите текущий ниже.</p>
+      </div>
+    </div>
+    <label class="totp-code-label" for="totp-code">Код из приложения</label>
+    <input id="totp-code" class="totp-code-input" inputmode="numeric" maxlength="6" autocomplete="one-time-code" placeholder="000000"/>
+    <div id="totp-setup-err" class="err-hint"></div>
+    <div class="actions">
+      <button type="button" id="totp-setup-confirm">Подтвердить и включить</button>
+      <button type="button" class="secondary" id="totp-setup-cancel">Отмена</button>
+    </div>
+  </div>
+</div>
 
 
 <script src="/static/vendor/xterm/xterm.js"></script>
@@ -1186,7 +1395,7 @@
 <script src="/static/vendor/codemirror/codemirror.min.js"></script>
 <script src="/static/vendor/codemirror/shell.min.js"></script>
 <script src="/static/vendor/codemirror/yaml.min.js"></script>
-<script type="module" src="/static/js/app.js?v=20260904-local-v33"></script>
+<script type="module" src="/static/js/app.js?v=20260912-chlogwrap-v1"></script>
 
 
 <div class="modal-bg" id="tg-setup-modal">

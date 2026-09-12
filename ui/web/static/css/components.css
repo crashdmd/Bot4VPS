@@ -11,10 +11,25 @@
   display:flex;
   flex-direction:column;
   backdrop-filter:blur(8px);
+  /* Объём: карточки не плоские, приподнимаются над фоном */
+  box-shadow:var(--shadow-sm);
+}
+/* Glass-тема: карточки — стекло посильнее + внутренний световой кант
+   (прозрачная белая линия сверху имитирует грань стекла) */
+[data-theme="glass"] .card{
+  backdrop-filter:var(--glass-blur);
+  border-color:rgba(130,185,235,0.22);
+  /* цветная тень + световой кант: стекло не плоское (инсет один
+     перебил бы базовую .card-тень — держим обе) */
+  box-shadow:var(--shadow-sm), inset 0 1px 0 rgba(255,255,255,0.09);
+}
+[data-theme="glass"] .card:hover{
+  border-color:var(--border-hover);
+  box-shadow:var(--shadow-md), inset 0 1px 0 rgba(255,255,255,0.09);
 }
 .card:hover{
   background:var(--card-hover);
-  box-shadow:var(--shadow-sm);
+  box-shadow:var(--shadow-md);
 }
 .card.clickable{cursor:pointer}
 .card.clickable:hover{
@@ -56,126 +71,6 @@
   min-width:80px;
   padding:0.5rem 0.75rem;
   font-size:0.775rem;
-}
-
-/* Метрики (дашборд) */
-.metrics-grid{
-  display:grid;
-  grid-template-columns:repeat(auto-fit,minmax(280px,1fr));
-  gap:1rem;
-  margin-bottom:1.5rem;
-}
-
-.metric-card{
-  background:var(--card);
-  border:1px solid var(--border);
-  border-radius:var(--radius-md);
-  padding:1.25rem;
-  display:flex;
-  flex-direction:column;
-  gap:0.75rem;
-  transition:all var(--transition-base);
-  backdrop-filter:blur(8px);
-}
-.metric-card[data-nav]{
-  cursor:pointer;
-}
-.metric-card:hover{
-  background:var(--card-hover);
-  box-shadow:var(--shadow-sm);
-  transform:translateY(-2px);
-}
-.metric-card[data-nav]:active{
-  transform:translateY(-1px);
-}
-
-.metric-card .metric-head{
-  display:flex;
-  align-items:center;
-  gap:0.75rem;
-}
-.metric-card .metric-icon{
-  width:40px;
-  height:40px;
-  border-radius:var(--radius-sm);
-  display:flex;
-  align-items:center;
-  justify-content:center;
-  font-size:1.25rem;
-  flex-shrink:0;
-}
-.metric-card .metric-icon.servers{background:linear-gradient(135deg,#4a7cff 0%,#6366f1 100%);color:#fff}
-.metric-card .metric-icon.tasks{background:linear-gradient(135deg,#a78bfa 0%,#c084fc 100%);color:#fff}
-.metric-card .metric-icon.docker{background:linear-gradient(135deg,#3dd68c 0%,#10b981 100%);color:#fff}
-.metric-card .metric-icon.disk{background:linear-gradient(135deg,#fb923c 0%,#f97316 100%);color:#fff}
-.metric-card .metric-icon.cpu{background:linear-gradient(135deg,#60a5fa 0%,#3b82f6 100%);color:#fff}
-.metric-card .metric-icon.memory{background:linear-gradient(135deg,#f472b6 0%,#ec4899 100%);color:#fff}
-
-.metric-card .metric-info{flex:1}
-.metric-card .metric-label{
-  font-size:0.85rem;
-  color:var(--text-muted);
-  margin-bottom:0.25rem;
-}
-.metric-card .metric-value{
-  font-size:1.75rem;
-  font-weight:700;
-  line-height:1;
-  letter-spacing:-0.02em;
-}
-.metric-card .metric-change{
-  font-size:0.75rem;
-  color:var(--text-dim);
-  margin-top:0.25rem;
-}
-.metric-card .metric-change.up{color:var(--ok)}
-.metric-card .metric-change.down{color:var(--err)}
-
-.metric-card .progress-bar{
-  height:4px;
-  background:rgba(255,255,255,0.05);
-  border-radius:999px;
-  overflow:hidden;
-  position:relative;
-}
-.metric-card .progress-fill{
-  height:100%;
-  background:linear-gradient(90deg,var(--accent) 0%,var(--accent-hover) 100%);
-  border-radius:999px;
-  transition:width 0.5s cubic-bezier(0.4,0,0.2,1);
-}
-.metric-card .progress-fill.ok{background:linear-gradient(90deg,var(--ok) 0%,#22c55e 100%)}
-.metric-card .progress-fill.warn{background:linear-gradient(90deg,var(--warn) 0%,#fbbf24 100%)}
-.metric-card .progress-fill.err{background:linear-gradient(90deg,var(--err) 0%,#f87171 100%)}
-
-.metric-status-wrap{
-  margin-top:0.75rem;
-  display:flex;
-  justify-content:flex-end;
-}
-.metric-status{
-  display:inline-flex;
-  align-items:center;
-  gap:0.4rem;
-  font-size:0.8rem;
-  font-weight:400;
-  color:var(--text-muted);
-}
-.metric-status::before{
-  content:'';
-  display:block;
-  width:6px;
-  height:6px;
-  border-radius:50%;
-  flex-shrink:0;
-}
-.metric-status.ok::before{
-  background:#10b981;
-  box-shadow:0 0 6px rgba(16,185,129,0.5);
-}
-.metric-status.warn::before{
-  background:#fbbf24;
-  box-shadow:0 0 6px rgba(251,191,36,0.5);
 }
 
 /* Бейджи статуса */
@@ -262,10 +157,12 @@
   border:1px solid rgba(255,92,124,0.2);
 }
 
-/* Кнопки */
+/* Кнопки: заливка через переменные — светлая тема подставляет мягкий
+   голубой с тёмно-синим текстом (accent-fill), тёмная/синяя — прежний
+   насыщенный акцент */
 button,.btn{
-  background:var(--accent);
-  color:#fff;
+  background:var(--accent-fill, var(--accent));
+  color:var(--accent-fill-text, #fff);
   border:none;
   border-radius:var(--radius-sm);
   padding:0.65rem 1.25rem;
@@ -284,7 +181,7 @@ button:not(.side nav button):not(.tabs button):not(.back):not(.modal-close):not(
   justify-content:center;
 }
 button:not(.back):hover,.btn:hover{
-  background:var(--accent-hover);
+  background:var(--accent-fill-hover, var(--accent-hover));
   box-shadow:0 0 0 3px var(--accent-soft);
   transform:translateY(-1px);
 }
@@ -295,6 +192,12 @@ button:disabled,.btn:disabled{
   opacity:0.5;
   cursor:not-allowed;
   transform:none;
+}
+/* display:inline-flex выше перебивает UA-правило [hidden]{display:none}:
+   без этого кнопки с атрибутом hidden (напр. «Восстановить пароль»)
+   остаются видимыми */
+button[hidden],.btn[hidden]{
+  display:none;
 }
 
 button.secondary,.btn.secondary{
@@ -471,8 +374,19 @@ button.ghost:hover,.btn.ghost:hover{
   width:min(520px,100%);
   max-height:85vh;
   overflow:auto;
-  box-shadow:var(--shadow-lg);
+  box-shadow:var(--shadow-modal);
   animation:modalIn var(--transition-base);
+}
+/* Glass-тема: модалки — полноценное стекло */
+[data-theme="glass"] .modal{
+  backdrop-filter:var(--glass-blur);
+  background:rgba(18,48,80,0.55);
+  border-color:rgba(130,185,235,0.26);
+  box-shadow:var(--shadow-modal), inset 0 1px 0 rgba(255,255,255,0.1);
+}
+[data-theme="glass"] .modal-bg{
+  background:rgba(6,18,32,0.55);
+  backdrop-filter:blur(10px) saturate(140%);
 }
 /* Compose-форма может быть выше окна (в том числе на невысоком desktop),
    поэтому сохраняем единый скролл модалки и доступность нижних действий. */
@@ -502,6 +416,8 @@ button.ghost:hover,.btn.ghost:hover{
 .confirm-modal-message{
   color:var(--text-muted);
   line-height:1.45;
+  /* переносы строк в message (\n) сохраняются — многострочные предупреждения */
+  white-space:pre-line;
 }
 .confirm-modal-actions{
   justify-content:flex-start;
@@ -552,40 +468,55 @@ button.ghost:hover,.btn.ghost:hover{
   margin:0;
 }
 
-/* Боковая панель (slide-in справа) */
+/* Боковая панель (slide-in справа). Начинается ниже верхней шапки,
+   высота — по контенту: панель не тянет пустой низ до края экрана;
+   при длинном содержимом ограничена высотой вьюпорта (скролл внутри) */
 .side-panel{
   position:fixed;
-  top:0;
+  top:var(--top-height);
   right:0;
-  bottom:0;
+  bottom:auto;
+  max-height:calc(100dvh - var(--top-height));
   width:min(520px,90vw);
   background:var(--bg-base);
-  border-left:1px solid var(--border);
-  box-shadow:var(--shadow-lg);
+  border:1px solid var(--border);
+  border-right:none;
+  border-radius:var(--radius-lg) 0 0 var(--radius-lg);
+  box-shadow:var(--shadow-modal);
   z-index:100;
   display:flex;
   flex-direction:column;
   transform:translateX(100%);
-  transition:transform var(--transition-base);
+  transition:transform .28s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .side-panel.open{
   transform:translateX(0);
+  /* появление с лёгким «перелётом» влево и возвратом — пружинящее,
+    а не линейное выезжание */
+  animation:sidePanelIn .34s cubic-bezier(0.22, 1, 0.36, 1);
+}
+@keyframes sidePanelIn{
+  0%{transform:translateX(100%);opacity:.35}
+  62%{transform:translateX(-1.4%);opacity:1}
+  100%{transform:translateX(0)}
+}
+/* контент доезжает следом за панелью — лёгкий сдвиг вверх + проявление */
+.side-panel.open .side-panel-content{
+  animation:sidePanelContentIn .32s ease-out;
+}
+@keyframes sidePanelContentIn{
+  from{opacity:0;transform:translateY(.5rem)}
+  to{opacity:1;transform:none}
 }
 
-.side-panel-header{
-  display:flex;
-  align-items:center;
-  justify-content:space-between;
-  padding:1.25rem 1.5rem;
-  border-bottom:1px solid var(--border);
-  background:var(--card);
-}
-
-.side-panel-header h2{
-  margin:0;
-  font-size:1.25rem;
-  font-weight:600;
+/* Плавающая кнопка закрытия: у панели нет шапки (единый стиль меню),
+   ✕ просто лежит в правом верхнем углу поверх контента */
+.side-panel-close{
+  position:absolute;
+  top:.9rem;
+  right:.9rem;
+  z-index:5;
 }
 
 .side-panel-content{
@@ -664,6 +595,17 @@ button.ghost:hover,.btn.ghost:hover{
   border:1px dashed var(--border);
   border-radius:var(--radius-md);
 }
+
+/* Маленькая подсказка под линией табов (Docker-вкладки, Файлы → Docker/Keys):
+   не блок-карточка, а скромная строка как hint у паролей.
+   Отрицательный верхний отступ подтягивает к линии табов */
+.tabs-hint{
+  margin:-1.15rem 0 .8rem;
+  font-size:.75rem;
+  color:var(--text-dim);
+  line-height:1.45;
+}
+.tabs-hint:empty{display:none;margin:0}
 
 /* Вспомогательные */
 .row{
@@ -762,7 +704,9 @@ img.emoji{
     overflow-y:auto;
   }
 
-  .side-panel{width:min(520px,100vw)}
+  /* На мобиле верхняя панель ниже (56px, а не --top-height) — панель
+     групп стартует сразу под ней, без щели */
+  .side-panel{width:min(520px,100vw);top:56px;max-height:calc(100dvh - 56px)}
 }
 
 /* Мобильный вариант подтверждения: действия остаются крупными и нажимаемыми. */
@@ -792,4 +736,344 @@ img.emoji{
 @media(max-width:420px){
   .confirm-modal-actions{flex-direction:column}
   .confirm-modal-actions button{width:100%}
+}
+
+/* Брендовые SVG-иконки (WireGuard/Docker, simple-icons) — фирменные цвета.
+   Тёмная база: гранат WG светлеет (на тёмном #88171a не читается),
+   голубой Docker одинаково смотрится на любом фоне */
+:root{--wg-brand:#cf6367;--docker-brand:#2496ed}
+:root[data-theme="light"]{--wg-brand:#88171a;--docker-brand:#1877c9}
+:root[data-theme="glass"]{--wg-brand:#d0686d;--docker-brand:#2496ed}
+.brand-icon{width:1.1em;height:1.1em;display:inline-block;vertical-align:-0.18em}
+.brand-wg{fill:var(--wg-brand)}
+.brand-docker{fill:var(--docker-brand)}
+/* На цветных плашках метрик дашборда кит остаётся монохромным:
+   фирменный голубой спорил бы с зелёным градиентом */
+.metric-card .metric-icon .brand-icon{fill:currentColor}
+
+/* ===== Экран входа =====
+   Отдельная «страница»: интерфейс панели позади скрыт, карточка —
+   стекло на глубоком градиенте. Три варианта — по выбранной теме
+   (data-theme на <html>): тёмная, светлая и «Синяя». Цвета берём из
+   переменных темы, фиксирован только фон-«постер» (глубже базового). */
+
+/* Пока auth-статус неизвестен (boot) — панель не мигает за логином */
+body.boot .layout{visibility:hidden}
+/* Логин открыт — интерфейса позади нет вообще */
+body.login-open .layout{display:none}
+
+/* Фон экрана входа — по теме */
+:root{
+  --login-bg:
+    radial-gradient(900px 600px at 15% 10%, rgba(74,124,255,0.10), transparent 60%),
+    radial-gradient(700px 500px at 85% 85%, rgba(99,102,241,0.08), transparent 65%),
+    linear-gradient(160deg,#0d1117 0%,#0f1522 55%,#131c30 100%);
+}
+:root[data-theme="light"]{
+  --login-bg:
+    radial-gradient(900px 600px at 15% 10%, rgba(74,124,255,0.14), transparent 60%),
+    radial-gradient(700px 500px at 85% 85%, rgba(99,102,241,0.10), transparent 65%),
+    linear-gradient(160deg,#dee4ec 0%,#d4dce6 55%,#c8d3e0 100%);
+}
+:root[data-theme="glass"]{
+  --login-bg:
+    radial-gradient(900px 600px at 15% 10%, rgba(26,86,123,0.55), transparent 60%),
+    radial-gradient(700px 500px at 85% 85%, rgba(80,195,249,0.14), transparent 65%),
+    radial-gradient(800px 600px at 50% 100%, rgba(22,66,93,0.5), transparent 70%),
+    linear-gradient(160deg,#0f233b 0%,#0c2036 55%,#16425d 100%);
+}
+
+/* Экраны входа/первичной настройки — один и тот же визуальный язык:
+   логин, мастер создания админа и заглушка. */
+#login-overlay.login-bg,
+#setup-overlay.login-bg,
+#setup-stub-overlay.login-bg,
+#setup-expired-overlay.login-bg{
+  background:var(--login-bg);
+  backdrop-filter:none;
+  -webkit-backdrop-filter:none;
+  z-index:300;
+}
+
+/* Каркас карточки: цвета/стекло — от темы (.modal уже тематизирован) */
+#login-overlay .login-card,
+#setup-overlay .login-card,
+#setup-stub-overlay .login-card,
+#setup-expired-overlay .login-card{
+  width:min(400px,100%);
+  padding:2.25rem 2rem 1.75rem;
+  text-align:center;
+  backdrop-filter:var(--glass-blur, blur(14px));
+  -webkit-backdrop-filter:var(--glass-blur, blur(14px));
+}
+
+#login-overlay .login-logo,
+#setup-overlay .login-logo,
+#setup-stub-overlay .login-logo,
+#setup-expired-overlay .login-logo{
+  width:88px;
+  height:88px;
+  margin:0 auto 1rem;
+  border-radius:50%;
+  background:var(--card);
+  border:1px solid var(--border);
+  box-shadow:0 0 0 6px var(--accent-soft);
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  overflow:hidden;
+}
+#login-overlay .login-logo img,
+#setup-overlay .login-logo img,
+#setup-stub-overlay .login-logo img,
+#setup-expired-overlay .login-logo img{width:64px;height:64px}
+
+#login-overlay .login-title,
+#setup-overlay .login-title,
+#setup-stub-overlay .login-title,
+#setup-expired-overlay .login-title{
+  margin:0;
+  font-size:1.35rem;
+  font-weight:700;
+  letter-spacing:0.04em;
+  color:var(--text);
+}
+#login-overlay .login-subtitle,
+#setup-overlay .login-subtitle,
+#setup-stub-overlay .login-subtitle,
+#setup-expired-overlay .login-subtitle{
+  margin:.3rem 0 1.4rem;
+  font-size:.85rem;
+  color:var(--text-muted);
+}
+
+/* Поля ввода тематизируются глобальными правилами input из pages.css;
+   здесь только сетка формы (карточка логина и окно восстановления) */
+#login-overlay .login-form,
+#login-recover-modal .login-form,
+#setup-overlay .login-form,
+#setup-stub-overlay .login-form,
+#setup-expired-overlay .login-form{
+  text-align:left;
+  display:flex;
+  flex-direction:column;
+}
+#login-overlay .login-label,
+#login-recover-modal .login-label,
+#setup-overlay .login-label,
+#setup-stub-overlay .login-label,
+#setup-expired-overlay .login-label{
+  display:block;
+  font-size:.8rem;
+  margin:.7rem 0 .35rem;
+}
+
+/* err-hint глобально не стилизован — на цветном фоне нужен явный цвет */
+#login-overlay .login-err,
+#login-recover-modal .login-err,
+#setup-overlay .login-err,
+#setup-stub-overlay .login-err,
+#setup-expired-overlay .login-err{
+  margin:.5rem 0 0;
+  min-height:1em;
+  font-size:.82rem;
+  color:var(--err);
+}
+
+#login-overlay .login-remember{
+  display:flex;
+  align-items:center;
+  gap:.5rem;
+  font-size:.83rem;
+  font-weight:400;
+  color:var(--text-muted);
+  margin:.9rem 0 0;
+  cursor:pointer;
+  user-select:none;
+}
+#login-overlay .login-remember input{
+  width:15px;
+  height:15px;
+  accent-color:var(--accent);
+  cursor:pointer;
+}
+
+/* Заливка/наведение — общие правила button (accent-fill по теме) */
+#login-overlay .login-submit,
+#setup-overlay .login-submit,
+#setup-stub-overlay .login-submit,
+#setup-expired-overlay .login-submit{
+  margin-top:1rem;
+  width:100%;
+  justify-content:center;
+  padding:.75rem 1rem;
+  font-size:.95rem;
+  font-weight:700;
+}
+
+#login-overlay .login-recover{
+  margin-top:.9rem;
+  width:100%;
+  background:transparent;
+  border:none;
+  color:var(--accent);
+  font-size:.83rem;
+  font-weight:500;
+  padding:.45rem;
+  border-radius:8px;
+}
+#login-overlay .login-recover:hover{
+  background:var(--accent-soft);
+  color:var(--accent-hover);
+  transform:none;
+  box-shadow:none;
+}
+#login-overlay .login-recover:disabled{opacity:.6;cursor:wait}
+
+/* Шаг 2FA на экране логина: поле кода из приложения вместо логина/пароля */
+#login-overlay .login-otp{
+  display:grid;
+  gap:.3rem;
+  margin-top:.9rem;
+}
+/* hidden-атрибут обязан выигрывать у авторского display:grid,
+   иначе блок с полем кода торчит под формой логина */
+#login-overlay .login-otp[hidden]{display:none}
+#login-overlay .login-otp .login-input{
+  text-align:center;
+  font-size:1.15rem;
+  letter-spacing:.4em;
+}
+#login-overlay .login-otp-back{
+  margin-top:.35rem;
+  justify-self:start;
+  background:transparent;
+  border:none;
+  padding:.25rem .1rem;
+  color:var(--text-dim);
+  font-size:.78rem;
+  cursor:pointer;
+}
+#login-overlay .login-otp-back:hover{
+  color:var(--text);
+  background:transparent;
+  box-shadow:none;
+  transform:none;
+}
+
+/* Мастер первичной настройки (Этап 2): та же карточка, что у логина,
+   плюс предупреждение о данных существующей установки */
+.login-setup-warning{
+  margin:0 0 .9rem;
+  padding:.55rem .7rem;
+  border:1px solid var(--warn);
+  border-radius:8px;
+  background:var(--warn-bg);
+  color:var(--warn);
+  font-size:.85rem;
+  line-height:1.45;
+}
+.login-setup-note{
+  margin:.6rem 0 0;
+  font-size:.85rem;
+  color:var(--text-muted);
+  line-height:1.45;
+}
+
+/* Мастер: широкая карточка в два столбца — слева логотип (крупнее
+   логинского, с равными полями в самом файле), справа форма.
+   Ширина — ровно чтобы форма помещалась без скролла и пустот. */
+#setup-overlay .login-card{
+  width:min(720px,100%);
+  display:grid;
+  grid-template-columns:280px minmax(0,1fr);
+  column-gap:2rem;
+  align-items:center;
+  padding:2rem 2.25rem;
+  text-align:left;
+}
+#setup-overlay .setup-logo-side{
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  gap:1rem;
+}
+/* Предупреждение о существующей установки — под логотипом: колонка
+   узкая, текст компактнее, прижат к краям карточки */
+#setup-overlay .setup-logo-side .login-setup-warning{
+  margin:0;
+  font-size:.78rem;
+  text-align:left;
+}
+/* С предупреждением под логотипом — чуть шире, чтобы текст не был
+   кучным: расширяется именно левая колонка (класс вешает setup.js) */
+#setup-overlay .login-card.with-existing{
+  width:min(740px,100%);
+  grid-template-columns:300px minmax(0,1fr);
+}
+#setup-overlay .login-logo{
+  width:250px;
+  height:250px;
+  margin:0;
+}
+#setup-overlay .login-logo img{width:184px;height:184px}
+#setup-overlay .login-title,
+#setup-overlay .login-subtitle{text-align:left}
+/* Подзаголовок сразу переходит в форму — без пустых строк */
+#setup-overlay .login-subtitle{margin:.25rem 0 .4rem}
+#setup-overlay .login-form .login-label:first-of-type{margin-top:0}
+/* Код → кнопка: пустой строки ошибки нет вовсе (прецедент —
+   .mk-restore-form .err-hint:empty), появится только с текстом */
+#setup-overlay .login-err:empty{display:none}
+#setup-overlay .login-submit{margin-top:.75rem}
+
+/* Узкий экран / мобильный: колонки складываются в одну, логотип
+   сверху (как у экрана логина) */
+@media (max-width:600px){
+  #setup-overlay .login-card{
+    grid-template-columns:minmax(0,1fr);
+    row-gap:1.25rem;
+    padding:1.75rem 1.25rem 1.5rem;
+  }
+  #setup-overlay .login-logo{
+    width:88px;
+    height:88px;
+    margin:0 auto;
+  }
+  #setup-overlay .login-logo img{width:64px;height:64px}
+}
+
+/* Окно восстановления — отдельная модалка поверх экрана логина
+   (z-index выше, чем у #login-overlay) */
+#login-recover-modal{z-index:310}#login-recover-modal .modal{width:min(400px,100%)}
+#login-recover-modal .login-recover-title{
+  margin:0 0 .5rem;
+  font-size:1.1rem;
+}
+#login-recover-modal .login-recover-note{
+  margin:0 0 .9rem;
+  font-size:.85rem;
+  color:var(--text-muted);
+  line-height:1.5;
+}
+#login-recover-modal .login-recover-console{
+  margin:-.6rem 0 .9rem;
+  font-size:.8rem;
+  opacity:.85;
+  border-left:2px solid var(--border);
+  padding-left:.6rem;
+}
+#login-recover-modal .login-recover-actions{
+  display:flex;
+  flex-direction:column;
+  gap:.4rem;
+  margin-top:1.1rem;
+}
+#login-recover-modal .login-recover-actions .login-submit{margin-top:0}
+#login-recover-modal .login-recover-actions .login-recover{margin-top:0}
+
+@media(max-width:480px){
+  #login-overlay .login-card{padding:1.75rem 1.25rem 1.25rem}
+  #login-overlay .login-logo{width:72px;height:72px}
+  #login-overlay .login-logo img{width:52px;height:52px}
 }

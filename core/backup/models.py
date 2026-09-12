@@ -578,6 +578,9 @@ class OperationRecord:
             "skipped_members",
             "extraction",
             "verification",
+            # Локальный self-restore: указатель на state.json раннера и его
+            # входы. Запись валидируется _validate_restore_details.
+            "self_restore",
         }
         if (
             not isinstance(self.restore, dict)
@@ -628,7 +631,7 @@ class OperationRecord:
         details = self.restore
         optional = {
             key: details[key]
-            for key in ("preflight_conflicts", "skipped_members", "extraction", "verification")
+            for key in ("preflight_conflicts", "skipped_members", "extraction", "verification", "self_restore")
             if key in details
         }
         if self.type not in {"restore", "migrate"} and optional:
@@ -752,6 +755,21 @@ class OperationRecord:
                         raise ValueError(f"Некорректное значение Restore {key}")
                     if isinstance(item, str) and len(item) > 4096:
                         raise ValueError(f"Слишком длинное значение Restore {key}")
+        self_restore = details.get("self_restore")
+        if self_restore is not None:
+            # Указатель на состояние раннера локального restore: пути входов и
+            # детерминированный job (переигрываемый идемпотентно). Глубокую
+            # схему job не проверяем — она детерминирована operation_id и
+            # писается ровно одним местом (apply_self_restore).
+            if not isinstance(self_restore, dict) or set(self_restore) != {"state_dir", "state_file", "entries_file", "job"}:
+                raise ValueError("Некорректная Restore self-restore проекция")
+            for key in ("state_dir", "state_file", "entries_file"):
+                path = self_restore[key]
+                if not isinstance(path, str) or not path.startswith("/") or len(path) > 4096:
+                    raise ValueError(f"Некорректный путь Restore self-restore: {key}")
+            job = self_restore["job"]
+            if not isinstance(job, dict) or not job:
+                raise ValueError("Некорректный job Restore self-restore")
 
     def to_dict(self) -> dict[str, Any]:
         self.validate()

@@ -5,6 +5,7 @@
 # --- Telegram-бот (точка входа bot.py) ---
 python-telegram-bot[job-queue]>=20.0
 paramiko                # SSH-клиент — core/ssh.py
+cryptography>=50,<51    # AES-256-GCM/scrypt — core/backup/archive_crypto.py + transitive paramiko
 ping3                   # ICMP-пинг доступности — core/servers.py
 tzlocal                 # Локальная таймзона — bot.py
 qrcode[pil]>=8.0        # Генерация QR-кодов
@@ -17,3 +18,4 @@ fastapi>=0.100          # ASGI-фреймворк
 uvicorn[standard]>=0.20 # ASGI-сервер
 itsdangerous>=2.0       # Подпись сессионной cookie
 python-multipart        # Загрузка файлов (UploadFile)
+pyotp>=2.9              # TOTP-коды двухфакторной аутентификации — ui/web/security.py

@@ -1283,3 +1283,301 @@ def verify_applied_restore(
         "leftover": leftover[:limit],
         "leftover_count": len(leftover),
     }
+
+
+# --------------------------------------------------------------------------- #
+# Локальное применение: target — сама установка Bot4VPS (self-restore)
+# --------------------------------------------------------------------------- #
+#
+# Те же границы, что и у SSH-вариантов выше, но транспорт — локальный
+# subprocess: SSH между машиной и самой собой не нужен. Классификация tar
+# и модель verification переиспользуются без изменений.
+
+# Живое координационное состояние текущей машины. Оба файла лежат в data/backup
+# и попадают в архив, но перезаписывать их локальным apply нельзя:
+# maintenance_state.json — признак активного обслуживания именно текущей
+# операции (удаляется при её завершении), inventory-index-jobs.json — реестр
+# живых задач индексатора. Лок-файлы живут вне дерева (/run/lock/bot4vps) и в
+# архив не входят; running/, disk_state, automatic_state архив тоже не содержит.
+SELF_RESTORE_LIVE_STATE_FILES = ("maintenance_state.json", "inventory-index-jobs.json")
+
+
+def self_restore_live_state_paths(data_root) -> set[str]:
+    """Абсолютные пути live-состояния, исключаемого из локального apply."""
+    root = str(data_root).rstrip("/") + "/"
+    return {
+        posixpath.normpath(root + name)
+        for name in SELF_RESTORE_LIVE_STATE_FILES
+    }
+
+
+def filter_self_restore_live_state(plan: dict, data_root) -> dict:
+    """Убрать из effective plan live-состояние текущей машины.
+
+    Фильтр обязан применяться одинаково на prepare и на apply — сразу после
+    ``build_effective_restore_plan`` и до вычисления digest: иначе digest и
+    prepared-контракт разошлись бы между фазами. ``bytes`` корней
+    пересчитывается для сводки; digest корни по байтам не включает.
+    """
+    excluded = self_restore_live_state_paths(data_root)
+    entries = list(plan.get("entries") or ())
+    kept = [
+        entry
+        for entry in entries
+        if str(entry.get("path")) not in excluded
+    ]
+    if len(kept) == len(entries):
+        return plan
+    filtered = dict(plan)
+    filtered["entries"] = kept
+    sizes: dict[str, int] = {}
+    for entry in kept:
+        root = str(entry.get("root"))
+        try:
+            sizes[root] = sizes.get(root, 0) + int(entry.get("size") or 0)
+        except (TypeError, ValueError):
+            sizes[root] = sizes.get(root, 0)
+    filtered["roots"] = [
+        {**item, "bytes": sizes.get(str(item.get("root")), 0)}
+        for item in (plan.get("roots") or ())
+    ]
+    return filtered
+
+
+def assert_no_symlink_components_local(roots) -> None:
+    """Локальный аналог ``assert_no_symlink_components`` без SSH.
+
+    Нормализованные корни и их родители проверяются ``os.path.islink`` по
+    каждому компоненту: symlink в пути распаковки увёл бы запись за пределы
+    объявленного scope.
+    """
+    items = [posixpath.normpath(str(root)) for root in roots or ()]
+    if not items:
+        raise _precheck("План восстановления не содержит корней")
+    found: set[str] = set()
+    for item in items:
+        current = item
+        while True:
+            if os.path.islink(current):
+                found.add(current)
+            parent = posixpath.dirname(current)
+            if parent in ("", "/", current):
+                break
+            current = parent
+    if found:
+        raise _precheck(
+            "Восстановление не выполняется: путь содержит символьную ссылку — "
+            + ", ".join(sorted(found)[:5])
+        )
+
+
+def assert_no_symlink_ancestors_local(plan: dict) -> None:
+    """Локальный аналог ``assert_no_symlink_ancestors`` без SSH.
+
+    Проверяются только промежуточные компоненты членов плана СТРОГО внутри
+    корней (сами корни — предыдущая функция): tar проходит существующий
+    symlink насквозь и пишет за пределы корня молча, с кодом 0.
+    """
+    found: set[str] = set()
+    for path in planned_symlink_guard_paths(plan):
+        current = str(path)
+        while True:
+            if os.path.islink(current):
+                found.add(current)
+            parent = posixpath.dirname(current)
+            if parent in ("", "/", current):
+                break
+            current = parent
+        if found:
+            # Первый же найденный обрывает обход: перечень полный не нужен,
+            # отказ уже состоялся.
+            break
+    if found:
+        raise _precheck(
+            "Восстановление не выполняется: внутри восстанавливаемого корня "
+            "промежуточный каталог оказался символьной ссылкой — "
+            + ", ".join(sorted(found)[:5])
+        )
+
+
+def assert_free_space_local(requirements) -> dict:
+    """Локальная проверка свободного места до начала мутации.
+
+    ``shutil.disk_usage`` сам поднимается по дереву к точке монтирования,
+    когда пути ещё не существует.
+    """
+    import shutil
+
+    measured: dict[str, int] = {}
+    for path, needed in requirements or ():
+        probe = str(path)
+        if not os.path.exists(probe):
+            parent = posixpath.dirname(probe)
+            probe = parent if parent not in ("", "/") else "/"
+        try:
+            available = shutil.disk_usage(probe).free
+        except OSError:
+            raise _precheck(
+                f"Не удалось измерить свободное место для {path}"
+            ) from None
+        measured[str(path)] = available
+        if available < int(needed):
+            raise _precheck(
+                f"Недостаточно свободного места для {path}: "
+                f"нужно ~{int(needed) // (1024 * 1024)} МиБ, "
+                f"доступно {available // (1024 * 1024)} МиБ"
+            )
+    return measured
+
+
+def restore_space_requirements_local(plan: dict) -> list[tuple[str, int]]:
+    """Требования по месту для локального apply: только корни.
+
+    В отличие от restore по SSH, архив уже лежит локально (staging хранилища
+    или расшифрованный temp вне дерева) — доставка ничего не требует.
+    """
+    return [
+        (str(item["root"]), int(item.get("bytes") or 0))
+        for item in plan.get("roots") or ()
+    ]
+
+
+def extract_restore_archive_local(
+    archive_path,
+    member_list_path,
+    *,
+    roots,
+    plan: dict,
+    timeout: int = 1800,
+) -> dict:
+    """Локальная распаковка ровно по trusted member list.
+
+    Та же команда tar с теми же флагами, что и у SSH-варианта, но через
+    ``subprocess`` на этой машине. Возвращается результат существующей
+    ``classify_restore_tar_diagnostics``.
+
+    Локальная семантика ETXTBSY отличается от удалённого restore: здесь
+    сервис уже остановлен раннером, и занятый файл структурно невозможен
+    (ELF-бинарников в дереве вне venv нет). Любой пропущенный член — отказ
+    фазы мутации; классификатор используется только чтобы извлечь пути.
+    """
+    normalized = [posixpath.normpath(str(root)) for root in roots or ()]
+    if not normalized:
+        raise _apply_failure("Распаковка без корней восстановления невозможна")
+    if not isinstance(plan, dict) or not plan.get("entries"):
+        raise _apply_failure("Распаковка без effective Restore plan невозможна")
+
+    import subprocess
+
+    layout = plan.get("layout")
+    target_root = plan.get("target_root")
+    directories = {
+        posixpath.dirname(root)
+        for root in normalized
+        if posixpath.dirname(root) not in ("", "/")
+    }
+    if layout == "target_root":
+        target_root = posixpath.normpath(str(target_root or ""))
+        if not target_root.startswith("/") or target_root in {"", ".", "/"}:
+            raise _apply_failure("Некорректный target root effective Restore plan")
+        directories.add(target_root)
+        extraction_root = target_root
+        strip_option: list[str] = []
+    elif layout == "manifest_payload":
+        extraction_root = "/"
+        strip_option = ["--strip-components=1"]
+    else:
+        raise _apply_failure("Неизвестный layout effective Restore plan")
+
+    for directory in sorted(directories):
+        try:
+            Path(directory).mkdir(parents=True, exist_ok=True)
+        except OSError:
+            raise _apply_failure(
+                "Не удалось создать родительские каталоги восстановления",
+                phase="extract",
+            ) from None
+
+    command = [
+        "tar", "-xz", "-p", "--overwrite", "--numeric-owner",
+        *strip_option,
+        "-C", str(extraction_root),
+        "--null", "--verbatim-files-from", "--no-recursion",
+        f"--files-from={member_list_path}",
+        "-f", str(archive_path),
+    ]
+
+    try:
+        result = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            env={**os.environ, "LC_ALL": "C"},
+            timeout=timeout,
+        )
+    except subprocess.TimeoutExpired:
+        raise _apply_failure(
+            "Распаковка архива не уложилась в отведённое время",
+            phase="extract",
+        ) from None
+    except OSError as exc:
+        raise _apply_failure(
+            "Не удалось запустить локальную распаковку архива",
+            phase="extract",
+            error=str(exc)[:300],
+        ) from exc
+
+    stderr = result.stderr or ""
+    classified = classify_restore_tar_diagnostics(
+        int(result.returncode),
+        stderr,
+        plan=plan,
+    )
+    if not classified.get("ok"):
+        raise _apply_failure(
+            "Распаковка архива завершилась ошибкой",
+            phase="extract",
+            tar_exit_code=int(result.returncode),
+            tar_error=stderr.strip()[:500] or None,
+            tar_classification=classified.get("reason"),
+        )
+    if classified.get("skipped"):
+        # Сервис остановлен: занятый файл — неожиданный процесс держит
+        # дерево установки, и частичный apply оставил бы установку в
+        # полустаром-полуновом состоянии. Отказ, а не skip+warning.
+        busy = [str(item.get("path")) for item in classified["skipped"]]
+        raise _apply_failure(
+            "Занятые файлы при остановленном сервисе: восстановление "
+            "не может быть применено",
+            phase="extract",
+            tar_exit_code=int(result.returncode),
+            busy_paths=busy[:20],
+            busy_count=len(busy),
+        )
+    return classified
+
+
+def verify_applied_restore_local(
+    plan: dict,
+    *,
+    limit: int = 20,
+) -> dict:
+    """Локальная проверка после распаковки: план записан на месте.
+
+    Merge-режим Bot4VPS ничего не удаляет, поэтому leftover тривиально пуст.
+    Проверяются файлы и символьные ссылки: каталог сам по себе содержимого
+    не несёт (как у SSH-варианта — через ``lexists``).
+    """
+    expected = [
+        str(entry["path"])
+        for entry in plan.get("entries") or ()
+        if entry.get("type") != "directory"
+    ]
+    missing = [path for path in expected if not os.path.lexists(path)]
+    return {
+        "checked": len(expected),
+        "missing": missing[:limit],
+        "missing_count": len(missing),
+        "leftover": [],
+        "leftover_count": 0,
+    }

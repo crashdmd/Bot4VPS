@@ -40,7 +40,7 @@ def _require_server(server_id: str) -> dict:
 
 
 def _local_settings(server: dict) -> LocalSettingsStatus:
-    """Имя/группа — локальные поля servers.json, SSH не нужны."""
+    """Имя/группа/SSL — локальные поля servers.json, SSH не нужны."""
     groups: list[str] = []
     try:
         from core.storage import load_groups
@@ -58,6 +58,8 @@ def _local_settings(server: dict) -> LocalSettingsStatus:
         name=server.get("name") or "",
         group=current,
         groups=groups,
+        ssl_enabled=bool(server.get("certificate_check")),
+        ssl_host=server.get("ssl_host") or "",
     )
 
 

@@ -1,6 +1,7 @@
 import { j, esc } from './api.js?v=20260821-telegram-health-v1';
-import { toast, showPage, confirmAction, showTelegramHealthDialog, plural, formatServerTime, serverNow, serverDateTimeParts } from './ui.js';
+import { toast, showPage, confirmAction, infoModal, showTelegramHealthDialog, plural, formatServerTime, serverNow, serverDateTimeParts, bindPasswordToggles } from './ui.js';
 import { setPage } from './state.js';
+import { openBackupPasswordModal, openPasswordConfirmModal } from './backup-password.js?v=20260911-bpw-v16';
 
 const BOT_TARGET = '__bot4vps__';
 const terminal = new Set(['completed', 'failed', 'cancelled']);
@@ -325,8 +326,9 @@ function defaultProfile() {
   return {
     schema_version: 1,
     sources: [],
-    automatic: { enabled: false, daily_time: '02:30', timezone: 'Europe/Kaliningrad', keep_last: 7 },
+    automatic: { enabled: false, daily_time: '02:30', keep_last: 7 },
     limits: { max_source_bytes: null, max_archive_bytes: null },
+    encrypt: false,
     notifications: {
       backup: { enabled: false, success: false, error: true },
       restore: { enabled: true, success: false, error: true },
@@ -871,6 +873,10 @@ function renderArchiveRow(item) {
   const select = restoreMode
     ? `<span class="backup-choice" aria-hidden="true">${selected ? '●' : '○'}</span>`
     : '';
+  const encrypted = imported ? item.encrypted === true : item.archive?.encrypted === true;
+  const lock = encrypted
+    ? ' <span class="backup-lock" title="Архив защищён паролем резервных копий">🔒</span>'
+    : '';
   const preview = `<div class="backup-row-preview" data-label="Просмотр">
       <button type="button" class="ghost" data-archive-action="preview" title="Просмотреть">Просмотр</button>
     </div>`;
@@ -882,7 +888,7 @@ function renderArchiveRow(item) {
       <button type="button" class="ghost" data-archive-action="rename" title="Переименовать">Переименовать</button>
       <button type="button" class="ghost danger" data-archive-action="delete">Удалить</button>`;
   return `<article class="backup-history-row${selectedClass}" ${imported ? `data-imported-key="${esc(item.entry_key)}"` : `data-backup-id="${esc(item.backup_id)}"`}>
-    ${select}<div class="backup-history-main"><strong>${esc(archiveDisplayName(item))}</strong><small>${esc(backupDateTime(item))}</small></div>
+    ${select}<div class="backup-history-main"><strong>${esc(archiveDisplayName(item))}${lock}</strong><small>${esc(backupDateTime(item))}</small></div>
     ${preview}
     <span data-label="Размер">${bytes(imported ? item.bytes : item.archive?.bytes)}</span>
     <span class="backup-status" data-label="Статус">${status}</span>
@@ -1211,7 +1217,7 @@ async function loadPreviewPage(state, parent = null, { append = false } = {}) {
   }
 }
 
-async function runPreviewInventoryAction() {
+async function runPreviewInventoryAction({ password = null } = {}) {
   const state = previewState;
   if (!state || state.busy || state.loadingDescriptor) return;
   const actions = state.inventory?.actions || {};
@@ -1220,6 +1226,16 @@ async function runPreviewInventoryAction() {
   else if (actions.retry === true) operation = 'retry';
   else if (actions.prepare === true) operation = 'prepare';
   if (!operation) return;
+  // Зашифрованный импорт: состав читается только с паролем — сначала модал.
+  if (state.sourceKind === 'imported' && state.encrypted && !password) {
+    openArchivePasswordModal({
+      mode: 'preview',
+      entryKey: state.sourceId,
+      sourceQuery: state.sourceQuery,
+      onPassword: value => runPreviewInventoryAction({ password: value }),
+    });
+    return;
+  }
   if (operation === 'rebuild') {
     const approved = await confirmAction({
       title: 'Индекс содержимого уже существует. Провести инвентаризацию заново?',
@@ -1244,6 +1260,7 @@ async function runPreviewInventoryAction() {
         target_root: null,
         retry: operation === 'retry',
         rebuild: operation === 'rebuild',
+        password: password || null,
       }),
     });
     if (!previewIsCurrent(state, generation)) return;
@@ -1272,6 +1289,8 @@ function openPreviewModal(sourceKind, sourceId, item) {
       ? String(item?.checksum || `${item?.bytes || ''}:${item?.imported_at || ''}`)
       : String(item?.checksum?.value || item?.published_at || ''),
     name: archiveDisplayName(item),
+    // Зашифрованный импорт: инвентаризация требует пароль (модал перед запуском)
+    encrypted: imported && item?.encrypted === true,
     generation: 1,
     controllers: new Set(),
     pollTimer: null,
@@ -1366,9 +1385,15 @@ function renderHistoryRow(operation) {
     : operation.status === 'failed' ? `${operationTypeLabel(operation)} завершён с ошибкой`
       : operation.status === 'cancelled' ? `${operationTypeLabel(operation)} отменён`
         : `${operationTypeLabel(operation)} запущен`;
+  // 🔒 у завершённого create, если полученный архив зашифрован (по каталогу).
+  const lock = operation.type === 'create' && operation.status === 'completed' && operation.result_backup_id
+    && targetCatalog().some(item => item.backup_id === operation.result_backup_id
+      && item.archive?.encrypted === true)
+      ? ' <span class="backup-lock" title="Архив защищён паролем резервных копий">🔒</span>'
+      : '';
   const detail = archiveUiText(operation.error?.message || (operation.type === 'create' && progress.archive ? `${bytes(progress.archive)}` : ''));
   return `<div class="backup-history-event"><time>${esc(formatServerTime(operation.updated_at || operation.created_at))}</time>
-    <span class="backup-history-icon">${icon}</span><span class="backup-history-event-text"><strong>${esc(title)}</strong>${detail ? `<small>${esc(detail)}</small>` : ''}</span></div>`;
+    <span class="backup-history-icon">${icon}</span><span class="backup-history-event-text"><strong>${esc(title)}${lock}</strong>${detail ? `<small>${esc(detail)}</small>` : ''}</span></div>`;
 }
 
 function renderHistory() {
@@ -1513,6 +1538,20 @@ async function loadTelegramHealth() {
   renderTelegramHealthIndicator();
 }
 
+/* Включена ли защита у цели — можно только при заданном пароле резервных
+   копий. Состояние тянем с бэка: сам пароль (enc1:) через API не отдаётся. */
+let backupPasswordConfigured = false;
+
+async function refreshBackupPasswordConfigured() {
+  try {
+    const response = await j('/api/settings/backup-password');
+    backupPasswordConfigured = response?.configured === true;
+  } catch (_) {
+    // Оставляем прежнее значение: при включении галочки без пароля
+    // всё равно поднимется модалка его задания.
+  }
+}
+
 /* Вложенная модель уведомлений: мастер-тумблер категории (backup/restore) гейтит
    обе подкатегории. Читаем с дефолтами — на случай частичного объекта. */
 function notificationSettings(settings) {
@@ -1543,8 +1582,9 @@ const NOTIFY_LABELS = {
   },
 };
 
-/* Строка блока уведомлений: слева чекбокс общего включения категории + подпись,
-   справа шестерёнка. Отдельные операции (успех/ошибки) — в модалке по ⚙. */
+/* Строка блока уведомлений: слева чекбкс категории + подпись, шестерёнка —
+   в своём столбце у правого края строки. Отдельные операции (успех/ошибки) —
+   в модалке по ⚙. */
 function notificationRowMarkup(cat, values) {
   const labels = NOTIFY_LABELS[cat];
   return `<div class="backup-notification-row">
@@ -1573,6 +1613,13 @@ function notificationModalMarkup(cat, values) {
         <div class="actions"><button type="button" class="secondary" data-notify-close>Закрыть</button></div>
       </div>
     </div>`;
+}
+
+/* Галочка «🔒 Защищать паролем» — свойство цели (профиля сервера или самого
+   Bot4VPS), живёт в одной строке с «Уведомлять об операциях бэкапа». */
+function protectToggleMarkup(settings) {
+  const encrypt = settings?.encrypt === true;
+  return `<label class="backup-check backup-protect-toggle" title="Шифровать новые резервные копии этой цели паролем резервных копий"><input name="encrypt_enabled" type="checkbox" ${encrypt ? 'checked' : ''}> <span class="backup-notification-row-text">🔒 Защищать паролем</span></label>`;
 }
 
 function renderSettingsTab() {
@@ -1610,6 +1657,8 @@ function renderSettingsTab() {
         <div class="backup-notification-groups">
           ${notificationRowMarkup('backup', notify.backup)}
           ${notificationRowMarkup('restore', notify.restore)}
+          <span class="backup-protect-divider" aria-hidden="true"></span>
+          ${protectToggleMarkup(settings)}
         </div>
       </div>
     </div>
@@ -1645,6 +1694,7 @@ function changeBackupTab(nextTab, { reloadProfile = false } = {}) {
   // приглашения «Выберите backup».
   if (nextTab !== 'backups') cancelRestoreStart({ renderSelection: false });
   activeTab = nextTab;
+  if (activeTab === 'settings') refreshBackupPasswordConfigured();
   renderTabs();
   const profileNeeded = (activeTab === 'profile' || activeTab === 'settings')
     && selectedTarget !== BOT_TARGET && !profile && !profileLoading;
@@ -1794,18 +1844,27 @@ function selectTarget(target, { load = true } = {}) {
   if (load) loadBackups({ serverId: selectedTarget === BOT_TARGET ? null : selectedTarget });
 }
 
+/* Создание без модала: шифрование определяет галочка защиты цели (вкладка
+   «Настройки»), а не выбор в момент клика. Кнопка сразу ставит операцию
+   в очередь; пароль резервных копий применяется автоматически. */
 async function createBackup() {
-  const target = selectedTarget === BOT_TARGET ? 'bot4vps' : 'server';
+  const payload = {
+    target: selectedTarget === BOT_TARGET ? 'bot4vps' : 'server',
+    server_id: selectedTarget === BOT_TARGET ? null : selectedTarget,
+    label: null,
+  };
   try {
     const response = await j('/api/backups/create', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ target, server_id: target === 'server' ? selectedTarget : null, label: null }),
+      body: JSON.stringify(payload),
     });
     snapshot.operations.unshift(response.operation);
     toast('Backup поставлен в очередь', true);
     renderOperations();
     loadBackups();
-  } catch (error) { toast(archiveUiText(error.message), false); }
+  } catch (error) {
+    toast(archiveUiText(error.message), false);
+  }
 }
 
 async function cancelOperation(id) {
@@ -2102,6 +2161,8 @@ function restoreStepHasBackAction(state) {
     && !state.result
     && state.step !== 'scope'
     && state.step !== 'full-unavailable'
+    // Ранний пароль — первый шаг визарда: «Назад» не нужен, «Отмена» закрывает.
+    && !(state.step === 'password' && state.passwordEarly)
   );
 }
 
@@ -2136,15 +2197,19 @@ function syncRestoreActions() {
   const gate = Boolean(result?.gate);
   const hasBackAction = restoreStepHasBackAction(restoreState);
   const inventoryActionAvailable = restoreInventoryActionAvailable(restoreState);
+  const busy = Boolean(restoreState.submitting || restoreState.planLoading
+    || restoreState.passwordChecking || restoreState.buildingInventory);
   let label = 'Продолжить';
   let cancelLabel = 'Назад';
-  let disabled = Boolean(restoreState.submitting || restoreState.planLoading);
+  let disabled = busy;
   const hidden = Boolean(result && !gate);
 
   if (result) {
     cancelLabel = gate ? 'Отмена' : 'Закрыть';
   } else if (restoreState.step === 'scope') {
     disabled ||= !restoreState.scopeChoice;
+    cancelLabel = 'Отмена';
+  } else if (restoreState.step === 'password' && restoreState.passwordEarly) {
     cancelLabel = 'Отмена';
   } else if (restoreState.step === 'tree') {
     disabled ||= !(restoreState.selectedPaths || []).length;
@@ -2159,7 +2224,7 @@ function syncRestoreActions() {
   submit.classList.toggle('hidden', hidden);
   submit.disabled = disabled;
   cancel.textContent = cancelLabel;
-  cancel.disabled = Boolean(restoreState.submitting || restoreState.planLoading);
+  cancel.disabled = busy;
   abort.classList.toggle('hidden', !hasBackAction);
   abort.disabled = Boolean(restoreState.submitting);
   if (inventoryAction) {
@@ -2284,6 +2349,62 @@ function restoreFullUnavailableView() {
     </div>`;
 }
 
+/* Шаг ввода пароля зашифрованного архива. Два входа:
+   - ранний (сразу после открытия визарда, до выбора scope): пароль спрашивается
+     ДО остальных шагов, чтобы пользователь не «навыбирал» и не упёрся в его
+     отсутствие; перед этим тихо проверяется сохранённый пароль;
+   - поздний (существующее поведение): сервер отклонил план/подготовку — пароля
+     нет (REQUIRED) или сохранённый не подошёл (INVALID, архив создан до смены
+     пароля). Введённый пароль передаётся во все последующие запросы визарда,
+     включая применение. */
+function restorePasswordView() {
+  if (restoreState.passwordChecking) {
+    return `<div class="backup-restore-warning"><p>⏳ Проверяем сохранённый пароль…</p></div>`;
+  }
+  if (restoreState.buildingInventory) {
+    return `<div class="backup-restore-warning"><p>⏳ Читаем содержимое архива…</p></div>`;
+  }
+  if (restoreState.passwordEarly && !restoreState.passwordTried) {
+    return `<p class="hint">Введите пароль для восстановления backup <strong>${esc(restoreState.name)}</strong>.</p>
+    <label class="backup-restore-root">
+      <span>Пароль резервных копий</span>
+      <span class="pw-wrap"><input id="backup-restore-password-input" type="password" name="restore-password" maxlength="256" autocomplete="off" spellcheck="false" placeholder="Пароль, которым создан архив"><button type="button" class="eye" data-pw-toggle="backup-restore-password-input">👁</button></span>
+      <small>Архив будет расшифрован на сервере только на время операции.</small>
+    </label>`;
+  }
+  const text = restoreState.passwordTried
+    ? 'Неверный пароль или архив повреждён. Попробуйте ввести пароль ещё раз:'
+    : (restoreState.passwordPrompt || 'Архив зашифрован. Введите пароль резервных копий, которым был создан этот архив:');
+  return `<div class="backup-restore-warning" role="alert">
+      <p>⚠️ ${esc(text)}</p>
+    </div>
+    <label class="backup-restore-root">
+      <span>Пароль резервных копий</span>
+      <span class="pw-wrap"><input id="backup-restore-password-input" type="password" name="restore-password" maxlength="256" autocomplete="off" spellcheck="false" placeholder="Пароль, которым создан архив"><button type="button" class="eye" data-pw-toggle="backup-restore-password-input">👁</button></span>
+      <small>Возможно, архив был создан до изменения пароля — введите прежний пароль.</small>
+    </label>`;
+}
+
+function enterRestorePasswordStep(state, code, returnStep) {
+  state.step = 'password';
+  state.submitting = false;
+  state.planLoading = false;
+  state.planError = '';
+  state.passwordReturnStep = returnStep || null;
+  if (!state.passwordTried) {
+    state.passwordPrompt = code === 'ENCRYPTION_PASSWORD_INVALID'
+      ? 'Текущий пароль резервных копий не подходит к этому архиву. Введите пароль, с которым был создан этот архив:'
+      : 'Архив зашифрован. Введите пароль резервных копий, которым был создан этот архив:';
+  }
+  renderRestoreModal();
+  setTimeout(() => document.getElementById('backup-restore-password-input')?.focus(), 30);
+}
+
+function restorePasswordError(error) {
+  return error?.code === 'ENCRYPTION_PASSWORD_REQUIRED'
+    || error?.code === 'ENCRYPTION_PASSWORD_INVALID';
+}
+
 function restoreStepPresentation() {
   if (restoreState.result) {
     return { title: restoreState.result.title, html: restoreState.result.html };
@@ -2291,6 +2412,12 @@ function restoreStepPresentation() {
   const screens = {
     scope: ['Восстановление из backup', restoreScopeView],
     'target-root': ['Каталог восстановления', restoreTargetRootView],
+    password: [
+      restoreState.passwordEarly || restoreState.passwordChecking || restoreState.buildingInventory
+        ? 'Архив защищён паролем'
+        : 'Пароль архива',
+      restorePasswordView,
+    ],
     tree: ['Выбор данных для восстановления', restoreTreeView],
     mode: ['Режим восстановления', restoreModeView],
     protective: ['Сделать бэкап перед восстановлением?', restoreProtectiveView],
@@ -2316,6 +2443,7 @@ function renderRestoreModal() {
   if (title) title.textContent = screen.title;
   if (error) error.textContent = state.planError || '';
   body.innerHTML = screen.html;
+  if (state.step === 'password') bindPasswordToggles(body);
   modal?.classList.toggle('tree-step', state.step === 'tree');
   modal?.classList.toggle('result-step', Boolean(state.result));
   actions?.classList.toggle(
@@ -2421,9 +2549,119 @@ function openRestoreModal() {
     preparedOperationId: null,
     submitting: false,
     result: null,
+    // Шифрование (B4VE): для зашифрованного архива пароль спрашивается ПЕРВЫМ
+    // шагом (до выбора scope/режима) — сначала тихо проверяется сохранённый,
+    // не подошёл/нет — модальный шаг ввода. Поздний перехват (план/подготовка
+    // вернули ENCRYPTION_PASSWORD_REQUIRED / INVALID) остаётся страховкой.
+    encrypted: Boolean(managed?.archive?.encrypted || imported?.encrypted
+      || importedRestoreSelection?.encrypted),
+    password: '',
+    passwordTried: false,
+    passwordPrompt: '',
+    passwordReturnStep: null,
+    passwordEarly: false,
+    passwordChecking: false,
+    buildingInventory: false,
   };
+  if (restoreState.encrypted) {
+    restoreState.step = 'password';
+    restoreState.passwordChecking = true;
+  }
   renderRestoreModal();
   document.getElementById('backup-restore-modal')?.classList.add('open');
+  if (restoreState.encrypted) gateRestorePassword(restoreState);
+}
+
+/* Тихая проба пароля: use_stored — сервер сам проверяет сохранённый (enc1:)
+   пароль против архива; явный password — введённый в модалке. Ответ — только
+   факт совпадения, сам пароль никогда не возвращается. */
+async function probeRestorePassword(state, { password = null, useStored = false } = {}) {
+  return j(`${restoreSourcePath(state.sourceKind, state.backupId, state.entryKey)}/password-probe${state.sourceQuery || ''}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(useStored ? { use_stored: true } : { password }),
+  });
+}
+
+/* Ранний вход в шаг пароля: сначала пробуем сохранённый пароль без вопросов. */
+async function gateRestorePassword(state) {
+  try {
+    const probe = await probeRestorePassword(state, { useStored: true });
+    if (restoreState !== state) return;
+    if (probe?.ok === true) {
+      state.passwordChecking = false;
+      // Пароль не нужен в UI: план/подготовка возьмут сохранённый на сервере.
+      await acceptRestorePassword(state, null);
+      return;
+    }
+  } catch (_) {
+    // Проба не удалась (сеть/ошибка) — спросим пароль явно.
+  }
+  if (restoreState !== state) return;
+  state.passwordChecking = false;
+  state.passwordEarly = true;
+  state.passwordTried = false;
+  state.passwordPrompt = '';
+  state.passwordReturnStep = 'scope';
+  renderRestoreModal();
+  setTimeout(() => document.getElementById('backup-restore-password-input')?.focus(), 30);
+}
+
+/* Пароль принят (введён или сохранён подошёл): для зашифрованного импорта без
+   готового сайдкара строим древо сразу (с паролем), затем перечитываем
+   readiness — шаг «Каталог восстановления» останется только если manifest в
+   архиве действительно отсутствует. */
+async function acceptRestorePassword(state, password) {
+  if (password) state.password = password;
+  if (state.sourceKind !== 'imported' || !state.requiresTargetRoot) {
+    state.passwordEarly = false;
+    state.planError = '';
+    state.step = 'scope';
+    renderRestoreModal();
+    return;
+  }
+  state.buildingInventory = true;
+  state.planError = '';
+  renderRestoreModal();
+  try {
+    await j(restoreInventoryEndpoint(state, '/inventory/prepare'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        view: 'archive',
+        target_root: null,
+        retry: false,
+        password: state.password || null,
+      }),
+    });
+    if (restoreState !== state) return;
+    const data = await j(
+      `/api/backups/imported/${encodeURIComponent(state.entryKey)}/restore/readiness${state.sourceQuery || ''}`,
+    );
+    if (restoreState !== state) return;
+    state.requiresTargetRoot = data.requires_target_root === true;
+    if (importedRestoreSelection?.entryKey === state.entryKey) {
+      importedRestoreSelection.requiresTargetRoot = state.requiresTargetRoot;
+    }
+    state.buildingInventory = false;
+    state.passwordEarly = false;
+    state.step = 'scope';
+    renderRestoreModal();
+  } catch (error) {
+    if (restoreState !== state) return;
+    state.buildingInventory = false;
+    state.step = 'password';
+    if (restorePasswordError(error)) {
+      state.password = '';
+      state.passwordTried = true;
+      state.passwordPrompt = 'Неверный пароль или архив повреждён. Попробуйте ввести пароль ещё раз:';
+      state.planError = '';
+    } else {
+      state.planError = archiveUiText(error.message);
+    }
+    renderRestoreModal();
+    setTimeout(() => document.getElementById('backup-restore-password-input')?.focus(), 30);
+  }
 }
 
 function closeRestoreModal() {
@@ -2592,7 +2830,14 @@ async function prepareRestoreInventory(state, { retry = false } = {}) {
     const response = await j(restoreInventoryEndpoint(state, '/inventory/prepare'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...restoreInventoryRequestBody(state), retry }),
+      body: JSON.stringify({
+        ...restoreInventoryRequestBody(state),
+        retry,
+        // Пароль — только для зашифрованного импорта без готового сайдкара:
+        // сервер построит древо расшифровкой. Для остальных источников
+        // игнорируется.
+        password: state.password || null,
+      }),
     });
     if (restoreState !== state || state.inventoryEpoch !== epoch) return;
     await applyRestoreInventoryStatus(state, response);
@@ -2842,6 +3087,7 @@ async function loadRestorePlan(selectionMode) {
           selection_mode: mode,
           selected_paths: selected,
           include_directory_tree: false,
+          password: state.password || null,
         }),
       }),
     );
@@ -2857,6 +3103,12 @@ async function loadRestorePlan(selectionMode) {
     return response;
   } catch (err) {
     if (restoreState !== state) return null;
+    if (state.encrypted && restorePasswordError(err)) {
+      // Пароль не подошёл/не задан — не фатально: модальный шаг ввода
+      // с повтором, а после ввода план строится тем же запросом.
+      enterRestorePasswordStep(state, err.code, 'mode');
+      return null;
+    }
     state.planError = archiveUiText(err.message);
     return null;
   } finally {
@@ -3070,6 +3322,60 @@ async function submitRestore() {
     await continueRestoreBranch();
     return;
   }
+  if (restoreState.step === 'password') {
+    if (restoreState.buildingInventory || restoreState.passwordChecking) return;
+    const value = String(document.getElementById('backup-restore-password-input')?.value || '');
+    if (!value) {
+      restoreState.planError = 'Введите пароль, которым был создан этот архив.';
+      renderRestoreModal();
+      return;
+    }
+    // Ранний вход: пароль проверяется мгновенно (первый кусок B4VE), неверный
+    // отбивается прямо на шаге — без «навыбранного впустую» визарда.
+    if (restoreState.passwordEarly) {
+      const state = restoreState;
+      state.submitting = true;
+      renderRestoreModal();
+      try {
+        const probe = await probeRestorePassword(state, { password: value });
+        if (restoreState !== state) return;
+        if (probe?.ok !== true) {
+          state.passwordTried = true;
+          state.planError = '';
+          renderRestoreModal();
+          setTimeout(() => document.getElementById('backup-restore-password-input')?.select(), 30);
+          return;
+        }
+        state.password = value;
+        state.passwordTried = true;
+        await acceptRestorePassword(state, value);
+      } catch (error) {
+        if (restoreState !== state) return;
+        state.planError = archiveUiText(error.message);
+        renderRestoreModal();
+      } finally {
+        if (restoreState === state) {
+          state.submitting = false;
+          renderRestoreModal();
+        }
+      }
+      return;
+    }
+    restoreState.password = value;
+    restoreState.passwordTried = true;
+    restoreState.planError = '';
+    const returnStep = restoreState.passwordReturnStep || 'mode';
+    restoreState.passwordReturnStep = null;
+    if (returnStep === 'mode') {
+      // Повтор построения плана сразу: пользователь уже ответил на вопросы шага.
+      restoreState.step = 'mode';
+      await submitRestore();
+      return;
+    }
+    restoreState.step = returnStep;
+    renderRestoreModal();
+    return;
+  }
   if (restoreState.step === 'tree') {
     if (!restoreState.selectedPaths.length) return;
     restoreState.step = 'mode';
@@ -3141,6 +3447,9 @@ async function startRestore() {
         // Выбор защитной копии зафиксирован в server-owned prepare contract;
         // браузер повторно его не посылает и подтверждает только отказ, если он был.
         confirm_without_protective: !restoreState.protective,
+        // Пароль нужен и в apply: применение пересобирает план и снова
+        // расшифровывает архив тем же паролем.
+        password: restoreState.password || null,
       };
     } else {
       payload = {
@@ -3152,6 +3461,7 @@ async function startRestore() {
           ? [...restoreState.selectedPaths]
           : [],
         apply: false,
+        password: restoreState.password || null,
       };
     }
     const endpoint = restoreSourcePath(
@@ -3192,6 +3502,12 @@ async function startRestore() {
     renderBackupTab();
     loadBackups();
   } catch (err) {
+    if (restoreState && !restoreState.result && restoreState.encrypted && restorePasswordError(err)) {
+      // Подготовка не начата: неверный пароль — не фатально, сервер не
+      // зарегистрировал операцию и target не тронут. Возврат на шаг ввода.
+      enterRestorePasswordStep(restoreState, err.code, 'protective');
+      return;
+    }
     if (error) error.textContent = archiveUiText(err.message);
     if (restoreState) {
       restoreState.submitting = false;
@@ -3249,6 +3565,14 @@ function cancelRestore() {
       ? 'tree'
       : (restoreState.requiresTargetRoot ? 'target-root' : 'scope');
   } else if (restoreState.step === 'protective') restoreState.step = 'mode';
+  else if (restoreState.step === 'password') {
+    if (restoreState.passwordEarly) {
+      // Ранний пароль — первого шага ещё не было: отмена закрывает визард.
+      cancelRestoreStart();
+      return;
+    }
+    restoreState.step = restoreState.passwordReturnStep || 'mode';
+  }
   restoreState.planError = '';
   renderRestoreModal();
 }
@@ -3771,6 +4095,7 @@ async function selectImportedForRestore(entryKey) {
       entryKey,
       status: 'ready',
       requiresTargetRoot: data.requires_target_root === true,
+      encrypted: data.encrypted === true,
       notice: '',
       item,
     };
@@ -3829,9 +4154,12 @@ async function runPendingImport({
   conflictInRename = false,
 } = {}) {
   if (!pendingImport || importInFlight) return false;
-  const { file, filename } = pendingImport;
+  const { file, filename, password } = pendingImport;
   const form = new FormData();
   form.append('file', file);
+  // Пароль зашифрованного архива идёт в multipart-теле (не в query): с ним
+  // сервер строит древо файлов при импорте.
+  if (password) form.append('password', password);
   const destination = selectedTarget === BOT_TARGET ? null : String(selectedTarget);
   const parts = [];
   if (destination) parts.push(`destination_server_id=${encodeURIComponent(destination)}`);
@@ -3875,6 +4203,123 @@ async function runPendingImport({
   }
 }
 
+/* ---------- Пароль зашифрованного архива (B4VE): импорт и просмотр ----------
+   Один модал (backup-archive-password-modal) для двух сценариев:
+   - import: пароль даёт построить древо файлов прямо при импорте (иначе —
+     выборочное восстановление и просмотр недоступны до ручной инвентаризации);
+   - preview: ручная инвентаризация зашифрованного импорта в Просмотре архива.
+   ОК — слева; клик по фону не закрывает; Esc закрывает (для импорта — отмена). */
+let archivePasswordActive = null; // { mode, entryKey, sourceQuery, onPassword, onSkip }
+
+function openArchivePasswordModal({ mode, entryKey = null, sourceQuery = '', onPassword, onSkip } = {}) {
+  const modal = document.getElementById('backup-archive-password-modal');
+  if (!modal) return;
+  archivePasswordActive = { mode, entryKey, sourceQuery, onPassword, onSkip };
+  document.getElementById('bap-modal-title').textContent = 'Архив защищён паролем';
+  document.getElementById('bap-modal-note').textContent = 'Введите пароль, чтобы прочитать содержимое архива.';
+  document.getElementById('bap-modal-skip')?.classList.toggle('hidden', mode !== 'import');
+  document.getElementById('bap-modal-cancel')?.classList.toggle('hidden', mode === 'import');
+  const input = document.getElementById('bap-modal-input');
+  input.value = '';
+  const err = document.getElementById('bap-modal-err');
+  if (err) err.textContent = '';
+  bindPasswordToggles(modal);
+  modal.classList.add('open');
+  setTimeout(() => input.focus(), 30);
+}
+
+function closeArchivePasswordModal() {
+  const modal = document.getElementById('backup-archive-password-modal');
+  if (!modal) return;
+  modal.classList.remove('open');
+  archivePasswordActive = null;
+  document.getElementById('bap-modal-input').value = '';
+  const err = document.getElementById('bap-modal-err');
+  if (err) err.textContent = '';
+}
+
+async function submitArchivePasswordModal() {
+  const active = archivePasswordActive;
+  if (!active) return;
+  const input = document.getElementById('bap-modal-input');
+  const password = input.value;
+  const err = document.getElementById('bap-modal-err');
+  if (err) err.textContent = '';
+  if (!password) {
+    if (err) err.textContent = active.mode === 'import'
+      ? 'Введите пароль или нажмите «Продолжить без пароля».'
+      : 'Введите пароль.';
+    input.focus();
+    return;
+  }
+  if (active.mode === 'preview') {
+    // Мгновенная проверка пароля по первому куску B4VE — неверный отбивается
+    // прямо в модалке, без запуска инвентаризации.
+    try {
+      const probe = await j(
+        `/api/backups/imported/${encodeURIComponent(active.entryKey)}/restore/password-probe${active.sourceQuery || ''}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ password }),
+        },
+      );
+      if (archivePasswordActive !== active) return;
+      if (probe?.ok === true) {
+        closeArchivePasswordModal();
+        active.onPassword?.(password);
+      } else {
+        if (err) err.textContent = 'Неверный пароль или архив повреждён';
+        input.select();
+      }
+    } catch (error) {
+      if (archivePasswordActive !== active) return;
+      if (err) err.textContent = archiveUiText(error.message);
+    }
+    return;
+  }
+  // Импорт: файл ещё не загружен — проверить пароль заранее нельзя, его
+  // проверит сервер при импорте (чистый отказ без публикации).
+  closeArchivePasswordModal();
+  active.onPassword?.(password);
+}
+
+function bindArchivePasswordModal() {
+  const modal = document.getElementById('backup-archive-password-modal');
+  if (!modal) return;
+  document.getElementById('bap-modal-ok')?.addEventListener('click', submitArchivePasswordModal);
+  document.getElementById('bap-modal-skip')?.addEventListener('click', () => {
+    const active = archivePasswordActive;
+    if (!active) return;
+    closeArchivePasswordModal();
+    active.onSkip?.();
+  });
+  document.getElementById('bap-modal-cancel')?.addEventListener('click', closeArchivePasswordModal);
+  document.getElementById('bap-modal-input')?.addEventListener('keydown', event => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      submitArchivePasswordModal();
+    }
+  });
+  // Клик по фону НЕ закрывает (как у всех парольных модалок); Esc — закрывает.
+  modal.addEventListener('keydown', event => {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      closeArchivePasswordModal();
+    }
+  });
+}
+
+/* B4VE-детект по магии: файл читается локально, до загрузки на сервер. */
+async function fileIsEncryptedArchive(file) {
+  try {
+    const head = new Uint8Array(await file.slice(0, 4).arrayBuffer());
+    return head[0] === 0x42 && head[1] === 0x34 && head[2] === 0x56 && head[3] === 0x45;
+  } catch (_) {
+    return false;
+  }
+}
+
 async function importFile(file) {
   if (importInFlight) return;
   let filename;
@@ -3892,10 +4337,35 @@ async function importFile(file) {
     toast(archiveUiText(error.message), false);
     return;
   }
-  pendingImport = { file, filename };
+  // Зашифрованный архив: пароль спрашивается ДО загрузки — с ним сервер
+  // построит древо файлов, и выборочное восстановление будет доступно сразу.
+  if (await fileIsEncryptedArchive(file)) {
+    openArchivePasswordModal({
+      mode: 'import',
+      onPassword: password => startPendingImport({ file, filename, password }),
+      onSkip: () => skipImportPassword({ file, filename }),
+    });
+    return;
+  }
+  startPendingImport({ file, filename, password: null });
+}
+
+function startPendingImport({ file, filename, password }) {
+  pendingImport = { file, filename, password };
   selectedImportFilename = filename;
   renderBackupTab();
-  await runPendingImport();
+  runPendingImport();
+}
+
+async function skipImportPassword({ file, filename }) {
+  await infoModal({
+    title: 'Без пароля древо не может быть построено',
+    message: 'Просмотр архива и выборочное восстановление будут недоступны. '
+      + 'Если захотите повторить процедуру — проведите инвентаризацию вручную: '
+      + 'Просмотр архива → «Провести инвентаризацию».',
+    okText: 'ОК',
+  });
+  startPendingImport({ file, filename, password: null });
 }
 
 /* Тело PUT для профиля. Профиль без источников сохранять можно — это единственный
@@ -3932,6 +4402,7 @@ function profileMutationBody(base, mutation) {
   body.automatic = clone(mutation.value.automatic);
   body.limits = clone(mutation.value.limits);
   body.notifications = clone(mutation.value.notifications);
+  body.encrypt = mutation.value.encrypt === true;
   return body;
 }
 
@@ -4046,6 +4517,7 @@ function buildSettingsBase() {
     error: el[`notify_${cat}_error`].checked,
   });
   base.notifications = { backup: readCat('backup'), restore: readCat('restore') };
+  base.encrypt = el.encrypt_enabled.checked;
   return base;
 }
 
@@ -4064,6 +4536,7 @@ async function commitSettings() {
       automatic: base.automatic,
       limits: base.limits,
       notifications: base.notifications,
+      encrypt: base.encrypt,
     });
   }
 }
@@ -4231,6 +4704,85 @@ function bindSettingsAutosave(host) {
       bindSettingsToggle(form.elements[`notify_${cat}_${kind}`], renderTelegramHealthIndicator);
     });
   });
+
+  /* Галочка защиты цели. Включение без заданного пароля сначала поднимает
+     модалку его задания (защита без пароля невозможна). Снятие — только с
+     подтверждением текущим паролем: тот, кто просто попал в панель, не должен
+     молча отключить шифрование и утащить свежий незащищённый архив. */
+  const protect = form.elements.encrypt_enabled;
+  if (protect) {
+    let previous = protect.checked;
+    const commit = async () => {
+      protect.disabled = true;
+      try {
+        await commitSettings();
+        previous = protect.checked;
+      } catch (error) {
+        protect.checked = previous;
+        toast(archiveUiText(error.message), false);
+      } finally {
+        protect.disabled = false;
+      }
+    };
+    const enableProtection = () => {
+      if (!backupPasswordConfigured) {
+        // Инвариант: защита без пароля невозможна. До успешного сохранения
+        // пароля галочка не ставится; Отмена — галочка остаётся снятой.
+        openBackupPasswordModal({
+          mode: 'set',
+          onSaved: async () => {
+            backupPasswordConfigured = true;
+            protect.checked = true;
+            await commit();
+          },
+        });
+        return;
+      }
+      commit();
+    };
+    protect.addEventListener('change', () => {
+      if (protect.checked) {
+        // До подтверждения галочка не считается включённой: любой путь
+        // с «Отменой» оставляет её снятой.
+        protect.checked = false;
+        if (selectedTarget === BOT_TARGET) {
+          // Мастер-ключ намеренно не входит в self-backup: без его копии
+          // защищённые данные после переноса Bot4VPS не восстановить.
+          // Предупреждение — модалкой с «ОК»/«Отмена» при каждом включении
+          // защиты именно у цели Bot4VPS (архивы серверов мастер-ключа
+          // не касаются).
+          confirmAction({
+            title: '⚠️ Важно о защите резервных копий',
+            message: 'Новые резервные копии Bot4VPS будут шифроваться паролем резервных копий. Пароли, токены и другие защищённые данные Bot4VPS хранятся в зашифрованном виде, а мастер-ключ шифрования намеренно не включается в резервную копию: для восстановления защищённых данных после переноса или восстановления Bot4VPS потребуется мастер-ключ. Сохраните копию мастер-ключа отдельно от резервных копий (Настройки → Безопасность → Мастер-ключ). Не передавайте мастер-ключ третьим лицам: его потеря может сделать зашифрованные данные недоступными.',
+            confirmText: 'ОК',
+            cancelText: 'Отмена',
+            danger: false,
+          }).then(ok => {
+            if (!ok) return;
+            protect.checked = true;
+            enableProtection();
+          });
+          return;
+        }
+        protect.checked = true;
+        enableProtection();
+      } else if (backupPasswordConfigured) {
+        // Откат до подтверждения: галочка возвращается, пока пароль не сверен.
+        protect.checked = true;
+        openPasswordConfirmModal({
+          onVerified: async () => {
+            protect.checked = false;
+            await commit();
+          },
+          onCancelled: () => { protect.checked = true; },
+        });
+      } else {
+        // Пароль не задан — защита и так фактически не работала (plain-фолбэк
+        // с WARNING в журнале), снятие подтверждения не требует.
+        commit();
+      }
+    });
+  }
 }
 
 function sourcePathIsStrictDescendant(path, parent) {
@@ -4981,11 +5533,17 @@ export function bindBackupUI() {
   document.getElementById('backup-restore-submit')?.addEventListener('click', submitRestore);
   document.getElementById('backup-restore-cancel')?.addEventListener('click', cancelRestore);
   document.getElementById('backup-restore-abort')?.addEventListener('click', abortRestore);
+  bindArchivePasswordModal();
   // Клик по фону Restore-диалог не закрывает: шаг мастера слишком значим,
   // чтобы терять его случайным промахом мимо окна.
   document.getElementById('backup-restore-modal')?.addEventListener('click', handleRestoreModalClick);
   document.getElementById('backup-restore-modal')?.addEventListener('change', handleRestoreModalChange);
   document.getElementById('backup-restore-modal')?.addEventListener('input', handleRestoreModalChange);
+  document.getElementById('backup-restore-modal')?.addEventListener('keydown', event => {
+    if (event.key !== 'Enter' || event.target?.name !== 'restore-password') return;
+    event.preventDefault();
+    submitRestore();
+  });
   document.getElementById('backup-rename-save')?.addEventListener('click', submitRename);
   document.getElementById('backup-rename-cancel')?.addEventListener('click', closeRenameModal);
   document.getElementById('backup-rename-input')?.addEventListener('keydown', event => {
@@ -5020,6 +5578,9 @@ export function bindBackupUI() {
     setTelegramHealth(event.detail);
     renderTelegramHealthIndicator();
   });
+  // Пароль задан/удалён в другом месте (Настройки → Безопасность) — обновляем
+  // локальное состояние для галочек защиты целей.
+  window.addEventListener('bot4vps:backup-password-changed', refreshBackupPasswordConfigured);
   window.addEventListener('resize', scheduleGeometry);
   // Диагностика: console.log(window.__backupGeometry()) отдаёт фактические
   // clientHeight/scrollHeight списков и rendered geometry Create/Import.

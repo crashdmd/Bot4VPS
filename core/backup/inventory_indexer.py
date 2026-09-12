@@ -990,6 +990,16 @@ class ArchiveInventoryIndexer:
             ):
                 return "already_valid"
 
+            if record.get("archive", {}).get("encrypted"):
+                # Sidecar inventory зашифрованного архива строится из plaintext
+                # при создании. Переинвентаризировать B4VE без пароля нельзя:
+                # чистый финальный отказ вместо попытки открыть шифротекст как TAR.
+                raise BackupError(
+                    ErrorCode.ARCHIVE_INVALID,
+                    "Зашифрованный archive inventory недоступен без пароля "
+                    "резервных копий",
+                )
+
             staging_inventory = self._build_managed_inventory(
                 archive_path=archive_path,
                 source=source,
@@ -1099,6 +1109,15 @@ class ArchiveInventoryIndexer:
                 and self.storage.read_import_archive_inventory(resolved) is not None
             ):
                 return "already_valid"
+
+            if resolved["publication"].get("encrypted"):
+                # Зашифрованный импорт публикуется без инвентаризации:
+                # состав файлов читается только при Restore с паролем.
+                raise BackupError(
+                    ErrorCode.ARCHIVE_INVALID,
+                    "Импортированный зашифрованный архив: состав файлов "
+                    "недоступен без пароля резервных копий",
+                )
 
             legacy = (
                 self.storage.read_legacy_import_archive_inventory(resolved)

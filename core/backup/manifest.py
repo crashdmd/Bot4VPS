@@ -156,8 +156,8 @@ def validate_manifest(manifest: dict, *, expected_backup_id: str | None = None, 
     ):
         raise BackupError(ErrorCode.MANIFEST_INVALID, "Некорректный label manifest")
     archive = _require_exact_keys(manifest.get("archive"), _ARCHIVE_KEYS, "archive")
-    if archive.get("format") != "tar.gz" or archive.get("encrypted") is not False:
-        raise BackupError(ErrorCode.MANIFEST_INVALID, "В v1 ожидается незашифрованный tar.gz")
+    if archive.get("format") != "tar.gz" or not isinstance(archive.get("encrypted"), bool):
+        raise BackupError(ErrorCode.MANIFEST_INVALID, "archive manifest: ожидается tar.gz (plain или B4VE-зашифрованный)")
     producer = _require_exact_keys(manifest.get("producer"), _PRODUCER_KEYS, "producer")
     _safe_metadata(producer.get("name"), "producer.name")
     _safe_metadata(producer.get("version"), "producer.version")

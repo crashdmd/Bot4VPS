@@ -588,7 +588,16 @@ class OperationStore:
         is idempotent; replacing a different value is rejected to avoid making
         an Operation describe two different extraction attempts.
         """
-        allowed = {"preflight_conflicts", "skipped_members", "extraction", "verification"}
+        allowed = {
+            "preflight_conflicts",
+            "skipped_members",
+            "extraction",
+            "verification",
+            # Локальный self-restore: указатель на state.json раннера и каталог
+            # его входов (member list, job). Записывается до запуска раннера,
+            # значение детерминировано operation_id — replay идемпотентен.
+            "self_restore",
+        }
         if key not in allowed:
             raise BackupError(ErrorCode.INVALID_REQUEST, "Некорректный ключ Restore metadata")
 

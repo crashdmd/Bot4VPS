@@ -3,6 +3,7 @@ import os
 import ssl
 import socket
 import threading
+import time
 from datetime import datetime
 from core.storage import (
     load_servers,
@@ -325,12 +326,111 @@ def light_check_servers(servers: list[dict]) -> list[dict]:
 # ==========================================================
 # Мониторинг доступности
 # ==========================================================
+def refresh_ssh_error(server, ok: bool, error: str = ""):
+    """Живые SSH-пробы (metrics/probe из Web) сразу синхронизируют
+    ssh_error в monitor, не дожидаясь system_sync (15 минут):
+    статус в списке серверов сам выздоравливает и сам желтеет.
+    Пишет только при изменении — виджет опрашивает каждые 3 секунды.
+    """
+    sid = server.get("id")
+    if not sid:
+        return
+    new = "" if ok else (error or "")
+    with _MONITOR_LOCK:
+        monitor = load_monitor()
+        avail = (monitor.get(sid) or {}).get("availability")
+        if not avail:
+            return
+        if (avail.get("ssh_error") or "") == new:
+            return
+        avail["ssh_error"] = new
+        avail["checked"] = datetime.now().strftime("%Y-%m-%d %H:%M")
+        save_monitor(monitor)
+
+
+# ==========================================================
+# Живые SSH-пробы (страница «Серверы» открыта)
+# ==========================================================
+# Тот же принцип, что у метрик дашборда: страница сама дёргает пробу
+# каждые ~3с, пока открыта. Закрыли вкладку — проб нет. Гварды не дают
+# пробам наслаиваться (мёртвый сервер висит в connect до 8с).
+_SSH_PROBE_MIN_INTERVAL = 2.5
+_ssh_probe_lock = threading.Lock()
+_ssh_probe_last: dict[str, float] = {}
+_ssh_probe_inflight: set[str] = set()
+
+
+def note_ssh_probe(server_id: str):
+    """Внешняя SSH-проба (метрики/probe дашборда) отмечается здесь,
+    чтобы фоновая развёртка не пробивала тот же сервер повторно
+    в том же такте."""
+    if not server_id:
+        return
+    with _ssh_probe_lock:
+        _ssh_probe_last[server_id] = time.monotonic()
+
+
+def ssh_probe_one(server) -> tuple[bool, str]:
+    """Минимальная SSH-проба: рукопожатие + аутентификация, без команд."""
+    from core.ssh import create_ssh_client
+    if server.get("auth_type") == "key":
+        key_path = str(server.get("key_path") or "")
+        if key_path and not os.path.exists(key_path):
+            return False, f"SSH-ключ не найден: {key_path}"
+    try:
+        client = create_ssh_client(server)
+        try:
+            client.close()
+        except Exception:
+            pass
+        return True, ""
+    except Exception as e:
+        return False, str(e)
+
+
+def ssh_probe_servers(servers):
+    """Фоновая SSH-развёртка всех серверов (страница «Серверы» открыта).
+
+    Гварды: не чаще раза в такт на сервер, без наложения на уже идущие
+    и внешние (note_ssh_probe) пробы. Результат — refresh_ssh_error в
+    monitor.json; UI получает его следующим SSE-снапшотом.
+    """
+    now = time.monotonic()
+    todo = []
+    with _ssh_probe_lock:
+        for s in servers:
+            sid = s.get("id")
+            if not sid or sid in _ssh_probe_inflight:
+                continue
+            if now - _ssh_probe_last.get(sid, 0.0) < _SSH_PROBE_MIN_INTERVAL:
+                continue
+            _ssh_probe_inflight.add(sid)
+            _ssh_probe_last[sid] = now
+            todo.append(s)
+    if not todo:
+        return
+
+    def _run(server):
+        try:
+            ok, error = ssh_probe_one(server)
+            refresh_ssh_error(server, ok, error)
+        except Exception as e:
+            print(f"[SSH PROBE] {server.get('name', '?')}: {e}", flush=True)
+        finally:
+            with _ssh_probe_lock:
+                _ssh_probe_inflight.discard(server.get("id"))
+
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=min(16, len(todo))) as ex:
+        list(ex.map(_run, todo))
+
+
 def update_server_availability(
     server,
     online: bool,
     error: str = "",
     system: dict | None = None,
-    ssh_error: str = "",
+    ssh_error: str | None = None,
 ):
     """
     Обновляет состояние доступности сервера.
@@ -342,6 +442,9 @@ def update_server_availability(
     error — сетевая ошибка недоступности (для события offline).
     ssh_error — ошибка SSH-аутентификации: НЕ флипает online/offline,
     хранится отдельно (индикация в UI «⚠ SSH: ошибка»).
+    None = проба SSH не выполнялаcь — прежнее значение сохраняется
+    (сетевые зонды не должны затирать статус, записанный SSH-пробой
+    из metrics/system_sync).
 
     Возвращает:
         None
@@ -371,7 +474,7 @@ def update_server_availability(
             entry["availability"] = {
                 "online": online,
                 "last_error": error,
-                "ssh_error": ssh_error,
+                "ssh_error": ssh_error or "",
                 "checked": now
             }
 
@@ -382,7 +485,9 @@ def update_server_availability(
 
         availability["online"] = online
         availability["last_error"] = error
-        availability["ssh_error"] = ssh_error
+        # SSH-проба не выполнялась — статус аутентификации не трогаем
+        if ssh_error is not None:
+            availability["ssh_error"] = ssh_error
         availability["checked"] = now
 
         save_monitor(monitor)
@@ -537,6 +642,80 @@ async def online_monitor_job(context):
             list(ex.map(_collect, servers))
 
 
+def _load_reported_missing_keys() -> dict:
+    """Состояние «уже пожаловались на отсутствие ключа» (анти-спам)."""
+    path = os.path.join("data", "key_integrity.json")
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            state = json.load(f)
+        return state if isinstance(state.get("reported"), dict) else {"reported": {}}
+    except Exception:
+        return {"reported": {}}
+
+
+def _save_reported_missing_keys(state: dict) -> None:
+    path = os.path.join("data", "key_integrity.json")
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(state, f, ensure_ascii=False)
+    os.replace(tmp, path)
+
+
+async def keys_integrity_job(context):
+    """Проверка SSH-ключей серверов: файл из key_path должен существовать.
+
+    Ключ мог быть удалён вручную или из «Файлов» — сервер молча потеряет
+    доступ по SSH. Жалуемся один раз на каждый ключ (пока не вернётся):
+    CRITICAL-событие + уведомление. Локальная проверка ФС, SSH не трогает.
+    """
+    from core.event_service import notify_event
+    from core.event_types import EventType, EventLevel, EventReason
+
+    state = _load_reported_missing_keys()
+    reported: dict = state["reported"]
+
+    missing: list[dict] = []
+    for server in load_servers():
+        if server.get("auth_type") != "key":
+            continue
+        key_path = str(server.get("key_path") or "")
+        if not key_path or os.path.exists(key_path):
+            continue
+        missing.append({
+            "server": server.get("name") or server.get("host") or server.get("id") or "?",
+            "key_path": key_path,
+        })
+
+    # новые пропажи → событие; вернувшиеся ключи молча убираем из state
+    for item in missing:
+        if item["key_path"] in reported:
+            continue
+        reported[item["key_path"]] = datetime.now().isoformat(timespec="seconds")
+        try:
+            await notify_event(
+                EventType.SSH,
+                EventLevel.CRITICAL,
+                "SSH-ключ сервера не найден",
+                f"Сервер «{item['server']}» использует ключ "
+                f"{item['key_path']}, но файла нет — SSH-подключение невозможно. "
+                f"Восстановите ключ из резервной копии или смените способ входа.",
+                {
+                    "reason": EventReason.SSH_KEY_MISSING.value,
+                    "server_name": item["server"],
+                    "key_path": item["key_path"],
+                },
+            )
+        except Exception as e:
+            print(f"[KEY INTEGRITY] notify: {e}", flush=True)
+
+    for key_path in list(reported):
+        if key_path not in {m["key_path"] for m in missing}:
+            del reported[key_path]
+
+    _save_reported_missing_keys({"reported": reported})
+
+
 async def ssl_monitor_job(context):
     """Периодический SSL-мониторинг"""
     from core.event_service import notify_event
@@ -598,7 +777,7 @@ def schedule_monitor_jobs(job_queue):
 
     monitor = get_monitor_config()
 
-    for name in ("online_monitor", "ssl_monitor", "system_sync"):
+    for name in ("online_monitor", "ssl_monitor", "system_sync", "keys_integrity"):
         for job in job_queue.get_jobs_by_name(name):
             job.schedule_removal()
 
@@ -613,6 +792,15 @@ def schedule_monitor_jobs(job_queue):
         f"[JOBS] system_sync (SSH, молча): every {SYSTEM_SYNC_INTERVAL_MIN} min",
         flush=True,
     )
+
+    # Целостность SSH-ключей: локальная проверка ФС, всегда
+    job_queue.run_repeating(
+        keys_integrity_job,
+        interval=SYSTEM_SYNC_INTERVAL_MIN * 60,
+        first=45,
+        name="keys_integrity",
+    )
+    print("[JOBS] keys_integrity: every %d min" % SYSTEM_SYNC_INTERVAL_MIN, flush=True)
 
     # Availability-монитор: лёгкая сетевая проба + уведомления
     if monitor["online"]["enabled"]:

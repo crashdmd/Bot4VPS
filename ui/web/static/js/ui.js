@@ -40,6 +40,8 @@ export function confirmAction({
 
   const ok = document.getElementById('confirm-modal-ok');
   const cancel = document.getElementById('confirm-modal-cancel');
+  // infoModal прячет «Отмену» — возвращаем её для обычных подтверждений
+  cancel.classList.remove('hidden');
   ok.textContent = confirmText;
   ok.className = danger ? 'danger' : 'secondary';
   cancel.textContent = cancelText;
@@ -59,6 +61,35 @@ export function confirmAction({
 
   modal.classList.add('open');
   setTimeout(() => cancel.focus(), 30);
+  return new Promise(resolve => { confirmResolve = resolve; });
+}
+
+/** Информационная модалка: единственная кнопка «Ок», без отмены.
+    Переиспользует разметку confirm-modal (confirmAction снимает
+    hidden с «Отмены» при следующем открытии). */
+export function infoModal({ title, message = '', okText = 'Ок' } = {}) {
+  const modal = document.getElementById('confirm-modal');
+  if (!modal) return Promise.resolve(true);
+  if (confirmResolve) closeConfirmDialog(false);
+  confirmReturnFocus = document.activeElement;
+  document.getElementById('confirm-modal-title').textContent = title || 'Внимание';
+  const messageEl = document.getElementById('confirm-modal-message');
+  messageEl.textContent = message;
+  messageEl.classList.toggle('hidden', !message);
+  const ok = document.getElementById('confirm-modal-ok');
+  const cancel = document.getElementById('confirm-modal-cancel');
+  ok.textContent = okText;
+  ok.className = 'secondary';
+  cancel.classList.add('hidden');
+  ok.onclick = () => closeConfirmDialog(true);
+  modal.onkeydown = e => {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      closeConfirmDialog(true);
+    }
+  };
+  modal.classList.add('open');
+  setTimeout(() => ok.focus(), 30);
   return new Promise(resolve => { confirmResolve = resolve; });
 }
 
@@ -118,12 +149,14 @@ export function bindTelegramHealthDialog() {
   });
 }
 
-export function toast(m, ok) {
+export function toast(m, ok, opts = {}) {
   const e = document.createElement('div');
   e.className = 'toast ' + (ok ? 'ok' : 'err');
+  // Многострочные сообщения (диагностика Telegram): переносы строк видны
+  e.style.whiteSpace = opts.multiline ? 'pre-line' : '';
   e.textContent = m;
   document.getElementById('toasts').appendChild(e);
-  setTimeout(() => e.remove(), 3000);
+  setTimeout(() => e.remove(), opts.timeout || 3000);
 }
 
 export function syncServerTime(server_ts) {
@@ -378,6 +411,9 @@ export function bindPasswordToggles(root = document) {
       const show = input.type === 'password';
       input.type = show ? 'text' : 'password';
       btn.textContent = show ? '🙈' : '👁';
+      // Возвращаем twemoji: сырой юникод-эмодзи системный шрифт рисует
+      // крупнее img.emoji (1em) — иконка «распухала» после первого клика.
+      parseEmoji(btn);
     };
   });
 }

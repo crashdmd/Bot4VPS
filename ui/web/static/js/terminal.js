@@ -6,6 +6,7 @@ import { state } from './state.js';
 const XTERM_THEME = {
   dark: { background: '#0a0e14', foreground: '#e6edf3', cursor: '#e6edf3', selectionBackground: '#264f7888' },
   light: { background: '#ffffff', foreground: '#1f2328', cursor: '#1f2328', selectionBackground: '#9ec6f888' },
+  glass: { background: '#0d1f33', foreground: '#eaf4fc', cursor: '#6fd2ff', selectionBackground: '#2a6ea8aa' },
 };
 
 let term = null;
@@ -15,7 +16,8 @@ let ro = null;
 let curServerId = null;
 
 function resolvedTheme() {
-  return document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark';
+  const theme = document.documentElement.getAttribute('data-theme');
+  return theme === 'light' ? 'light' : (theme === 'glass' ? 'glass' : 'dark');
 }
 
 function setStatus(text, ok = null) {

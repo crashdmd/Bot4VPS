@@ -22,9 +22,18 @@ from core.install_paths import get_backup_data_path, resolve_storage_root
 from core.storage import find_server
 from core.version import APP_VERSION
 
+from core.config import get_stored_backup_password
 from core.event_service import create_event, dispatch_notifiers
 from core.event_types import EventLevel, EventReason, EventType
+from core.secretbox import SecretBoxError
 
+from .archive_crypto import (
+    MAX_PASSWORD_LEN,
+    decrypt_file,
+    encrypt_in_place,
+    is_encrypted_file,
+    verify_password,
+)
 from .bot4vps_sources import iter_source_entries, resolve_bot4vps_sources
 
 from .catalog import CatalogStore
@@ -73,8 +82,11 @@ from .restore_apply import (
     RESTORE_MODE_CLEAN,
     RESTORE_MODE_MERGE,
     assert_free_space,
+    assert_free_space_local,
     assert_no_symlink_components,
+    assert_no_symlink_components_local,
     assert_no_symlink_ancestors,
+    assert_no_symlink_ancestors_local,
     assert_restore_capability,
     clear_stale_remote_archives,
     create_restore_member_list,
@@ -84,6 +96,7 @@ from .restore_apply import (
     existing_local_paths,
     existing_target_paths,
     extract_restore_archive,
+    filter_self_restore_live_state,
     normalize_restore_mode,
     preflight_restore_processes,
     planned_removals,
@@ -93,9 +106,16 @@ from .restore_apply import (
     remote_member_list_path,
     restore_plan_summary,
     restore_space_requirements,
+    restore_space_requirements_local,
     upload_restore_archive,
     upload_restore_member_list,
     verify_applied_restore,
+)
+from .self_restore import (
+    apply_self_restore,
+    enrich_operation,
+    prepare_warnings_for,
+    reconcile_self_restores,
 )
 from .restore_plan import (
     SELECTION_MODE_FULL,
@@ -433,6 +453,118 @@ class BackupManager:
                 # Повреждённый или одновременно меняющийся bundle не блокирует
                 # facade; безопасная повторная попытка произойдёт позже.
                 continue
+
+    def _resolve_encryption_password(
+        self,
+        explicit: str | None,
+        encrypt: bool | None = None,
+        *,
+        missing_ok: bool = False,
+    ) -> str | None:
+        """Пароль шифрования архива: одноразовый → сохранённый (enc1:) → None.
+
+        Явный пароль (одноразовый, из API) приоритетнее сохранённого. Пустая
+        строка/None означает «не передавали» — работаем с сохранённым.
+        ``encrypt`` — решение о шифровании: False — plain-архив даже при
+        настроенном сохранённом пароле, True — архив обязан быть зашифрованным.
+        ``missing_ok=True`` означает, что True пришёл не от человека, а выведен
+        из настроек цели (``encrypt`` в профиле): плановый бэкап без пароля не
+        срывается — отсутствующий бэкап хуже нешифрованного, поэтому создаётся
+        plain-архив с warning-записью в журнал. От человека (``missing_ok``
+        False) тихий plain был бы обманом выбора — чистый отказ. Если
+        сохранённый пароль не может быть расшифрован (мастер-ключ
+        недоступен/утерян), фолбэк plain+warning — в обоих режимах. Сам пароль
+        нигде не логируется.
+        """
+        if encrypt is False:
+            return None
+        if explicit:
+            if len(explicit) > MAX_PASSWORD_LEN:
+                raise BackupError(
+                    ErrorCode.INVALID_REQUEST,
+                    f"Пароль шифрования — строка до {MAX_PASSWORD_LEN} символов",
+                )
+            return explicit
+        try:
+            resolved = get_stored_backup_password() or None
+        except SecretBoxError:
+            create_event(
+                EventType.BACKUP,
+                EventLevel.WARNING,
+                "Шифрование бэкапа пропущено",
+                "Мастер-ключ недоступен — сохранённый пароль резервных копий "
+                "не может быть расшифрован. Архив создан без шифрования.",
+            )
+            return None
+        if encrypt is True and resolved is None:
+            if missing_ok:
+                create_event(
+                    EventType.BACKUP,
+                    EventLevel.WARNING,
+                    "Защита бэкапа пропущена",
+                    "В настройках цели включена защита паролем, но сам пароль "
+                    "резервных копий не задан. Архив создан без шифрования. "
+                    "Задайте пароль в Настройки → Безопасность.",
+                )
+                return None
+            # Пользователь явно потребовал шифрование, но пароля нет:
+            # тихий plain-архив был бы обманом выбора.
+            raise BackupError(
+                ErrorCode.ENCRYPTION_PASSWORD_REQUIRED,
+                "Не задан пароль резервных копий: настройте его в "
+                "Настройки → Безопасность или введите разовый пароль",
+            )
+        return resolved
+
+    def _decrypt_restore_archive(self, archive_path: Path, password: str | None) -> Path:
+        """Расшифровать B4VE-архив во временный plain tar.gz в staging (0600).
+
+        Возвращает путь к расшифрованному файлу; удаление временного каталога —
+        ответственность вызывающего (``remove_staging`` в finally): расшифрованные
+        байты не должны переживать операцию. Пароль: явный ввод (Web-визард или
+        модалка «архив создан до смены пароля») → сохранённый (enc1:). Нет
+        пароля — чистый ENCRYPTION_PASSWORD_REQUIRED, неверный —
+        ENCRYPTION_PASSWORD_INVALID (из decrypt_file).
+        """
+        if password:
+            if len(password) > MAX_PASSWORD_LEN:
+                raise BackupError(
+                    ErrorCode.INVALID_REQUEST,
+                    f"Пароль резервных копий — строка до {MAX_PASSWORD_LEN} символов",
+                )
+        else:
+            try:
+                password = get_stored_backup_password()
+            except SecretBoxError as exc:
+                raise BackupError(
+                    ErrorCode.ENCRYPTION_PASSWORD_REQUIRED,
+                    "Архив зашифрован, а сохранённый пароль резервных копий "
+                    "недоступен (мастер-ключ не задан). Введите пароль вручную",
+                ) from exc
+            if not password:
+                raise BackupError(
+                    ErrorCode.ENCRYPTION_PASSWORD_REQUIRED,
+                    "Архив зашифрован: введите пароль резервных копий",
+                )
+        staging_dir = f"dec-{uuid4().hex}"
+        plain = self.storage.staging_archive_path(staging_dir, "decrypted", "create")
+        try:
+            self.storage.create_staging(staging_dir, "create")
+            decrypt_file(archive_path, plain, password)
+        except BaseException:
+            self.storage.remove_staging(staging_dir, "create")
+            raise
+        return plain
+
+    @staticmethod
+    def _discard_decrypted_restore_archive(plain: Path | None) -> None:
+        """Удалить временный расшифрованный restore-архив (best effort)."""
+        if plain is None:
+            return
+        try:
+            shutil.rmtree(plain.parent, ignore_errors=True)
+        except Exception:
+            pass
 
     def _managed_inventory_binding(
         self,
@@ -1247,12 +1379,15 @@ class BackupManager:
         backup не настроен — это ровно самый опасный случай. Проверка «в профиле
         нет источников» относится к выбору пользователя, а не к явному списку
         путей, поэтому здесь она не применяется. Лимиты профиля наследуются: они
-        защищают то же хранилище. Уведомления — нет.
+        защищают то же хранилище. Флаг шифрования тоже наследуется: копия —
+        полноценный архив в общем списке, защита определяется настройкой цели.
+        Уведомления — нет.
         """
         server = find_server(server_id)
         if server is None:
             raise BackupError(ErrorCode.SOURCE_NOT_FOUND, "Сервер backup не найден")
         limits: dict = {}
+        encrypt_flag = False
         raw_profile = server.get("backup")
         if isinstance(raw_profile, dict):
             try:
@@ -1263,6 +1398,7 @@ class BackupManager:
                 existing = None
             if existing is not None:
                 limits = dict(existing["limits"])
+                encrypt_flag = bool(existing.get("encrypt"))
         return server, {
             "schema_version": 1,
             "sources": [
@@ -1275,6 +1411,7 @@ class BackupManager:
             # внутренний шаг Restore, о котором пользователь узнаёт из панели
             # Restore. Событие журнала создаётся как обычно, push не делается.
             "notifications": {},
+            "encrypt": encrypt_flag,
         }
 
     def create(
@@ -1288,6 +1425,8 @@ class BackupManager:
         sources_override: list[dict] | None = None,
         locks_held: bool = False,
         initiated_from_telegram: bool = False,
+        password: str | None = None,
+        encrypt: bool | None = None,
     ) -> dict:
         """Создать server backup через binary SSH streaming.
 
@@ -1314,6 +1453,15 @@ class BackupManager:
                 server_id,
                 sources_override,
             )
+        # Шифрование по умолчанию — свойство цели (encrypt в профиле): ручной
+        # запуск, расписание и Telegram не передают encrypt сами. Явный
+        # аргумент вызова перекрывает профиль (API: принудительно plain или
+        # зашифрованный); явный пароль без флага тоже означает «зашифровать».
+        # derived-флаг без пароля не рвёт бэкап (см.
+        # _resolve_encryption_password, missing_ok).
+        derived_encrypt = encrypt is None
+        if derived_encrypt:
+            encrypt = bool(profile.get("encrypt")) or bool(password)
         request_id = request_id or f"create-{uuid4().hex}"
         operation_id = new_operation_id()
         owner = self.coordinator.acquire_operation_owner(operation_id)
@@ -1610,6 +1758,13 @@ class BackupManager:
                     ErrorCode.ARCHIVE_CREATE_FAILED,
                     "Внутренняя рассинхронизация metadata источников",
                 )
+            # Пароль резолвится как можно позже: до этого момента операция ещё
+            # может быть отменена, а секрет не должен жить в памяти дольше
+            # необходимого. Сюда входит и plain-фолбэк при недоступном мастер-ключе
+            # и при профильно-выведенном флаге без заданного пароля.
+            encrypt_password = self._resolve_encryption_password(
+                password, encrypt, missing_ok=derived_encrypt
+            )
 
             archive_progress = _ArchiveProgress(
                 self.operations,
@@ -1628,7 +1783,7 @@ class BackupManager:
                 "backup_id": backup_id, "type": "server",
                 "purpose": purpose, "mode": mode, "label": label,
                 "created_at": operation["created_at"], "completed_at": utc_timestamp(),
-                "archive": {"format": "tar.gz", "encrypted": False},
+                "archive": {"format": "tar.gz", "encrypted": encrypt_password is not None},
                 "producer": {"name": "bot4vps", "version": "1"},
                 "source": manifest_source,
                 # Только реально попавшие в архив источники. Объявить путь, чей
@@ -1729,13 +1884,23 @@ class BackupManager:
             # only TAR member inspection so the same owned member graph can be
             # consumed directly by the inventory builder.
             checksum = self.storage.calculate_checksum(archive_path)
-            staging_checksum = self.storage.write_checksum(archive_path, checksum)
             inspection = verify_archive_with_members(
                 archive_path,
                 expected_backup_id=backup_id,
                 expected_type="server",
             )
             validated = inspection["manifest"]
+            if encrypt_password is not None:
+                # TAR-инспекция прошла по plain-байтам — теперь staging-архив
+                # шифруется на месте (B4VE). .sha256, inventory binding и
+                # Catalog обязаны ссылаться на зашифрованные байты, поэтому
+                # checksum и archive_size пересчитываются. write_checksum
+                # идёт после шифрования (O_EXCL не позволяет перезапись).
+                encrypt_in_place(archive_path, encrypt_password)
+                encrypt_password = None
+                archive_size = archive_path.stat().st_size
+                checksum = self.storage.calculate_checksum(archive_path)
+            staging_checksum = self.storage.write_checksum(archive_path, checksum)
             inventory_source, inventory_archive = self._managed_inventory_binding(
                 backup_id=backup_id,
                 backup_type="server",
@@ -1879,6 +2044,8 @@ class BackupManager:
         label: str | None = None,
         locks_held: bool = False,
         initiated_from_telegram: bool = False,
+        password: str | None = None,
+        encrypt: bool | None = None,
     ) -> dict:
         """Создать локальный backup текущей установки через общий pipeline.
 
@@ -1887,6 +2054,12 @@ class BackupManager:
         так фиксированы политикой установки и совпадают со scope восстановления,
         поэтому ``sources_override`` не нужен.
         """
+        # Шифрование по умолчанию — свойство цели (backup.bot4vps.encrypt),
+        # как в create(): расписание и Telegram не передают encrypt сами;
+        # явный пароль без флага тоже означает «зашифровать».
+        derived_encrypt = encrypt is None
+        if derived_encrypt:
+            encrypt = bool(self.config["bot4vps"].get("encrypt")) or bool(password)
         request_id = request_id or f"create-bot4vps-{uuid4().hex}"
         operation_id = new_operation_id()
         owner = self.coordinator.acquire_operation_owner(operation_id)
@@ -1980,6 +2153,10 @@ class BackupManager:
                 operation_id,
                 total_source_bytes,
             )
+            # Как в create(): секрет резолвится максимально поздно (см. там).
+            encrypt_password = self._resolve_encryption_password(
+                password, encrypt, missing_ok=derived_encrypt
+            )
             source_utc_offset = local_utc_offset(operation["created_at"])
             manifest = {
                 "manifest_version": 2,
@@ -1990,7 +2167,7 @@ class BackupManager:
                 "label": label,
                 "created_at": operation["created_at"],
                 "completed_at": utc_timestamp(),
-                "archive": {"format": "tar.gz", "encrypted": False},
+                "archive": {"format": "tar.gz", "encrypted": encrypt_password is not None},
                 "producer": {"name": "bot4vps", "version": APP_VERSION},
                 "source": {
                     "kind": "bot4vps",
@@ -2088,13 +2265,20 @@ class BackupManager:
             archive_progress.finish(archive_bytes=archive_size)
             self.operations.transition(operation_id, OperationStatus.VERIFYING.value, stage="verifying_staging")
             checksum = self.storage.calculate_checksum(archive_path)
-            staging_checksum = self.storage.write_checksum(archive_path, checksum)
             inspection = verify_archive_with_members(
                 archive_path,
                 expected_backup_id=backup_id,
                 expected_type="bot4vps",
             )
             validated = inspection["manifest"]
+            if encrypt_password is not None:
+                # См. create(): plain-инспекция → шифрование на месте →
+                # checksum/size по зашифрованным байтам.
+                encrypt_in_place(archive_path, encrypt_password)
+                encrypt_password = None
+                archive_size = archive_path.stat().st_size
+                checksum = self.storage.calculate_checksum(archive_path)
+            staging_checksum = self.storage.write_checksum(archive_path, checksum)
             inventory_source, inventory_archive = self._managed_inventory_binding(
                 backup_id=backup_id,
                 backup_type="bot4vps",
@@ -2227,6 +2411,8 @@ class BackupManager:
         request_id: str | None = None,
         label: str | None = None,
         initiated_from_telegram: bool = False,
+        password: str | None = None,
+        encrypt: bool | None = None,
     ) -> dict:
         """Start a native create workflow in a daemon thread for Web clients."""
         if bot4vps == (server_id is not None):
@@ -2234,6 +2420,11 @@ class BackupManager:
                 ErrorCode.INVALID_REQUEST,
                 "Нужно выбрать ровно один target backup",
             )
+        if encrypt is True:
+            # Синхронная проверка: run() глушит исключения фонового потока, а
+            # отказ «защита выбрана, но пароля нет» пользователь должен
+            # увидеть сразу, а не в истории операций.
+            self._resolve_encryption_password(password, True)
         request_id = request_id or f"web-create-{uuid4().hex}"
         if not bot4vps:
             # Проверка профиля обязана быть синхронной: run() глушит исключения
@@ -2249,6 +2440,8 @@ class BackupManager:
                         request_id=request_id,
                         label=label,
                         initiated_from_telegram=initiated_from_telegram,
+                        password=password,
+                        encrypt=encrypt,
                     )
                 else:
                     self.create(
@@ -2256,6 +2449,8 @@ class BackupManager:
                         request_id=request_id,
                         label=label,
                         initiated_from_telegram=initiated_from_telegram,
+                        password=password,
+                        encrypt=encrypt,
                     )
             except Exception:
                 # The native workflow persists its own safe terminal state.
@@ -2568,6 +2763,7 @@ class BackupManager:
         confirm_without_protective: bool = False,
         initiated_from_telegram: bool = False,
         request_id: str | None = None,
+        password: str | None = None,
     ) -> dict:
         """Restore a managed Catalog backup through the shared lifecycle."""
         return self._restore_source(
@@ -2585,6 +2781,7 @@ class BackupManager:
             confirm_without_protective=confirm_without_protective,
             initiated_from_telegram=initiated_from_telegram,
             request_id=request_id or f"restore-{uuid4().hex}",
+            password=password,
         )
 
     def restore_imported_archive(
@@ -2603,6 +2800,7 @@ class BackupManager:
         confirm_without_protective: bool = False,
         initiated_from_telegram: bool = False,
         request_id: str | None = None,
+        password: str | None = None,
     ) -> dict:
         """Restore one import addressed only by its existing bundle entry key."""
         caller_request_id = request_id or f"restore-imported-{uuid4().hex}"
@@ -2625,6 +2823,7 @@ class BackupManager:
             confirm_without_protective=confirm_without_protective,
             initiated_from_telegram=initiated_from_telegram,
             request_id=operation_request_id,
+            password=password,
         )
 
     def _restore_source(
@@ -2644,6 +2843,7 @@ class BackupManager:
         confirm_without_protective: bool = False,
         initiated_from_telegram: bool = False,
         request_id: str,
+        password: str | None = None,
     ) -> dict:
         """Подготовить восстановление resolved source и, если разрешено, применить его.
 
@@ -2719,6 +2919,7 @@ class BackupManager:
         import_permit = None
         resolved_import = None
         artifact_ref = None
+        decrypted_archive: Path | None = None
         try:
             if source_kind == "managed":
                 ref = self._requested_ref(source_id, server_id)
@@ -2738,6 +2939,27 @@ class BackupManager:
                     target_server_id = None
                 else:
                     target_server_id = str(artifact_ref.server_id)
+                if record.get("archive", {}).get("encrypted"):
+                    if initiated_from_telegram:
+                        # ТЗ: TG-restore зашифрованного — чистая ошибка с
+                        # подсказкой; ввод пароля в Telegram не делаем.
+                        raise BackupError(
+                            ErrorCode.ENCRYPTION_PASSWORD_REQUIRED,
+                            "Архив зашифрован: восстановление зашифрованных "
+                            "резервных копий доступно через Web-интерфейс",
+                        )
+                    encrypted_file = self.storage.resolve_key(record["storage"]["key"])
+                    if not encrypted_file.is_file():
+                        raise BackupError(
+                            ErrorCode.ARTIFACT_PUBLISH_INCOMPLETE,
+                            "Опубликованный archive не найден",
+                            retryable=True,
+                        )
+                    # Расшифровка ДО регистрации операции и границы мутаций:
+                    # неверный пароль — чистый отказ без записи в истории.
+                    decrypted_archive = self._decrypt_restore_archive(
+                        encrypted_file, password
+                    )
             elif source_kind == "imported":
                 if not isinstance(source_id, str):
                     raise BackupError(
@@ -2775,6 +2997,26 @@ class BackupManager:
                     "entry_key": resolved_import["entry_key"],
                     "destination": destination_contract,
                 }
+                if record.get("encrypted"):
+                    if initiated_from_telegram:
+                        # ТЗ: TG-restore зашифрованного — чистая ошибка с
+                        # подсказкой; ввод пароля в Telegram не делаем.
+                        raise BackupError(
+                            ErrorCode.ENCRYPTION_PASSWORD_REQUIRED,
+                            "Архив зашифрован: восстановление зашифрованных "
+                            "резервных копий доступно через Web-интерфейс",
+                        )
+                    encrypted_file = resolved_import["archive"]
+                    if not encrypted_file.is_file():
+                        raise BackupError(
+                            ErrorCode.ARTIFACT_NOT_FOUND,
+                            "Импортированный архив не найден",
+                        )
+                    # Расшифровка ДО регистрации операции и границы мутаций:
+                    # неверный пароль — чистый отказ без записи в истории.
+                    decrypted_archive = self._decrypt_restore_archive(
+                        encrypted_file, password
+                    )
             else:
                 raise BackupError(
                     ErrorCode.INVALID_REQUEST,
@@ -2797,12 +3039,6 @@ class BackupManager:
                         ErrorCode.RESTORE_PRECHECK_FAILED,
                         "Для Bot4VPS доступно только обычное восстановление: "
                         "«чистое» удалило бы файлы работающей установки",
-                    )
-                if apply_changes:
-                    raise BackupError(
-                        ErrorCode.RESTORE_PRECHECK_FAILED,
-                        "Применение восстановления Bot4VPS подключается отдельным "
-                        "этапом: сейчас доступна только подготовка",
                     )
                 target = {"kind": "bot4vps"}
                 target_key = "bot4vps"
@@ -2842,6 +3078,7 @@ class BackupManager:
         except Exception:
             if import_permit is not None:
                 import_permit.release()
+            self._discard_decrypted_restore_archive(decrypted_archive)
             raise
 
         operation_id = new_operation_id()
@@ -2858,12 +3095,14 @@ class BackupManager:
         except Exception:
             if import_permit is not None:
                 import_permit.release()
+            self._discard_decrypted_restore_archive(decrypted_archive)
             owner.release()
             raise
         if operation["operation_id"] != operation_id:
             # Активная операция с тем же логическим запросом уже идёт.
             if import_permit is not None:
                 import_permit.release()
+            self._discard_decrypted_restore_archive(decrypted_archive)
             owner.release()
             return {"operation": operation, "duplicate": True}
 
@@ -2927,12 +3166,18 @@ class BackupManager:
                 planned = self._plan_imported_restore_resolved(
                     resolved_import,
                     target_root=target_root,
+                    # Расшифрованный в начале операции temp: план строится по
+                    # plain-байтам, тот же файл позже доставляется на target.
+                    archive_override=decrypted_archive,
                 )
             else:
                 planned = self._plan_managed_restore_resolved(
                     record,
                     artifact_ref,
                     target_root=target_root,
+                    # Расшифрованный в начале операции temp: план строится по
+                    # plain-байтам, тот же файл позже доставляется на target.
+                    archive_override=decrypted_archive,
                 )
             full_plan = planned["plan"]
             plan = build_effective_restore_plan(
@@ -2941,6 +3186,12 @@ class BackupManager:
                 selected_paths=selected_paths,
             )
             self._assert_effective_restore_scope(plan)
+            if target_server_id is None:
+                # Локальный apply не перезаписывает живое координационное
+                # состояние машины (maintenance/indexer-jobs). Фильтр стоит
+                # ДО digest и применяется одинаково на prepare и на apply —
+                # иначе prepared-контракт разошёлся бы между фазами.
+                plan = filter_self_restore_live_state(plan, self.data_root)
             plan_digest = effective_restore_plan_digest(plan)
             if (
                 prepared_contract is not None
@@ -2963,9 +3214,9 @@ class BackupManager:
                 # archive уже разрешён под непрерывным shared import lock; managed
                 # остаётся неизменяемым опубликованным Catalog artifact.
                 archive_file = (
-                    resolved_import["archive"]
+                    (decrypted_archive or resolved_import["archive"])
                     if source_kind == "imported"
-                    else self.storage.resolve_key(record["storage"]["key"])
+                    else (decrypted_archive or self.storage.resolve_key(record["storage"]["key"]))
                 )
                 if not archive_file.is_file():
                     raise BackupError(
@@ -3100,6 +3351,29 @@ class BackupManager:
                 ssh = None
             else:
                 # Bot4VPS восстанавливается в собственную установку: target локален.
+                if apply_changes:
+                    # Те же границы, что у SSH-пути, но без транспорта — и,
+                    # как там, ДО защитной копии: отказ по symlink или месту
+                    # обходится дешевле самой копии. Возможности tar не
+                    # проверяются: команда та же, что создала архив.
+                    assert_no_symlink_components_local(roots)
+                    assert_no_symlink_ancestors_local(plan)
+                    assert_free_space_local(
+                        restore_space_requirements_local(plan)
+                    )
+                else:
+                    # Предупреждения prepare: понижение/повышение версии кода,
+                    # смена режима юнита (web+tg ↔ tg-only) и порта.
+                    warnings.extend(
+                        prepare_warnings_for(
+                            self,
+                            source_kind=source_kind,
+                            record=record,
+                            resolved_import=resolved_import,
+                            decrypted_archive=decrypted_archive,
+                            plan=plan,
+                        )
+                    )
                 existing = existing_local_paths(archive_paths)
 
             # Сводка плана сохраняется в самой Operation, иначе она не выживет:
@@ -3184,6 +3458,23 @@ class BackupManager:
                     ),
                 }
 
+            if target_server is None:
+                # Локальное применение self-restore: раннер вне процесса
+                # (переживает остановку сервиса) + финализация по его
+                # state.json. Единый путь для Web и CLI.
+                return apply_self_restore(
+                    self,
+                    operation_id=operation_id,
+                    plan=plan,
+                    roots=roots,
+                    archive_file=archive_file,
+                    decrypted_archive=decrypted_archive,
+                    mode=mode,
+                    warnings=warnings,
+                    protective_result=protective_result,
+                    backup_filename=record.get("filename"),
+                )
+
             # ── доставка архива: последний шаг, который ещё можно отменить ──
             self.operations.update_stage(operation_id, "uploading_archive")
             self.operations.update_progress(
@@ -3214,7 +3505,7 @@ class BackupManager:
                 if source_kind == "imported":
                     # The permit was acquired before physical validation and stays
                     # held through transfer, so replacement cannot swap the bytes.
-                    archive_file = resolved_import["archive"]
+                    archive_file = decrypted_archive or resolved_import["archive"]
                     if not archive_file.is_file():
                         raise BackupError(
                             ErrorCode.ARTIFACT_NOT_FOUND,
@@ -3230,7 +3521,10 @@ class BackupManager:
                     import_permit = None
                 else:
                     with self.coordinator.acquire_artifact_read(artifact_ref):
-                        archive_file = self.storage.resolve_key(record["storage"]["key"])
+                        archive_file = (
+                            decrypted_archive
+                            or self.storage.resolve_key(record["storage"]["key"])
+                        )
                         if not archive_file.is_file():
                             raise BackupError(
                                 ErrorCode.ARTIFACT_PUBLISH_INCOMPLETE,
@@ -3505,6 +3799,9 @@ class BackupManager:
                     member_list_path.unlink(missing_ok=True)
                 except OSError:
                     pass
+            # Расшифрованные байты не переживают операцию — временный
+            # staging-каталог удаляется при любом исходе.
+            self._discard_decrypted_restore_archive(decrypted_archive)
             if permit is not None:
                 permit.release()
             if import_permit is not None:
@@ -3527,6 +3824,7 @@ class BackupManager:
         confirm_without_protective: bool = False,
         initiated_from_telegram: bool = False,
         request_id: str | None = None,
+        password: str | None = None,
     ) -> dict:
         """Запустить Restore в фоне и вернуть зарегистрированную Operation.
 
@@ -3562,12 +3860,6 @@ class BackupManager:
                     "Для Bot4VPS доступно только обычное восстановление: "
                     "«чистое» удалило бы файлы работающей установки",
                 )
-            if apply_changes:
-                raise BackupError(
-                    ErrorCode.RESTORE_PRECHECK_FAILED,
-                    "Применение восстановления Bot4VPS подключается отдельным "
-                    "этапом: сейчас доступна только подготовка",
-                )
 
         def run() -> None:
             try:
@@ -3584,6 +3876,7 @@ class BackupManager:
                     confirm_without_protective=confirm_without_protective,
                     initiated_from_telegram=initiated_from_telegram,
                     request_id=request_id,
+                    password=password,
                 )
             except Exception:
                 # Terminal state Operation уже сохранён самим restore().
@@ -3631,6 +3924,7 @@ class BackupManager:
         confirm_without_protective: bool = False,
         initiated_from_telegram: bool = False,
         request_id: str | None = None,
+        password: str | None = None,
     ) -> dict:
         """Start imported Restore and poll by its scoped opaque request key."""
         apply_changes = bool(apply)
@@ -3671,12 +3965,6 @@ class BackupManager:
                         "Для Bot4VPS доступно только обычное восстановление: "
                         "«чистое» удалило бы файлы работающей установки",
                     )
-                if apply_changes:
-                    raise BackupError(
-                        ErrorCode.RESTORE_PRECHECK_FAILED,
-                        "Применение восстановления Bot4VPS подключается отдельным "
-                        "этапом: сейчас доступна только подготовка",
-                    )
             elif destination.get("scope") == "server":
                 destination_server_id = destination.get("server_id")
                 if not isinstance(destination_server_id, str) or find_server(
@@ -3708,6 +3996,7 @@ class BackupManager:
                     confirm_without_protective=confirm_without_protective,
                     initiated_from_telegram=initiated_from_telegram,
                     request_id=caller_request_id,
+                    password=password,
                 )
             except Exception:
                 return
@@ -3838,6 +4127,7 @@ class BackupManager:
         destination_server_id: str | None = None,
         replace: bool = False,
         confirm_bot4vps_replace: bool = False,
+        password: str | None = None,
     ) -> dict:
         """Publish an ordinary TAR/TAR.GZ as a self-contained import bundle.
 
@@ -3845,10 +4135,31 @@ class BackupManager:
         atomically renamed into ``imports/``, all reads address its ``entry_key``
         and ``publication.json`` directly. Managed Catalog and ArtifactRef are
         deliberately not involved in this lifecycle.
+
+        ``password`` — пароль зашифрованного (B4VE) импорта. С ним архив
+        расшифровывается на время инспекции и публикуется с настоящей
+        инвентаризацией (древо файлов → выборочное восстановление и просмотр).
+        Неверный пароль отбивается до создания Operation. Без пароля — прежнее
+        поведение: legacy-сайдкар без членов, состав читается только на Restore.
         """
         # Keep the argument for API compatibility. Ordinary import is intentionally
         # not classified by Manifest or by a caller-supplied expected type.
         del expected_type
+        if password:
+            if len(password) > MAX_PASSWORD_LEN:
+                raise BackupError(
+                    ErrorCode.INVALID_REQUEST,
+                    f"Пароль резервных копий — строка до {MAX_PASSWORD_LEN} символов",
+                )
+            # Ранняя проверка до создания Operation: неверный пароль — чистый
+            # отказ без мусорной записи в журнале операций.
+            if is_encrypted_file(source_archive) and not verify_password(
+                source_archive, password
+            ):
+                raise BackupError(
+                    ErrorCode.ENCRYPTION_PASSWORD_INVALID,
+                    "Неверный пароль резервных копий для этого архива",
+                )
         publication_filename = self._import_archive_filename(
             source_archive,
             filename,
@@ -3912,56 +4223,108 @@ class BackupManager:
                 OperationStatus.VERIFYING.value,
                 stage="inspecting_staging",
             )
-            inspected = inspect_archive(paths["archive"])
-
-            self.operations.update_stage(operation_id, "computing_checksum")
-            checksum = self.storage.calculate_checksum(paths["archive"])
-            imported_at = utc_timestamp()
-            with paths["archive"].open("rb") as stream:
-                raw_bytes = stream.read(2)
-            publication = {
-                "schema_version": 2,
-                "entry_key": entry_key,
-                "filename": publication_filename,
-                "destination": (
-                    {"scope": "server", "server_id": destination_server_id}
-                    if destination_server_id is not None
-                    else {"scope": "bot4vps"}
-                ),
-                "format": "tar.gz" if raw_bytes == bytes.fromhex("1f8b") else "tar",
-                "bytes": paths["archive"].stat().st_size,
-                "checksum": {"algorithm": "sha256", "value": checksum},
-                "imported_at": imported_at,
-                "inspection": {
-                    "status": "readable",
-                    "manifest_status": "present" if inspected["manifest"] is not None else "absent",
-                    "member_count": len(inspected["members"]),
-                },
-                "origin": self._import_origin_metadata(inspected.get("manifest")),
-                "restore": self._import_restore_metadata(inspected.get("manifest")),
-            }
+            # B4VE (зашифрованный паролем tar.gz): без пароля публикуется как есть
+            # (сайдкар без членов, состав читается только на Restore с паролем).
+            # С паролем — расшифровывается во временный staging-файл на время
+            # инспекции, и публикация получает настоящую инвентаризацию.
+            encrypted_import = is_encrypted_file(paths["archive"])
+            decrypted_plain: Path | None = None
             try:
-                inventory = self._import_archive_inventory(
-                    inspected,
+                if encrypted_import and password:
+                    decrypted_plain = self._decrypt_restore_archive(
+                        paths["archive"],
+                        password,
+                    )
+                    inspected = inspect_archive(decrypted_plain)
+                elif encrypted_import:
+                    inspected = {"manifest": None, "members": []}
+                else:
+                    inspected = inspect_archive(paths["archive"])
+
+                self.operations.update_stage(operation_id, "computing_checksum")
+                checksum = self.storage.calculate_checksum(paths["archive"])
+                imported_at = utc_timestamp()
+                if encrypted_import:
+                    with paths["archive"].open("rb") as stream:
+                        raw_bytes = stream.read(4)
+                    detected_format = (
+                        "tar.gz"
+                        if raw_bytes[:4] == b"B4VE" or raw_bytes[:2] == bytes.fromhex("1f8b")
+                        else "tar"
+                    )
+                else:
+                    with paths["archive"].open("rb") as stream:
+                        raw_bytes = stream.read(2)
+                    detected_format = "tar.gz" if raw_bytes == bytes.fromhex("1f8b") else "tar"
+                # Инспекция зашифрованного импорта с паролем — настоящая (из
+                # расшифрованного TAR); без пароля — консервативно пустая.
+                inspection_real = encrypted_import and bool(password)
+                publication = {
+                    "schema_version": 2,
+                    "entry_key": entry_key,
+                    "filename": publication_filename,
+                    "destination": (
+                        {"scope": "server", "server_id": destination_server_id}
+                        if destination_server_id is not None
+                        else {"scope": "bot4vps"}
+                    ),
+                    "format": detected_format,
+                    "bytes": paths["archive"].stat().st_size,
+                    "checksum": {"algorithm": "sha256", "value": checksum},
+                    "imported_at": imported_at,
+                    "inspection": {
+                        "status": "encrypted" if encrypted_import else "readable",
+                        "manifest_status": (
+                            "absent"
+                            if inspected.get("manifest") is None
+                            else "present"
+                        ),
+                        "member_count": len(inspected["members"]),
+                    },
+                    "origin": self._import_origin_metadata(inspected.get("manifest")),
+                    "restore": (
+                        # Манифест зашифрованного архива без пароля недоступен на
+                        # импорте: консервативная подсказка, сам план на Restore
+                        # расшифрует архив и разрешит scope по настоящему манифесту.
+                        {"requires_target_root": True}
+                        if encrypted_import and not inspection_real
+                        else self._import_restore_metadata(inspected.get("manifest"))
+                    ),
+                }
+                if encrypted_import:
+                    publication["encrypted"] = True
+                if encrypted_import and not password:
+                    inventory = self._legacy_import_archive_inventory(
+                        inspected,
+                        publication,
+                        checksum,
+                    )
+                else:
+                    try:
+                        inventory = self._import_archive_inventory(
+                            inspected,
+                            publication,
+                            checksum,
+                            consume_members=True,
+                        )
+                    except BackupError:
+                        # Ordinary imports may be readable but physically non-restorable.
+                        # Keep them publishable with a strict v1 compatibility sidecar;
+                        # lazy inventory remains non-ready until an indexable v2 exists.
+                        inventory = self._legacy_import_archive_inventory(
+                            inspected,
+                            publication,
+                            checksum,
+                        )
+                self.storage.write_import_bundle_control(
+                    paths,
                     publication,
                     checksum,
-                    consume_members=True,
+                    inventory,
                 )
-            except BackupError:
-                # Ordinary imports may be readable but physically non-restorable.
-                # Keep them publishable with a strict v1 compatibility sidecar;
-                # lazy inventory remains non-ready until an indexable v2 exists.
-                inventory = self._legacy_import_archive_inventory(
-                    inspected,
-                    publication,
-                    checksum,
-                )
-            self.storage.write_import_bundle_control(
-                paths,
-                publication,
-                checksum,
-                inventory,
-            )
+            finally:
+                if decrypted_plain is not None:
+                    self._discard_decrypted_restore_archive(decrypted_plain)
 
             self.operations.update_stage(operation_id, "publishing_import_bundle")
             replacement: dict | None = None
@@ -4162,8 +4525,14 @@ class BackupManager:
                 if actual != expected[:-1] or actual != record["archive"]["checksum"]:
                     raise BackupError(ErrorCode.CHECKSUM_MISMATCH, "SHA-256 archive не совпадает")
                 self.operations.update_stage(operation_id, "opening_archive")
-                inspected = validate_archive_physical(archive_path)
-                manifest = inspected["manifest"]
+                if record.get("archive", {}).get("encrypted"):
+                    # Зашифрованный архив: целостность подтверждена SHA-256 по
+                    # шифротексту (AES-GCM дополнительно проверяется при
+                    # расшифровке). Открывать B4VE как TAR без пароля нельзя.
+                    manifest = record["manifest"]
+                else:
+                    inspected = validate_archive_physical(archive_path)
+                    manifest = inspected["manifest"]
                 self.operations.update_stage(operation_id, "validating_members")
                 record = self.catalog.update_verification(
                     artifact_ref,
@@ -5121,6 +5490,82 @@ class BackupManager:
             limit=limit,
         )
 
+    def _imported_encrypted_inventory_buildable(self, context: dict) -> bool:
+        """Зашифрованный импорт, у которого ещё нет готового v2-сайдкара.
+
+        Такой сайдкар строится только с паролем (расшифровка + инспекция) —
+        фоновый индексатор его построить не может и честно отказывает.
+        """
+        if context.get("kind") != "imported":
+            return False
+        if context["publication"].get("encrypted") is not True:
+            return False
+        try:
+            self._load_restore_inventory_snapshot(context)
+        except BackupError as exc:
+            # resource_limit — не «сайдкара нет», а отдельный недоступный статус
+            return self._inventory_resource_status(exc) is None
+        return False
+
+    def _build_imported_encrypted_inventory(
+        self,
+        context: dict,
+        password: str | None,
+        *,
+        replace_existing: bool = False,
+    ) -> None:
+        """Синхронно построить v2-сайдкар зашифрованного импорта с паролем.
+
+        Расшифровка во временный staging-файл (удаление сразу после инспекции),
+        пароль в job-очередь не попадает — поэтому это делается синхронно,
+        а не через фоновый индексатор.
+        """
+        entry_key = context["entry_key"]
+        server_id = context["server_id"]
+        with self.coordinator.acquire_import_publish(entry_key, server_id=server_id):
+            resolved = self.storage.resolve_import_bundle(
+                entry_key,
+                server_id=server_id,
+            )
+            if (
+                not replace_existing
+                and self.storage.read_import_archive_inventory(resolved) is not None
+            ):
+                # Параллельный вызов уже построил сайдкар
+                return
+            archive = Path(resolved["archive"])
+            if not archive.is_file():
+                raise BackupError(
+                    ErrorCode.ARTIFACT_NOT_FOUND,
+                    "Импортированный архив не найден",
+                )
+            # Явный пароль приоритетнее сохранённого (enc1:); нет ни того, ни
+            # другого — ENCRYPTION_PASSWORD_INVALID/REQUIRED из расшифровки.
+            plain = self._decrypt_restore_archive(archive, password)
+            try:
+                inspected = inspect_archive(plain)
+            finally:
+                self._discard_decrypted_restore_archive(plain)
+            publication = resolved["publication"]
+            checksum = (publication.get("checksum") or {}).get("value")
+            try:
+                inventory = self._import_archive_inventory(
+                    inspected,
+                    publication,
+                    checksum,
+                    consume_members=True,
+                )
+            except BackupError:
+                # Читаемый, но физически неиндексируемый состав: остаёмся без
+                # v2-сайдкара (как и фоновый индексатор — compatibility_only).
+                return
+            self.storage.write_import_archive_inventory(
+                resolved,
+                inventory,
+                verify_archive_checksum=False,
+                replace_existing=replace_existing,
+            )
+
     def prepare_imported_restore_inventory(
         self,
         entry_key: str,
@@ -5130,12 +5575,23 @@ class BackupManager:
         retry: bool = False,
         rebuild: bool = False,
         view: str = "restore",
+        password: str | None = None,
     ) -> dict:
         view = self._validate_inventory_view(view)
         context = self._imported_restore_inventory_context(
             entry_key,
             server_id=server_id,
         )
+        # Зашифрованный импорт без сайдкара: строим синхронно с паролем
+        # (rebuild — перестроить существующий сайдкар заново).
+        if self._imported_encrypted_inventory_buildable(context) or (
+            rebuild and context["publication"].get("encrypted") is True
+        ):
+            self._build_imported_encrypted_inventory(
+                context,
+                password,
+                replace_existing=rebuild,
+            )
         if view == "archive":
             self._validate_archive_view_target(target_root)
             return self._prepare_archive_inventory_context(
@@ -5409,7 +5865,80 @@ class BackupManager:
             "entry_key": entry_key,
             "eligible": True,
             "requires_target_root": requires_target_root,
+            "encrypted": publication.get("encrypted") is True,
         }
+
+    def imported_restore_password_probe(
+        self,
+        entry_key: str,
+        *,
+        server_id: str | None = None,
+        password: str | None = None,
+        use_stored: bool = False,
+    ) -> dict:
+        """Быстрая проверка пароля зашифрованного импорта (первый кусок B4VE).
+
+        Пароль наружу не отдаётся: use_stored проверяет сохранённый (enc1:) на
+        сервере, явный password — введённый пользователем. Ответ — только факт.
+        """
+        with self.coordinator.acquire_import_read(entry_key, server_id=server_id):
+            resolved = self.storage.resolve_import_bundle(
+                entry_key,
+                server_id=server_id,
+            )
+            archive = Path(resolved["archive"])
+        if not is_encrypted_file(archive):
+            return {"ok": True}
+        if use_stored:
+            try:
+                stored = get_stored_backup_password()
+            except SecretBoxError:
+                stored = None
+            if not stored:
+                return {"ok": False}
+            return {"ok": verify_password(archive, stored)}
+        if not password:
+            return {"ok": False}
+        if len(password) > MAX_PASSWORD_LEN:
+            return {"ok": False}
+        return {"ok": verify_password(archive, password)}
+
+    def restore_password_probe(
+        self,
+        backup_id: ArtifactRef | str,
+        *,
+        server_id: str | None = None,
+        password: str | None = None,
+        use_stored: bool = False,
+    ) -> dict:
+        """Быстрая проверка пароля зашифрованного managed-архива (первый кусок)."""
+        context = self._managed_restore_inventory_context(
+            backup_id,
+            server_id=server_id,
+        )
+        with self.coordinator.acquire_artifact_read(context["artifact_ref"]):
+            archive = Path(context["archive_path"])
+            if not archive.is_file():
+                raise BackupError(
+                    ErrorCode.ARTIFACT_PUBLISH_INCOMPLETE,
+                    "Опубликованный archive не найден",
+                    retryable=True,
+                )
+        if not is_encrypted_file(archive):
+            return {"ok": True}
+        if use_stored:
+            try:
+                stored = get_stored_backup_password()
+            except SecretBoxError:
+                stored = None
+            if not stored:
+                return {"ok": False}
+            return {"ok": verify_password(archive, stored)}
+        if not password:
+            return {"ok": False}
+        if len(password) > MAX_PASSWORD_LEN:
+            return {"ok": False}
+        return {"ok": verify_password(archive, password)}
 
     def resolve_imported_download(
         self,
@@ -5477,26 +6006,41 @@ class BackupManager:
         artifact_ref: ArtifactRef,
         *,
         target_root: str | None = None,
+        password: str | None = None,
+        archive_override: Path | None = None,
     ) -> dict:
         with self.coordinator.acquire_artifact_read(artifact_ref):
-            archive = self.storage.resolve_key(record["storage"]["key"])
+            archive = archive_override or self.storage.resolve_key(record["storage"]["key"])
             if not archive.is_file():
                 raise BackupError(
                     ErrorCode.ARTIFACT_PUBLISH_INCOMPLETE,
                     "Опубликованный archive не найден",
                     retryable=True,
                 )
-            inspected = validate_archive_physical(archive)
-            plan = build_restore_plan(
-                members=inspected["members"],
-                catalog_record=record,
-                target_root=target_root,
-                storage_root=(
-                    str(self.storage.root)
-                    if record.get("type") == "bot4vps"
-                    else None
-                ),
-            )
+            # Зашифрованный архив расшифровывается во временный staging-файл,
+            # который живёт ровно до построения плана. archive_override — уже
+            # расшифрованный temp, принадлежащий вызывающему (apply-фаза
+            # использует его же для доставки на target).
+            cleanup_dir: str | None = None
+            try:
+                if is_encrypted_file(archive) and archive_override is None:
+                    plain = self._decrypt_restore_archive(archive, password)
+                    cleanup_dir = plain.parent.name
+                    archive = plain
+                inspected = validate_archive_physical(archive)
+                plan = build_restore_plan(
+                    members=inspected["members"],
+                    catalog_record=record,
+                    target_root=target_root,
+                    storage_root=(
+                        str(self.storage.root)
+                        if record.get("type") == "bot4vps"
+                        else None
+                    ),
+                )
+            finally:
+                if cleanup_dir is not None:
+                    self.storage.remove_staging(cleanup_dir, "create")
         return {
             "archive": record,
             "plan": plan,
@@ -5579,26 +6123,40 @@ class BackupManager:
         resolved: dict,
         *,
         target_root: str | None = None,
+        password: str | None = None,
+        archive_override: Path | None = None,
     ) -> dict:
         """Physically validate already locked import bytes for Restore mutation."""
-        archive = resolved["archive"]
+        archive = archive_override or resolved["archive"]
         if not archive.is_file():
             raise BackupError(
                 ErrorCode.ARTIFACT_NOT_FOUND,
                 "Импортированный архив не найден",
             )
-        inspected = validate_archive_physical(archive)
-        return self._build_imported_restore_plan(
-            resolved,
-            inspected,
-            target_root=target_root,
-        )
+        # Зашифрованный импорт расшифровывается во временный staging-файл
+        # ровно на время физической валидации и построения плана.
+        cleanup_dir: str | None = None
+        try:
+            if is_encrypted_file(archive) and archive_override is None:
+                plain = self._decrypt_restore_archive(archive, password)
+                cleanup_dir = plain.parent.name
+                archive = plain
+            inspected = validate_archive_physical(archive)
+            return self._build_imported_restore_plan(
+                resolved,
+                inspected,
+                target_root=target_root,
+            )
+        finally:
+            if cleanup_dir is not None:
+                self.storage.remove_staging(cleanup_dir, "create")
 
     def _plan_imported_restore_for_ui_resolved(
         self,
         resolved: dict,
         *,
         target_root: str | None = None,
+        password: str | None = None,
         _diagnostics: dict | None = None,
     ) -> dict:
         """Plan read-only UI from a bound cache, falling back to the actual TAR."""
@@ -5608,27 +6166,43 @@ class BackupManager:
                 ErrorCode.ARTIFACT_NOT_FOUND,
                 "Импортированный архив не найден",
             )
-        inspected, members_validated = self._inspect_imported_archive_for_ui(
-            resolved,
-            _diagnostics=_diagnostics,
-        )
-        if not members_validated:
-            started = time.perf_counter()
-            inspected = {
-                "manifest": inspected["manifest"],
-                "members": _validate_managed_members(list(inspected["members"])),
-            }
-            if _diagnostics is not None:
-                _diagnostics["member_validation_ms"] = round(
-                    (time.perf_counter() - started) * 1000,
-                    3,
+        cleanup_dir: str | None = None
+        try:
+            if is_encrypted_file(archive):
+                plain = self._decrypt_restore_archive(archive, password)
+                cleanup_dir = plain.parent.name
+                # Инвентаризационный сайдкар зашифрованного импорта пуст
+                # (члены недоступны без пароля) — читаем расшифрованный TAR.
+                inspected = inspect_archive(plain)
+                inspected = {
+                    "manifest": inspected["manifest"],
+                    "members": _validate_managed_members(list(inspected["members"])),
+                }
+            else:
+                inspected, members_validated = self._inspect_imported_archive_for_ui(
+                    resolved,
+                    _diagnostics=_diagnostics,
                 )
-        return self._build_imported_restore_plan(
-            resolved,
-            inspected,
-            target_root=target_root,
-            _diagnostics=_diagnostics,
-        )
+                if not members_validated:
+                    started = time.perf_counter()
+                    inspected = {
+                        "manifest": inspected["manifest"],
+                        "members": _validate_managed_members(list(inspected["members"])),
+                    }
+                    if _diagnostics is not None:
+                        _diagnostics["member_validation_ms"] = round(
+                            (time.perf_counter() - started) * 1000,
+                            3,
+                        )
+            return self._build_imported_restore_plan(
+                resolved,
+                inspected,
+                target_root=target_root,
+                _diagnostics=_diagnostics,
+            )
+        finally:
+            if cleanup_dir is not None:
+                self.storage.remove_staging(cleanup_dir, "create")
 
     @staticmethod
     def _effective_restore_plan_response(
@@ -5748,6 +6322,7 @@ class BackupManager:
         selection_mode: str = SELECTION_MODE_FULL,
         selected_paths=None,
         include_directory_tree: bool = True,
+        password: str | None = None,
     ) -> dict:
         """Построить effective plan managed backup, ничего не изменяя."""
         ref = self._requested_ref(backup_id, server_id)
@@ -5756,6 +6331,7 @@ class BackupManager:
             record,
             self._record_ref(record),
             target_root=target_root,
+            password=password,
         )
         return self._effective_restore_plan_response(
             planned,
@@ -5774,6 +6350,7 @@ class BackupManager:
         selected_paths=None,
         include_directory_tree: bool = True,
         include_diagnostics: bool = False,
+        password: str | None = None,
     ) -> dict:
         """Построить effective plan imported bundle под shared read lock."""
         total_started = time.perf_counter()
@@ -5809,6 +6386,7 @@ class BackupManager:
             planned = self._plan_imported_restore_for_ui_resolved(
                 resolved,
                 target_root=target_root,
+                password=password,
                 _diagnostics=diagnostics,
             )
             if diagnostics is not None:
@@ -5892,7 +6470,9 @@ class BackupManager:
         return self.catalog.get(self._requested_ref(backup_id, server_id))
 
     def get_operation(self, operation_id: str) -> dict:
-        return self.operations.get(operation_id)
+        # Для выполняемого self-restore в view добавляется живой прогресс
+        # раннера (state.json) — единый watch для Web и поллинга CLI.
+        return enrich_operation(self.operations.get(operation_id))
 
     def list_operations(
         self,
@@ -6335,7 +6915,7 @@ class BackupManager:
                 "file_count": file_count,
                 "checksum_algorithm": "sha256",
                 "checksum": checksum,
-                "encrypted": False,
+                "encrypted": bool(manifest.get("archive", {}).get("encrypted")),
             },
             "manifest": {
                 "version": manifest["manifest_version"],

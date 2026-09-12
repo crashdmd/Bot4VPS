@@ -370,6 +370,21 @@ def _health_port() -> int:
     return 8080
 
 
+def _health_scheme() -> str:
+    """Схема из установленного юнита (--ssl-certfile => https).
+
+    Обновление не трогает юнит — схема после рестарта та же, что сейчас.
+    """
+    unit = Path("/etc/systemd/system/bot4vps.service")
+    try:
+        text = unit.read_text(encoding="utf-8")
+        if re.search(r"--ssl-certfile\s+\S+", text):
+            return "https"
+    except OSError:
+        pass
+    return "http"
+
+
 def _build_job(action: str, target: str, download_url: str, work_dir: Path) -> dict:
     return {
         "action": action,  # "update" | "rollback"
@@ -382,6 +397,7 @@ def _build_job(action: str, target: str, download_url: str, work_dir: Path) -> d
         "state_file": str(_app_dir() / STATE_FILE),
         "work_dir": str(work_dir),
         "health_port": _health_port(),
+        "health_scheme": _health_scheme(),
         "health_timeout": 120,
         "dev_no_systemd": False,
     }

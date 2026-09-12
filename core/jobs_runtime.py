@@ -111,7 +111,18 @@ async def start_core_jobs() -> CoreJobQueue:
     from core.monitor import schedule_monitor_jobs
     schedule_monitor_jobs(queue)
 
-    print("[JOBS] ядерная JobQueue запущена (system_sync + мониторинг)", flush=True)
+    # Автопродление LE-сертификата панели: сама задача каждый запуск
+    # сверяется с config (mode) и юнитом (фактический TLS), поэтому
+    # регистрации на старте достаточно — reschedule не нужен.
+    from core.web_tls import tls_renew_job
+    queue.run_repeating(
+        tls_renew_job,
+        interval=24 * 60 * 60,
+        first=10 * 60,
+        name="tls_renew",
+    )
+
+    print("[JOBS] ядерная JobQueue запущена (system_sync + мониторинг + tls_renew)", flush=True)
     return queue
 
 

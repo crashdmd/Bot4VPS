@@ -2,7 +2,7 @@
 import { j, esc } from './api.js';
 import { toast, confirmAction, plural } from './ui.js';
 import { openEditor } from './editor.js?v=20260815-scripts-table-v1';
-import { openDockerProjectFile } from './docker.js?v=20260826-host-timezone-v2';
+import { openDockerProjectFile } from './docker.js?v=20260911-tabhint-v2';
 
 let fileRoot = 'docker';
 let dockerProject = '';
@@ -52,7 +52,21 @@ function updateChrome() {
   setShown('btn-docker-folder-new', dockerInside);
   setShown('docker-file-upload-label', dockerInside);
 
+  renderTabHint();
   renderBreadcrumbs();
+}
+
+/** Подсказка активной вкладки — маленькая строка под линией табов. */
+function renderTabHint() {
+  const el = document.getElementById('file-tab-hint');
+  if (!el) return;
+  if (fileRoot === 'keys') {
+    el.textContent = 'SSH-ключи панели. Ключ, которым подключается сервер, удалить нельзя.';
+  } else {
+    el.textContent = dockerProject
+      ? 'Файлы Compose-проекта. Основной compose-файл защищён от удаления.'
+      : 'Локальная библиотека Docker/Compose-проектов. Развёртывание — в разделе Docker → Compose.';
+  }
 }
 
 function renderBreadcrumbs() {
@@ -65,7 +79,8 @@ function renderBreadcrumbs() {
   }
   crumbs.classList.remove('hidden');
   if (!dockerProject) {
-    crumbs.innerHTML = 'Локальная библиотека Docker/Compose-проектов. Развёртывание выполняется в Docker → Compose.';
+    // Корень библиотеки: навигации нет, подсказку даёт tabs-hint выше.
+    crumbs.innerHTML = '';
     return;
   }
 

@@ -226,6 +226,36 @@ def format_ssh_error(error):
     return error
 
 
+def classify_ssh_error(error) -> str:
+    """Машинный вид ошибки SSH для UI-меток.
+
+    Возвращает один из: key_missing | auth | port | network | timeout |
+    connect | unknown. Те же критерии, что у format_ssh_error (её текст —
+    для карточки сервера, этот код — для компактных меток виджета дашборда).
+    """
+    if not error:
+        return "unknown"
+    text = str(error).lower()
+    if "ключ не найден" in text or "no such file" in text:
+        return "key_missing"
+    if (
+        "authentication failed" in text
+        or "password authentication failed" in text
+        or "publickey" in text
+        or "permission denied" in text
+    ):
+        return "auth"
+    if "connection refused" in text:
+        return "port"
+    if "network is unreachable" in text or "errno 101" in text:
+        return "network"
+    if "timed out" in text or "timeout" in text:
+        return "timeout"
+    if "no valid connections" in text or "unable to connect" in text:
+        return "connect"
+    return "unknown"
+
+
 def reboot_server(server):
     ssh = None
     try:

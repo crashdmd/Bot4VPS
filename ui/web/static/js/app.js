@@ -1,24 +1,26 @@
 import { tickClock, syncServerClock, showPage, toast, parseEmoji, initEmojiObserver, confirmAction, bindTelegramHealthDialog } from './ui.js';
-import { loadDashboard, loadSummary, bindDashboard, stopDashMetrics, updateDashboardData } from './dashboard.js?v=20260826-host-timezone-v2';
-import { loadEvents, openEventDetail, applyEventsSnapshot, initSystemMonitor, stopSystemMonitor } from './monitor.js?v=20260826-host-timezone-v2';
+import { loadDashboard, loadSummary, bindDashboard, stopDashMetrics, updateDashboardData, updateDashboardState } from './dashboard.js?v=20260912-chlogwrap-v1';
+import { loadEvents, openEventDetail, applyEventsSnapshot, initSystemMonitor, stopSystemMonitor } from './monitor.js?v=20260912-chlogwrap-v1';
 import { loadServers, loadQueues, loadHistory, loadGroupsAndKeys,
   bindServerUI, stopWatchers, openServer, closeGroupsPanel, lastServerTab,
-} from './servers.js?v=20260904-local-v33';
+  startSshProbeLoop, stopSshProbeLoop,
+} from './servers.js?v=20260912-chlogwrap-v1';
 import { loadScripts, bindScriptsUI } from './scripts.js?v=20260826-host-timezone-v2';
-import { loadWireguard, bindWireguardUI, stopWgTimers, openWgServerById } from './wireguard.js?v=20260826-host-timezone-v2';
-import { loadDocker, bindDockerUI, stopDockerTimers, openDockerServerById } from './docker.js?v=20260826-host-timezone-v2';
+import { loadWireguard, bindWireguardUI, stopWgTimers, openWgServerById } from './wireguard.js?v=20260911-tabhint-v2';
+import { loadDocker, bindDockerUI, stopDockerTimers, openDockerServerById } from './docker.js?v=20260911-tabhint-v2';
 import { bindTasksUI } from './tasks.js?v=20260816-task-history-v3';
-import { loadFiles, bindFilesUI } from './files.js?v=20260816-service-singleton-v1';
+import { loadFiles, bindFilesUI } from './files.js?v=20260911-tabhint-v2';
 import { bindEditorUI } from './editor.js?v=20260815-scripts-table-v1';
-import { bindTerminalUI, closeTerminal } from './terminal.js?v=20260904-termfit-v1';
-import { startSSE, registerNotificationsRefresh } from './sse.js?v=20260816-task-history-v3';
+import { bindTerminalUI, closeTerminal } from './terminal.js?v=20260905-glassblue-v2';
+import { startSSE, registerNotificationsRefresh } from './sse.js?v=20260912-chlogwrap-v1';
 import { state, setPage, clearQuickSetupServer } from './state.js';
-import { j } from './api.js';
+import { j, esc } from './api.js';
 import { initAuth, bindAuthUI } from './auth.js';
-import { bindGlobalSearch } from './search.js?v=20260816-server-singleton-v1';
-import { bindBackupUI, loadBackups, stopBackupTimers } from './backup.js?v=20260826-host-timezone-v2';
+import { initSetup, bindSetupUI } from './setup.js?v=20260910-setup-v4';
+import { bindGlobalSearch } from './search.js?v=20260911-nav-v6';
+import { bindBackupUI, loadBackups, stopBackupTimers } from './backup.js?v=20260912-tzdrop-v1';
 
-const QUICK_SETUP_MODULE_URL = './quick_setup.js?v=20260905-revokesudo-v37';
+const QUICK_SETUP_MODULE_URL = './quick_setup.js?v=20260909-qs-ssl-v40';
 const quickSetupModule = import(QUICK_SETUP_MODULE_URL).catch(error => {
   console.error('[quick-setup] module unavailable:', error);
   return null;
@@ -42,7 +44,7 @@ async function openQuickSetupFromCard(serverId) {
 
 // Settings — отдельная подсистема. Загружаем её лениво, чтобы ошибка нового
 // модуля не останавливала Dashboard, Servers и остальные страницы.
-const settingsModule = import('./settings.js?v=20260826-host-timezone-v2')
+const settingsModule = import('./settings.js?v=20260912-chlogwrap-v1')
   .catch(error => {
     console.error('[settings] module unavailable:', error);
     return null;
@@ -86,6 +88,7 @@ function onNav(page) {
   setPage(page);
   if (page !== 'servers') closeGroupsPanel();
   if (page !== 'server') stopWatchers();
+  if (page !== 'servers') stopSshProbeLoop();
   if (page !== 'server' && page !== 'terminal') closeTerminal();
   if (page !== 'wireguard' && page !== 'wireguard-server') stopWgTimers();
   if (page !== 'docker' && page !== 'docker-server') stopDockerTimers();
@@ -96,7 +99,7 @@ function onNav(page) {
   showPage(page);
   if (page === 'dashboard') loadDashboard();
   if (page === 'events') loadEvents();
-  if (page === 'servers') loadServers();
+  if (page === 'servers') { loadServers(); startSshProbeLoop(); }
   if (page === 'scripts') loadScripts();
   if (page === 'wireguard') loadWireguard();
   if (page === 'docker') loadDocker();
@@ -117,6 +120,8 @@ const closeDrawer = () => {
 };
 
 document.querySelectorAll('.side [data-page]').forEach(b => {
+window.b4vNav = onNav;  // навигация из других модулей (дашборд и т.п.)
+
   b.addEventListener('click', () => { onNav(b.dataset.page); closeDrawer(); });
 });
 
@@ -169,10 +174,11 @@ settingsModule.then(module => {
 }).catch(() => {});
 // Групповая панель подключается лениво: ошибка её отдельного модуля
 // не должна останавливать загрузку всей панели управления.
-import('./groups_panel.js?v=20260819-groups-panel-v1')
+import('./groups_panel.js?v=20260911-groups-v2')
   .then(m => m.bindGroupsPanelUI())
   .catch(error => console.warn('[groups] module unavailable:', error));
 bindAuthUI();
+bindSetupUI();
 bindGlobalSearch();
 bindBackupUI();
 bindTelegramHealthDialog();
@@ -326,6 +332,10 @@ async function loadVersion() {
 }
 
 async function boot() {
+  // Первичная настройка: пока действует код установки и админа нет,
+  // всё закрыто бэкендом — показываем мастер/заглушку и останавливаем
+  // загрузку (после создания админа страница перезагрузится на логин).
+  if (!(await initSetup())) return;
   // Авторизация выключена (локальный режим) → initAuth сразу вернёт true.
   // Иначе при отсутствии сессии покажется оверлей логина, boot остановится,
   // а после входа страница перезагрузится и boot дойдёт до конца.
@@ -355,6 +365,15 @@ async function boot() {
   registerNotificationsRefresh(refreshOpenNotificationsDropdown);
   initProfileMenu();
 
+  // Мастер-ключ потерян при наличии enc1: данных → красный баннер
+  // поверх всего: молчать нельзя, пользователь должен выбрать действие.
+  checkMasterKeyBanner();
+  // Ключ восстановили/пересоздали в карточке настроек → убираем баннер
+  window.addEventListener('bot4vps:masterkey-changed', checkMasterKeyBanner);
+  // Ключ могут восстановить и вне Web (CLI bot4vps) — периодически
+  // перепроверяем, чтобы баннер ушёл сам, без перезагрузки страницы.
+  setInterval(checkMasterKeyBanner, 15000);
+
 
   // Загружаем данные для хедера при старте
   loadHeaderData();
@@ -379,6 +398,14 @@ async function boot() {
       updateDashboardData();
     }
   }, 3000);
+
+  // Полоса «Требует внимания», подзаголовок, бейдж непрочитанных —
+  // реже (лёгкие API, без SSH), но без ручного обновления страницы
+  setInterval(() => {
+    if (state.page === 'dashboard') {
+      updateDashboardState();
+    }
+  }, 10000);
 
   // Fallback polling — реже, если SSE жив
   setInterval(() => {
@@ -405,6 +432,9 @@ function initProfileMenu() {
   const close = () => menu.classList.remove('show');
   const toggle = (e) => {
     e.stopPropagation();
+    // Открытие профиля закрывает меню уведомлений (и наоборот):
+    // stopPropagation ниже не даст document-клику сделать это самому
+    document.getElementById('notifications-dropdown')?.classList.remove('show');
     menu.classList.toggle('show');
   };
   btn.addEventListener('click', toggle);
@@ -437,8 +467,9 @@ function initNotificationsDropdown() {
   // Вставляем SVG иконку колокольчика (сохраняем бейдж)
   const badge = btn.querySelector('.badge');
 
-  // Определяем цвет stroke в зависимости от темы
-  const isDark = !document.documentElement.hasAttribute('data-theme');
+  // Определяем цвет stroke в зависимости от темы (glass — тёмная)
+  const themeAttr = document.documentElement.getAttribute('data-theme');
+  const isDark = themeAttr !== 'light';
   const strokeColor = isDark ? '#ffffff' : '#1a1a1a';
 
   btn.innerHTML = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="${strokeColor}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -457,6 +488,9 @@ function initNotificationsDropdown() {
   // Открытие/закрытие меню
   btn.addEventListener('click', async (e) => {
     e.stopPropagation();
+    // Открытие уведомлений закрывает меню профиля (и наоборот):
+    // stopPropagation не даст document-клику сделать это самому
+    document.getElementById('profile-menu')?.classList.remove('show');
     const isOpen = dropdown.classList.toggle('show');
     if (isOpen) {
       await loadNotificationsDropdown();
@@ -636,6 +670,64 @@ async function loadHeaderData() {
     }
   } catch (err) {
     console.error('Failed to load header data:', err);
+  }
+}
+
+let mkBannerDismissed = false;
+
+async function checkMasterKeyBanner() {
+  // Тихий опрос: любые проблемы мастер-ключа всплывут красным баннером
+  // сверху. ok/missing_no_data — штатные состояния, ничего не показываем
+  // (и убираем баннер, если проблема решена — восстановили ключ).
+  try {
+    const st = await j('/api/masterkey/status');
+    if (st.state !== 'missing_with_data' && st.state !== 'mismatch') {
+      mkBannerDismissed = false;
+      document.getElementById('mk-banner')?.remove();
+      return;
+    }
+    // Пользователь уже скрыл баннер — периодическая перепроверка не
+    // должна возвращать его; вернётся только после перезагрузки.
+    if (mkBannerDismissed) return;
+    let banner = document.getElementById('mk-banner');
+    if (!banner) {
+      banner = document.createElement('div');
+      banner.id = 'mk-banner';
+      banner.className = 'mk-banner';
+      document.body.prepend(banner);
+    }
+    const isMismatch = st.state === 'mismatch';
+    banner.innerHTML = `
+      <div class="mk-banner-inner">
+        <div class="mk-banner-text">
+          <strong>⚠️ Мастер-ключ ${isMismatch ? 'не совпадает с зашифрованными данными' : 'отсутствует'}</strong>
+          <span>Обнаружены зашифрованные данные, для расшифровки которых требуется существующий мастер-ключ. ${esc(st.encrypted_fields?.map(f => ({server_passwords: 'пароли серверов', bot_token: 'Telegram Bot Token', totp_secret: 'секрет 2FA'}[f] || f)).join(', ') || '')}</span>
+        </div>
+        <div class="mk-banner-actions">
+          <a href="#settings" data-goto-settings-web class="mk-banner-btn">Перейти к восстановлению</a>
+          <a href="#" class="mk-banner-btn secondary" data-mk-dismiss>Скрыть</a>
+        </div>
+      </div>`;
+    banner.querySelector('[data-mk-dismiss]')?.addEventListener('click', e => {
+      e.preventDefault();
+      mkBannerDismissed = true;
+      banner.remove();
+    });
+    banner.querySelector('[data-goto-settings-web]')?.addEventListener('click', e => {
+      e.preventDefault();
+      // onNav (не showPage): подгружает саму страницу настроек — иначе
+      // открывалась пустая/прошлая страница, а клик по пункту меню не попадал
+      onNav('settings');
+      // Меню настроек рендерится асинхронно — ждём кнопку раздела
+      const openSecurity = (tries = 0) => {
+        const btn = document.querySelector('[data-settings-category="web"]');
+        if (btn) { btn.click(); return; }
+        if (tries < 50) setTimeout(() => openSecurity(tries + 1), 100);
+      };
+      openSecurity();
+    });
+  } catch (_) {
+    // Ошибка опроса не должна ломать загрузку панели
   }
 }
 

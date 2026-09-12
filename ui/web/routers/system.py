@@ -414,13 +414,15 @@ def _refresh_bot_globals_safe() -> None:
         pass
     try:
         import bot as bot_mod
-        from core.config import _read_config_raw
+        from core.config import _read_config_raw, get_saved_bot_token
         try:
             cfg = _read_config_raw()
         except Exception:
             from core.config import load_config
             cfg = load_config()
-        token = (cfg.get("bot_token") or "").strip()
+        # Токен на диске может быть зашифрован (enc1:) — расшифровка
+        # через единственную точку чтения.
+        token = get_saved_bot_token()
         users = list(cfg.get("allowed_users") or [])
         bot_mod.BOT_TOKEN = token
         if hasattr(bot_mod, "ALLOWED_USERS"):
@@ -432,20 +434,62 @@ def _refresh_bot_globals_safe() -> None:
 def _bot_status() -> dict:
     """Статус Telegram-бота.
 
-    Выключен — ТОЛЬКО если telegram_enabled=false.
-    При enabled=true: Работает либо Ошибка (с причиной в error).
+    Выключен — ТОЛЬКО если telegram_enabled=false (проверяем по сырому
+    config.json, БЕЗ расшифровки токена: при отсутствующем мастер-ключе
+    decrypt бросает длинное исключение, которому не место в виджете
+    «Статус сервисов»). При enabled=true: Работает либо Ошибка
+    (с причиной в error, одной строкой).
     """
+    from core.secretbox import MasterKeyMissingError
+
+    # Выключен — из сырого конфига, ДО расшифровки токена и импорта bot
+    # (импорт bot.py сам расшифровывает токен и падает без мастер-ключа;
+    # выключенный бот не должен показываться как «Ошибка»).
+    try:
+        from core.config import _read_config_raw
+        raw_cfg = _read_config_raw()
+    except Exception:
+        raw_cfg = {}
+    if "telegram_enabled" in raw_cfg and not raw_cfg["telegram_enabled"]:
+        return {"ok": False, "state": "disabled", "detail": "Выключен"}
+
     try:
         from bot import BOT_TOKEN, get_application
-        from core.config import get_telegram_config, _is_bot_token_configured
-        _refresh_bot_globals_safe()
-        tg = get_telegram_config()
+    except MasterKeyMissingError:
+        # Импорт bot.py сам расшифровывает токен (refresh_bot_globals при
+        # загрузке модуля): без мастер-ключа падает здесь — короткая строка
+        # вместо многострочного исключения в виджете «Статус сервисов».
+        return {
+            "ok": False,
+            "state": "no_masterkey",
+            "detail": "Ошибка",
+            "error": "мастер-ключ недоступен — секреты не прочитаны",
+        }
     except Exception as e:
         return {
             "ok": False,
             "state": "error",
             "detail": "Ошибка",
-            "error": str(e),
+            "error": str(e).strip().splitlines()[0][:120],
+        }
+
+    try:
+        from core.config import get_telegram_config, _is_bot_token_configured
+        _refresh_bot_globals_safe()
+        tg = get_telegram_config()
+    except MasterKeyMissingError:
+        return {
+            "ok": False,
+            "state": "no_masterkey",
+            "detail": "Ошибка",
+            "error": "мастер-ключ недоступен — секреты не прочитаны",
+        }
+    except Exception as e:
+        return {
+            "ok": False,
+            "state": "error",
+            "detail": "Ошибка",
+            "error": str(e).strip().splitlines()[0][:120],
         }
 
     if not tg.get("enabled", True):
@@ -709,23 +753,44 @@ def _saved_telegram_credentials() -> tuple[str, int | None]:
     """Прочитать секрет только внутри backend, не добавляя его в payload."""
     from core.config import (
         _is_bot_token_configured,
-        _read_config_raw,
+        get_saved_bot_token,
         get_telegram_config,
     )
 
-    raw = _read_config_raw()
-    token = str(raw.get("bot_token") or "").strip()
+    token = get_saved_bot_token()
     if not _is_bot_token_configured(token):
         token = ""
     return token, get_telegram_config().get("user_id")
 
 
 def _telegram_status_payload() -> dict:
-    from core.config import get_telegram_config
+    from core.config import _read_config_raw
+    from core.secretbox import MasterKeyMissingError
     from core.telegram_health import health_for_configuration
 
-    cfg = get_telegram_config()
-    token, user_id = _saved_telegram_credentials()
+    try:
+        from core.config import get_telegram_config
+        cfg = get_telegram_config()
+        token, user_id = _saved_telegram_credentials()
+        masterkey_missing = False
+    except MasterKeyMissingError:
+        # Мастер-ключ потерян: раздел Telegram обязан открываться, а не
+        # падать 500. Токен зашифрован и не читается — отдаём состояние
+        # деградации (поля пустые, токен «есть, но нечитаем»).
+        try:
+            raw = _read_config_raw()
+        except Exception:
+            raw = {}
+        users = raw.get("allowed_users") or []
+        user_id = users[0] if users and isinstance(users[0], int) else None
+        cfg = {
+            "enabled": bool(raw["telegram_enabled"])
+            if "telegram_enabled" in raw else True,
+            "token_set": bool(str(raw.get("bot_token") or "").strip()),
+            "needs_setup": False,
+        }
+        token = ""
+        masterkey_missing = True
     status = _bot_status()
     return {
         "ok": True,
@@ -733,9 +798,10 @@ def _telegram_status_payload() -> dict:
         "user_id": user_id,
         "token_set": bool(cfg.get("token_set")),
         "needs_setup": bool(cfg.get("needs_setup")),
+        "masterkey_missing": masterkey_missing,
         "status": status,
         "health": health_for_configuration(
-            enabled=bool(cfg.get("enabled", True)),
+            enabled=False if masterkey_missing else bool(cfg.get("enabled", True)),
             token=token,
             chat_id=user_id,
         ),

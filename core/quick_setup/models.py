@@ -113,10 +113,12 @@ class PackagesStatus:
 
 @dataclass
 class LocalSettingsStatus:
-    """Локальные поля servers.json (без SSH): имя и группа сервера."""
+    """Локальные поля servers.json (без SSH): имя, группа и SSL-проверка."""
     name: str = ""
     group: str = ""
     groups: list = field(default_factory=list)  # доступные группы для выбора
+    ssl_enabled: bool = False  # certificate_check сервера
+    ssl_host: str = ""  # домен проверки (пусто — берётся host сервера)
 
 
 @dataclass

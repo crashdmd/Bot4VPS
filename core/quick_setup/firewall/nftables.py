@@ -2,12 +2,18 @@
 """nftables backend с обнаружением фактической input base chain."""
 from __future__ import annotations
 
+import base64
 import json
 import re
 import shlex
 from typing import Any, Optional
 
 from core.ssh import exec_sudo
+from core.storage import (
+    clear_nftables_input_chain,
+    compare_and_set_nftables_input_chain,
+    server_connection_snapshot,
+)
 
 from ..package_manager import detect as detect_package_manager
 from .base import (
@@ -23,6 +29,27 @@ from .base import (
 )
 
 _BYPASS_COMMENT = "Bot4VPS firewall switch bypass"
+
+# Собственная (автопровижиненная) таблица панели. Если standalone input
+# chain на сервере отсутствует совсем (свежая Ubuntu: ufw ходит через
+# iptables-nft, своих цепочек у nftables нет), панель создаёт базовый
+# ruleset и владеет им целиком — включая persistence
+# (/etc/nftables.d/bot4vps.conf + include + nftables.service).
+_OWNED_FAMILY = "inet"
+_OWNED_TABLE = "bot4vps"
+_OWNED_CHAIN_NAME = "input"
+_OWNED_CHAIN_TOKEN = {
+    "family": _OWNED_FAMILY,
+    "table": _OWNED_TABLE,
+    "chain": _OWNED_CHAIN_NAME,
+}
+_OWNED_CONF_PATH = "/etc/nftables.d/bot4vps.conf"
+_OWNED_INCLUDE_LINE = 'include "/etc/nftables.d/bot4vps.conf"'
+_OWNED_CONF_HEADER = (
+    "# Managed by Bot4VPS: базовый nftables ruleset (таблица bot4vps).\n"
+    "# Файл перезаписывается панелью при каждом изменении правил;\n"
+    "# ручные правки будут потеряны."
+)
 
 
 class NftablesBackend(FirewallBackend):
@@ -160,11 +187,33 @@ class NftablesBackend(FirewallBackend):
             return False, "Текущий SSH-порт некорректен"
 
         configured, token = self._configured_chain_token(server)
+        provisioned = False
         if not configured:
-            return False, (
-                "Выберите существующую nftables input chain перед "
-                "использованием nftables"
-            )
+            # Standalone input chain нет совсем — панель создаёт базовый
+            # ruleset сама (решение по итогам живого теста на свежей
+            # Ubuntu: без этого через панель доступен только ufw).
+            ok, detail = self._provision_and_select_owned(ssh, server, port)
+            if not ok:
+                return False, detail
+            provisioned = True
+            token = dict(_OWNED_CHAIN_TOKEN)
+        elif self._is_owned_token(token):
+            # Live-регрессия (цикл ufw→nftables→ufw→reboot→nftables):
+            # configured-токен пережил деактивацию и ребут, а owned-таблица
+            # в runtime — нет (nftables.service disabled, на boot её никто
+            # не загрузил). Таблица была нашей — пересоздаём тем же путём,
+            # что и первый provisioning. Появившиеся за это время чужие
+            # standalone-цепочки по-прежнему требуют явного выбора.
+            try:
+                self.validate_input_chain(ssh, server, token)
+            except (TypeError, ValueError, RuntimeError):
+                ok, detail = self._provision_and_select_owned(
+                    ssh, server, port
+                )
+                if not ok:
+                    return False, detail
+                provisioned = True
+                token = dict(_OWNED_CHAIN_TOKEN)
         try:
             validated = self.validate_input_chain(ssh, server, token)
             chain = self._find_chain(ssh, server, validated)
@@ -228,10 +277,347 @@ class NftablesBackend(FirewallBackend):
                 "Активное состояние выбранной nftables input chain и allow SSH "
                 "не подтверждены"
             )
+        if provisioned:
+            return True, (
+                "nftables подготовлен: создана базовая таблица bot4vps; "
+                "текущий SSH-порт разрешён"
+            )
         return True, (
             "nftables подготовлен на выбранной существующей input chain; "
             "текущий SSH-порт разрешён"
         )
+
+    @staticmethod
+    def _is_owned_token(token: Any) -> bool:
+        """Токен указывает на созданную панелью таблицу bot4vps?"""
+        return isinstance(token, dict) and all(
+            token.get(key) == value for key, value in _OWNED_CHAIN_TOKEN.items()
+        )
+
+    def _provision_and_select_owned(
+        self,
+        ssh,
+        server: dict,
+        port: int,
+    ) -> tuple[bool, str]:
+        """Создать owned ruleset и зафиксировать выбор цепочки (config+memory).
+
+        Единая точка и для первого provisioning (цепочек нет), и для
+        самоисцеления: owned-таблица исчезла из runtime (ребут при
+        disabled service после switch-away), а configured-токен остался.
+        """
+        state, _, _ = self._selection_state(self._ruleset(ssh, server))
+        if state != "none":
+            return False, (
+                "Выберите существующую nftables input chain перед "
+                "использованием nftables"
+            )
+        ok, detail = self._provision_base_ruleset(ssh, server, port)
+        if not ok:
+            return False, detail
+        token = dict(_OWNED_CHAIN_TOKEN)
+        try:
+            compare_and_set_nftables_input_chain(
+                str(server.get("id") or ""),
+                dict(token),
+                expected_connection=server_connection_snapshot(server),
+            )
+        except Exception as exc:
+            # Таблица создана, но выбор не сохранить — честный отказ:
+            # дальнейшие фазы (verify_switch_target) всё равно читают
+            # token из конфига сервера. Rollback миграции удалит таблицу.
+            return False, (
+                f"Базовая nftables input chain создана, но выбор цепочки "
+                f"не сохранён: {str(exc)[:300]}"
+            )
+        # compare_and_set пишет в storage, но не в переданный dict —
+        # а verify_switch_target ниже и последующие фазы migrate читают
+        # token именно из него. Держим in-memory вид синхронным.
+        quick_setup = server.get("quick_setup")
+        if not isinstance(quick_setup, dict):
+            quick_setup = {}
+            server["quick_setup"] = quick_setup
+        firewall = quick_setup.get("firewall")
+        if not isinstance(firewall, dict):
+            firewall = {}
+            quick_setup["firewall"] = firewall
+        firewall["nftables_input_chain"] = dict(token)
+        return True, ""
+
+    def _provision_base_ruleset(
+        self,
+        ssh,
+        server: dict,
+        port: int,
+    ) -> tuple[bool, str]:
+        """Создать базовый owned ruleset inet/bot4vps (runtime, без persistence).
+
+        policy drop + безопасный минимум первыми: панель работает на этой же
+        машине — без loopback и established/related умрут её собственные
+        SSH-клиенты и ответы исходящих соединений сервера (apt, certbot);
+        без ipv6-icmp на inet-цепочке сломается IPv6 (NDP/DAD).
+        """
+        snapshot = self._ruleset(ssh, server)
+        for table in snapshot["tables"]:
+            if (
+                str(table.get("family") or "").lower() == _OWNED_FAMILY
+                and str(table.get("name") or "").lower() == _OWNED_TABLE
+            ):
+                return False, (
+                    "Таблица inet bot4vps уже существует, но standalone input "
+                    "chain в ней нет; автоматическое создание базовой цепочки "
+                    "невозможно — проверьте таблицу и создайте цепочку вручную"
+                )
+        ruleset_text = (
+            f"table inet {_OWNED_TABLE} {{\n"
+            f"\tchain {_OWNED_CHAIN_NAME} {{\n"
+            "\t\ttype filter hook input priority filter; policy drop;\n"
+            "\t\tct state established,related accept\n"
+            "\t\tiifname \"lo\" accept\n"
+            "\t\tmeta l4proto ipv6-icmp accept\n"
+            "\t\ticmp type { destination-unreachable, time-exceeded, "
+            "parameter-problem, echo-request } accept\n"
+            f"\t\ttcp dport {port} accept\n"
+            "\t}\n"
+            "}\n"
+        )
+        encoded = base64.b64encode(ruleset_text.encode("utf-8")).decode("ascii")
+        code, out, err = exec_sudo(
+            ssh,
+            server,
+            f"printf %s {encoded} | base64 -d | nft -f -",
+            timeout=20,
+        )
+        if code != 0:
+            return False, (
+                err or out or "Не удалось применить базовый nftables ruleset"
+            )[:600]
+        chain = None
+        try:
+            chain = self._chain_from_snapshot(
+                self._ruleset(ssh, server),
+                dict(_OWNED_CHAIN_TOKEN),
+            )
+        except Exception:
+            chain = None
+        classification = (
+            self._classify_input_chain(chain)[0] if chain is not None else None
+        )
+        if chain is None or classification != "selectable":
+            # Самооткат: полусозданную таблицу не оставляем.
+            exec_sudo(
+                ssh,
+                server,
+                f"nft delete table inet {_OWNED_TABLE}",
+                timeout=20,
+            )
+            return False, (
+                "Базовая nftables input chain не подтвердилась после создания; "
+                "таблица удалена"
+            )
+        return True, ""
+
+    @staticmethod
+    def _owned_chain_token(value: Any) -> bool:
+        return (
+            isinstance(value, dict)
+            and value.get("family") == _OWNED_FAMILY
+            and value.get("table") == _OWNED_TABLE
+            and value.get("chain") == _OWNED_CHAIN_NAME
+        )
+
+    def _persist_owned_ruleset(
+        self,
+        ssh,
+        server: dict,
+        *,
+        sync_service: bool,
+    ) -> tuple[bool, str]:
+        """Синхронизировать persistence собственной таблицы bot4vps.
+
+        Таблица создана панелью — панель отвечает и за её выживание после
+        ребута: дампим актуальное состояние в /etc/nftables.d/bot4vps.conf и
+        держим include в /etc/nftables.conf. nftables.service синхроним с
+        активностью цепочки ТОЛЬКО по флагу sync_service (терминальные шаги
+        activate/deactivate/finalize): включённый сервис + `flush ruleset`
+        в системном конфиге при ещё активном ufw устроили бы boot-лотерею
+        на порядок загрузки юнитов. Сервис никогда не стартуем и не
+        останавливаем — только enable/disable.
+        """
+        configured, token = self._configured_chain_token(server)
+        if not configured or not self._valid_chain_token(token):
+            return True, ""
+        if not self._owned_chain_token(token):
+            # Чужая (админская) цепочка: persistence — ответственность админа.
+            return True, ""
+        chain = self._chain_from_snapshot(self._ruleset(ssh, server), token)
+        if chain is None:
+            return False, "Таблица bot4vps не найдена; persistence не обновлён"
+        code, out, err = exec_sudo(
+            ssh,
+            server,
+            f"nft list table inet {_OWNED_TABLE}",
+            timeout=20,
+        )
+        if code != 0 or not (out or "").strip():
+            return False, (err or out or "nft list table bot4vps failed")[:400]
+        content = f"{_OWNED_CONF_HEADER}\n{(out or '').strip()}\n"
+        encoded = base64.b64encode(content.encode("utf-8")).decode("ascii")
+        code, out, err = exec_sudo(
+            ssh,
+            server,
+            (
+                "install -d -m 755 /etc/nftables.d && "
+                f"printf %s {encoded} | base64 -d > {_OWNED_CONF_PATH}"
+            ),
+            timeout=20,
+        )
+        if code != 0:
+            return False, (
+                err or out or f"Не удалось записать {_OWNED_CONF_PATH}"
+            )[:400]
+        quoted_include = shlex.quote(_OWNED_INCLUDE_LINE)
+        code, out, err = exec_sudo(
+            ssh,
+            server,
+            (
+                "if [ -e /etc/nftables.conf ]; then "
+                f"grep -qF {quoted_include} /etc/nftables.conf || "
+                f"printf '\\n%s\\n' {quoted_include} >> /etc/nftables.conf; "
+                "else printf '#!/usr/sbin/nft -f\\nflush ruleset\\n%s\\n' "
+                f"{quoted_include} > /etc/nftables.conf; fi"
+            ),
+            timeout=20,
+        )
+        if code != 0:
+            return False, (
+                err or out or "Не удалось подключить include в /etc/nftables.conf"
+            )[:400]
+        if not sync_service:
+            return True, ""
+        inactive = bool(chain["rules"] and self._bypass_rule(chain["rules"][0]))
+        if inactive:
+            # Неактивная (bypass) цепочка не должна подниматься при ребуте
+            # рядом с восстановленным source firewall.
+            code, out, err = exec_sudo(
+                ssh,
+                server,
+                (
+                    "systemctl is-enabled nftables >/dev/null 2>&1 && "
+                    "systemctl disable nftables >/dev/null 2>&1; true"
+                ),
+                timeout=30,
+            )
+            return True, ""
+        code, out, err = exec_sudo(
+            ssh,
+            server,
+            (
+                "systemctl is-enabled nftables >/dev/null 2>&1 || "
+                "systemctl enable nftables >/dev/null 2>&1"
+            ),
+            timeout=30,
+        )
+        if code != 0:
+            return False, (
+                err or out or "Не удалось включить nftables.service"
+            )[:400]
+        return True, ""
+
+    def _with_persistence(
+        self,
+        ssh,
+        server: dict,
+        result,
+        *,
+        sync_service: bool,
+    ):
+        """Прописать persistence owned-таблицы после успешной мутации.
+
+        Мутация уже применена в runtime — сбой persistence её не отменяет,
+        но обязан быть видимым: предупреждение уходит в message результата.
+        """
+        if not result.ok or not result.changed:
+            return result
+        try:
+            ok, detail = self._persist_owned_ruleset(
+                ssh,
+                server,
+                sync_service=sync_service,
+            )
+            if not ok:
+                result.message = (
+                    f"{result.message}; persistence: {detail}"
+                )[:1000]
+        except Exception as exc:
+            result.message = (
+                f"{result.message}; persistence: {str(exc)[:300]}"
+            )[:1000]
+        return result
+
+    def rollback_provisioned_ruleset(self, ssh, server: dict) -> tuple[bool, str]:
+        """Удалить автопровижиненную таблицу bot4vps со всем persistence.
+
+        Вызывается rollback'ом миграции, если switch провалился после
+        автопровижининга: таблица — собственность панели, оставлять её
+        (вместе с include и включённым сервисом) на сервере, где пользователь
+        хотел остаться на ufw, нельзя.
+        """
+        errors: list[str] = []
+        try:
+            snapshot = self._ruleset(ssh, server)
+        except Exception as exc:
+            return False, f"Не удалось прочитать ruleset: {str(exc)[:300]}"
+        table_exists = any(
+            str(table.get("family") or "").lower() == _OWNED_FAMILY
+            and str(table.get("name") or "").lower() == _OWNED_TABLE
+            for table in snapshot["tables"]
+        )
+        if table_exists:
+            code, out, err = exec_sudo(
+                ssh,
+                server,
+                f"nft delete table inet {_OWNED_TABLE}",
+                timeout=20,
+            )
+            if code != 0:
+                errors.append(f"nft delete table: {(err or out)[:200]}")
+        code, out, err = exec_sudo(
+            ssh,
+            server,
+            f"rm -f {_OWNED_CONF_PATH}",
+            timeout=20,
+        )
+        if code != 0:
+            errors.append(f"rm {_OWNED_CONF_PATH}: {(err or out)[:200]}")
+        sed_expr = f"\\#^{_OWNED_INCLUDE_LINE}$#d"
+        exec_sudo(
+            ssh,
+            server,
+            (
+                f"sed -i {shlex.quote(sed_expr)} /etc/nftables.conf "
+                "2>/dev/null || true"
+            ),
+            timeout=20,
+        )
+        exec_sudo(
+            ssh,
+            server,
+            (
+                "systemctl is-enabled nftables >/dev/null 2>&1 && "
+                "systemctl disable nftables >/dev/null 2>&1; true"
+            ),
+            timeout=30,
+        )
+        try:
+            # Токен в этой операции могла сохранить только сама панель
+            # (предусловие провижининга — «выбранной цепочки не было»).
+            clear_nftables_input_chain(str(server.get("id") or ""))
+        except Exception:
+            pass
+        if errors:
+            return False, "; ".join(errors)[:600]
+        return True, ""
 
     def verify_switch_target(self, ssh, server: dict, port: int) -> bool:
         try:
@@ -294,7 +680,17 @@ class NftablesBackend(FirewallBackend):
                 ),
                 state={"chain": token, "handles": []},
             )
-        return self._insert_bypass(ssh, server, chain)
+        # Путь migrate/switch при source=nftables: обходимся без resolve
+        # по configured-токену, но persistence обязан синхрониться так же,
+        # как в deactivate() — иначе bypass останется только в runtime, а
+        # nftables.service с конфигом без bypass поднимется после ребута
+        # рядом с восстановленным source firewall.
+        return self._with_persistence(
+            ssh,
+            server,
+            self._insert_bypass(ssh, server, chain),
+            sync_service=True,
+        )
 
     def deactivate(self, ssh, server: dict) -> FirewallStateChange:
         snapshot = self._ruleset(ssh, server)
@@ -317,7 +713,12 @@ class NftablesBackend(FirewallBackend):
                 message="nftables input filtering уже обойдён",
                 state={"chain": self._chain_token(chain), "handles": []},
             )
-        return self._insert_bypass(ssh, server, chain)
+        return self._with_persistence(
+            ssh,
+            server,
+            self._insert_bypass(ssh, server, chain),
+            sync_service=True,
+        )
 
     def _insert_bypass(
         self,
@@ -511,7 +912,7 @@ class NftablesBackend(FirewallBackend):
             )
         verified = self.detect(ssh, server)
         active_now = verified is not None and verified.active is True
-        return FirewallStateChange(
+        change = FirewallStateChange(
             self.name,
             "activate",
             active_now,
@@ -528,6 +929,7 @@ class NftablesBackend(FirewallBackend):
             error=None if active_now else "nftables activate unverified",
             state=state,
         )
+        return self._with_persistence(ssh, server, change, sync_service=True)
 
     def restore(
         self,
@@ -573,7 +975,7 @@ class NftablesBackend(FirewallBackend):
             and chain is not None
             and not (chain["rules"] and self._unconditional_accept(chain["rules"][0]))
         )
-        return FirewallStateChange(
+        change = FirewallStateChange(
             self.name,
             "restore",
             restored,
@@ -582,6 +984,7 @@ class NftablesBackend(FirewallBackend):
             message="Исходное nftables input filtering восстановлено" if restored else "nftables восстановлен не полностью",
             error=None if restored else "; ".join(errors or ["nftables restore failed"])[:800],
         )
+        return self._with_persistence(ssh, server, change, sync_service=False)
 
     def migration_rules(
         self,
@@ -707,7 +1110,7 @@ class NftablesBackend(FirewallBackend):
         after = self._matching(self._exact_rules(refreshed), port, protocol, source) if refreshed else []
         created = after[0] if len(after) == 1 and str(after[0].handle or "").isdigit() else None
         verified = code == 0 and created is not None
-        return FirewallMutation(
+        mutation = FirewallMutation(
             self.name,
             port,
             protocol,
@@ -730,6 +1133,7 @@ class NftablesBackend(FirewallBackend):
                 "source": source,
             },
         )
+        return self._with_persistence(ssh, server, mutation, sync_service=False)
 
     @classmethod
     def _source_family_mismatch(
@@ -946,7 +1350,7 @@ class NftablesBackend(FirewallBackend):
         refreshed = self._find_chain(ssh, server, token) if code == 0 else chain
         absent = bool(refreshed is not None and self._rule_by_handle(refreshed, handle) is None)
         verified = code == 0 and absent
-        return FirewallMutation(
+        mutation = FirewallMutation(
             self.name,
             port,
             protocol,
@@ -965,6 +1369,7 @@ class NftablesBackend(FirewallBackend):
             error=None if verified else (err or out or "Удаление не подтверждено")[:800],
             token={**self._chain_token(chain), "handle": handle, "source": source},
         )
+        return self._with_persistence(ssh, server, mutation, sync_service=False)
 
     def _ruleset(self, ssh, server: dict) -> dict[str, list[dict[str, Any]]]:
         code, out, err = exec_sudo(ssh, server, "nft -j -a list ruleset", timeout=30)
@@ -1188,10 +1593,14 @@ class NftablesBackend(FirewallBackend):
             or any("firewalld" in target for target in targets)
         ):
             return "technical", "firewalld_dispatch"
+        # ufw для IPv6 называет dispatch-цепочки «ufw6-*» (ip6tables),
+        # для IPv4 — «ufw-*». Без ufw6- ip6 filter INPUT падал в
+        # unrecognized_dispatch → вся структура считалась неоднозначной
+        # и switch ufw→nftables обрывался (найдено на живой Ubuntu с ufw).
         if (
-            table_lower.startswith("ufw-")
-            or name_lower.startswith("ufw-")
-            or any(target.startswith("ufw-") for target in targets)
+            table_lower.startswith(("ufw-", "ufw6-"))
+            or name_lower.startswith(("ufw-", "ufw6-"))
+            or any(target.startswith(("ufw-", "ufw6-")) for target in targets)
         ):
             return "technical", "ufw_dispatch"
 
@@ -1206,6 +1615,14 @@ class NftablesBackend(FirewallBackend):
             return "ambiguous", "unrecognized_dispatch"
         if legacy_input:
             return "ambiguous", "legacy_input_without_compat_marker"
+        if not rules and str(chain.get("policy") or "accept").lower() != "drop":
+            # Пустая цепочка с default-accept ничего не фильтрует — это
+            # скелетный table inet filter из /etc/nftables.conf Ubuntu.
+            # selectable она быть не должна: после включения nftables.service
+            # детект видел бы «несколько цепочек, требуется выбор» на ровном
+            # месте. Пустая цепочка с policy drop остаётся selectable —
+            # она реально режет трафик.
+            return "technical", "inert_empty_input_chain"
         return "selectable", "standalone_input_base_chain"
 
     @staticmethod
@@ -1442,6 +1859,7 @@ class NftablesBackend(FirewallBackend):
         accepted = False
         state_match = False
         loopback_match = False
+        icmp_match = False
         for expression in rule["expr"]:
             if not isinstance(expression, dict):
                 return False
@@ -1472,8 +1890,28 @@ class NftablesBackend(FirewallBackend):
             ):
                 loopback_match = True
                 continue
+            # Базовый ruleset панели разрешает icmp/ipv6-icmp (NDP, DAD,
+            # destination-unreachable…) — в модель port/protocol они не
+            # переводятся и не должны становиться «неоднозначными» при
+            # обратном переключении на ufw.
+            if (
+                isinstance(meta, dict)
+                and str(meta.get("key") or "").lower() == "l4proto"
+                and str(right).lower() in {"icmp", "ipv6-icmp"}
+            ):
+                icmp_match = True
+                continue
+            payload = left.get("payload")
+            if (
+                isinstance(payload, dict)
+                and str(payload.get("protocol") or "").lower()
+                in {"icmp", "icmpv6"}
+                and str(payload.get("field") or "").lower() == "type"
+            ):
+                icmp_match = True
+                continue
             return False
-        return accepted and (state_match or loopback_match)
+        return accepted and (state_match or loopback_match or icmp_match)
 
     @staticmethod
     def _state_values(value: Any) -> Optional[set[str]]:

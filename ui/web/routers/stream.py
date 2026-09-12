@@ -43,6 +43,24 @@ async def _light_checks():
         print(f"[STREAM] light checks: {e}", flush=True)
 
 
+def _security_revision():
+    """Сигнатура файлов секретов (config.json / servers.json / мастер-ключ)
+    для SSE. Меняется при любой записи — из Web, CLI или TG (это разные
+    процессы, общего события нет, поэтому сравниваем mtime файлов). Клиент
+    по смене сигнатуры перечитывает карточки «Безопасность»."""
+    import os
+
+    from core import secretbox
+
+    parts = []
+    for path in (secretbox.SCAN_CONFIG_FILE, secretbox.SCAN_SERVERS_FILE, secretbox.KEY_FILE):
+        try:
+            parts.append(f"{os.path.getmtime(path):.9f}")
+        except OSError:
+            parts.append("-")
+    return ":".join(parts)
+
+
 def _snapshot():
     """Короткий снимок для SSE (без тяжёлых SSH)."""
     out = {
@@ -98,6 +116,8 @@ def _snapshot():
                 "host_ip": mon.get("host_ip"),
                 "group": s.get("group"),
                 "online": avail.get("online"),
+                "ssh_error": avail.get("ssh_error") or "",
+                "last_error": avail.get("last_error") or "",
                 "uptime": (mon.get("system") or {}).get("uptime"),
                 "uptime_seconds": (mon.get("system") or {}).get("uptime_seconds"),
                 "has_running": has_running,
@@ -145,6 +165,11 @@ def _snapshot():
         out["monitor"] = cfg
     except Exception as e:
         out["monitor_error"] = str(e)
+
+    try:
+        out["security_revision"] = _security_revision()
+    except Exception as e:
+        out["security_revision_error"] = str(e)
 
     return out
 
