@@ -9,6 +9,8 @@ Server handlers module for Bot4VPS.
 Все остальные функции — внутренние.
 """
 
+import asyncio
+
 from telegram import InlineKeyboardMarkup, InlineKeyboardButton
 
 import ipaddress
@@ -43,6 +45,8 @@ from ui.telegram.servers import (
     delete_group,
     reboot_confirm,
     perform_reboot,
+    hostkey_confirm,
+    perform_hostkey_accept,
 )
 from ui.telegram.server_wizard import (
     start_add_server,
@@ -110,13 +114,13 @@ async def _handle_group_ssl(query, data):
 
             if is_ip:
                 if server.get("ssl_host"):
-                    update_server_certificate(server)
+                    await asyncio.to_thread(update_server_certificate, server)
                 else:
                     ssl_setup.append(server["id"])
             else:
                 if not server.get("ssl_host"):
                     server["ssl_host"] = server["host"]
-                update_server_certificate(server)
+                await asyncio.to_thread(update_server_certificate, server)
         else:
             server["certificate_check"] = False
         changed_servers = True
@@ -220,7 +224,7 @@ async def _handle_set_edit_group(query, data):
             )
             return
         else:
-            update_server_certificate(server)
+            await asyncio.to_thread(update_server_certificate, server)
             await query.message.reply_text("✅ Группа изменена. SSL-проверка запущена.")
             await show_server_message(query.message, server_id)
             return
@@ -309,18 +313,6 @@ async def process_server_callback(query, data: str) -> bool:
     elif data == "skip_ssl_host":
         await skip_ssl_host(query)
 
-    elif data == "ssl_monitor_run":
-        await query.answer("Проверка...")
-
-        try:
-            from core.monitor import run_daily_monitor
-            events = run_daily_monitor()
-            print(f"[SSL] run_daily_monitor выполнен, событий: {len(events) if events else 0}")
-        except Exception as e:
-            print(f"[SSL] Ошибка запуска run_daily_monitor: {e}")
-
-        await query.message.reply_text("✅ SSL мониторинг выполнен.")
-
     elif (
         data.startswith("edit_name:") or
         data.startswith("edit_host:") or
@@ -340,6 +332,12 @@ async def process_server_callback(query, data: str) -> bool:
 
     elif data.startswith("reboot:"):
         await perform_reboot(query, data.split(":", 1)[1])
+
+    elif data.startswith("hostkey_confirm:"):
+        await hostkey_confirm(query, data.split(":", 1)[1])
+
+    elif data.startswith("hostkey_accept:"):
+        await perform_hostkey_accept(query, data.split(":", 1)[1])
 
     elif data.startswith("edit_group:"):
         await _handle_edit_group(query, data)

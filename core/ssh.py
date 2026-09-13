@@ -13,8 +13,38 @@ class BinaryStreamCancelled(Exception):
 
 
 def create_ssh_client(server, timeout=8):
+    """Единая точка SSH-подключения панели — включая верификацию host key.
+
+    Слой host-key (5.1) живёт ТОЛЬКО здесь: все потребители (QS, monitor,
+    бэкапы, терминал, restore) наследуют проверку автоматически. Сверка не
+    трогает CAS/verify-потоки — они используют этот же клиент.
+
+    Неудача подключения запускает backoff авто-проб (monitor): панель с
+    неверным паролем не должна долбить сервер каждые ~3-5с и банить себя
+    fail2ban'ом. Успех — сбрасывает backoff.
+    """
+    from core import host_keys
+
     ssh = paramiko.SSHClient()
-    ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    gate = host_keys.HostKeyGate(server)
+    ssh.set_missing_host_key_policy(gate)
+    try:
+        _ssh_connect(ssh, server, timeout)
+    except Exception:
+        from core.monitor import note_ssh_failure
+        note_ssh_failure(server.get("id"))
+        raise
+    from core.monitor import note_ssh_success
+    note_ssh_success(server.get("id"))
+    if gate.captured is not None:
+        # TOFU: ключа не было — захватили при этом коннекте, закрепляем
+        # (не перезаписывает существующую запись и не роняет подключение).
+        host_keys.persist_tofu(server, gate.captured)
+    return ssh
+
+
+def _ssh_connect(ssh, server, timeout=8):
+    """Низкоуровневое connect с реквизитами сервера (без host-key слоя)."""
     auth_type = server.get("auth_type", "password")
     if auth_type == "key":
         ssh.connect(
@@ -26,7 +56,39 @@ def create_ssh_client(server, timeout=8):
             hostname=server["host"], port=server.get("port", 22),
             username=server["user"], password=server["password"], timeout=timeout,
         )
-    return ssh
+
+
+def accept_new_host_key(server, timeout=15):
+    """Явное принятие ТЕКУЩЕГО host key сервера (после переустановки).
+
+    Отдельный административный поток: подключаемся без сверки (AutoAdd),
+    забираем предъявленный ключ и принудительно перезаписываем запись.
+    Возвращает новую запись. Ошибки подключения пробрасываются наружу.
+    """
+    from core import host_keys
+
+    ssh = paramiko.SSHClient()
+    ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    try:
+        _ssh_connect(ssh, server, timeout)
+    except Exception:
+        from core.monitor import note_ssh_failure
+        note_ssh_failure(server.get("id"))
+        raise
+    # подключение удалось — снимаем backoff авто-проб (сервер снова доступен)
+    from core.monitor import note_ssh_success
+    note_ssh_success(server.get("id"))
+    try:
+        key = ssh.get_transport().get_remote_server_key()
+        presented = host_keys.record_from_pkey(key)
+    finally:
+        ssh.close()
+    from core.storage import record_server_host_key
+
+    old = host_keys.stored_record(server)
+    record_server_host_key(str(server.get("id")), presented, overwrite=True)
+    host_keys.report_accepted_new(server, old, presented)
+    return presented
 
 
 def get_available_keys():

@@ -244,7 +244,10 @@ async def _install_handle_text(message, user_id: int, text: str):
     if not state:
         return
     if state["index"] >= len(state["params"]):
+        # все параметры введены — повторное сообщение не должно падать
+        # IndexError на params[index] за границей
         await _install_summary(message, user_id)
+        return
     p = state["params"][state["index"]]
     state["values"][p.name] = _coerce_param(p, text)
     state["index"] += 1
@@ -274,7 +277,9 @@ async def _enqueue_watch_query(query, service_id, server_id, action, params, src
     server = find_server(server_id)
     server_name = server["name"] if server else server_id
     try:
-        task = await integrator.enqueue(service_id, server_id, action, params, src=src)
+        task = await integrator.enqueue(
+            service_id, server_id, action, params, src=src, live_reported=True
+        )
     except Exception as e:
         try:
             await query.message.reply_text(f"❌ Не удалось поставить задачу:\n{e}")
@@ -295,7 +300,9 @@ async def _enqueue_watch_message(message, bot, service_id, server_id, action, pa
     server = find_server(server_id)
     server_name = server["name"] if server else server_id
     try:
-        task = await integrator.enqueue(service_id, server_id, action, params, src=src)
+        task = await integrator.enqueue(
+            service_id, server_id, action, params, src=src, live_reported=True
+        )
     except Exception as e:
         try:
             await message.reply_text(f"❌ Не удалось поставить задачу:\n{e}")

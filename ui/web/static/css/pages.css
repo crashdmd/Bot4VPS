@@ -874,6 +874,10 @@ label{
   margin-bottom:.25rem;
   color:var(--text);
 }
+.srv-conn-warning-btn{
+  display:block;
+  margin-top:.6rem;
+}
 .dash-srv-actions{
   display:flex;
   gap:0.5rem;

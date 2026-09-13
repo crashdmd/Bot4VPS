@@ -1,5 +1,5 @@
 import { state, setServers } from './state.js';
-import { applyEventsSnapshot } from './monitor.js?v=20260912-chlogwrap-v1';
+import { applyEventsSnapshot } from './monitor.js?v=20260913-hostkey-v2';
 
 let es = null;
 let notificationsRefresh = null;
@@ -60,7 +60,7 @@ function applySnapshot(data) {
         has_running: !!s.has_running,
       };
     }));
-    import('./servers.js?v=20260912-chlogwrap-v1').then(m => {
+    import('./servers.js?v=20260913-hostkey-v2').then(m => {
       if (state.page === 'servers' && m.renderServersFromState) m.renderServersFromState();
     }).catch(() => {});
   }
@@ -72,7 +72,7 @@ function applySnapshot(data) {
       && data.task_history_revision !== taskHistoryRevision) {
     taskHistoryRevision = data.task_history_revision;
     if (state.page === 'queues') {
-      import('./servers.js?v=20260912-chlogwrap-v1').then(m => {
+      import('./servers.js?v=20260913-hostkey-v2').then(m => {
         m.loadHistory?.();
       }).catch(() => {});
     }
@@ -94,7 +94,7 @@ function applySnapshot(data) {
     }
     // Открытая карточка сервера — обновить блок «Недавние события»
     if (state.page === 'server') {
-      import('./servers.js?v=20260912-chlogwrap-v1').then(m => {
+      import('./servers.js?v=20260913-hostkey-v2').then(m => {
         if (m.refreshOpenServerEvents) m.refreshOpenServerEvents();
         else if (m.openServerId) {
           // fallback: модуль мог ещё не экспортировать helper

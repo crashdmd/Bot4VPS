@@ -1,6 +1,6 @@
 import { j, esc } from './api.js?v=20260821-telegram-health-v1';
 import { toast, bindPasswordToggles, confirmAction, infoModal, syncServerClock, parseEmoji } from './ui.js';
-import { loadUpdateState, showUpdateModal, showHistoryModal } from './monitor.js?v=20260912-chlogwrap-v1';
+import { loadUpdateState, showUpdateModal, showHistoryModal } from './monitor.js?v=20260913-hostkey-v2';
 import { openBackupPasswordModal } from './backup-password.js?v=20260911-bpw-v16';
 
 let account = { auth_enabled: false, username: 'admin' };
@@ -1931,7 +1931,7 @@ async function clearHistory(kind) {
 
 async function renderAbout() {
   const ping = await j('/api/ping');
-  document.getElementById('settings-content').innerHTML = `<section class="set-about"><div class="set-about-mark">B4</div><div><span class="set-kicker">SERVER CONTROL PLANE</span><h2>Bot4VPS</h2><p>Telegram-бот и Web UI для управления VPS и домашними серверами через SSH.</p><div class="set-about-version">Версия <strong>${esc(ping.version || '—')}</strong></div><div class="set-inline-actions"><button type="button" class="secondary" id="set-about-changelog">История версий</button><a class="btn secondary" href="https://github.com/crashdmd/Bot4VPS" target="_blank" rel="noopener noreferrer">GitHub ↗</a></div><div class="set-about-author">Автор — <a href="https://github.com/crashdmd" target="_blank" rel="noopener noreferrer">crashdmd</a></div></div></section>`;
+  document.getElementById('settings-content').innerHTML = `<section class="set-about"><div class="set-about-mark">B4</div><div><span class="set-kicker">SERVER CONTROL PLANE</span><h2>Bot4VPS</h2><p>Telegram-бот и Web UI для управления VPS и домашними серверами через SSH.</p><div class="set-about-version">Версия <strong>${esc(ping.version || '—')}</strong></div><div class="set-inline-actions"><button type="button" class="secondary" id="set-about-changelog">Описание версии</button><a class="btn secondary" href="https://github.com/crashdmd/Bot4VPS" target="_blank" rel="noopener noreferrer">GitHub ↗</a></div><div class="set-about-author">Автор — <a href="https://github.com/crashdmd" target="_blank" rel="noopener noreferrer">crashdmd</a></div></div></section>`;
   document.getElementById('set-about-changelog')?.addEventListener('click', showHistoryModal);
 }
 

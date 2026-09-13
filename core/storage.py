@@ -286,6 +286,30 @@ def get_server_connection_snapshot(server_id: str) -> dict:
     raise ValueError("Сервер не найден")
 
 
+def record_server_host_key(
+    server_id: str, record: dict, *, overwrite: bool = False
+) -> bool:
+    """Записать SSH host key сервера (host key verification, 5.1).
+
+    Возвращает True, если запись создана/обновлена; False — запись уже
+    существует и overwrite=False (TOFU не перезаписывает сохранённый
+    ключ: гонка параллельных подключений или уже принятое решение).
+    Поле host_key НЕ входит в _BACKUP_CONNECTION_FIELDS — CAS-потоки
+    Quick Setup сверку не замечают.
+    """
+    with data_lock():
+        data = load_data()
+        for server in data.get("servers", []):
+            if server.get("id") != server_id:
+                continue
+            if server.get("host_key") and not overwrite:
+                return False
+            server["host_key"] = deepcopy(record)
+            save_data(data)
+            return True
+    raise ValueError("Сервер не найден")
+
+
 def compare_and_set_server_connection(
     server_id: str,
     patch: dict,

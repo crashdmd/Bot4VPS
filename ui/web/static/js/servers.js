@@ -4,7 +4,7 @@ import { toast, showPage, bindPasswordToggles, parseEmoji, confirmAction, format
 import { state, setServers, setGroups, setKeys, setOpenServer, setPage, setServerGroupTab, setServerSort, setServerQuery as updateServerQuery } from './state.js';
 import { WIREGUARD_ICON, DOCKER_ICON } from './icons.js?v=20260905-brandicons-v2';
 import { openTerminal, closeTerminal } from './terminal.js?v=20260904-termfit-v1';
-import { openEventDetail, applyEventsSnapshot } from './monitor.js?v=20260912-chlogwrap-v1';
+import { openEventDetail, applyEventsSnapshot } from './monitor.js?v=20260913-hostkey-v2';
 import { openTaskLog, cancelTaskAPI } from './tasks.js?v=20260816-task-history-v3';
 import { openBackupsForServer } from './backup.js?v=20260912-tzdrop-v1';
 
@@ -798,7 +798,7 @@ async function renderQuickActions(id) {
 
   // 4. Запустить скрипт
   addAction('Запустить скрипт', '▶', 'secondary',
-    () => import('./scripts.js?v=20260826-host-timezone-v2').then(m => m.openRunModal(id, null)));
+    () => import('./scripts.js?v=20260913-hostkey-v2').then(m => m.openRunModal(id, null)));
 
   // 5. Перезагрузить сервер
   addAction('Перезагрузить сервер', '🔄', 'secondary', async () => {
@@ -939,7 +939,41 @@ export function renderConnWarning(warning) {
     return;
   }
   el.classList.remove('hidden');
-  el.innerHTML = `<strong>${esc(warning.title)}</strong>${esc(warning.message)}`;
+  el.innerHTML = `<strong>${esc(warning.title)}</strong>${esc(warning.message)}`
+    // host key mismatch: причина известна точно — рядом кнопка решения
+    + (warning.hostKeyMismatch
+      ? `<button type="button" class="secondary srv-conn-warning-btn" id="srv-hostkey-accept">🛡 Принять текущий ключ</button>`
+      : '');
+  const acceptBtn = el.querySelector('#srv-hostkey-accept');
+  if (acceptBtn) acceptBtn.onclick = () => acceptHostKeyFromCard();
+}
+
+/**
+ * «Принять текущий ключ» из баннера карточки сервера (host key mismatch).
+ * Тот же accept-эндпоинт, что и в Quick Setup: подтверждение → POST →
+ * карточка перезагружается с уже свежим ключом.
+ */
+async function acceptHostKeyFromCard() {
+  const id = currentOpenServerId();
+  if (!id) { toast('Сервер не выбран', false); return; }
+  const approved = await confirmAction({
+    title: 'Принять текущий host key?',
+    message: 'Bot4VPS подключится к серверу без сверки и заменит сохранённый SSH host key на предъявленный сейчас. Продолжайте, только если вы уверены, что сервер переустановлен или его ключ законно изменился.',
+    confirmText: 'Принять',
+    cancelText: 'Отмена',
+    danger: true,
+    confirmFirst: true,
+  });
+  if (!approved) return;
+  try {
+    const r = await j('/api/servers/' + encodeURIComponent(id) + '/quick-setup/ssh/hostkey/accept', { method: 'POST' });
+    toast(r.ok
+      ? `Новый host key принят: ${r.host_key?.fingerprint || '?'}`
+      : (r.message || r.error || 'Ошибка'), r.ok);
+    if (r.ok) await openServer(id);
+  } catch (e) {
+    toast(e.message || 'Ошибка', false);
+  }
 }
 
 export function renderSshStatus(ssh, error) {
@@ -1152,6 +1186,7 @@ export async function openServer(id) {
         renderConnWarning({
           title: 'Не удалось подключиться по SSH',
           message: p.ssh_error_human || info.ssh_error || 'Причина неизвестна.',
+          hostKeyMismatch: !!(info.host_key_mismatch || p.host_key_mismatch),
         });
       } else {
         renderConnWarning(null);
@@ -1181,24 +1216,24 @@ const checkDockerStatus = id => checkServiceInstalled('docker', id);
 
 // Открыть панель WireGuard для сервера
 function openWireGuardServer(serverId) {
-  import('./wireguard.js?v=20260911-tabhint-v2').then(m => m.openWgServerById(serverId));
+  import('./wireguard.js?v=20260913-hostkey-v2').then(m => m.openWgServerById(serverId));
 }
 
 // Открыть модальное окно установки WireGuard
 function confirmInstallWireGuard(serverId) {
-  import('./wireguard.js?v=20260911-tabhint-v2')
+  import('./wireguard.js?v=20260913-hostkey-v2')
     .then(m => m.openInstall(serverId))
     .catch(err => console.error('Ошибка загрузки модуля WireGuard:', err));
 }
 
 // Открыть панель Docker для сервера
 function openDockerServer(serverId) {
-  import('./docker.js?v=20260911-tabhint-v2').then(m => m.openDockerServerById(serverId));
+  import('./docker.js?v=20260913-hostkey-v2').then(m => m.openDockerServerById(serverId));
 }
 
 // Открыть модальное окно установки Docker
 function confirmInstallDocker(serverId) {
-  import('./docker.js?v=20260911-tabhint-v2')
+  import('./docker.js?v=20260913-hostkey-v2')
     .then(m => m.openInstall(serverId))
     .catch(err => console.error('Ошибка загрузки модуля Docker:', err));
 }
@@ -1824,7 +1859,7 @@ function openGroupsPanel() {
     panel.classList.add('open');
     // Загружаем списки групп при открытии панели.
     // Спецификатор тот же, что в app.js — единый инстанс модуля.
-    import('./groups_panel.js?v=20260911-groups-v2').then(m => {
+    import('./groups_panel.js?v=20260913-hostkey-v2').then(m => {
       m.loadGroupsAdmin();
       m.loadGroupsDisplayOrder();
     });

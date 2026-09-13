@@ -154,6 +154,32 @@ def fetch_changelog() -> str:
     return _http_get(CHANGELOG_URL).decode("utf-8", errors="replace")
 
 
+def current_version_changelog() -> str:
+    """Описание УСТАНОВЛЕННОЙ версии — секция из поставляемого changelog.md.
+
+    Локальный data/update/changelog.md — кэш: он сеется при старте и
+    обновляется раннером, но при ручном деплое кода (без updater'а)
+    остаётся от предыдущей версии — показывалась, например, 4.5 на
+    установленной 5.0. Поэтому источником всегда служит файл из
+    поставки кода, а локальный по пути самоисцеляется.
+    """
+    shipped_path = Path(__file__).with_name("changelog.md")
+    shipped = shipped_path.read_text(encoding="utf-8")
+    section = extract_changelog_section(shipped, APP_VERSION)
+    if not section:
+        # версии нет в поставляемом файле (нетипичный тег/срез кода) —
+        # показываем последний доступный локальный вариант
+        if CHANGELOG_FILE.exists():
+            return CHANGELOG_FILE.read_text(encoding="utf-8").strip()
+        return shipped.strip()
+    try:
+        UPDATE_DIR.mkdir(parents=True, exist_ok=True)
+        CHANGELOG_FILE.write_text(section + "\n", encoding="utf-8")
+    except OSError:
+        pass  # кэш не обязан писаться: источник — файл поставки
+    return section
+
+
 # ==================================================================
 # Проверка обновлений
 # ==================================================================
@@ -308,6 +334,24 @@ def list_rollback_versions() -> list[str]:
         result.append(v)
     result.sort(key=parse_version, reverse=True)
     return result
+
+
+def get_rollback_version_section(version: str) -> str:
+    """Секция «## <version>» из поставляемого changelog.md — описание версии.
+
+    Источник тот же, что и у списка версий отката, — локальный файл репо:
+    список и описания не могут разъехаться.
+    """
+    want = parse_version(version)
+    shipped = Path(__file__).with_name("changelog.md").read_text(
+        encoding="utf-8"
+    )
+    section = extract_changelog_section(shipped, normalize_version(want))
+    if not section:
+        raise ValueError(
+            "Описание версии %s не найдено" % normalize_version(want)
+        )
+    return section
 
 
 def resolve_release(version: str) -> dict:
@@ -470,7 +514,9 @@ async def start_rollback(version: str) -> dict:
     """Откат на конкретную версию через её GitHub Release."""
     target = parse_version(version)
     if target < MIN_ROLLBACK_VERSION:
-        raise ValueError("Откат доступен только для версий 4.0.0 и новее")
+        # Граница — не произвольная: Web UI появился в 3.0, откат из панели
+        # на более старые версии невозможен в принципе.
+        raise ValueError("Откат доступен только для версий 3.0.0 и новее")
     if normalize_version(target) == normalize_version(parse_version(APP_VERSION)):
         raise ValueError("Версия %s уже установлена" % normalize_version(target))
 
@@ -509,15 +555,15 @@ async def init_on_startup() -> None:
        установку сам, но уведомления шлёт процесс через notify_event.
     """
     UPDATE_DIR.mkdir(parents=True, exist_ok=True)
-    if not CHANGELOG_FILE.exists():
-        shipped = Path(__file__).with_name("changelog.md")
-        section = extract_changelog_section(
-            shipped.read_text(encoding="utf-8"), APP_VERSION
-        )
-        CHANGELOG_FILE.write_text((section or shipped.read_text()) + "\n",
-                                  encoding="utf-8")
-
     state = read_state()
+    # Локальный changelog сеем не только при отсутствии: после смены
+    # версии (в том числе ручного деплоя кода) он обязан отражать
+    # установленную версию, а не оставаться от прежней.
+    if not CHANGELOG_FILE.exists() or state.get("current_version") != APP_VERSION:
+        try:
+            current_version_changelog()
+        except OSError:
+            pass
     if state.get("status") == "checking":
         # Проверка шла внутри процесса и не пережила перезапуск (раннер в ней
         # не участвует, action отсутствует) — без сброса status остался бы

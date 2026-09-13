@@ -1,6 +1,9 @@
 from tzlocal import get_localzone
 
+import logging
+
 from telegram import Update
+from telegram.error import TelegramError
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -14,9 +17,10 @@ from telegram.ext import (
 # Core
 import core.scripts  # noqa: F401 — register_executor
 from core.storage import ensure_server_ids
+from core.auth import is_allowed
 from core.config import ConfigCorruptedError, load_config
-from core.event_types import EventType
 from core.event_service import register_notifier, clear_notifiers
+from core.telegram_health import mask_bot_token
 
 from core.upload import (
     process_upload_document,
@@ -24,9 +28,10 @@ from core.upload import (
 
 # UI
 from ui.telegram.notifications import (
-    process_notifications as core_process_notifications,
-    handle_critical_event,
     send_event_notification,
+    set_delivery_bot,
+    start_notification_drain_job,
+    stop_notification_drain_job,
 )
 from ui.telegram.bot_handlers import button
 from ui.telegram.common import show_main_menu
@@ -68,13 +73,12 @@ except ConfigCorruptedError:
     _CONFIG_CORRUPTED = True
 
 
-NOTIFICATION_HANDLERS = {
-    EventType.DATABASE.value: handle_critical_event,
-    EventType.SSL.value: handle_critical_event,
-    EventType.SERVER.value: handle_critical_event,
-    EventType.TASK.value: handle_critical_event,
-    EventType.BACKUP.value: handle_critical_event,
-}
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Меню — только авторизованным.
+    if not is_allowed(update.effective_user.id):
+        await update.message.reply_text("⛔ Доступ запрещён.")
+        return
+    await show_main_menu(update)
 
 # Единый экземпляр Application (TG + Web в одном процессе)
 _application: Application | None = None
@@ -91,8 +95,51 @@ def get_last_start_error() -> str | None:
     return _last_start_error
 
 
+class _MaskedTokenLogFilter(logging.Filter):
+    """PTB логирует исключения целиком (logger.exception): текст
+    InvalidToken несёт сам токен, а в webhook/polling-логах NetworkError
+    встречается URL API с ним. Подменяем исключение маскированной
+    копией до форматирования записи журналом."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        exc = record.exc_info[1] if record.exc_info else None
+        if exc is not None:
+            text = str(exc)
+            masked = mask_bot_token(text)
+            if masked != text:
+                try:
+                    clone = type(exc)(masked)
+                    clone.__traceback__ = exc.__traceback__
+                    record.exc_info = (type(exc), clone, exc.__traceback__)
+                except Exception:
+                    # не всякое исключение конструируется из одного
+                    # сообщения — тогда прячем его целиком
+                    record.exc_info = None
+                    record.msg = f"{record.msg} (исключение скрыто: {masked})"
+        return True
+
+
+def _install_ptb_log_masking() -> None:
+    # Записи PTB без настроенных handlers уходят в stderr через
+    # lastResort — фильтр на нём закрывает единственный канал, по
+    # которому текст исключения попадает в journal.
+    if not any(
+        isinstance(f, _MaskedTokenLogFilter) for f in logging.lastResort.filters
+    ):
+        logging.lastResort.addFilter(_MaskedTokenLogFilter())
+
+
+_install_ptb_log_masking()
+
+
 def _humanize_start_error(exc: BaseException) -> str:
-    """Понятное сообщение для UI (невалидный токен и т.п.)."""
+    """Понятное сообщение для UI (невалидный токен и т.п.).
+
+    Выход всегда проходит через mask_bot_token: текст исключения PTB
+    может содержать сам токен (InvalidToken) или URL API с ним
+    (NetworkError) — в journal и telegram_state.json он попадать не
+    должен.
+    """
     name = type(exc).__name__
     msg = str(exc).strip() or name
     low = msg.lower()
@@ -105,15 +152,17 @@ def _humanize_start_error(exc: BaseException) -> str:
     if "timed out" in low or "timeout" in low:
         return "таймаут связи с Telegram API"
     if "network" in low or "connect" in low:
-        return f"сеть: {msg}"
+        return mask_bot_token(f"сеть: {msg}")
     # коротко, без огромных traceback
     if len(msg) > 160:
         msg = msg[:157] + "..."
-    return msg
+    return mask_bot_token(msg)
 
 
 async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Единая точка входа для всех текстовых сообщений"""
+    if not is_allowed(update.effective_user.id):
+        return
     if await process_key_message(update, context):
         return
     if await process_script_message(update, context):
@@ -131,16 +180,13 @@ async def document_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     Сначала спрашиваем сервисные UI (Compose-проекты Docker и т.п.), затем —
     профильный загрузчик core/upload.py (скрипты).
     """
+    if not is_allowed(update.effective_user.id):
+        return
     if await process_service_document(update, context):
         return
     if await process_upload_document(update, context):
         return
     await update.message.reply_text("❓ Этот файл сейчас не ожидается.")
-
-
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await core_process_notifications(update, NOTIFICATION_HANDLERS)
-    await show_main_menu(update)
 
 
 def build_application() -> Application:
@@ -178,6 +224,8 @@ async def start_telegram(app: Application | None = None) -> Application:
 
     # replace=True — без дублей при reload
     register_notifier(_immediate_notify, replace=True)
+    # Бот для фоновой доставки накопленных событий (drain job).
+    set_delivery_bot(application.bot)
 
     global _last_start_error
     try:
@@ -204,6 +252,10 @@ async def start_telegram(app: Application | None = None) -> Application:
     from core.telegram_state import write_state
 
     write_state("running")
+    # Фоновый дрейн очереди уведомлений: доставка накопленного без
+    # действия пользователя (backlog простоя/рестарта подберёт первый
+    # же запуск — first=2с).
+    start_notification_drain_job()
     print("🤖 Telegram bot started (manual lifecycle)", flush=True)
     return application
 
@@ -229,6 +281,8 @@ async def stop_telegram(app: Application | None = None) -> None:
     except Exception as e:
         print(f"[BOT] shutdown: {e}", flush=True)
     clear_notifiers()
+    stop_notification_drain_job()
+    set_delivery_bot(None)
     _application = None
     from core.telegram_state import write_state
 
@@ -285,6 +339,7 @@ if __name__ == "__main__":
         return await send_event_notification(application.bot, notification, event_id)
 
     register_notifier(_immediate_notify, replace=True)
+    set_delivery_bot(application.bot)
 
     print("🤖 Bot standalone (run_polling) — для TG+Web используйте uvicorn ui.web.app:app", flush=True)
 
@@ -295,6 +350,11 @@ if __name__ == "__main__":
         from core.telegram_state import write_state
 
         write_state("running")
+        # Повторно внутри работающего loop: фиксируем loop для буфера
+        # агрегации уведомлений (в __main__ set_delivery_bot был вне loop).
+        from ui.telegram.notifications import set_delivery_bot
+
+        set_delivery_bot(app.bot)
         # Self-restore reconcile: восстановленный юнит может быть tg-only —
         # тогда финализацию висящей операции делает этот процесс, а не Web.
         # До core jobs и планировщика (см. тот же hook в ui/web/app.py).
@@ -318,6 +378,12 @@ if __name__ == "__main__":
             await start_core_jobs()
         except Exception as exc:
             print(f"[BOT] Core jobs start failed: {exc}", flush=True)
+        # Дрейн уведомлений — после старта ядерной очереди (job живёт в ней).
+        try:
+            from ui.telegram.notifications import start_notification_drain_job
+            start_notification_drain_job()
+        except Exception as exc:
+            print(f"[BOT] Notification drain start failed: {exc}", flush=True)
         try:
             from core.backup.scheduler import start_automatic_backup_scheduler
             await start_automatic_backup_scheduler()
@@ -342,4 +408,17 @@ if __name__ == "__main__":
 
     application.post_init = _post_init
     application.post_shutdown = _post_shutdown
-    application.run_polling()
+    try:
+        application.run_polling()
+    except TelegramError as exc:
+        # tg-only вход: PTB прокидывает ошибки polling (InvalidToken и
+        # т.п.) наружу — трейсбек унёс бы токен в journal. Чистый выход
+        # с маскированным сообщением; systemd перезапустит сервис.
+        import sys
+
+        reason = _humanize_start_error(exc)
+        print(f"[BOT] polling failed: {reason}", flush=True)
+        from core.telegram_state import write_state
+
+        write_state("failed", error=reason)
+        sys.exit(1)

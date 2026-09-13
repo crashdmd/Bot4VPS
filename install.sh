@@ -99,6 +99,66 @@ path.write_text(
 PY
 }
 
+# finding №5 (acceptance 5.0.0): при переустановке с уже существующим
+# мастер-ключом только что записанные/оставшиеся plaintext-секреты
+# (прежде всего bot_token из update_tg_config) сразу шифруются штатным
+# механизмом ядра — тем же, что за «Зашифровать все секреты» в UI.
+# Первая установка: ключа ещё нет — не усложняем, штатный первичный flow.
+encrypt_plaintext_secrets_if_key() {
+    local result
+    result=$("${INSTALL_DIR}/venv/bin/python" <<'PY' 2>/dev/null || true
+from core import secretbox
+
+if secretbox.master_key_state().get("state") == "ok":
+    outcome = secretbox.encrypt_all_plaintext_secrets()
+    print("encrypted" if outcome.get("encrypted") else "none")
+else:
+    print("nokey")
+PY
+)
+    case "$result" in
+        encrypted) ok "Найденные секреты зашифрованы мастер-ключом" ;;
+        none|nokey|*) ;;
+    esac
+}
+
+# getMe-проверка токена до признания установки успешной (finding №3).
+# stdout: ok | invalid | unreachable. Сетевая недоступность Telegram —
+# НЕ повод блокировать установку: unreachable только предупреждает.
+# Переспрашиваем токен лишь при явном отказе авторизации.
+probe_tg_token() {
+    local token="$1"
+    "${INSTALL_DIR}/venv/bin/python" - "$token" <<'PY' 2>/dev/null || echo unreachable
+import asyncio
+import sys
+
+from telegram import Bot
+from telegram.error import InvalidToken, NetworkError, TelegramError, TimedOut
+
+
+async def main() -> str:
+    bot = Bot(token=sys.argv[1])
+    try:
+        # initialize() выполняет реальный getMe
+        await asyncio.wait_for(bot.initialize(), timeout=12)
+    except InvalidToken:
+        return "invalid"
+    except (NetworkError, TimedOut, TimeoutError, OSError):
+        return "unreachable"
+    except TelegramError:
+        # прочие ошибки API не доказывают невалидность токена
+        return "unreachable"
+    try:
+        await bot.shutdown()
+    except Exception:
+        pass
+    return "ok"
+
+
+print(asyncio.run(main()))
+PY
+}
+
 install_apt_packages() {
     if ! command -v apt-get &>/dev/null; then
         err "Автоматическая установка пакетов поддерживается только через apt-get."
@@ -379,6 +439,9 @@ gen_self_signed() {
 setup_https() {
     local web_port="$1"
     TLS_ARGS=""
+    # Режим HTTPS для report_web_status: сообщение о сертификате
+    # браузера зависит от происхождения сертификата, не только от схемы.
+    WEB_TLS_MODE=""
 
     echo
     echo -e "${CYAN}── HTTPS для Web UI ────────────────────${NC}"
@@ -420,6 +483,7 @@ setup_https() {
             TLS_ARGS="--ssl-certfile ${WEB_TLS_DIR}/cert.pem --ssl-keyfile ${WEB_TLS_DIR}/key.pem"
             set_tls_config_mode letsencrypt "$domain"
             WEB_SCHEME="https"
+            WEB_TLS_MODE="letsencrypt"
             ;;
         2)
             local cn
@@ -432,6 +496,7 @@ setup_https() {
             TLS_ARGS="--ssl-certfile ${WEB_TLS_DIR}/cert.pem --ssl-keyfile ${WEB_TLS_DIR}/key.pem"
             set_tls_config_mode self-signed ""
             WEB_SCHEME="https"
+            WEB_TLS_MODE="self-signed"
             ;;
         3)
             local cert_path key_path
@@ -482,6 +547,7 @@ PY
                 return 0
             fi
             WEB_SCHEME="https"
+            WEB_TLS_MODE="custom"
             ;;
         *)
             warn "Неверный выбор — продолжаю без HTTPS."
@@ -522,7 +588,10 @@ read_web_port() {
             return 0
         fi
 
-        warn "Некорректный порт. Укажите целое число от 1 до 65535."
+        # >&2: read_web_port вызывается в command substitution
+        # (WEB_PORT=$(read_web_port …)) — диагностика не должна
+        # попадать в захватываемое значение порта (битый systemd unit).
+        warn "Некорректный порт. Укажите целое число от 1 до 65535." >&2
     done
 }
 
@@ -603,6 +672,10 @@ web_local_ok() {
 report_web_status() {
     local port="$1"
     local scheme="${2:-http}"
+    # TLS-режим (letsencrypt|self-signed|custom|proxy|пусто): от него
+    # зависит сообщение о сертификате — схема лишь говорит, что панель
+    # слушает TLS сама (proxy терминирует HTTPS снаружи, панель — http).
+    local tls_mode="${3:-}"
     local host_ip
     host_ip=$(detect_ip)
 
@@ -656,7 +729,23 @@ report_web_status() {
         echo "  Если UI не открывается из браузера — проверьте firewall/security group"
         echo "  у VPS-провайдера и откройте TCP ${port} вручную."
         if [[ "$scheme" == "https" ]]; then
-            echo "  Самоподписанный сертификат: браузер предупредит о нём — это ожидаемо."
+            case "$tls_mode" in
+                letsencrypt)
+                    echo "  Сертификат Let's Encrypt: браузер доверяет ему — предупреждений быть не должно."
+                    ;;
+                self-signed)
+                    echo "  Самоподписанный сертификат: браузер предупредит о нём — это ожидаемо."
+                    ;;
+                custom)
+                    echo "  Свой сертификат: предупреждение браузера зависит от того, выдан ли он доверенным центром."
+                    ;;
+                *)
+                    echo "  Панель работает по HTTPS."
+                    ;;
+            esac
+        elif [[ "$tls_mode" == "proxy" ]]; then
+            echo "  Панель за реверс-прокси: HTTPS терминирует прокси —"
+            echo "  предупреждения браузера зависят от его сертификата."
         fi
     fi
 }
@@ -709,7 +798,8 @@ do_enable_web() {
     # HTTPS: режим мог быть настроен раньше (config web.tls). Юнит
     # переписывается — TLS-флаги обязаны пережить включение Web.
     WEB_SCHEME="http"
-    TLS_ARGS=$("${INSTALL_DIR}/venv/bin/python" <<'PY'
+    WEB_TLS_MODE=""
+    if ! TLS_PROBE=$("${INSTALL_DIR}/venv/bin/python" <<'PY'
 import sys
 from core.config import get_tls_config
 from core.web_tls import tls_asset_paths, unit_tls_flags
@@ -717,17 +807,31 @@ from core.web_tls import tls_asset_paths, unit_tls_flags
 tls = get_tls_config()
 if any(not p.is_file() for p in tls_asset_paths(tls)):
     # Управляемая пара исчезла — юнит со ssl-флагами не стартовал бы.
-    print("__MISSING__", end="")
+    print("__MISSING__")
 else:
+    # Первая строка — режим (для сообщения о сертификате), вторая — флаги
+    print(tls.get("mode") or "off")
     print(unit_tls_flags(tls), end="")
 PY
-)
-    if [[ "$TLS_ARGS" == "__MISSING__" ]]; then
+); then
+        warn "Не удалось прочитать настройки HTTPS — включаю Web без HTTPS."
+        echo "  Перевыпустите: bot4vps → Безопасность → HTTPS сертификат."
+        TLS_PROBE=""
+    fi
+    if [[ "$(head -n 1 <<<"$TLS_PROBE")" == "__MISSING__" ]]; then
         warn "Сертификат HTTPS не найден — включаю Web без HTTPS."
         echo "  Перевыпустите: bot4vps → Безопасность → HTTPS сертификат."
         TLS_ARGS=""
-    elif [[ -n "$TLS_ARGS" ]]; then
-        WEB_SCHEME="https"
+    else
+        TLS_ARGS="$(tail -n +2 <<<"$TLS_PROBE")"
+        if [[ -n "$TLS_ARGS" && "$(head -n 1 <<<"$TLS_PROBE")" == "proxy" ]]; then
+            # TLS терминирует прокси: панель слушает плоский HTTP,
+            # ssl-флагов в юните нет (только --proxy-headers).
+            WEB_TLS_MODE="proxy"
+        elif [[ -n "$TLS_ARGS" ]]; then
+            WEB_SCHEME="https"
+            WEB_TLS_MODE="$(head -n 1 <<<"$TLS_PROBE")"
+        fi
     fi
 
     open_web_port "$WEB_PORT"
@@ -747,7 +851,7 @@ PY
         return 1
     fi
 
-    report_web_status "$WEB_PORT" "${WEB_SCHEME:-http}"
+    report_web_status "$WEB_PORT" "${WEB_SCHEME:-http}" "${WEB_TLS_MODE:-}"
     echo "  Настройки Telegram — в Web UI (Настройки → Telegram)."
     echo "  Токен и allowed_users из config.json используются как есть."
 }
@@ -817,8 +921,22 @@ do_install() {
         while true; do
             ask "Токен бота (от @BotFather): " BOT_TOKEN
             BOT_TOKEN=$(echo "$BOT_TOKEN" | xargs)
-            [[ -n "$BOT_TOKEN" && "$BOT_TOKEN" != YOUR_* ]] && break
-            warn "Введите настоящий токен."
+            [[ -n "$BOT_TOKEN" && "$BOT_TOKEN" != YOUR_* ]] || { warn "Введите настоящий токен."; continue; }
+            # Прежде чем считать установку успешной, Telegram должен
+            # принять токен (getMe). Сетевой сбой — не отказ токена.
+            case "$(probe_tg_token "$BOT_TOKEN")" in
+                ok)
+                    break
+                    ;;
+                invalid)
+                    warn "Telegram отклонил этот токен. Проверьте его у @BotFather и введите заново."
+                    ;;
+                *)
+                    warn "Telegram API недоступен — токен проверить не удалось."
+                    warn "Продолжаю без проверки: если токен неверен, бот не запустится (см. journalctl -u ${SERVICE_NAME})."
+                    break
+                    ;;
+            esac
         done
         while true; do
             ask "Ваш Telegram User ID: " USER_ID
@@ -837,6 +955,10 @@ do_install() {
         WEB_SCHEME="http"
         setup_https "$WEB_PORT"
     fi
+
+    # Конфигурация записана: если переустановка с существующим
+    # мастер-ключом — сразу шифруем plaintext-секреты (finding №5).
+    encrypt_plaintext_secrets_if_key
 
     if [[ "$MODE_NAME" == "web+tg" ]]; then
         # Порт открываем ПОСЛЕ клонирования и зависимостей: упавшая
@@ -882,9 +1004,31 @@ do_install() {
         if systemctl is-active --quiet ${SERVICE_NAME}.service; then
             # || true: сбой Web не должен обрывать установку под set -e
             # до подсказок ниже (Telegram-онбординг)
-            report_web_status "$WEB_PORT" "${WEB_SCHEME:-http}" || true
+            report_web_status "$WEB_PORT" "${WEB_SCHEME:-http}" "${WEB_TLS_MODE:-}" || true
         else
             echo "  Web UI:   ${WEB_SCHEME:-http}://$(detect_ip):${WEB_PORT}/"
+        fi
+        # Данные пережили переустановку, но юнит — источник правды:
+        # оставшийся в config HTTPS-режим сам не поднимается.
+        if [[ -z "${WEB_TLS_MODE:-}" ]]; then
+            local stale_tls stale_label
+            stale_tls=$("${INSTALL_DIR}/venv/bin/python" <<'PY' 2>/dev/null || true
+from core.config import get_tls_config
+mode = get_tls_config()["mode"]
+print(mode if mode != "off" else "", end="")
+PY
+)
+            case "$stale_tls" in
+                letsencrypt) stale_label="Let's Encrypt" ;;
+                self-signed) stale_label="самоподписанный" ;;
+                custom)      stale_label="свой сертификат" ;;
+                proxy)       stale_label="за реверс-прокси" ;;
+                *)           stale_label="" ;;
+            esac
+            if [[ -n "$stale_label" ]]; then
+                warn "Ранее был настроен HTTPS (${stale_label}) — сейчас панель без него."
+                echo "  Включите заново: bot4vps → Безопасность → HTTPS сертификат"
+            fi
         fi
         echo "  Настройте Telegram через Настройки → Telegram"
         echo "  Если Telegram включён, но Token/User ID отсутствуют,"

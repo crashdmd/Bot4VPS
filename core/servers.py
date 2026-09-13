@@ -5,6 +5,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 from ping3 import ping
 
+from core.host_keys import HostKeyMismatchError
 from core.ssh import create_ssh_client, exec_sudo
 from core.storage import find_server
 
@@ -79,6 +80,7 @@ def _probe_ssh(server):
     out = {
         "ssh": False,
         "ssh_error": None,
+        "host_key_mismatch": False,
         "uptime": "N/A",
         "uptime_seconds": None,
         "load": "N/A",
@@ -117,6 +119,15 @@ def _probe_ssh(server):
             out["arch"] = _part(8)
         finally:
             ssh.close()
+    except HostKeyMismatchError as e:
+        # Верификация host key заблокировала подключение ДО пароля:
+        # карточке сервера нужен явный флаг — баннер предложит принять ключ
+        out["ssh_error"] = str(e)
+        out["host_key_mismatch"] = True
+        print(
+            f"Info error {server.get('name')}: host key mismatch",
+            flush=True
+        )
     except Exception as e:
         out["ssh_error"] = str(e)
         print(
@@ -156,6 +167,33 @@ def get_server_info(server):
 
     return result
 
+def get_server_info_without_ssh(server, ssh_error=""):
+    """Проба карточки во время SSH backoff: сеть проверяем живьём (дёшево,
+    без аутентификации), SSH-статус — последняя известная причина из monitor.
+
+    Открытая карточка опрашивает /probe каждые 5с; без этого хелпера она
+    продолжала бы долбить недоступный сервер неудачными подключениями.
+    """
+    ping, network = _probe_network(server["host"], server.get("port"))
+    return {
+        "ping": ping,
+        "network": network,
+        "ssh": False,
+        "ssh_error": ssh_error or None,
+        "host_key_mismatch": classify_ssh_error(ssh_error) == "host_key",
+        "uptime": "N/A",
+        "uptime_seconds": None,
+        "load": "N/A",
+        "ram": "N/A",
+        "disk": "N/A",
+        "hostname": "N/A",
+        "os": "N/A",
+        "os_version": "N/A",
+        "kernel": "N/A",
+        "arch": "N/A",
+    }
+
+
 def is_server_online(info):
     """
     Возвращает True, если сервер доступен по сети.
@@ -167,6 +205,13 @@ def format_ssh_error(error):
         return "Неизвестная ошибка."
 
     text = error.lower()
+
+    if "host key" in text:
+        return (
+            "Host key сервера изменился — подключения заблокированы,\n"
+            "пароль не отправлялся. Если сервер переустановлен,\n"
+            "примите новый ключ кнопкой ниже."
+        )
 
     if "authentication failed" in text:
         return (
@@ -236,6 +281,8 @@ def classify_ssh_error(error) -> str:
     if not error:
         return "unknown"
     text = str(error).lower()
+    if "host key" in text:
+        return "host_key"
     if "ключ не найден" in text or "no such file" in text:
         return "key_missing"
     if (
@@ -286,9 +333,14 @@ async def wait_for_reboot(server, timeout=120):
     start = time.time()
     while time.time() - start < timeout:
         try:
-            ssh = create_ssh_client(server)
+            # paramiko-подключение блокирует — без to_thread каждая
+            # попытка (до TCP/SSH-таймаута) замораживала event loop
+            # на всё время ожидания перезагрузки (до 2 минут)
+            ssh = await asyncio.to_thread(create_ssh_client, server)
+        except Exception:
+            ssh = None
+        if ssh is not None:
             ssh.close()
             return True
-        except:
-            await asyncio.sleep(5)
+        await asyncio.sleep(5)
     return False

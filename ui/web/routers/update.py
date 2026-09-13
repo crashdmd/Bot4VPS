@@ -43,12 +43,17 @@ async def api_update_check():
 
 @router.get("/api/update/changelog")
 async def api_update_changelog():
-    """Changelog текущей установленной версии (локальный файл)."""
+    """Changelog текущей установленной версии.
+
+    Источник — поставляемый с кодом changelog.md (секция установленной
+    версии); локальный data/update/changelog.md самоисцеляется по пути.
+    """
     try:
         from core.update import updater
-        if not updater.CHANGELOG_FILE.exists():
+        import asyncio
+        text = await asyncio.to_thread(updater.current_version_changelog)
+        if not text:
             raise HTTPException(500, "Changelog не найден")
-        text = updater.CHANGELOG_FILE.read_text(encoding="utf-8")
         return {"version": VERSION, "changelog": text.strip()}
     except HTTPException:
         raise
@@ -86,7 +91,7 @@ async def api_update_install():
 
 @router.get("/api/update/versions")
 async def api_update_versions():
-    """Версии ≥ 4.0.0 для отката (заголовки changelog.md в main)."""
+    """Версии ≥ 3.0.0 для отката (заголовки changelog.md в main)."""
     try:
         from core.update import updater
         import asyncio
@@ -99,6 +104,28 @@ async def api_update_versions():
             return err(ValueError(_friendly_check_error(e)), code=502)
         except Exception:
             return err(e, code=502)
+
+
+@router.get("/api/update/versions/{version}")
+async def api_update_version_section(version: str):
+    """Описание версии отката — секция «## <version>» из changelog.md."""
+    try:
+        from core.update import updater
+        try:
+            updater.parse_version(version)
+        except ValueError:
+            raise HTTPException(400, "Неверный формат версии")
+        import asyncio
+        section = await asyncio.to_thread(
+            updater.get_rollback_version_section, version
+        )
+        return {"version": version, "changelog": section}
+    except HTTPException:
+        raise
+    except ValueError as e:
+        raise HTTPException(404, str(e))
+    except Exception as e:
+        return err(e)
 
 
 @router.post("/api/update/rollback")

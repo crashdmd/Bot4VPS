@@ -2,7 +2,7 @@
 import { j, esc } from './api.js';
 import { showPage, plural, toast, bindPasswordToggles, serverHour, formatServerTimestamp } from './ui.js';
 import { setPage } from './state.js';
-import { loadEvents, openEventDetail, applyEventsSnapshot, showUpdateModal } from './monitor.js?v=20260912-chlogwrap-v1';
+import { loadEvents, openEventDetail, applyEventsSnapshot, showUpdateModal } from './monitor.js?v=20260913-hostkey-v2';
 
 
 // ---------- Первоначальная настройка Telegram ----------
@@ -179,6 +179,7 @@ const SPARK_W = 96, SPARK_H = 24, SPARK_PAD = 2;
 const SRV_ERR_LABELS = {
   key_missing: '🔑 Ключ не найден',
   auth: '🔑 Пароль/ключ не подходят',
+  host_key: '🛡 Host key изменился',
   port: '🔌 Порт недоступен',
   network: '🌐 Нет сети',
   timeout: '⏱ Не отвечает',
@@ -238,7 +239,7 @@ function uptimeRu(raw) {
 /** Переиспользуем модалку добавления сервера со страницы «Серверы». */
 function bindDashAdd(box) {
   box.querySelector('[data-dash-add]')?.addEventListener('click', async () => {
-    const m = await import('./servers.js?v=20260912-chlogwrap-v1');
+    const m = await import('./servers.js?v=20260913-hostkey-v2');
     m.openAddServerModal();
   });
 }
@@ -417,7 +418,7 @@ export function stopDashMetrics() {
 
 async function openServerFromDash(id) {
   stopDashMetrics();
-  const m = await import('./servers.js?v=20260912-chlogwrap-v1');
+  const m = await import('./servers.js?v=20260913-hostkey-v2');
   setPage('servers');
   showPage('servers');
   m.openServer(id);

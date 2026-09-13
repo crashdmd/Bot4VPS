@@ -11,6 +11,7 @@ bot_handlers.py ничего не знает о внутреннем устро�
 from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import ContextTypes
 
+import asyncio
 import os
 import subprocess
 
@@ -25,6 +26,30 @@ _PROTECTED_KEY_FILES = {"secret.key", "registry.json", "registry.json.lock"}
 
 def _is_protected_key_file(name: str) -> bool:
     return name in _PROTECTED_KEY_FILES or name.endswith(".lock")
+
+
+def _is_valid_key_filename(name: str) -> bool:
+    """Имя — обычный файл в keys/, без обхода каталога.
+
+    os.path.join(keys_dir, name) пропускает «../secret.key» и абсолютные
+    пути из подделанного callback_data, поэтому защита держится на форме
+    имени, а не только на списке _PROTECTED_KEY_FILES.
+    """
+    return (
+        isinstance(name, str)
+        and bool(name)
+        and not name.startswith(".")
+        and name not in (".", "..")
+        and os.path.basename(name) == name
+        and "/" not in name
+        and "\\" not in name
+        and "\x00" not in name
+    )
+
+
+def _is_managed_key_name(name: str) -> bool:
+    """Единый гейт файловых операций менеджера ключей."""
+    return _is_valid_key_filename(name) and not _is_protected_key_file(name)
 
 
 async def _show_key_manager(query):
@@ -58,7 +83,7 @@ async def _show_key_manager(query):
 
 
 async def _show_key_action(query, key_name):
-    if _is_protected_key_file(key_name):
+    if not _is_managed_key_name(key_name):
         await query.answer("Этот файл не является SSH-ключом", show_alert=True)
         return
     keyboard = [
@@ -89,7 +114,7 @@ async def _confirm_key_delete(query, key_name):
 
 
 async def _delete_ssh_key_confirm(query, key_name):
-    if _is_protected_key_file(key_name):
+    if not _is_managed_key_name(key_name):
         await query.answer("Этот файл не является SSH-ключом", show_alert=True)
         return
     keys_dir = "/opt/bot4vps/keys"
@@ -119,8 +144,11 @@ async def _delete_ssh_key_confirm(query, key_name):
 
 async def _finish_key_creation(message, user_id, key_name):
     """Called from MessageHandler when user enters key name for creation"""
-    if _is_protected_key_file(key_name):
-        await message.reply_text("❌ Это имя зарезервировано системным файлом.")
+    if not _is_managed_key_name(key_name):
+        await message.reply_text(
+            "❌ Недопустимое имя ключа: только обычное имя файла "
+            "(без путей и скрытых файлов)."
+        )
         return
     keys_dir = "/opt/bot4vps/keys"
     os.makedirs(keys_dir, exist_ok=True)
@@ -135,10 +163,12 @@ async def _finish_key_creation(message, user_id, key_name):
         return
 
     try:
-        subprocess.run(
+        # subprocess — в поток: не блокировать event loop
+        await asyncio.to_thread(
+            subprocess.run,
             ["ssh-keygen", "-t", "ed25519", "-f", key_path, "-N", ""],
             check=True,
-            capture_output=True
+            capture_output=True,
         )
 
         pub_key_path = key_path + ".pub"
@@ -170,8 +200,8 @@ async def _finish_key_creation(message, user_id, key_name):
 
 async def _finish_key_rename(message, user_id, old_key_name, new_key_name):
     """Called from MessageHandler for key rename input"""
-    if _is_protected_key_file(old_key_name) or _is_protected_key_file(new_key_name):
-        await message.reply_text("❌ Этот файл не является SSH-ключом.")
+    if not _is_managed_key_name(old_key_name) or not _is_managed_key_name(new_key_name):
+        await message.reply_text("❌ Недопустимое имя ключа.")
         return
     keys_dir = "/opt/bot4vps/keys"
     old_path = os.path.join(keys_dir, old_key_name)
@@ -208,7 +238,7 @@ async def _finish_key_rename(message, user_id, old_key_name, new_key_name):
 
 
 async def _start_key_replace(query, key_name):
-    if _is_protected_key_file(key_name):
+    if not _is_managed_key_name(key_name):
         await query.answer("Этот файл не является SSH-ключом", show_alert=True)
         return
     from state import KEY_REPLACE_STATE
@@ -220,8 +250,8 @@ async def _start_key_replace(query, key_name):
 
 
 async def _finish_key_replace(message, user_id, key_name, new_content):
-    if _is_protected_key_file(key_name):
-        await message.reply_text("❌ Этот файл не является SSH-ключом.")
+    if not _is_managed_key_name(key_name):
+        await message.reply_text("❌ Недопустимое имя ключа.")
         return
     keys_dir = "/opt/bot4vps/keys"
     key_path = os.path.join(keys_dir, key_name)
@@ -257,8 +287,11 @@ async def _start_key_paste_new(query):
 
 
 async def _finish_key_paste_new(message, user_id, key_name, key_content):
-    if _is_protected_key_file(key_name):
-        await message.reply_text("❌ Это имя зарезервировано системным файлом.")
+    if not _is_managed_key_name(key_name):
+        await message.reply_text(
+            "❌ Недопустимое имя ключа: только обычное имя файла "
+            "(без путей и скрытых файлов)."
+        )
         return
     keys_dir = "/opt/bot4vps/keys"
     key_path = os.path.join(keys_dir, key_name)
@@ -293,7 +326,7 @@ async def _finish_key_paste_new(message, user_id, key_name, key_content):
 
 
 async def _view_private_key(query, key_name):
-    if _is_protected_key_file(key_name):
+    if not _is_managed_key_name(key_name):
         await query.answer("Этот файл не является SSH-ключом", show_alert=True)
         return
     keys_dir = "/opt/bot4vps/keys"

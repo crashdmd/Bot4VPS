@@ -79,12 +79,14 @@ def _clear_printed_secret() -> None:
 
 def ask_password(prompts: tuple[str, str] = ("Новый пароль: ", "Повторите пароль: ")) -> str:
     """Скрытый ввод пароля дважды; несовпадение/короткий — ошибка."""
+    from ui.web.security import MIN_WEB_PASSWORD_LEN
+
     first = getpass.getpass(prompts[0])
     second = getpass.getpass(prompts[1])
     if first != second:
         raise ValueError("Пароли не совпадают")
-    if len(first) < 6:
-        raise ValueError("Пароль не короче 6 символов")
+    if len(first) < MIN_WEB_PASSWORD_LEN:
+        raise ValueError(f"Пароль не короче {MIN_WEB_PASSWORD_LEN} символов")
     return first
 
 
@@ -171,6 +173,7 @@ def web_menu() -> None:
         secrets_found = ops.plaintext_secrets_found()
         if secrets_found:
             print("8. Зашифровать все секреты")
+        print("9. SSH host key сервера")
         print()
         print("0. Назад")
         choice = ask("Выберите пункт: ")
@@ -202,6 +205,62 @@ def web_menu() -> None:
         elif choice == "8" and secrets_found:
             _encrypt_all_secrets_flow()
             continue
+        elif choice == "9":
+            _ssh_hostkey_flow()
+            continue
+
+
+def _ssh_hostkey_flow() -> None:
+    """SSH host key сервера: отпечатки + принятие нового ключа.
+
+    Работает и при выключенном Web: monitor ходит по SSH в любом режиме,
+    верификация host key — часть SSH-подключения ядра.
+    """
+    from core.host_keys import stored_record
+    from core.storage import load_servers
+
+    try:
+        servers = load_servers()
+    except Exception as exc:
+        print(f"\n✖ Не удалось прочитать список серверов: {exc}")
+        pause()
+        return
+    if not servers:
+        print("\nСерверы не настроены.")
+        pause()
+        return
+
+    print("\nКаждое SSH-подключение сверяется с сохранённым host key")
+    print("до отправки пароля. «Принять» нужно, если сервер переустановлен")
+    print("и его ключ законно изменился (до этого подключения блокируются).")
+    print("─" * 36)
+    for i, server in enumerate(servers, 1):
+        record = stored_record(server)
+        fp = record.get("fingerprint") if record else "не закреплён"
+        print(f"  {i}. {server.get('name', '?')} ({server.get('host', '?')}): {fp}")
+    raw = ask("\nНомер сервера для принятия текущего ключа (пусто — отмена): ").strip()
+    if not raw:
+        return
+    if not raw.isdigit() or not 1 <= int(raw) <= len(servers):
+        print("✖ Неверный номер")
+        pause()
+        return
+    server = servers[int(raw) - 1]
+    if not confirm(
+        f"Принять текущий host key сервера «{server.get('name', '?')}»?",
+        default=False,
+    ):
+        return
+    try:
+        from core.ssh import accept_new_host_key
+
+        record = accept_new_host_key(server)
+    except Exception as exc:
+        print(f"\n✖ Не удалось: {exc}")
+        pause()
+        return
+    print(f"\n● Принят {record.get('type')} {record.get('fingerprint')}")
+    pause()
 
 
 def _ask_port(default: int | None) -> int | None:

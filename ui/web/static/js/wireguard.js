@@ -1070,7 +1070,7 @@ function watchTask(taskId, serverId, action) {
 
             if (returnToServer) {
               try {
-                const { openServer } = await import('./servers.js?v=20260912-chlogwrap-v1');
+                const { openServer } = await import('./servers.js?v=20260913-hostkey-v2');
                 await openServer(serverId);
               } catch (_) {
                 backToWgList();
@@ -1229,7 +1229,7 @@ export function bindWireguardUI() {
     if (!wgServerId) return;
 
     try {
-      const { openServer } = await import('./servers.js?v=20260912-chlogwrap-v1');
+      const { openServer } = await import('./servers.js?v=20260913-hostkey-v2');
       await openServer(wgServerId);
     } catch (e) {
       console.error('Не удалось открыть карточку сервера:', e);

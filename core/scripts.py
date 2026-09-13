@@ -269,7 +269,7 @@ async def _script_executor(payload: dict, task: Task, progress_cb) -> TaskResult
 register_executor("script", _script_executor)
 
 
-async def enqueue_script(script_name: str, server_id: str, values=None):
+async def enqueue_script(script_name: str, server_id: str, values=None, *, live_reported: bool = False):
     server = find_server(server_id)
     if not server:
         raise ValueError("Сервер не найден")
@@ -283,4 +283,5 @@ async def enqueue_script(script_name: str, server_id: str, values=None):
             "script_name": script_name,
             "values": values or {},
         },
+        live_reported=live_reported,
     )

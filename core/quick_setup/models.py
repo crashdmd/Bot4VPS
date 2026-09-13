@@ -92,6 +92,11 @@ class SshAccessStatus:
     auth_type: str = "password"
     sudo_capable: Optional[bool] = None  # sudo у текущего пользователя (root — True)
     key_shared_with: Optional[str] = None  # другой пользователь сервера, использующий записанный ключ
+    # SSH host key (5.1): сохранённая запись + факт несоответствия.
+    # Локальные поля — читаются и при недоступном SSH.
+    host_key_type: Optional[str] = None
+    host_key_fingerprint: Optional[str] = None  # SHA256:... сохранённого ключа
+    host_key_mismatch: bool = False  # сервер предъявил другой ключ — подключения заблокированы
     error: Optional[str] = None
 
 

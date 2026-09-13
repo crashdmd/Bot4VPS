@@ -11,6 +11,7 @@ from collections import OrderedDict
 import asyncio
 from dataclasses import dataclass
 from hashlib import sha256
+import re
 from typing import Any
 
 from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup
@@ -86,6 +87,16 @@ _HEALTH_CACHE_LIMIT = 8
 _PROBE_TIMEOUT_SECONDS = 15.0
 _SHUTDOWN_TIMEOUT_SECONDS = 5.0
 _health_by_fingerprint: OrderedDict[str, dict[str, Any]] = OrderedDict()
+
+# Формат Bot Token: <bot_id>:<base64url-подобный секрет>. Токен может
+# оказаться в тексте исключения PTB («The token `…` was rejected») или в
+# URL API внутри сообщения NetworkError — журнал не должен его получать.
+_TOKEN_RE = re.compile(r"\d{6,12}:[A-Za-z0-9_-]{30,}")
+
+
+def mask_bot_token(text: Any) -> str:
+    """Заменить вхождения Bot Token на *** (остальное сообщение — как есть)."""
+    return _TOKEN_RE.sub("***", str(text))
 
 
 @dataclass(frozen=True)

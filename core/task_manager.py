@@ -330,7 +330,20 @@ class TaskManager:
         self._history: List[Task] = []
         self._lock = asyncio.Lock()
         self._live_subscribers: Dict[str, List[Callable[[str], Awaitable[None]]]] = {}
+        # Задачи, чей результат пользователю уже отчитывает live-наблюдатель
+        # (TG Live Output / фоновое ожидание полной проверки): события таких
+        # задач пишутся только в журнал, отдельное уведомление не дублируется.
+        self._live_reported: set = set()
         self._refresh_history()
+
+    def mark_live_reported(self, task_id: str) -> None:
+        """Задачу отчитывает live-наблюдатель — не дублировать уведомления."""
+        self._live_reported.add(task_id)
+
+    def unmark_live_reported(self, task_id: str) -> None:
+        """Live-наблюдение завершено; дальнейшие события задачи (retry,
+        повторный запуск) снова уходят обычными уведомлениями."""
+        self._live_reported.discard(task_id)
 
     def _tasks_from_records(self, records: List[Dict[str, Any]]) -> List[Task]:
         tasks: List[Task] = []
@@ -367,6 +380,7 @@ class TaskManager:
         kind: str,
         payload: Optional[Dict[str, Any]] = None,
         attempt: int = 1,
+        live_reported: bool = False,
     ) -> Task:
         if kind not in _EXECUTORS:
             raise ValueError(
@@ -391,6 +405,11 @@ class TaskManager:
             st = self._state(server_id)
             will_wait = server_id in self._running or bool(queue) or st.paused
             queue.append(task)
+            if live_reported:
+                # Вызывающий покажёт результат live-сообщением: помечаем
+                # ДО возможного "queued"-события — иначе при занятом
+                # сервере пользователь получал бы лишний пуш.
+                self._live_reported.add(task.id)
 
         if will_wait:
             self._emit_task_event(task, "queued")
@@ -615,6 +634,16 @@ class TaskManager:
                 task.result = TaskResult(success=False, error=str(e))
             finally:
                 task.finished_at = datetime.now()
+                # Терминальное событие — ДО побудки ожидателей: watcher'ы
+                # live-отчётов снимают метку live_reported сразу после
+                # возврата из wait(); эмит после _done_event.set() видел бы
+                # уже снятую метку и слал дублирующее уведомление.
+                self._emit_task_event(
+                    task,
+                    "finished"
+                    if task.is_successful
+                    else ("failed" if task.status == TaskStatus.FAILED else "cancelled"),
+                )
                 task._done_event.set()
 
         task._asyncio_task = asyncio.create_task(runner())
@@ -626,18 +655,13 @@ class TaskManager:
             st = self._state(server_id)
 
             if task.is_successful:
-                self._emit_task_event(task, "finished")
                 if st.failed_task_id:
                     st.clear_failure()
                 should_continue = bool(self._queues.get(server_id)) and not st.paused
             elif task.status == TaskStatus.FAILED:
-                self._emit_task_event(task, "failed")
-                # Ошибка завершает только эту задачу. Данные о ней сохраняем
-                # для истории/retry, но следующую задачу запускаем автоматически.
                 st.record_failure(task)
                 should_continue = bool(self._queues.get(server_id))
             else:
-                self._emit_task_event(task, "cancelled")
                 should_continue = bool(self._queues.get(server_id)) and not st.paused
 
         if should_continue:
@@ -678,6 +702,46 @@ class TaskManager:
                 level = EventLevel.CRITICAL
             elif kind == "cancelled" or task.status == TaskStatus.SUCCESS_WITH_WARNINGS:
                 level = EventLevel.WARNING
+
+            if task.id in self._live_reported:
+                # Результат уже показан пользователю live-сообщением задачи:
+                # событие остаётся в журнале (Web/история), но без отдельной
+                # доставки — иначе каждое нажатие кнопки приносило бы дубль.
+                event_id = create_event(
+                    event_type=EventType.TASK,
+                    level=level,
+                    title=titles.get(kind, task.name),
+                    message=(
+                        f"Сервер: {task.server_name}\n"
+                        f"Тип: {task.kind}\n"
+                        f"Статус: {STATUS_EMOJI.get(task.status, '')} {task.status.value}\n"
+                        f"Попытка: {task.attempt}\n"
+                        f"Длительность: {task.duration_human()}"
+                        + (f"\n{task.error}" if task.error else "")
+                    ),
+                    details={
+                        "task_id": task.id,
+                        "server_id": task.server_id,
+                        "server_name": task.server_name,
+                        "task_name": task.name,
+                        "kind": task.kind,
+                        "status": task.status.value,
+                        "attempt": task.attempt,
+                        "duration_seconds": task.duration_seconds,
+                        "reason": reason_map[kind].value,
+                        "error": (task.error or "")[:500] or None,
+                        "output": (
+                            _task_output_for_event(task)
+                            if kind in ("finished", "failed", "cancelled")
+                            else None
+                        ),
+                    },
+                    notify=False,
+                    enqueue=False,
+                )
+                from core.events import mark_as_read
+                mark_as_read(event_id)
+                return
 
             create_event(
                 event_type=EventType.TASK,

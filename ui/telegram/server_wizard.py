@@ -1,3 +1,4 @@
+import asyncio
 import os
 
 from telegram import InlineKeyboardMarkup, InlineKeyboardButton
@@ -26,7 +27,8 @@ from state import (
     ADD_SERVER_STATE,
     EDIT_SERVER_STATE,
     ADD_GROUP_STATE,
-    PENDING_SERVER_CHANGES
+    PENDING_SERVER_CHANGES,
+    SSL_SETUP_STATE
 )
 
 # Временно, пока servers.py не разделён
@@ -63,8 +65,11 @@ async def start_add_group(query):
 async def cancel_add_server(query):
     user_id = query.from_user.id
 
-    if user_id in ADD_SERVER_STATE:
-        del ADD_SERVER_STATE[user_id]
+    # Чистим оба словаря: кнопка «Отмена» служит и промпту ввода домена
+    # SSL (CANCEL_KB) — раньше после неё SSL_SETUP_STATE оставался жить
+    # и перехватывал следующие тексты пользователя как домен.
+    ADD_SERVER_STATE.pop(user_id, None)
+    SSL_SETUP_STATE.pop(user_id, None)
 
     await show_servers(query)
 
@@ -144,7 +149,8 @@ async def handle_edit_server(update):
         current_server["key_path"] = key_path
         current_server["auth_type"] = "key"
 
-        ok, error = test_connection(current_server)
+        # paramiko-подключение — в поток: не блокировать event loop
+        ok, error = await asyncio.to_thread(test_connection, current_server)
 
         if ok:
             servers = load_servers()
@@ -203,7 +209,7 @@ async def handle_edit_server(update):
     check_fields = {"host", "port", "user", "password"}
     if edit["field"] in check_fields:
         server = find_server(edit["server"])
-        ok, error = test_connection(server)
+        ok, error = await asyncio.to_thread(test_connection, server)
         if not ok:
             PENDING_SERVER_CHANGES[user_id] = {"server": server}
             keyboard = [
@@ -263,7 +269,8 @@ async def handle_add_server(update):
     elif state["step"] == "password":
         state["password"] = text
 
-        ok, error = test_server_connection(
+        ok, error = await asyncio.to_thread(
+            test_server_connection,
             host=state["host"],
             port=state["port"],
             user=state["user"],
@@ -284,7 +291,8 @@ async def handle_add_server(update):
     elif state["step"] == "new_key":
         key_path = create_key_file(text, state["name"])
 
-        ok, error = test_server_connection(
+        ok, error = await asyncio.to_thread(
+            test_server_connection,
             host=state["host"],
             port=state["port"],
             user=state["user"],
@@ -336,6 +344,11 @@ async def finish_add_server(
     server_id = save_new_server(state, auth_type, password=password, key_path=key_path)
 
     if ssl_enabled:
+        # Сервер уже сохранён — визард добавления завершён до перехода
+        # к SSL-шагу (finish_ssl_setup подчищает оба словаря, но если
+        # пользователь бросит SSL-промпт, ADD_SERVER_STATE не должен
+        # оставаться висеть и съедать следующие тексты).
+        del ADD_SERVER_STATE[user_id]
         await start_ssl_setup(
             target,
             [server_id],

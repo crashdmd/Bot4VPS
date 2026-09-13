@@ -3,7 +3,7 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from core.storage import load_servers, find_server
 from core.script_utils import load_scripts, get_script_info, read_script, get_script_params
 
-from state import SCRIPT_RUN_STATE, SCRIPT_CONFIRM_STATE
+from state import SCRIPT_RUN_STATE
 
 
 async def show_scripts(query, page: int = 0):
@@ -64,9 +64,11 @@ async def view_script(query, script_name, page: int = 0):
     preview = "\n".join(lines[:40])
     if len(lines) > 40:
         preview += "\n\n... (обрезано)"
-    text = f"📜 {script_name}\n\n```bash\n{preview}\n```"
+    # Без parse_mode: бэктики/*/_ в теле скрипта ломали legacy-Markdown,
+    # и просмотр не открывался вовсе
+    text = f"📜 {script_name}\n\n{preview}"
     keyboard = [[InlineKeyboardButton("⬅️ Назад", callback_data=f"script:{script_name}:{page}")]]
-    await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+    await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
 
 
 async def run_script_select_server(query, script_name, page: int = 0):
@@ -122,7 +124,16 @@ async def show_script_param(query, user_id):
         try:
             cond_name, cond_value = param["condition"].split(":", 1)
         except ValueError:
-            raise RuntimeError(f"Некорректное условие if= для параметра '{param['name']}'.")
+            SCRIPT_RUN_STATE.pop(user_id, None)
+            if hasattr(query, "edit_message_text"):
+                await query.edit_message_text(
+                    f"❌ Скрипт повреждён: некорректное условие if= у параметра '{param['name']}'."
+                )
+            else:
+                await query.reply_text(
+                    f"❌ Скрипт повреждён: некорректное условие if= у параметра '{param['name']}'."
+                )
+            return
         if str(state["values"].get(cond_name, "")).lower() == cond_value.lower():
             break
         state["index"] += 1
@@ -131,6 +142,8 @@ async def show_script_param(query, user_id):
             return
         param = state["params"][state["index"]]
 
+    # Битая декларация BOT_PARAM — сообщаем пользователю, а не роняем
+    # хендлер (раньше RuntimeError оставлял пользователя без ответа)
     if param["type"] == "bool":
         keyboard = [
             [InlineKeyboardButton("✅ Да", callback_data="script_param:true")],
@@ -139,7 +152,16 @@ async def show_script_param(query, user_id):
     elif param["type"] == "select":
         options = param.get("options", [])
         if not options:
-            raise RuntimeError(f"BOT_PARAM '{param['name']}' select без BOT_OPTION.")
+            SCRIPT_RUN_STATE.pop(user_id, None)
+            if hasattr(query, "edit_message_text"):
+                await query.edit_message_text(
+                    f"❌ Скрипт повреждён: BOT_PARAM '{param['name']}' типа select без BOT_OPTION."
+                )
+            else:
+                await query.reply_text(
+                    f"❌ Скрипт повреждён: BOT_PARAM '{param['name']}' типа select без BOT_OPTION."
+                )
+            return
         keyboard = [
             [InlineKeyboardButton(opt["label"], callback_data=f"script_param:{opt['value']}")]
             for opt in options

@@ -22,7 +22,7 @@ from core.script_utils import get_script_params, delete_script
 from core.scripts import enqueue_script
 from core.task_manager import task_manager, TaskStatus
 from core.storage import find_server
-from state import SCRIPT_RUN_STATE, SCRIPT_CONFIRM_STATE
+from state import SCRIPT_RUN_STATE
 from core.upload import prompt_upload, SCRIPT_UPLOAD
 
 
@@ -78,7 +78,9 @@ async def _run_script_with_live_progress(query, script_name, server_id, values):
     server = find_server(server_id)
     server_name = server["name"] if server else server_id
     try:
-        task = await enqueue_script(script_name, server_id, values or {})
+        task = await enqueue_script(
+            script_name, server_id, values or {}, live_reported=True
+        )
     except Exception as e:
         await query.message.reply_text(f"❌ Не удалось поставить задачу:\n{e}")
         return
@@ -192,14 +194,6 @@ async def process_script_callback(query, data: str) -> bool:
             await finish_script_params(query, user_id)
             return True
         await show_script_param(query, user_id)
-    elif data == "script_execute":
-        user_id = query.from_user.id
-        state = SCRIPT_CONFIRM_STATE.get(user_id)
-        if not state:
-            await query.edit_message_text("❌ Состояние запуска потеряно.")
-            return True
-        await _run_script_with_live_progress(query, state["script"], state["server"], state["values"])
-        SCRIPT_CONFIRM_STATE.pop(user_id, None)
     else:
         return False
     return True

@@ -46,6 +46,7 @@ from .security import (
     login_stub_active,
     make_password,
     make_totp_secret,
+    MIN_WEB_PASSWORD_LEN,
     require_auth,
     set_web_password,
     set_totp_secret,
@@ -329,11 +330,18 @@ async def lifespan(_app: FastAPI):
     except MasterKeyMissingError as e:
         # Ключ может появиться позже (например, восстановят через CLI
         # bot4vps) — тогда watchdog ниже поднимет бота без рестарта.
-        print(f"[WEB] Telegram start failed: {e}", flush=True)
+        # mask_bot_token: текст исключения может нести сам токен.
+        from core.telegram_health import mask_bot_token
+
+        print(f"[WEB] Telegram start failed: {mask_bot_token(e)}", flush=True)
         tg_app = None
         tg_retry_masterkey = True
     except Exception as e:
-        print(f"[WEB] Telegram start failed: {e}", flush=True)
+        # Исключение PTB содержит токен («The token `…` was rejected») —
+        # в journal пойдёт только маскированный текст.
+        from core.telegram_health import mask_bot_token
+
+        print(f"[WEB] Telegram start failed: {mask_bot_token(e)}", flush=True)
         tg_app = None
 
     inventory_indexer = None
@@ -392,7 +400,9 @@ async def lifespan(_app: FastAPI):
                         )
                     tg_retry_masterkey = False
                 except Exception as e:
-                    print(f"[WEB] Telegram retry failed: {e}", flush=True)
+                    from core.telegram_health import mask_bot_token
+
+                    print(f"[WEB] Telegram retry failed: {mask_bot_token(e)}", flush=True)
                     tg_retry_masterkey = False
             if backup_retry_masterkey:
                 try:
@@ -468,7 +478,13 @@ _tls_https_only = _tls_unit_state["ssl"] or _tls_unit_state["proxy"]
 
 app.add_middleware(
     SessionMiddleware,
-    secret_key=_web_cfg.get("secret_key") or "dev-insecure-secret",
+    # Пустой secret_key бывает только в аварийном режиме (битый
+    # config.json): load_config не смог прочитать настройки, и
+    # ensure_web_secrets нечего гарантировать. Литерал здесь быть не
+    # должен: известная строка = подпись, которой кука куется извне.
+    # Аварийный гейт всё равно режет API до сессий, поэтому случайный
+    # per-boot ключ ничего не ломает — но и предсказуемого секрета нет.
+    secret_key=_web_cfg.get("secret_key") or secrets.token_urlsafe(32),
     session_cookie="bot4vps_sid",
     max_age=60 * 60 * 24 * 7,  # 7 дней
     same_site="lax",
@@ -672,8 +688,8 @@ async def api_setup_complete(body: SetupCompleteBody, request: Request):
         raise HTTPException(400, "Логин не может быть пустым")
     if len(username) > 64:
         raise HTTPException(400, "Логин не длиннее 64 символов")
-    if len(body.password or "") < 6:
-        raise HTTPException(400, "Пароль не короче 6 символов")
+    if len(body.password or "") < MIN_WEB_PASSWORD_LEN:
+        raise HTTPException(400, f"Пароль не короче {MIN_WEB_PASSWORD_LEN} символов")
 
     # Атомарный патч секции web одной записью (внутри — ротация
     # страховки config.json, Этап 1)
@@ -838,8 +854,8 @@ async def api_change_password(request: Request, body: PasswordBody):
     web = get_web_config()
     if not verify_password(body.old, web.get("password_hash", "")):
         raise HTTPException(400, "Старый пароль неверен")
-    if len(body.new) < 6:
-        raise HTTPException(400, "Пароль не короче 6 символов")
+    if len(body.new) < MIN_WEB_PASSWORD_LEN:
+        raise HTTPException(400, f"Пароль не короче {MIN_WEB_PASSWORD_LEN} символов")
     set_web_password(body.new)
     return {"ok": True}
 
@@ -1102,9 +1118,9 @@ async def api_recover_confirm(request: Request, body: RecoverConfirmBody):
             )
         raise HTTPException(400, f"Неверный код (осталось попыток: {remaining})")
 
-    if len(body.new_password) < 6:
+    if len(body.new_password) < MIN_WEB_PASSWORD_LEN:
         # Код верный, но пароль короткий: pending не жжём — можно исправить
-        raise HTTPException(400, "Пароль не короче 6 символов")
+        raise HTTPException(400, f"Пароль не короче {MIN_WEB_PASSWORD_LEN} символов")
 
     # Код подтверждён → одноразовый, меняем пароль и логиним
     _pending_recovery = None
@@ -1177,8 +1193,8 @@ async def api_account_set(request: Request, body: AccountBody):
             body.old or "", w.get("password_hash", "")
         ):
             raise HTTPException(400, "Старый пароль неверен")
-        if len(body.new_password) < 6:
-            raise HTTPException(400, "Пароль не короче 6 символов")
+        if len(body.new_password) < MIN_WEB_PASSWORD_LEN:
+            raise HTTPException(400, f"Пароль не короче {MIN_WEB_PASSWORD_LEN} символов")
         w["password_hash"] = make_password(body.new_password)
 
     if body.username is not None:

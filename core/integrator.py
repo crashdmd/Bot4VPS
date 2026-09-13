@@ -620,6 +620,7 @@ async def _enqueue_action(
     action: str,
     params: Optional[Dict[str, Any]] = None,
     src: Optional[str] = None,
+    live_reported: bool = False,
 ) -> Task:
     from core.storage import find_server
 
@@ -643,6 +644,7 @@ async def _enqueue_action(
         server_name=server.get("name", server_id),
         kind="svc",
         payload=payload,
+        live_reported=live_reported,
     )
 
 
@@ -652,9 +654,12 @@ async def enqueue(
     action: str,
     params: Optional[Dict[str, Any]] = None,
     src: Optional[str] = None,
+    live_reported: bool = False,
 ) -> Task:
     """Поставить в очередь любое действие сервиса (dispatch на svc.do_<action>)."""
-    return await _enqueue_action(service_id, server_id, action, params, src=src)
+    return await _enqueue_action(
+        service_id, server_id, action, params, src=src, live_reported=live_reported
+    )
 
 
 async def install(
@@ -710,7 +715,7 @@ async def sync(service_id: str, server_id: str) -> Dict[str, Any]:
 
 
 
-async def enqueue_bulk_check(service_id: str) -> Task:
+async def enqueue_bulk_check(service_id: str, *, live_reported: bool = False) -> Task:
     """Полная проверка сервиса на всех серверах через Task Manager."""
     manifest = get_manifest(service_id)
     if not manifest:
@@ -721,6 +726,7 @@ async def enqueue_bulk_check(service_id: str) -> Task:
         server_name="Все серверы",
         kind="svc_scan",
         payload={"service": service_id, "action": "bulk_check", "src": "tasks"},
+        live_reported=live_reported,
     )
 
 # Заполнить реестр манифестов при импорте модуля (модули сервисов НЕ грузятся).

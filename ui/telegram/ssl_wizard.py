@@ -1,17 +1,7 @@
-import ipaddress
-
 from core.storage import find_server
 from core.ssl import is_ip_address, enable_ssl_check, disable_ssl_check
 from state import SSL_SETUP_STATE
 from ui.telegram.keyboards import build_certificate_buttons
-from core.server_wizard import (
-    validate_port,
-    create_key_file,
-    save_new_server,
-    test_server_connection,
-    update_server_field,
-    update_ssl_host
-)
 
 async def send_message(target, text, reply_markup=None):
     """Универсальная отправка сообщения."""

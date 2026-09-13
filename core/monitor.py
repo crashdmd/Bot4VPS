@@ -359,6 +359,16 @@ _ssh_probe_lock = threading.Lock()
 _ssh_probe_last: dict[str, float] = {}
 _ssh_probe_inflight: set[str] = set()
 
+# Backoff авто-проб после неудачного SSH. Список «Серверы» дёргает развёртку
+# каждые ~3с, карточка — /metrics и /probe каждые 5с: с неверным паролем в
+# servers.json это ~20 неудачных аутентификаций в минуту, и панель банит себя
+# сама (fail2ban на сервере). После любой неудачи подключения
+# (create_ssh_client) авто-пробы ждут _SSH_BACKOFF_INTERVAL; успех любого
+# подключения сбрасывает backoff. Явные действия пользователя (QS, терминал,
+# бэкапы) не ограничены — гейт стоит только у автоматических проб.
+_SSH_BACKOFF_INTERVAL = 60.0
+_ssh_probe_failures: dict[str, int] = {}
+
 
 def note_ssh_probe(server_id: str):
     """Внешняя SSH-проба (метрики/probe дашборда) отмечается здесь,
@@ -368,6 +378,46 @@ def note_ssh_probe(server_id: str):
         return
     with _ssh_probe_lock:
         _ssh_probe_last[server_id] = time.monotonic()
+
+
+def note_ssh_failure(server_id: str):
+    """Неудачное SSH-подключение (любой потребитель): авто-пробы уходят
+    в backoff, окно ожидания отсчитывается от этой неудачи."""
+    if not server_id:
+        return
+    with _ssh_probe_lock:
+        _ssh_probe_failures[server_id] = _ssh_probe_failures.get(server_id, 0) + 1
+        _ssh_probe_last[server_id] = time.monotonic()
+
+
+def note_ssh_success(server_id: str):
+    """Успешное SSH-подключение снимает backoff — сервер снова доступен."""
+    if not server_id:
+        return
+    with _ssh_probe_lock:
+        _ssh_probe_failures.pop(server_id, None)
+
+
+def _probe_interval_locked(server_id: str) -> float:
+    """Минимальный интервал авто-проб: номинал ~3с, в backoff — минута."""
+    if server_id in _ssh_probe_failures:
+        return _SSH_BACKOFF_INTERVAL
+    return _SSH_PROBE_MIN_INTERVAL
+
+
+def ssh_probe_throttled(server_id: str) -> bool:
+    """Ждать ли авто-пробе (metrics/probe открытой карточки, развёртка
+    списка) из-за недавней неудачи SSH."""
+    if not server_id:
+        return False
+    with _ssh_probe_lock:
+        return _throttled_locked(server_id, time.monotonic())
+
+
+def _throttled_locked(server_id: str, now: float) -> bool:
+    if server_id not in _ssh_probe_failures:
+        return False
+    return now - _ssh_probe_last.get(server_id, 0.0) < _SSH_BACKOFF_INTERVAL
 
 
 def ssh_probe_one(server) -> tuple[bool, str]:
@@ -402,7 +452,8 @@ def ssh_probe_servers(servers):
             sid = s.get("id")
             if not sid or sid in _ssh_probe_inflight:
                 continue
-            if now - _ssh_probe_last.get(sid, 0.0) < _SSH_PROBE_MIN_INTERVAL:
+            # интервал на сервер: номинал ~3с, после неудачи SSH — backoff
+            if now - _ssh_probe_last.get(sid, 0.0) < _probe_interval_locked(sid):
                 continue
             _ssh_probe_inflight.add(sid)
             _ssh_probe_last[sid] = now

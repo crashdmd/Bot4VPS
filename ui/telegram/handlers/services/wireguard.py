@@ -20,6 +20,7 @@ Telegram-привязки (InlineKeyboard, edit_message_text, reply_document/rep
 """
 from __future__ import annotations
 
+import asyncio
 import io
 import ipaddress
 import re
@@ -55,6 +56,18 @@ def _is_private_host(host: str) -> bool:
         return ipaddress.ip_address(h).is_private
     except ValueError:
         return False
+
+
+# Op, которые открывают текстовый flow (ввод значений сообщением). Любой
+# другой op — навигация/действие — обязан закрыть flow (см. handle_callback).
+_TEXT_FLOW_OPS = frozenset({
+    "cfg_port", "cfg_address", "cfg_dns",
+    "add", "add_cancel",
+    "rename",
+    "ep_ip", "ep_domain",
+    "set_ep_ip", "set_ep_domain",
+    "migrate_other_ip", "migrate_other_domain",
+})
 
 
 def _short_key(pub: str) -> str:
@@ -497,11 +510,16 @@ class WireGuardUI(ServiceUI):
             return
 
         try:
-            img = qrcode.make(config_text)
-            bio = io.BytesIO()
-            bio.name = f"{name}_qr.png"
-            img.save(bio, "PNG")
-            bio.seek(0)
+            # QR-генерация — CPU-работа; в поток, чтобы не держать луп
+            def _make_qr() -> io.BytesIO:
+                img = qrcode.make(config_text)
+                bio = io.BytesIO()
+                bio.name = f"{name}_qr.png"
+                img.save(bio, "PNG")
+                bio.seek(0)
+                return bio
+
+            bio = await asyncio.to_thread(_make_qr)
         except Exception as e:
             print(f"[QR ERROR] Ошибка генерации QR-кода: {e}")
             await query.message.reply_text("❌ Произошла ошибка при генерации QR-кода. Подробности в логах бота.")
@@ -630,6 +648,13 @@ class WireGuardUI(ServiceUI):
         uid = ctx.user_id
         sid = self.service_id
 
+        # Навигационные/действующие op закрывают текстовый flow: раньше
+        # «❌ Отмена» (→ config/item/view/set_endpoint/confirm_migrate)
+        # лишь рисовала другой экран, state оставался жить, и следующие
+        # сообщения пользователя перехватывались промптом ввода.
+        if op not in _TEXT_FLOW_OPS:
+            SVC_PROFILE_ADD_STATE.pop(uid, None)
+
         if op == "view":
             await self._card(q, srv, src=src)
         elif op == "profiles":
@@ -680,12 +705,12 @@ class WireGuardUI(ServiceUI):
             try:
                 await integrator.sync(self.service_id, srv)
                 try:
-                    await query.answer("Обновлено")
+                    await q.answer("Обновлено")
                 except Exception:
                     pass
             except Exception as e:
                 try:
-                    await query.answer(str(e)[:180], show_alert=True)
+                    await q.answer(str(e)[:180], show_alert=True)
                 except Exception:
                     pass
             await self._profile_card(q, srv, name or "", src=src)

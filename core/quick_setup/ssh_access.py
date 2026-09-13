@@ -17,6 +17,7 @@ import time
 from pathlib import Path
 from typing import Any, Callable, Optional
 
+from core.host_keys import HostKeyMismatchError, stored_record
 from core.ssh import create_ssh_client, exec_plain, exec_sudo
 from core.storage import (
     ConnectionStateConflictError,
@@ -38,6 +39,11 @@ from .remote_files import (
 
 # Drop-in конфиг, чтобы не ломать весь sshd_config
 _SSHD_DROPIN = "/etc/ssh/sshd_config.d/99-bot4vps.conf"
+
+# Минимальная длина НОВЫХ паролей серверов/пользователей (security
+# hardening 5.1). Применяется только в set/change-путях: существующие
+# пароли короче минимума валидны как прежде — вход/verify не ломаем.
+MIN_SERVER_PASSWORD_LEN = 10
 _SSHD_MAIN = "/etc/ssh/sshd_config"
 
 
@@ -78,7 +84,13 @@ def _read_sshd_setting(ssh, server: dict, key: str, exec_fn=None) -> Optional[st
     return parts[1].strip() if len(parts) > 1 else None
 
 
-def get_status(server: dict) -> SshAccessStatus:
+def local_status(server: dict, error: str = "") -> SshAccessStatus:
+    """Локальные поля статуса SSH-доступа — без подключения к серверу.
+
+    Заполняется и при недоступном SSH (в том числе при host key mismatch):
+    сохранённый отпечаток и признак mismatch пользователь должен увидеть
+    даже тогда, когда подключиться не удалось — иначе QS лжёт «не закреплён».
+    """
     st = SshAccessStatus(
         user=server.get("user") or "—",
         port=int(server.get("port") or 22),
@@ -86,7 +98,16 @@ def get_status(server: dict) -> SshAccessStatus:
         # в servers.json (маршрут Bot4VPS), а не наличие ключей у пользователя.
         key_configured=bool(server.get("key_path")),
         auth_type="key" if server.get("auth_type") == "key" else "password",
+        error=(str(error)[:400] if error else None),
     )
+    # Сохранённый host key — локальные поля, видны и при недоступном SSH
+    # (в том числе при mismatch: QS подсказывает, что делать).
+    hk = stored_record(server)
+    if hk:
+        st.host_key_type = hk.get("type")
+        st.host_key_fingerprint = hk.get("fingerprint")
+    if error and "host key" in str(error).lower():
+        st.host_key_mismatch = True
     # Реестр ключей: записанный ключ маршрута используется на сервере ещё
     # кем-то (один ключ — один пользователь) — сообщаем, кем. Локальная
     # сверка по реестру, работает и при недоступном SSH.
@@ -99,6 +120,11 @@ def get_status(server: dict) -> SshAccessStatus:
         )
         if shared_owner:
             st.key_shared_with = shared_owner
+    return st
+
+
+def get_status(server: dict) -> SshAccessStatus:
+    st = local_status(server)
     ssh = None
     try:
         ssh = create_ssh_client(server, timeout=12)
@@ -138,6 +164,12 @@ def get_status(server: dict) -> SshAccessStatus:
                     ssh, server, exec_fn=exec_fn
                 )
 
+        return st
+    except HostKeyMismatchError as e:
+        # Подключение заблокировано верификацией host key: пароль не
+        # отправлялся. Явный флаг для UI («сервер переустановлен?»).
+        st.host_key_mismatch = True
+        st.error = str(e)[:400]
         return st
     except Exception as e:
         st.error = str(e)[:400]
@@ -1405,8 +1437,15 @@ def _set_own_password_pty(
 
 def change_password(server: dict, new_password: str) -> OpResult:
     """Сменить пароль, проверить рабочий route и CAS-коммитить credential."""
-    if not isinstance(new_password, str) or not 6 <= len(new_password) <= 256:
-        return OpResult(ok=False, message="Пароль должен содержать 6–256 символов", error="weak_password")
+    if (
+        not isinstance(new_password, str)
+        or not MIN_SERVER_PASSWORD_LEN <= len(new_password) <= 256
+    ):
+        return OpResult(
+            ok=False,
+            message=f"Пароль должен содержать {MIN_SERVER_PASSWORD_LEN}–256 символов",
+            error="weak_password",
+        )
     if any(char in new_password for char in ("\x00", "\r", "\n")):
         return OpResult(ok=False, message="Пароль содержит недопустимые символы", error="bad_password")
 
@@ -2041,8 +2080,15 @@ def create_user(
     except ValueError as exc:
         return OpResult(ok=False, message=str(exc), error="bad_username")
     if password is not None:
-        if not isinstance(password, str) or not 6 <= len(password) <= 256:
-            return OpResult(ok=False, message="Пароль должен содержать 6–256 символов", error="weak_password")
+        if (
+            not isinstance(password, str)
+            or not MIN_SERVER_PASSWORD_LEN <= len(password) <= 256
+        ):
+            return OpResult(
+                ok=False,
+                message=f"Пароль должен содержать {MIN_SERVER_PASSWORD_LEN}–256 символов",
+                error="weak_password",
+            )
         if any(char in password for char in ("\x00", "\r", "\n")):
             return OpResult(ok=False, message="Пароль содержит недопустимые символы", error="bad_password")
     if switch_to_user:
@@ -3493,8 +3539,15 @@ def set_user_password(
         username = _valid_username(username)
     except ValueError as exc:
         return OpResult(ok=False, message=str(exc), error="bad_username")
-    if not isinstance(new_password, str) or not 6 <= len(new_password) <= 256:
-        return OpResult(ok=False, message="Пароль должен содержать 6–256 символов", error="weak_password")
+    if (
+        not isinstance(new_password, str)
+        or not MIN_SERVER_PASSWORD_LEN <= len(new_password) <= 256
+    ):
+        return OpResult(
+            ok=False,
+            message=f"Пароль должен содержать {MIN_SERVER_PASSWORD_LEN}–256 символов",
+            error="weak_password",
+        )
     if any(char in new_password for char in ("\x00", "\r", "\n")):
         return OpResult(ok=False, message="Пароль содержит недопустимые символы", error="bad_password")
     ssh = None
@@ -3744,9 +3797,16 @@ def switch_user(
             candidate, collect_info=need_target_info
         )
         if not login_ok:
+            # Причина (отказ аутентификации, таймаут, sshd-политика root)
+            # обязана дойти до пользователя: «не выполнен» без объяснения
+            # не отличает опечатку в пароле от запрета root-входа в sshd
+            reason = str(verify_error or "").strip()
             return OpResult(
                 ok=False,
-                message=f"SSH-вход как {username} не выполнен; servers.json не изменён",
+                message=(
+                    f"SSH-вход как {username} не выполнен; servers.json не изменён. "
+                    f"Причина: {reason[:200] or 'неизвестна'}"
+                ),
                 error=verify_error,
                 data={"login_verified": False, "sudo_verified": False},
             )

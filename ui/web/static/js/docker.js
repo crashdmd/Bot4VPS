@@ -1848,7 +1848,7 @@ function watchTask(taskId, serverId, action) {
           try { localStorage.removeItem('bot4vps_docker_server_id'); } catch (_) {}
           if (dockerEntryContext === 'server' && sid) {
             try {
-              const { openServer } = await import('./servers.js?v=20260912-chlogwrap-v1');
+              const { openServer } = await import('./servers.js?v=20260913-hostkey-v2');
               await openServer(sid);
             } catch (_) {
               backToDockerList();
@@ -1913,7 +1913,7 @@ export function bindDockerUI() {
   document.getElementById('btn-back-docker-server')?.addEventListener('click', async () => {
     if (!dockerServerId) return;
     try {
-      const { openServer } = await import('./servers.js?v=20260912-chlogwrap-v1');
+      const { openServer } = await import('./servers.js?v=20260913-hostkey-v2');
       await openServer(dockerServerId);
     } catch (e) {
       console.error(e);

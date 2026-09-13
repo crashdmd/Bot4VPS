@@ -2,6 +2,8 @@
 Admin handlers module for Bot4VPS.
 """
 
+import asyncio
+
 from telegram import InlineKeyboardMarkup, InlineKeyboardButton
 
 from core.events import get_events
@@ -28,23 +30,20 @@ def _format_interval(minutes: int) -> str:
     return f"{days} дн."
 
 
-def _admin_menu_keyboard():
+def _admin_menu_keyboard(found: bool = False):
     """Клавиатура «Администрирование». «Зашифровать все секреты» — только
     когда сканер ядра нашёл незашифрованные (перенесённые со старой
     установки значения); после шифрования кнопка исчезает.
-    """
-    from core.secretbox import scan_plaintext_secrets
 
+    found — результат сканера (передаётся вызывающим async-кодом, чтобы
+    файловый обход шёл через to_thread).
+    """
     keyboard = [
         [InlineKeyboardButton("🔍 Проверить серверы", callback_data="check_servers_menu")],
         [InlineKeyboardButton("⚙️ Автоматический мониторинг", callback_data="monitor_settings")],
         [InlineKeyboardButton("📜 Просмотр уведомлений", callback_data="view_notifications")],
         [InlineKeyboardButton("🔑 Управление SSH-ключами", callback_data="key_manager")],
     ]
-    try:
-        found = scan_plaintext_secrets()["found"]
-    except Exception:
-        found = False
     if found:
         keyboard.append(
             [InlineKeyboardButton("🔒 Зашифровать все секреты", callback_data="encrypt_secrets")]
@@ -53,10 +52,20 @@ def _admin_menu_keyboard():
     return keyboard
 
 
+async def _scan_found() -> bool:
+    """Файловый обход сканера секретов — в потоке, не в event loop."""
+    from core.secretbox import scan_plaintext_secrets
+
+    try:
+        return bool((await asyncio.to_thread(scan_plaintext_secrets))["found"])
+    except Exception:
+        return False
+
+
 async def _show_admin_menu(query, note: str = ""):
     await query.edit_message_text(
         "🛠 Администрирование\n\nВыберите действие:" + (f"\n\n{note}" if note else ""),
-        reply_markup=InlineKeyboardMarkup(_admin_menu_keyboard()),
+        reply_markup=InlineKeyboardMarkup(_admin_menu_keyboard(await _scan_found())),
     )
 
 
@@ -307,6 +316,35 @@ def _fmt_event_dt(ts: str) -> str:
         return ts[:16].replace("T", " ")
 
 
+# Обрезка подписи события в кнопке списка: два события в ряд — кнопки
+# узкие, длинный текст переносился бы на вторую строку.
+_LIST_LABEL_WIDTH = 16
+
+
+def _list_button_label(e: dict) -> str:
+    """Подпись события для списка: NEW у непрочитанных самой первой,
+    дальше иконка и подпись (обрезана — кнопки двухколоночного ряда
+    узкие, остальное пусть режется)."""
+    text = f"{_event_list_icon(e)} {str(_event_list_label(e))[:_LIST_LABEL_WIDTH]}"
+    if not e.get("read"):
+        text = f"NEW {text}"
+    return text[:64]
+
+
+async def _mark_all_events_read(query):
+    """Пометить все события журнала прочитанными и перерисовать список."""
+    from core.events import load_events, mark_as_read
+
+    marked = 0
+    for e in load_events():
+        if not e.get("read"):
+            await asyncio.to_thread(mark_as_read, e.get("id"))
+            marked += 1
+
+    await query.answer(f"Отмечено: {marked}" if marked else "Уже прочитаны")
+    await _view_notifications(query)
+
+
 async def _view_notifications(query):
     """Список событий — каждое открывается в подробном просмотре."""
     events = get_events(limit=30)
@@ -321,22 +359,29 @@ async def _view_notifications(query):
         return
 
     rows = []
-    for e in events[:12]:
-        icon = _event_list_icon(e)
-        label_text = _event_list_label(e)[:40]
-        dt = _fmt_event_dt(e.get("timestamp") or "")
-        label = f"{icon} {label_text}" + (f" · {dt}" if dt else "")
-        rows.append([InlineKeyboardButton(
-            label[:64],
+    for index, e in enumerate(events[:12]):
+        button = InlineKeyboardButton(
+            _list_button_label(e),
             callback_data=f"event_view:{e['id'][:16]}",
-        )])
+        )
+        # Чётное число — два столбика; непарная последняя запись
+        # растягивается на всю ширину ряда — без пустых ячеек.
+        if index % 2 == 0:
+            rows.append([button])
+        else:
+            rows[-1].append(button)
 
-    rows.append([InlineKeyboardButton("🗑 Очистить весь журнал", callback_data="clear_events")])
-    rows.append([InlineKeyboardButton("⬅️ Назад в админку", callback_data="admin")])
+    rows.append([InlineKeyboardButton(
+        "✅ Пометить все как прочитанное", callback_data="events_read_all"
+    )])
+    rows.append([
+        InlineKeyboardButton("⬅️ Назад", callback_data="admin"),
+        InlineKeyboardButton("🗑 Очистить журнал", callback_data="clear_events"),
+    ])
 
     await query.edit_message_text(
         "📜 Журнал событий (последние 12)\n\n"
-        "Нажмите на запись, чтобы открыть подробности.",
+        "NEW — не прочитано. Нажмите на запись, чтобы открыть подробности.",
         reply_markup=InlineKeyboardMarkup(rows),
     )
 
@@ -352,7 +397,7 @@ def _html_escape(s: str) -> str:
 
 async def _view_event_detail(query, event_id_prefix: str):
     """Карточка события: сообщение + полный вывод задачи (из details или history)."""
-    from core.events import load_events
+    from core.events import load_events, mark_as_read
     from core.task_manager import task_manager
 
     events = load_events()
@@ -361,16 +406,23 @@ async def _view_event_detail(query, event_id_prefix: str):
         await query.answer("Событие не найдено", show_alert=True)
         return
 
+    # Открыл карточку — значит прочитал: при возврате к журналу событие
+    # потеряет метку 🆕 и выпадет из непрочитанных.
+    if not event.get("read"):
+        await asyncio.to_thread(mark_as_read, event.get("id"))
+
     level = event.get("level", "")
     emoji = {"critical": "🔴", "warning": "⚠️"}.get(level, "ℹ️")
     details = event.get("details") or {}
     ts = (event.get("timestamp") or "")[:19].replace("T", " ")
 
+    # title/message/details — пользовательские и машинные строки: без
+    # экранирования & < > ломали parse_mode=HTML и карточка не открывалась
     text = (
-        f"{emoji} {event.get('title', 'Событие')}\n\n"
+        f"{emoji} {_html_escape(str(event.get('title', 'Событие')))}\n\n"
         f"🕐 {ts}\n"
-        f"Тип: {event.get('type', '—')} · {level or '—'}\n\n"
-        f"{event.get('message') or ''}\n"
+        f"Тип: {_html_escape(str(event.get('type', '—')))} · {level or '—'}\n\n"
+        f"{_html_escape(str(event.get('message') or ''))}\n"
     )
 
     task_id = details.get("task_id")
@@ -386,7 +438,7 @@ async def _view_event_detail(query, event_id_prefix: str):
             output = "\n".join(lines[-120:]) if lines else None
 
     if details.get("error") and (not output or str(details["error"]) not in str(output)):
-        text += f"\nОшибка:\n{details['error']}\n"
+        text += f"\nОшибка:\n{_html_escape(str(details['error']))}\n"
 
     if output:
         body = str(output).strip()
@@ -452,6 +504,9 @@ async def process_admin_callback(query, data: str, context=None) -> bool:
 
     elif data.startswith("event_view:"):
         await _view_event_detail(query, data.split(":", 1)[1])
+
+    elif data == "events_read_all":
+        await _mark_all_events_read(query)
 
     elif data == "clear_events":
         await _clear_events_confirm(query)

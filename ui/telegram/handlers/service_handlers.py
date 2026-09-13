@@ -18,11 +18,14 @@
 """
 from __future__ import annotations
 
+import asyncio
+
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
 from core import integrator
 from core.integrator import get_manifest, list_services
 from core.storage import find_server, load_servers
+from core.task_manager import task_manager
 from state import SERVICE_INSTALL_STATE
 from ui.telegram import task_ui
 
@@ -137,11 +140,41 @@ async def _tasks_full_check(query, service_id: str):
         return
 
     try:
-        task = await integrator.enqueue_bulk_check(service_id)
-        await task.wait()
+        # live_reported=True: результат придёт live-сообщением полной
+        # проверки — очередь не должна слать отдельное уведомление.
+        task = await integrator.enqueue_bulk_check(
+            service_id, live_reported=True
+        )
     except Exception as e:
         await query.edit_message_text(f"❌ Ошибка проверки:\n{e}")
         return
+
+    # Ожидание уходит в фон: task.wait() прямо в хендлере (без
+    # concurrent_updates) замораживал обработку всех кнопок и сообщений
+    # бота на всё время SSH-обхода всех серверов.
+    waiter = asyncio.create_task(_finish_full_check_waiter(query, task, service_id))
+    _BG_WAITERS.add(waiter)
+    waiter.add_done_callback(_BG_WAITERS.discard)
+
+
+# Сильные ссылки на фоновые ожидания — иначе таск может собрать GC
+_BG_WAITERS: set = set()
+
+
+async def _finish_full_check_waiter(query, task, service_id: str):
+    # Результат придёт в этом сообщении (format_done_text ниже):
+    # помечаем задачу, чтобы task_manager не дублировал её уведомлением.
+    task_manager.mark_live_reported(task.id)
+    try:
+        await task.wait()
+    except Exception as e:
+        try:
+            await query.edit_message_text(f"❌ Ошибка проверки:\n{e}")
+        except Exception:
+            pass
+        return
+    finally:
+        task_manager.unmark_live_reported(task.id)
 
     text = task_ui.format_done_text(task)
     kb = InlineKeyboardMarkup([
@@ -150,7 +183,10 @@ async def _tasks_full_check(query, service_id: str):
     try:
         await query.edit_message_text(text, parse_mode="HTML", reply_markup=kb)
     except Exception:
-        await query.message.reply_text(text, parse_mode="HTML", reply_markup=kb)
+        try:
+            await query.message.reply_text(text, parse_mode="HTML", reply_markup=kb)
+        except Exception:
+            pass
 
 
 async def _tasks_server_list(query, service_id: str, mode: str):
@@ -277,6 +313,16 @@ async def _dispatch_install_wizard(op, query, user_id, service_id, server_id, na
 # --------------------------------------------------------------
 
 async def process_service_callback(query, data: str) -> bool:
+    # Любой переход вне визарда установки закрывает его текстовый flow:
+    # раньше «⬅️ Назад» из меню установки (и любые другие кнопки) не
+    # чистили state, и следующие сообщения пользователя молча
+    # становились значениями параметров установки.
+    if not (
+        data.startswith("svc:")
+        and _parse_svc(data)[0] in _WIZARD_OPS | {"install"}
+    ):
+        SERVICE_INSTALL_STATE.pop(query.from_user.id, None)
+
     # --- prefix-маршруты (хабы) ---
     if data.startswith("tasks_svc_check:"):
         await _tasks_full_check(query, data.split(":", 1)[1])

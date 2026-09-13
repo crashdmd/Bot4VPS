@@ -12,6 +12,7 @@ bot_handlers.py ничего не знает о внутреннем устро�
 
 from telegram import InlineKeyboardMarkup, InlineKeyboardButton
 
+import asyncio
 import os
 
 from core.storage import load_servers, save_servers, find_server
@@ -19,7 +20,14 @@ from core.ssh import get_available_keys, test_connection
 from state import ADD_SERVER_STATE, EDIT_SERVER_STATE, PENDING_SERVER_CHANGES
 from ui.telegram.keyboards import EDIT_CANCEL_KB, build_auth_buttons, build_key_buttons
 from ui.telegram.servers import show_server_message
-from ui.telegram.server_wizard import add_auth_key, add_auth_password, add_key_select, add_key_new
+from ui.telegram.server_wizard import (
+    add_auth_key,
+    add_auth_password,
+    add_key_select,
+    add_key_new,
+    add_key_use,
+    handle_sudo_password_choice,
+)
 
 
 # === Внутренние функции ===
@@ -185,7 +193,8 @@ async def _key_use_flow(query, server_id, key_name):
     current_server["auth_type"] = "key"
     current_server["key_path"] = f"/opt/bot4vps/keys/{key_name}"
 
-    ok, error = test_connection(current_server)
+    # paramiko-подключение — в поток: не блокировать event loop
+    ok, error = await asyncio.to_thread(test_connection, current_server)
 
     if ok:
         for i, server in enumerate(servers):
@@ -433,12 +442,15 @@ async def process_auth_callback(query, data: str) -> bool:
         await add_key_new(query)
         return True
 
-    elif data == "add_key_select":
-        await add_key_select(query)
+    elif data.startswith("add_key_use:"):
+        # выбор существующего ключа при добавлении сервера: кнопка
+        # жила в server_wizard, но префикс не был разведён ни одним
+        # процессором — ветка была мёртвой с рефакторинга роутинга
+        await add_key_use(query)
         return True
 
-    elif data == "add_key_new":
-        await add_key_new(query)
+    elif data.startswith("add_sudo_password:"):
+        await handle_sudo_password_choice(query, data.split(":", 1)[1])
         return True
 
     elif data.startswith("auth_password:"):

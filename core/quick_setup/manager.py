@@ -112,12 +112,11 @@ def get_overview(server_id: str, *, check_updates: bool = True) -> QuickSetupOve
             if overview.fail2ban.label:
                 overview.diagnostics.fail2ban = overview.fail2ban.label
     else:
-        overview.ssh_access = SshAccessStatus(
-            user=server.get("user") or "—",
-            port=int(server.get("port") or 22),
-            key_configured=bool(server.get("key_path")),
-            auth_type="key" if server.get("auth_type") == "key" else "password",
-            error=overview.diagnostics.ssh_error,
+        # Локальные поля статуса (host key, реестр ключей) видны и при
+        # недоступном SSH: при mismatch QS показывает отпечаток и кнопку
+        # принятия, а не «не закреплён».
+        overview.ssh_access = ssh_access_mod.local_status(
+            server, error=overview.diagnostics.ssh_error
         )
 
         from .firewall.base import FirewallInfo
@@ -468,6 +467,17 @@ def fail2ban_delete_configuration(server_id: str, kind: str, filename: str) -> O
 
 def ssh_status(server_id: str) -> SshAccessStatus:
     return ssh_access_mod.get_status(_require_server(server_id))
+
+
+def ssh_accept_host_key(server_id: str) -> dict:
+    """Принять ТЕКУЩИЙ host key сервера (после переустановки).
+
+    Явное административное решение: подключение без сверы, предъявленный
+    ключ принудительно перезаписывает сохранённый (событие в журнал).
+    """
+    from core.ssh import accept_new_host_key
+
+    return accept_new_host_key(_require_server(server_id))
 
 
 def ssh_change_port(

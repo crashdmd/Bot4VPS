@@ -53,6 +53,16 @@ SERVICE_ID = "docker"
 SOURCE_LIBRARY = "library"
 SOURCE_SERVER = "server"
 
+# Op, которые открывают или продолжают текстовый flow. Любой другой op —
+# навигация/действие — обязан закрыть flow (см. handle_callback).
+_TEXT_FLOW_OPS = frozenset({
+    "ct_new",           # мастер запуска контейнера
+    "wz_next", "wz_back", "wz_restart",
+    "wz_cancel", "wz_run",
+    "im_pull",          # однослойный ввод имени образа
+    "cl_upload", "cl_upload_cancel",
+})
+
 
 # --------------------------------------------------------------
 # Короткие токены для callback_data
@@ -737,8 +747,17 @@ async def _image_list(query, server_id: str) -> None:
     try:
         images = await integrator.call(SERVICE_ID, server_id, "get_images") or []
     except Exception as e:
-        images = []
-        await _edit(query, f"⚠️ Не удалось получить образы:\n{e}")
+        # return: раньше экран ошибки тут же затирался обычным списком
+        # с «Образов нет.» — неправдой при недоступном SSH
+        await _edit(
+            query,
+            f"⚠️ Не удалось получить образы:\n{e}",
+            InlineKeyboardMarkup([
+                [InlineKeyboardButton("🔄 Обновить", callback_data=_svc_cb("im_list", SERVICE_ID, server_id))],
+                [InlineKeyboardButton("⬅️ Назад", callback_data=_svc_cb("view", SERVICE_ID, server_id))],
+            ]),
+        )
+        return
 
     lines = [f"🐳 Docker · {name}", "", "🖼 Образы", ""]
     rows: List[List[InlineKeyboardButton]] = []
@@ -872,7 +891,8 @@ async def _compose_lib_item_on_server(query, server_id: str, name: str) -> None:
 
     # Состав проекта: пользователю полезно видеть, что развернётся (compose,
     # .env, config/…), а не только имя.
-    st = next((s for s in _library() if s.get("name") == name), None)
+    lib = await asyncio.to_thread(_library)
+    st = next((s for s in lib if s.get("name") == name), None)
     if st:
         files = [st.get("compose_file") or "docker-compose.yml"]
         files += list(st.get("extra_files") or [])
@@ -1139,7 +1159,7 @@ def _library() -> List[Dict[str, Any]]:
 
 
 async def _compose_library(query) -> None:
-    library = _library()
+    library = await asyncio.to_thread(_library)
     lines = ["📋 Compose", "", "📚 Локальная библиотека Bot4VPS", ""]
     rows: List[List[InlineKeyboardButton]] = []
     if not library:
@@ -1160,7 +1180,8 @@ async def _compose_library(query) -> None:
 
 
 async def _compose_library_item(query, name: str) -> None:
-    st = next((s for s in _library() if s.get("name") == name), None)
+    lib = await asyncio.to_thread(_library)
+    st = next((s for s in lib if s.get("name") == name), None)
     if st is None:
         await _edit(
             query, f"⚠️ Проект «{name}» не найден.",
@@ -1283,10 +1304,14 @@ async def _compose_save_upload(message, user_id: int, name: str,
     is_zip = filename.lower().endswith(".zip")
     try:
         from services.docker.impl import compose_store
+        # import_zip распаковывает архив (до 20 МБ) — в поток: не
+        # блокировать event loop
         if is_zip:
-            info = compose_store.import_zip(name, data)
+            info = await asyncio.to_thread(compose_store.import_zip, name, data)
         else:
-            info = compose_store.write_stack(name, data.decode("utf-8"))
+            info = await asyncio.to_thread(
+                compose_store.write_stack, name, data.decode("utf-8")
+            )
     except UnicodeDecodeError:
         await message.reply_text(
             "❌ Файл не в кодировке UTF-8.\n"
@@ -1360,6 +1385,14 @@ class DockerUI(ServiceUI):
         op, query, uid = ctx.op, ctx.query, ctx.user_id
         srv, src = ctx.server_id, ctx.src
         tok = ctx.name
+
+        # Навигационные op закрывают текстовые flow (мастер запуска, pull
+        # образа, загрузка Compose): раньше «❌ Отмена» у pull вела на
+        # im_list без чистки state — и следующее произвольное сообщение
+        # запускало реальный image_pull.
+        if op not in _TEXT_FLOW_OPS:
+            DOCKER_RUN_WIZARD.pop(uid, None)
+            DOCKER_COMPOSE_UPLOAD.pop(uid, None)
 
         # ---- хаб, выбор сервера, установка ----
         if op in ("hub", "dk_hub"):

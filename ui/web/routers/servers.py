@@ -98,6 +98,22 @@ def _metrics_sync(server: dict) -> dict:
         out["error_kind"] = classify_ssh_error(str(e))
     return out
 
+def _metrics_throttled_result(server_id: str, get_server_monitor) -> dict:
+    """Ответ /metrics в SSH backoff: без попытки подключения, с последней
+    известной причиной из monitor. Карточка/виджет продолжают опрашивать
+    /metrics каждые 5с — без гейта каждая итерация была бы неудачной
+    аутентификацией (панель банит себя fail2ban'ом на сервере)."""
+    from core.servers import classify_ssh_error
+    avail = (get_server_monitor(server_id) or {}).get("availability") or {}
+    error = (avail.get("ssh_error") or "").strip() or \
+        "SSH недоступен; следующая попытка не раньше чем через минуту"
+    return {
+        "ok": False, "cpu": None, "ram_pct": None, "ram": "N/A",
+        "disk_pct": None, "disk": "N/A", "load": "N/A", "uptime": "N/A",
+        "uptime_seconds": None, "error": error,
+        "error_kind": classify_ssh_error(error),
+    }
+
 def _exec_sync(server: dict, command: str) -> dict:
     from core.ssh import create_ssh_client
     try:
@@ -197,10 +213,21 @@ async def api_server(server_id: str):
 async def api_metrics(server_id: str):
     try:
         from core.storage import find_server
-        from core.monitor import note_ssh_probe, refresh_ssh_error, update_server_uptime
+        from core.monitor import (
+            get_server_monitor,
+            note_ssh_probe,
+            refresh_ssh_error,
+            ssh_probe_throttled,
+            update_server_uptime,
+        )
         server = find_server(server_id)
         if not server:
             raise HTTPException(404, "Сервер не найден")
+        if ssh_probe_throttled(server_id):
+            # Backoff после недавней неудачи SSH: не дёргаем сервер,
+            # отдаём последнюю известную причину; окно ожидания
+            # не двигается (note_ssh_probe не вызываем)
+            return _metrics_throttled_result(server_id, get_server_monitor)
         result = await asyncio.to_thread(_metrics_sync, server)
         # причина SSH-проблемы в списке должна заживляться сразу,
         # а не ждаться system_sync (см. refresh_ssh_error)
@@ -227,12 +254,40 @@ async def api_metrics(server_id: str):
 @router.get("/api/servers/{server_id}/probe")
 async def api_probe(server_id: str):
     try:
-        from core.monitor import note_ssh_probe, refresh_ssh_error
+        from core.monitor import (
+            get_server_monitor,
+            note_ssh_probe,
+            refresh_ssh_error,
+            ssh_probe_throttled,
+        )
         from core.storage import find_server
-        from core.servers import get_server_info, format_ssh_error
+        from core.servers import (
+            classify_ssh_error,
+            format_ssh_error,
+            get_server_info,
+            get_server_info_without_ssh,
+        )
         server = find_server(server_id)
         if not server:
             raise HTTPException(404, "Сервер не найден")
+        if ssh_probe_throttled(server_id):
+            # Backoff: сеть живьём (дёшево), SSH — последняя известная
+            # причина; окно ожидания не двигается (note_ssh_probe не зовём)
+            stored = ((get_server_monitor(server_id) or {})
+                      .get("availability") or {}).get("ssh_error") or ""
+            info = await asyncio.to_thread(
+                get_server_info_without_ssh, server, stored
+            )
+            return {
+                "info": info,
+                "ssh_error_human": format_ssh_error(
+                    stored or "SSH недоступен; следующая попытка "
+                              "не раньше чем через минуту"
+                ),
+                # баннер карточки предлагает «Принять текущий ключ» и в
+                # backoff — по последней известной причине
+                "host_key_mismatch": classify_ssh_error(stored) == "host_key",
+            }
         info = await asyncio.to_thread(get_server_info, server)
         await asyncio.to_thread(
             refresh_ssh_error, server, bool(info.get("ssh")),
@@ -241,7 +296,13 @@ async def api_probe(server_id: str):
         # чтобы фоновая развёртка (страница «Серверы») не пробивала
         # тот же сервер повторно в том же такте
         note_ssh_probe(server_id)
-        return {"info": info, "ssh_error_human": format_ssh_error(info.get("ssh_error"))}
+        return {
+            "info": info,
+            "ssh_error_human": format_ssh_error(info.get("ssh_error")),
+            # баннер карточки предлагает «Принять текущий ключ» только
+            # при реальном mismatch (host key verification)
+            "host_key_mismatch": bool(info.get("host_key_mismatch")),
+        }
     except HTTPException:
         raise
     except Exception as e:

@@ -1,26 +1,26 @@
 import { tickClock, syncServerClock, showPage, toast, parseEmoji, initEmojiObserver, confirmAction, bindTelegramHealthDialog } from './ui.js';
-import { loadDashboard, loadSummary, bindDashboard, stopDashMetrics, updateDashboardData, updateDashboardState } from './dashboard.js?v=20260912-chlogwrap-v1';
-import { loadEvents, openEventDetail, applyEventsSnapshot, initSystemMonitor, stopSystemMonitor } from './monitor.js?v=20260912-chlogwrap-v1';
+import { loadDashboard, loadSummary, bindDashboard, stopDashMetrics, updateDashboardData, updateDashboardState } from './dashboard.js?v=20260913-hostkey-v2';
+import { loadEvents, openEventDetail, applyEventsSnapshot, initSystemMonitor, stopSystemMonitor } from './monitor.js?v=20260913-hostkey-v2';
 import { loadServers, loadQueues, loadHistory, loadGroupsAndKeys,
   bindServerUI, stopWatchers, openServer, closeGroupsPanel, lastServerTab,
   startSshProbeLoop, stopSshProbeLoop,
-} from './servers.js?v=20260912-chlogwrap-v1';
-import { loadScripts, bindScriptsUI } from './scripts.js?v=20260826-host-timezone-v2';
-import { loadWireguard, bindWireguardUI, stopWgTimers, openWgServerById } from './wireguard.js?v=20260911-tabhint-v2';
-import { loadDocker, bindDockerUI, stopDockerTimers, openDockerServerById } from './docker.js?v=20260911-tabhint-v2';
+} from './servers.js?v=20260913-hostkey-v2';
+import { loadScripts, bindScriptsUI } from './scripts.js?v=20260913-hostkey-v2';
+import { loadWireguard, bindWireguardUI, stopWgTimers, openWgServerById } from './wireguard.js?v=20260913-hostkey-v2';
+import { loadDocker, bindDockerUI, stopDockerTimers, openDockerServerById } from './docker.js?v=20260913-hostkey-v2';
 import { bindTasksUI } from './tasks.js?v=20260816-task-history-v3';
-import { loadFiles, bindFilesUI } from './files.js?v=20260911-tabhint-v2';
+import { loadFiles, bindFilesUI } from './files.js?v=20260913-hostkey-v2';
 import { bindEditorUI } from './editor.js?v=20260815-scripts-table-v1';
 import { bindTerminalUI, closeTerminal } from './terminal.js?v=20260905-glassblue-v2';
-import { startSSE, registerNotificationsRefresh } from './sse.js?v=20260912-chlogwrap-v1';
+import { startSSE, registerNotificationsRefresh } from './sse.js?v=20260913-hostkey-v2';
 import { state, setPage, clearQuickSetupServer } from './state.js';
 import { j, esc } from './api.js';
 import { initAuth, bindAuthUI } from './auth.js';
 import { initSetup, bindSetupUI } from './setup.js?v=20260910-setup-v4';
-import { bindGlobalSearch } from './search.js?v=20260911-nav-v6';
+import { bindGlobalSearch } from './search.js?v=20260913-hostkey-v2';
 import { bindBackupUI, loadBackups, stopBackupTimers } from './backup.js?v=20260912-tzdrop-v1';
 
-const QUICK_SETUP_MODULE_URL = './quick_setup.js?v=20260909-qs-ssl-v40';
+const QUICK_SETUP_MODULE_URL = './quick_setup.js?v=20260913-hostkey-v2';
 const quickSetupModule = import(QUICK_SETUP_MODULE_URL).catch(error => {
   console.error('[quick-setup] module unavailable:', error);
   return null;
@@ -44,7 +44,7 @@ async function openQuickSetupFromCard(serverId) {
 
 // Settings — отдельная подсистема. Загружаем её лениво, чтобы ошибка нового
 // модуля не останавливала Dashboard, Servers и остальные страницы.
-const settingsModule = import('./settings.js?v=20260912-chlogwrap-v1')
+const settingsModule = import('./settings.js?v=20260913-hostkey-v2')
   .catch(error => {
     console.error('[settings] module unavailable:', error);
     return null;
@@ -174,7 +174,7 @@ settingsModule.then(module => {
 }).catch(() => {});
 // Групповая панель подключается лениво: ошибка её отдельного модуля
 // не должна останавливать загрузку всей панели управления.
-import('./groups_panel.js?v=20260911-groups-v2')
+import('./groups_panel.js?v=20260913-hostkey-v2')
   .then(m => m.bindGroupsPanelUI())
   .catch(error => console.warn('[groups] module unavailable:', error));
 bindAuthUI();

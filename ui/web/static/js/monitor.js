@@ -54,7 +54,7 @@ function scheduleUpdatePolling() {
       if (prev && prev.status !== updateState.status) {
         if (updateState.status === 'idle' && prev.status !== 'idle') {
           toast('Обновление установлено', true);
-          const { loadSummary } = await import('./dashboard.js?v=20260912-chlogwrap-v1');
+          const { loadSummary } = await import('./dashboard.js?v=20260913-hostkey-v2');
           loadSummary();
         } else if (updateState.status === 'failed') {
           toast('Ошибка обновления: ' + (updateState.last_error || 'неизвестная ошибка'), false);
@@ -72,7 +72,8 @@ function scheduleUpdatePolling() {
 
 /** Динамическая модалка (паттерн openEventDetail) с confirm/cancel.
  *  width — CSS-ширина карточки (по умолчанию 640px; changelog-модалки
- *  передают шире — переносам строк нужен простор). */
+ *  передают шире — переносам строк нужен простор).
+ *  cancelText = null — модалка с единственной кнопкой (просмотр). */
 function openActionModal({ title, bodyHtml, okText, cancelText = 'Отмена', danger = false, onOk, width = 'min(640px,100%)' }) {
   const modal = document.createElement('div');
   modal.className = 'modal-bg';
@@ -80,7 +81,7 @@ function openActionModal({ title, bodyHtml, okText, cancelText = 'Отмена',
     <h3 style="margin:0 0 .6rem">${title}</h3>
     <div>${bodyHtml}</div>
     <div class="actions" style="margin-top:.8rem;justify-content:flex-end">
-      <button type="button" class="secondary" data-act="cancel">${cancelText}</button>
+      ${cancelText ? `<button type="button" class="secondary" data-act="cancel">${cancelText}</button>` : ''}
       <button type="button" ${danger ? 'class="danger"' : ''} data-act="ok">${okText}</button>
     </div>
   </div>`;
@@ -93,7 +94,7 @@ function openActionModal({ title, bodyHtml, okText, cancelText = 'Отмена',
   modal.style.zIndex = '90';
   const close = () => modal.remove();
   modal.addEventListener('click', ev => { if (ev.target === modal) close(); });
-  modal.querySelector('[data-act="cancel"]').onclick = close;
+  modal.querySelector('[data-act="cancel"]')?.addEventListener('click', close);
   modal.querySelector('[data-act="ok"]').onclick = async () => {
     const okBtn = modal.querySelector('[data-act="ok"]');
     okBtn.disabled = true;
@@ -126,7 +127,7 @@ export async function showUpdateModal() {
   });
 }
 
-/** Модалка «История обновлений»: changelog текущей + Откатить (ТЗ п.13-14).
+/** Модалка «Описание версии»: changelog УСТАНОВЛЕННОЙ версии + Откатить (ТЗ п.13-14).
  *  Экспортирована для страницы Настроек («Обновления», «О программе»). */
 export async function showHistoryModal() {
   let data;
@@ -137,7 +138,7 @@ export async function showHistoryModal() {
     return;
   }
   openActionModal({
-    title: `📋 Bot4VPS ${esc(data.version)}`,
+    title: `📜 Описание версии — Bot4VPS ${esc(data.version)}`,
     bodyHtml: `<pre class="event-detail-pre" style="max-height:50vh;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere">${esc(data.changelog)}</pre>`,
     okText: 'Откатить',
     cancelText: 'Закрыть',
@@ -153,12 +154,12 @@ async function showRollbackConfirm(currentVersion) {
     title: '⚠️ Откат Bot4VPS',
     message:
       `Сейчас установлена версия ${currentVersion}.\n\n` +
-      'Вы собираетесь выполнить откат на предыдущую версию.\n' +
+      'Вы собираетесь выполнить откат на предыдущую версию. ' +
       'Версия выбирается на следующем шаге.\n\n' +
-      'Для этого будет загружен соответствующий GitHub Release,\n' +
+      'Для этого будет загружен соответствующий GitHub Release, ' +
       'после чего Bot4VPS будет перезапущен.\n\n' +
-      'Автоматический откат доступен только для версий 3.0 и новее.\n' +
-      'Версии ниже 3.0 необходимо устанавливать вручную.',
+      'Откатиться можно на версии 3.0 и новее — ниже Web-интерфейса ещё не было, ' +
+      'те версии устанавливаются вручную через консоль.',
     confirmText: 'Продолжить',
     cancelText: 'Отмена',
     danger: true,
@@ -167,7 +168,8 @@ async function showRollbackConfirm(currentVersion) {
   await showVersionPicker(currentVersion);
 }
 
-/** Выбор версии отката (radio-список ≥ 4.0.0) и запуск отката. */
+/** Выбор версии отката (radio-список ≥ 3.0.0) и запуск отката.
+ *  Напротив каждой версии — «описание» (секция changelog.md версии). */
 async function showVersionPicker(currentVersion) {
   let data;
   try {
@@ -181,15 +183,27 @@ async function showVersionPicker(currentVersion) {
     toast('Нет версий, доступных для отката', false);
     return;
   }
-  const items = versions.map((v, i) => `
-    <label style="display:flex;align-items:center;gap:.5rem;padding:.35rem 0;cursor:pointer">
-      <input type="radio" name="upd-ver" value="${esc(v)}" ${i === 0 ? 'checked' : ''}>
-      ${esc(v)}
-    </label>`).join('');
+  const rows = versions.map((v, i) => `
+    <div style="display:flex;align-items:center;gap:.4rem;padding:.15rem 0">
+      <label style="display:flex;align-items:center;gap:.5rem;cursor:pointer;flex:1;padding:.35rem 0">
+        <input type="radio" name="upd-ver" value="${esc(v)}" ${i === 0 ? 'checked' : ''}>
+        ${esc(v)}
+      </label>
+      <button type="button" class="modest-link" data-ver-desc="${esc(v)}">описание</button>
+    </div>`);
+  // Сразу — три последние, остальные под «Показать другие версии»:
+  // модалка не раздувается, редкий глубокий откат — один клик.
+  const VISIBLE = 3;
+  const head = rows.slice(0, VISIBLE).join('');
+  const tail = rows.slice(VISIBLE).join('');
+  const moreBtn = tail
+    ? `<button type="button" class="modest-link" data-ver-more="1" style="margin:.15rem 0 .15rem 2rem">Показать все версии</button>`
+    : '';
+  const rest = tail ? `<div data-ver-rest style="display:none">${tail}</div>` : '';
   openActionModal({
     title: '⬇️ Выбор версии для отката',
     bodyHtml: `<div style="margin-bottom:.4rem;color:var(--text-muted)">Текущая версия: <b>${esc(currentVersion)}</b></div>
-      <div style="max-height:50vh;overflow:auto">${items}</div>`,
+      <div style="max-height:50vh;overflow:auto">${head}${moreBtn}${rest}</div>`,
     okText: 'Откатить',
     danger: true,
     onOk: async (okBtn) => {
@@ -200,9 +214,8 @@ async function showVersionPicker(currentVersion) {
         message:
           `Сейчас установлена версия ${currentVersion}.\n\n` +
           `Вы собираетесь установить версию ${sel.value}.\n\n` +
-          'Для этого будет загружен соответствующий GitHub Release,\n' +
-          'после чего Bot4VPS будет перезапущен.\n\n' +
-          'Автоматический откат доступен только для версий 4.0 и новее.',
+          'Для этого будет загружен соответствующий GitHub Release, ' +
+          'после чего Bot4VPS будет перезапущен.',
         confirmText: 'Откатить',
         cancelText: 'Отмена',
         danger: true,
@@ -219,6 +232,36 @@ async function showVersionPicker(currentVersion) {
     },
   });
 }
+
+/** Описание версии отката — секция changelog.md, модалка поверх списка.
+ *  Единственная кнопка «Закрыть»: это просмотр, не действие. */
+async function showVersionDescription(version) {
+  let data;
+  try {
+    data = await j('/api/update/versions/' + encodeURIComponent(version));
+  } catch (e) { toast(e.message, false); return; }
+  openActionModal({
+    title: `📜 Описание версии — Bot4VPS ${esc(data.version)}`,
+    bodyHtml: `<pre class="event-detail-pre" style="max-height:60vh;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere">${esc(data.changelog)}</pre>`,
+    okText: 'Закрыть',
+    cancelText: null,
+    width: 'min(760px,100%)',
+    onOk: async () => {},
+  });
+}
+
+// Кнопки «описание» и «Показать все версии» в списке версий отката:
+// делегирование — модалка пересоздаётся при каждом открытии.
+document.addEventListener('click', (e) => {
+  const descBtn = e.target.closest('[data-ver-desc]');
+  if (descBtn) { showVersionDescription(descBtn.dataset.verDesc); return; }
+  const moreBtn = e.target.closest('[data-ver-more]');
+  if (moreBtn) {
+    const rest = moreBtn.parentElement?.querySelector('[data-ver-rest]');
+    if (rest) rest.style.display = '';
+    moreBtn.remove();
+  }
+});
 
 async function runCheck(b) {
   const kind = b.dataset.check;

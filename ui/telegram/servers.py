@@ -165,6 +165,19 @@ async def build_server_card(server_id):
                 callback_data=f"services:{server['id']}"
             ),
         ],
+    ]
+
+    # Host key mismatch: подключение заблокировано до пароля — карточка
+    # предлагает явное принятие (как баннер в Web)
+    if info.get("host_key_mismatch"):
+        kb.insert(0, [
+            InlineKeyboardButton(
+                "🛡 Принять ключ",
+                callback_data=f"hostkey_confirm:{server['id']}"
+            )
+        ])
+
+    kb.extend([
         [
             InlineKeyboardButton(
                 "✏️ Изменить",
@@ -183,9 +196,56 @@ async def build_server_card(server_id):
                 callback_data=f"group:{server.get('group','')}"
             )
         ]
-    ]
+    ])
 
     return text, kb
+
+
+async def hostkey_confirm(query, server_id):
+    server = find_server(server_id)
+    if not server:
+        await query.edit_message_text("Сервер не найден.")
+        return
+
+    stored = (server.get("host_key") or {}).get("fingerprint") or "не закреплён"
+    text = (
+        f"🛡 Принять текущий host key сервера «{server['name']}»?\n\n"
+        f"Закреплён: {stored}\n"
+        "Bot4VPS подключится без сверки и заменит сохранённый ключ "
+        "на предъявленный сейчас.\n\n"
+        "Продолжайте, только если сервер переустановлен или его ключ "
+        "законно изменился."
+    )
+    keyboard = [
+        [InlineKeyboardButton("✅ Принять", callback_data=f"hostkey_accept:{server_id}")],
+        [InlineKeyboardButton("❌ Отмена", callback_data=f"server:{server_id}")]
+    ]
+    await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
+
+
+async def perform_hostkey_accept(query, server_id):
+    from core.ssh import accept_new_host_key
+
+    server = find_server(server_id)
+    if not server:
+        await query.edit_message_text("Сервер не найден.")
+        return
+
+    await query.edit_message_text(
+        f"🛡 Подключаюсь к {server['name']} и принимаю текущий ключ..."
+    )
+    try:
+        record = await asyncio.to_thread(accept_new_host_key, server)
+    except Exception as e:
+        await query.edit_message_text(
+            f"❌ Не удалось принять host key.\nПричина: {str(e)[:300]}"
+        )
+        return
+
+    await query.message.reply_text(
+        f"✅ Новый host key принят: {record.get('fingerprint', '?')}"
+    )
+    await show_server_message(query.message, server_id)
 
 
 async def show_server(query, server_id):

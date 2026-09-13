@@ -409,10 +409,10 @@ def tls_renew(force: bool = False) -> None:
 
 
 def web_change_password(new_password: str) -> None:
-    from ui.web.security import set_web_password
+    from ui.web.security import MIN_WEB_PASSWORD_LEN, set_web_password
 
-    if len(new_password) < 6:
-        raise ValueError("Пароль не короче 6 символов")
+    if len(new_password) < MIN_WEB_PASSWORD_LEN:
+        raise ValueError(f"Пароль не короче {MIN_WEB_PASSWORD_LEN} символов")
     set_web_password(new_password)
 
 

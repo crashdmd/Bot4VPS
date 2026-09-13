@@ -22,6 +22,12 @@ from fastapi import HTTPException, Request, status
 
 _ITERATIONS = 200_000
 
+# Минимальная длина НОВОГО пароля панели (security hardening 5.1).
+# Проверяется только в set/change-путях (создание админа, смена пароля,
+# recovery): существующие пароли короче минимума остаются валидными —
+# вход с ними не ломается.
+MIN_WEB_PASSWORD_LEN = 10
+
 
 def make_password(password: str, iterations: int = _ITERATIONS) -> str:
     salt = secrets.token_hex(16)

@@ -229,6 +229,9 @@ async def watch_task_background(task_id: str, server_id: str, bot, chat_id: int)
     task = task_manager.get_task(task_id)
     if not task:
         return
+    # Результат придёт в этом live-сообщении: помечаем задачу, чтобы
+    # task_manager не дублировал её отдельным уведомлением.
+    task_manager.mark_live_reported(task_id)
 
     async def on_line(line: str):
         msg = LOG_VIEWS.get(task_id)
@@ -247,6 +250,7 @@ async def watch_task_background(task_id: str, server_id: str, bot, chat_id: int)
         await task.wait()
     finally:
         task_manager.unsubscribe_live(task_id, on_line)
+        task_manager.unmark_live_reported(task_id)
 
     t = task_manager.get_task(task_id) or task
     if t and t.is_successful:
@@ -429,7 +433,7 @@ async def show_server_queue(query, server_id: str):
     if st.paused:
         text += f"⏸ На паузе\nПричина: «{st.failed_task_name or '?'}»\nПовторов: {st.retry_count}\n\n"
     text += (
-        f"▶ Сейчас: {running.name}\n   id: `{running.id}` · попытка {running.attempt}\n\n"
+        f"▶ Сейчас: {running.name}\n   id: {running.id} · попытка {running.attempt}\n\n"
         if running else "▶ Активной задачи нет\n\n"
     )
     if queue:
@@ -449,7 +453,9 @@ async def show_server_queue(query, server_id: str):
     kb.append([InlineKeyboardButton("📋 Все очереди", callback_data="task_queues")])
     kb.append([InlineKeyboardButton("⬅️ Задачи", callback_data="tasks")])
     kb.append([InlineKeyboardButton("🏠 Меню", callback_data="main")])
-    await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
+    # Без parse_mode: имена задач с _/* ломали legacy-Markdown — экран
+    # очереди не открывался
+    await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(kb))
 
 
 async def process_task_callback(query, data: str) -> bool:

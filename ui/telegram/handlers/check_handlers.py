@@ -166,7 +166,9 @@ async def _handle_ssl_check_now(query, group_name):
     await query.edit_message_text(
         f"⏳ Идёт проверка SSL-сертификатов в группе {group_name}..."
     )
-    events = run_monitor(group_name)
+    # DNS+SSL-обход — сетевой цикл; без to_thread он замораживал весь
+    # бот (и Web-панель в том же процессе) на всё время проверки
+    events = await asyncio.to_thread(run_monitor, group_name)
     renewed = 0
     expired = 0
 

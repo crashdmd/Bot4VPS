@@ -691,6 +691,22 @@ function renderSshAccess(s) {
           <button type="button" class="secondary" id="qs-ssh-pwdauth-toggle" data-enabled="${pwdOn ? '1' : '0'}">${pwdBtnLabel}</button>
         </div>
       </div>`;
+  const hostKeyBlock = `
+      <div class="qs-ssh-block">
+        <div class="qs-ssh-block-title">🛡 SSH host key</div>
+        <div class="qs-rows">
+          ${row('Тип ключа', s?.host_key_type ? esc(s.host_key_type) : '—')}
+          ${row('Отпечаток', s?.host_key_fingerprint
+            ? `<code style="overflow-wrap:anywhere">${esc(s.host_key_fingerprint)}</code>`
+            : statusDot() + 'не закреплён — запишется при первом подключении')}
+        </div>
+        ${s?.host_key_mismatch ? `
+        <p class="qs-muted" style="color:var(--err)">Сервер предъявил другой host key — подключения заблокированы, пароль не отправлялся. Если сервер переустановлен, примите текущий ключ.</p>
+        <div class="qs-section-actions">
+          <button type="button" class="secondary" id="qs-ssh-hostkey-accept">Принять текущий ключ</button>
+        </div>` : ''}
+        <p class="qs-muted">Каждое подключение сверяется с сохранённым host key до отправки пароля. Кнопка принятия появляется, только если сервер предъявил другой ключ (например, после переустановки ОС).</p>
+      </div>`;
   return section('🔐 SSH / Доступ', `
     <div class="qs-rows">
       ${row('Пользователь', esc(s?.user || '—') + err)}
@@ -734,6 +750,7 @@ function renderSshAccess(s) {
         </div>
         <p class="qs-muted qs-ssh-keys-hint">Создание ключа и удаление — в «Менеджере ключей»${isAdmin ? '' : ' (доступны только ваши ключи)'}.</p>
       </div>
+      ${hostKeyBlock}
       ${isAdmin ? rootPwdBlock : ''}
     </div>
     <p class="qs-muted">Опасные изменения блокируются, пока не подтверждён запасной SSH/sudo-доступ.</p>
@@ -1067,6 +1084,7 @@ function bindActions() {
   });
   document.getElementById('qs-ssh-users')?.addEventListener('click', onSshUsers);
   document.getElementById('qs-ssh-set-port')?.addEventListener('click', onSshPort);
+  document.getElementById('qs-ssh-hostkey-accept')?.addEventListener('click', onSshHostKeyAccept);
   document.getElementById('qs-ssh-set-own-pass')?.addEventListener('click', onSshSetOwnPass);
   document.getElementById('qs-ssh-key-manager')?.addEventListener('click', onSshKeyManager);
   document.getElementById('qs-ssh-root-toggle')?.addEventListener('click', () => {
@@ -2145,6 +2163,36 @@ async function onSshUsers() {
     if (!r.ok) showContextToast(context,r.message || r.error || 'Список недоступен', false);
   } catch (e) { showContextToast(context,e.message || 'Ошибка получения пользователей', false); }
   finally { setBusy(false, context); }
+}
+
+/** Принять текущий host key сервера (после переустановки сервера). */
+async function onSshHostKeyAccept() {
+  const context = captureContext();
+  if (busy || !context) return;
+  const { serverId } = context;
+  const approved = await confirmAction({
+    title: 'Принять текущий host key?',
+    message: 'Bot4VPS подключится к серверу без сверки и заменит сохранённый SSH host key на предъявленный сейчас. Продолжайте, только если вы уверены, что сервер переустановлен или его ключ законно изменился.',
+    confirmText: 'Принять',
+    cancelText: 'Отмена',
+    danger: true,
+    confirmFirst: true,
+  });
+  if (!approved || !contextIsCurrent(context)) return;
+  setBusy(true, context);
+  try {
+    const r = await requestForContext(context,
+      `/api/servers/${encodeURIComponent(serverId)}/quick-setup/ssh/hostkey/accept`,
+      { method: 'POST' });
+    showContextToast(context, r.ok
+      ? `Новый host key принят: ${r.host_key?.fingerprint || '?'}`
+      : (r.message || r.error || 'Ошибка'), r.ok);
+    if (r.ok) await reloadOverview({ updates: false }, context);
+  } catch (e) {
+    showContextToast(context, e.message || 'Ошибка', false);
+  } finally {
+    setBusy(false, context);
+  }
 }
 
 async function onSshPort() {

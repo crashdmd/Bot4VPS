@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import traceback
 from typing import Annotated, Any, List, Literal, Optional
 
 from fastapi import APIRouter, HTTPException, Path, Query
@@ -11,6 +12,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from core.quick_setup.models import QuickSetupServerNotFoundError
+from core.quick_setup.ssh_access import MIN_SERVER_PASSWORD_LEN
 
 
 router = APIRouter(tags=["quick-setup"])
@@ -767,7 +769,7 @@ class SshPortBody(StrictBody):
 
 
 class SshPasswordBody(StrictBody):
-    password: str = Field(..., min_length=6, max_length=256)
+    password: str = Field(..., min_length=MIN_SERVER_PASSWORD_LEN, max_length=256)
 
 
 class SshBoolBody(StrictBody):
@@ -787,7 +789,9 @@ class SshUserBody(StrictBody):
         max_length=32,
         pattern=r"^[a-z_][a-z0-9_-]{0,31}$",
     )
-    password: Optional[str] = Field(default=None, min_length=6, max_length=256)
+    password: Optional[str] = Field(
+        default=None, min_length=MIN_SERVER_PASSWORD_LEN, max_length=256
+    )
     sudo: bool = True
 
 
@@ -821,7 +825,7 @@ class SshUserKeySelectBody(StrictBody):
 
 
 class SshUserPasswordBody(StrictBody):
-    password: str = Field(..., min_length=6, max_length=256)
+    password: str = Field(..., min_length=MIN_SERVER_PASSWORD_LEN, max_length=256)
     old_password: Optional[str] = Field(default=None, max_length=256)
 
 
@@ -835,6 +839,35 @@ async def api_ssh_status(server_id: str):
         raise HTTPException(404, str(e)) from e
     except Exception as e:
         return _internal_error(e)
+
+
+@router.post("/api/servers/{server_id}/quick-setup/ssh/hostkey/accept")
+async def api_ssh_hostkey_accept(server_id: str):
+    """Принять текущий SSH host key сервера (после его переустановки)."""
+    try:
+        record = await asyncio.to_thread(_qs().ssh_accept_host_key, server_id)
+        return {
+            "ok": True,
+            "host_key": {
+                "type": record.get("type"),
+                "fingerprint": record.get("fingerprint"),
+            },
+        }
+    except QuickSetupServerNotFoundError as e:
+        raise HTTPException(404, str(e)) from e
+    except Exception as e:
+        # Причину (SSH-таймаут, отказ аутентификации) видно и пользователю,
+        # и в journal: безликое «Внутренняя ошибка» не объясняла ничего.
+        traceback.print_exc()
+        return JSONResponse(
+            status_code=500,
+            content={
+                "ok": False,
+                "message": "Не удалось подключиться к серверу и принять host key",
+                "output": "",
+                "error": str(e)[:500],
+            },
+        )
 
 
 @router.post("/api/servers/{server_id}/quick-setup/ssh/port")
