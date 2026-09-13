@@ -653,8 +653,11 @@ label{
 .dash-widget-head h3{margin:0;font-size:1rem}
 .dash-widget-right{display:inline-flex;align-items:center;gap:.5rem}
 
-/* Правая колонка дашборда: система + журнал одной стопкой */
-.dash-col-right{display:flex;flex-direction:column;gap:1rem;min-width:0}
+/* Правая колонка дашборда: система + журнал одной стопкой.
+   min-height:0 — колонка может отдать высоту: когда карточка системы
+   растёт (плашка обновления, длинный статус), журнал скукоживается
+   и скроллится внутри себя, а страница не получает ползунок */
+.dash-col-right{display:flex;flex-direction:column;gap:1rem;min-width:0;min-height:0}
 .dash-col-right > .card h3{font-size:1rem;margin-bottom:.5rem}
 
 /* Система: три мини-виджета (CPU/RAM/Сеть) + пилюли статусов ниже */
@@ -697,9 +700,11 @@ label{
   #dash-servers{overflow-y:visible}
 }
 
-/* Виджет событий — ограничиваем высоту */
+/* Виджет событий — отдаёт высоту подросшей карточке системы и скроллится
+   внутри (пол 4.5rem — чтобы журнал не схлопывался в один заголовок) */
 #dash-events{
   flex:1;
+  min-height:4.5rem;
   overflow-y:auto;
   display:flex;
   flex-direction:column;
