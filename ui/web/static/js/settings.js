@@ -1,6 +1,6 @@
 import { j, esc } from './api.js?v=20260821-telegram-health-v1';
 import { toast, bindPasswordToggles, confirmAction, infoModal, syncServerClock, parseEmoji } from './ui.js';
-import { loadUpdateState, showUpdateModal, showHistoryModal } from './monitor.js?v=20260913-hostkey-v2';
+import { loadUpdateState, showUpdateModal, showHistoryModal } from './monitor.js?v=20260915-taskfail-v2';
 import { openBackupPasswordModal } from './backup-password.js?v=20260911-bpw-v16';
 
 let account = { auth_enabled: false, username: 'admin' };

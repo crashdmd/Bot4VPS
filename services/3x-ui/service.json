@@ -1,0 +1,9 @@
+{
+    "id": "3x-ui",
+    "name": "3x-ui",
+    "icon": "🪄",
+    "description": "Панель управления Xray (VLESS/VMess/Trojan)",
+    "install": "custom",
+    "packages": [],
+    "supports_updates": true
+}

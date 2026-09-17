@@ -69,7 +69,7 @@ async function refreshAfterGroupMutation({ oldName = null, newName = null, creat
   const shownName = createdName || newName;
   if (shownName) ensureGroupDisplayed(shownName, oldName);
 
-  const serversModule = await import('./servers.js?v=20260913-hostkey-v2');
+  const serversModule = await import('./servers.js?v=20260915-sysfix-v2');
   await serversModule.loadServers();
   await loadGroupsAdmin(groups);
   await loadGroupsDisplayOrder();
@@ -301,7 +301,7 @@ function saveGroupsDisplaySettings() {
     }
     // Альтернативно через импорт, если доступен.
     // Спецификатор сверить с app.js — тот же ?v=, иначе второй инстанс модуля.
-    import(`./servers.js?v=20260913-hostkey-v2`).then(m => m.renderServers()).catch(() => {});
+    import(`./servers.js?v=20260915-sysfix-v2`).then(m => m.renderServers()).catch(() => {});
   } catch (e) {
     console.error('Failed to save group display settings', e);
   }

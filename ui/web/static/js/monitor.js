@@ -475,6 +475,34 @@ export async function openEventDetail(eventId) {
     ? `<div class="row" style="margin-top:.6rem"><b>Подробности</b></div>
        <pre class="event-detail-pre">${esc(detailsJson)}</pre>`
     : '';
+  // Провалившаяся задача: в уведомлении показываем читаемую причину, а не
+  // «код 1» из краткой сводки. Сырой вывод команды (acme.sh и т.п.) чистим:
+  // ANSI-коды, префиксы-таймстампы [Tue Sep 15 … MSK 2026], строки ERROR
+  // (причина уже есть в d.error) и обрезанный сервером хвост.
+  let taskFailOutput = '';
+  if (isTaskEvent && !['success', 'success_warn'].includes(String(d.status || ''))
+      && String(d.error || '').includes('(код')) {
+    const clean = String(d.output || '')
+      .replace(/\x1b\[[0-9;]*m/g, '')
+      .split('\n')
+      .map(l => l.replace(/^\[[A-Z][a-z]{2} [A-Z][a-z]{2} \d+ [0-9:]{8} [AP]M [A-Z]+ \d+\]\s?/, ''))
+      .map(l => l.replace(/^ERROR: .*/, ''))
+      .filter(l => l.trim())
+      // огрызок таймстампа без закрывающей ] — артефакт обрезки вывода по 8 КБ
+      .filter(l => !/^\[[A-Z][a-z]{2} [A-Z][a-z]{2} \d+ [0-9:]{8}(\s?[AP]M)?\s*[A-Z]*$/.test(l.trim()))
+      .filter(l => !/^\[[A-Z][a-z]{2} [A-Z][a-z]{2} \d+ [0-9:]{8} [AP]M [A-Z]+ \d+$/.test(l.trim()));
+    // первая строка — наш emit-заголовок шага (повторяет d.error по смыслу);
+    // узнаём его по совпадению с началом текста ошибки и убираем
+    if (clean.length) {
+      const head = clean[0].replace(/[….]+\s*$/, '');
+      if (head && String(d.error || '').startsWith(head)) clean.shift();
+    }
+    const text = clean.join('\n').trim();
+    taskFailOutput = text
+      ? `<div class="row" style="margin-top:.6rem"><b>Причина ошибки</b></div>
+         <pre class="event-detail-pre" style="white-space:pre-wrap;overflow-wrap:anywhere">${esc(text)}</pre>`
+      : '';
+  }
   const output = !isTaskEvent && d.output
     ? `<div class="row" style="margin-top:.6rem"><b>Вывод задачи</b></div>
        <pre class="event-detail-pre">${esc(String(d.output))}</pre>`
@@ -500,7 +528,7 @@ export async function openEventDetail(eventId) {
     modal.querySelector('#event-detail-close').onclick = closeEventDetail;
   }
   modal.querySelector('#event-detail-title').textContent = e.title || 'Событие';
-  modal.querySelector('#event-detail-body').innerHTML = kv + msg + output + detailsBlock;
+  modal.querySelector('#event-detail-body').innerHTML = kv + msg + taskFailOutput + output + detailsBlock;
 
   const logBtn = modal.querySelector('#event-detail-log');
   const taskId = String(d.task_id || '').trim();

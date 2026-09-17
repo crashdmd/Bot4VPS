@@ -400,7 +400,15 @@ def list_server_stacks(server: dict) -> List[Dict[str, Any]]:
     """
     ssh = create_ssh_client(server)
     try:
-        _, ps_out, _ = exec_sudo(ssh, server, _PS_LABELS_CMD)
+        # Демон остановлен — docker-CLI не запускаем: подключение к сокету
+        # поднимет демон обратно (socket activation). Источники 2-3 (find по
+        # каталогам) работают без демона.
+        _, daemon_out, _ = exec_sudo(
+            ssh, server, "systemctl is-active docker 2>/dev/null || echo inactive")
+        daemon_active = daemon_out.strip() == "active"
+        ps_out = ""
+        if daemon_active:
+            _, ps_out, _ = exec_sudo(ssh, server, _PS_LABELS_CMD)
         found = parse_ps_labels(ps_out)
 
         _, dirs_out, _ = exec_sudo(ssh, server, _FIND_MANAGED_CMD)
@@ -777,6 +785,73 @@ def _library_files(stack: str) -> Tuple[Dict[str, bytes], str, str]:
 
 
 # --------------------------------------------------
+# Предзагрузка образов проекта (живой прогресс для вкладки «Образы»)
+# --------------------------------------------------
+
+def _norm_image(name: str) -> str:
+    """Нормализовать имя образа для сравнения: без тега → :latest.
+
+    Тег — двоеточие в ПОСЛЕДНЕМ компоненте пути (реестр с портом
+    localhost:5000/img двоеточием до слэша не считается).
+    """
+    name = (name or "").strip()
+    if not name:
+        return ""
+    last = name.rsplit("/", 1)[-1]
+    if ":" not in last and "@" not in last:
+        name += ":latest"
+    return name
+
+
+def pre_pull_missing(runner: StepRunner, server: dict, cmd: str,
+                     dep: "Deployment", emit) -> None:
+    """Скачать отсутствующие образы проекта ДО `up -d` — по одному.
+
+    Проценты загрузки docker прячет внутри `up -d` — вытащить их оттуда
+    нельзя. Поэтому качаем сами: лог задачи получает живые строки docker
+    pull, а вкладка «Образы» — прогресс-бары (pull_progress). Образы, что
+    уже есть локально, не трогаем (up -d их и так не качает).
+
+    Неудача НЕ роняет деплой: образ может быть build-ным (в registry его
+    нет) — тогда пусть `up -d`/build разбирается сам, как до этого фичи.
+    Только compose v2 (у v1 нет `config --images`).
+    """
+    if not cmd.startswith("docker compose"):
+        return
+    images_out = runner.probe(
+        f"{cmd} {dep.args()} config --images 2>/dev/null || true"
+    )
+    wanted: List[str] = []
+    for raw in (images_out or "").splitlines():
+        name = _norm_image(raw)
+        if name and name not in wanted:
+            wanted.append(name)
+    if not wanted:
+        return
+    present = {
+        _norm_image(p)
+        for p in runner.probe(
+            "docker images --format '{{.Repository}}:{{.Tag}}' 2>/dev/null || true"
+        ).splitlines()
+        if p.strip() and not p.strip().startswith("<none>")
+    }
+    missing = [i for i in wanted if i not in present]
+    if not missing:
+        return
+    emit(f"• Предзагрузка образов проекта ({len(missing)} шт.)")
+    from .images import PullCancelled, pull_image_on
+    for image in missing:
+        try:
+            pull_image_on(runner.ssh, server, image, emit)
+        except PullCancelled:
+            # Отмена кнопкой ✕ — это не «не загрузился», это «не запускать
+            # вовсе»: up -d и остальные образы не трогаем.
+            raise
+        except StepError as e:
+            emit(f"⚠ {e.title}: не загрузился заранее — compose попробует сам")
+
+
+# --------------------------------------------------
 # Единые операции (§19): source = library | server
 # --------------------------------------------------
 
@@ -804,8 +879,13 @@ def up(server: dict, stack: str, emit, source: str = SOURCE_LIBRARY,
             files, compose_file, text = _library_files(stack)
             _check_subnets(ssh, server, text, emit)
             dep = _deploy_atomic(runner, cmd, stack, files, compose_file)
+        # Образы, которых нет на сервере, качаем сами — с живым прогрессом
+        # в лог задачи и на вкладку «Образы» (внутри up -d прогресс не виден).
+        pre_pull_missing(runner, server, cmd, dep, emit)
+        # 2>&1: compose v2 пишет прогресс и ошибки в stderr — без перенаправления
+        # шаг молчит до самого конца (стримится только stdout).
         runner.run(
-            "compose_up", f"{cmd} {dep.args()} up -d",
+            "compose_up", f"{cmd} {dep.args()} up -d 2>&1",
             title=f"Запуск проекта «{dep.project}»",
         )
     finally:

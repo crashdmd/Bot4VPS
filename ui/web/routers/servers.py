@@ -10,6 +10,26 @@ from ..deps import err, task_brief, queue_state_dict
 
 router = APIRouter(tags=["servers"])
 
+def _schedule_cert_refresh(server: dict) -> None:
+    """Фоновая проверка SSL-сертификата: ответ API её не ждёт.
+
+    DNS-резолв цепочкой + TLS-рукопожатие к домену занимают секунды —
+    раньше чекбокс «Проверять SSL» в Quick Setup «активировался» именно
+    эту вечность (PATCH ждал пересборки сертификата). Теперь проверка
+    уходит фоном, кэш в monitor.json обновляется через мгновение, а
+    карточка и списки подхватывают его при следующей загрузке. Ошибка
+    проверки и так не роняла запрос: check_certificate возвращает
+    статус ошибки, а не исключение.
+    """
+    async def _run() -> None:
+        try:
+            from core.monitor import update_server_certificate
+            await asyncio.to_thread(update_server_certificate, dict(server))
+        except Exception as e:
+            print(f"[WEB] ssl refresh: {e}", flush=True)
+
+    asyncio.get_running_loop().create_task(_run())
+
 class ExecBody(BaseModel):
     command: str = Field(..., min_length=1, max_length=2000)
     session: bool = True
@@ -616,7 +636,6 @@ async def api_keys_list():
 async def api_server_update(server_id: str, body: ServerUpdate):
     try:
         from core.storage import find_server, load_servers, save_servers, is_group_ssl_enabled
-        from core.monitor import update_server_certificate
 
         server = find_server(server_id)
         if not server:
@@ -688,14 +707,26 @@ async def api_server_update(server_id: str, body: ServerUpdate):
 
         save_servers(servers)
 
-        # SSL refresh
-        if target.get("certificate_check") and target.get("ssl_host") or (
-            target.get("certificate_check") and target.get("host")
-        ):
+        # Домен сервера мог измениться — освежим host_ip сразу (для IP-хостов
+        # refresh_domain_ips ничего не делает, лишнего DNS-трафика нет).
+        if "host" in data:
             try:
-                await asyncio.to_thread(update_server_certificate, target)
+                from core.monitor import refresh_domain_ips
+                await asyncio.to_thread(refresh_domain_ips, [target])
             except Exception as e:
-                print(f"[WEB] ssl refresh: {e}", flush=True)
+                print(f"[WEB] host_ip on update: {e}", flush=True)
+
+        # SSL refresh — в фоне (см. _schedule_cert_refresh): ответ PATCH
+        # не ждёт DNS+TLS-проверки сертификата.
+        if target.get("certificate_check") and (target.get("ssl_host") or target.get("host")):
+            _schedule_cert_refresh(target)
+
+        # Домен для панели 3x-ui (ssl_host) мог появиться/измениться —
+        # адрес панели строится «домен первым» (manage.panel_display_host),
+        # обновим кэш сервисов сразу, не ждём 15-минутного тика.
+        if "ssl_host" in data or "host" in data:
+            from core.jobs_runtime import schedule_services_sync
+            schedule_services_sync(server_id)
 
         return {"ok": True, "server": {k: target.get(k) for k in (
             "id", "name", "group", "host", "port", "user", "auth_type",
@@ -782,12 +813,23 @@ async def api_server_create(body: ServerCreate):
         servers.append(server)
         save_servers(servers)
 
+        # IP доменного сервера — сразу, не ждать тика system_sync:
+        # список «Серверы» показывает host_ip с первого появления строки.
+        try:
+            from core.monitor import refresh_domain_ips
+            await asyncio.to_thread(refresh_domain_ips, [server])
+        except Exception as e:
+            print(f"[WEB] host_ip on create: {e}", flush=True)
+
+        # Сразу прогнать автопроверку сервисов (WG/Docker/3x-ui) нового
+        # сервера — фоном, ответ не ждёт: карточка покажет установленные
+        # сервисы сразу, а не через тик services_sync (до 15 минут).
+        from core.jobs_runtime import schedule_services_sync
+        schedule_services_sync(server["id"])
+
         if server.get("certificate_check"):
-            try:
-                from core.monitor import update_server_certificate
-                await asyncio.to_thread(update_server_certificate, server)
-            except Exception as e:
-                print(f"[WEB] ssl on create: {e}", flush=True)
+            # Проверка SSL — фоном: создание сервера не ждёт DNS+TLS (секунды).
+            _schedule_cert_refresh(server)
 
         # Доступность сразу: новый сервер не должен висеть в «Неизвестно»
         # до ближайшего прогона online_monitor (может быть выключен).

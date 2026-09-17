@@ -4,12 +4,13 @@
 // сборки docker/compose-команд, разбора вывода Docker и работы с путями на
 // сервере. Модуль только запрашивает API, рендерит и собирает поля форм.
 //
-// Экраны: список серверов + экран сервера с вкладками
-// Контейнеры | Образы | Compose.
+// Экраны: таблица серверов (паттерн «Серверов»/WG) + экран сервера
+// с вкладками Контейнеры | Образы | Compose.
 import { j, esc } from './api.js';
+import { openTaskModal } from './taskmodal.js?v=20260914-v3';
+import { statusFilterBtn, statusFilterHidden, bindStatusFilter } from './statusfilter.js?v=20260915-v1';
 import { toast, showPage, serverDateTimeParts, serverDayDifference } from './ui.js';
 import { ansiToHtml } from './ansi.js';
-import { DOCKER_ICON } from './icons.js?v=20260905-brandicons-v2';
 
 const SID = 'docker';
 
@@ -32,16 +33,10 @@ function portOk(val) {
   });
 }
 const timers = {};                  // taskId -> polling-интервал
-let statusMap = {};                 // id -> {name, host, status}
-let dockerHasServers = false;       // для корректной подсказки пустого обзора
+let statusMap = {};                 // id -> {name, host, online, status}
 
-// Вкладки списка серверов — как на странице WireGuard.
-const TAB_HINT = {
-  check: 'Обзор состояния Docker на всех серверах. Нажмите «Проверить все серверы», чтобы обновить данные.',
-  install: 'Здесь отображаются серверы, на которых Docker ещё не установлен.',
-  manage: 'Серверы с установленным Docker. Нажмите «Открыть», чтобы перейти к контейнерам, образам и Compose.',
-};
-let dockerTab = 'check';            // check | install | manage
+// Сортировка таблицы списка — локальное состояние страницы.
+let dkSort = { key: 'name', descending: false };
 
 // Экран конкретного сервера
 let dockerServerId = null;          // id открытого сервера
@@ -51,7 +46,7 @@ let dockerCurrentTab = 'containers'; // активная вкладка: contain
 let dockerContainerSearch = '';
 let dockerContainerFilter = 'all';
 let dockerImageSearch = '';
-let dockerComposeCounts = { local: 0, server: 0 };
+let dockerComposeCounts = { local: 0, server: 0, diverged: 0 };
 let logsCtx = null;                 // {name} — контейнер в открытой модалке логов
 
 const PORT_PREFS_KEY = 'bot4vps_docker_service_ports';
@@ -117,20 +112,6 @@ function fmtSync(iso) {
   if (serverDayDifference(iso) === 0) return 'сегодня, ' + hm;
   return `${parts.day}.${parts.month}, ${hm}`;
 }
-function stateBadge(st) {
-  if (!st || !Object.keys(st).length) return '<span class="badge unk">⚪ не проверен</span>';
-  if (st.installed) {
-    return st.active === 'active'
-      ? '<span class="badge on">🟢 Docker запущен</span>'
-      : '<span class="badge off">🔴 демон остановлен</span>';
-  }
-  return '<span class="badge off">⚪ не установлен</span>';
-}
-
-function containerCount(st) {
-  return (st && st.stats && Number(st.stats.total)) || 0;
-}
-
 // ---------------- in-UI диалог (вместо браузерного confirm) ----------------
 
 let dialogResolve = null;
@@ -154,173 +135,248 @@ function closeDockerDialog(val) {
   if (r) r(val);
 }
 
-// ---------------- загрузка списка серверов ----------------
+// ---------------- список серверов (таблица в паттерне WG) ----------------
 
-
-/** Стартовая вкладка списка серверов по уже известному status API.
- *  нет данных проверки → check;
- *  хотя бы один installed → manage;
- *  проверка была, установленного нет → install.
- */
-function pickStartTab(servers) {
-  let anyKnown = false;
-  let anyInstalled = false;
-  for (const s of servers || []) {
-    const st = s.status || {};
-    if (!Object.keys(st).length) continue;
-    anyKnown = true;
-    if (st.installed) anyInstalled = true;
-  }
-  if (!anyKnown) return 'check';
-  if (anyInstalled) return 'manage';
-  return 'install';
+/** Состояние Docker на сервере. «Не проверен» не существует (как в WG):
+ *  пустой кэш = «не установлен» (актуализация — забота фоновой проверки). */
+function dkState(st) {
+  return st && st.installed ? 'installed' : 'absent';
 }
+
+/** Работа с сервисом на этом сервере невозможна (availability-кэш — тот же
+ *  источник, что страница «Серверы»): строка некликабельна, вместо колонок
+ *  сервиса — сообщение. Критерий — SSH-порт (port_ok): без него управлять
+ *  сервисом всё равно нечем, даже если сеть в целом жива. Пока порт не
+ *  проверяли (null), смотрим сетевую доступность. null ≠ заблокировано. */
+function serviceBlocked(s) {
+  const portOk = (s || {}).port_ok;
+  if (portOk === false) return (s || {}).online === false ? 'down' : 'ssh';
+  if (portOk == null && (s || {}).online === false) return 'down';
+  return null;
+}
+
+const DK_BLOCKED_NOTE = {
+  down: ['⛔ Сервер оффлайн — работа с сервисом невозможна', '⛔ Оффлайн'],
+  ssh: ['⛔ SSH-порт недоступен — работа с сервисом невозможна', '⛔ Нет SSH'],
+};
 
 export async function loadDocker() {
-  const box = document.getElementById('docker-check-grid');
-  if (!box) return;
+  const el = document.getElementById('docker-servers');
+  if (!el) return;
   try {
     const d = await j(`/api/services/${SID}/status`);
-    const servers = d.servers || [];
-    dockerHasServers = servers.length > 0;
     statusMap = {};
-    servers.forEach(s => { statusMap[s.id] = s; });
-    const install = [], manage = [];
-    servers.forEach(s => {
-      const st = s.status || {};
-      if (!Object.keys(st).length) return;        // не проверен — только во вкладке «Проверка»
-      (st.installed ? manage : install).push(s);
-    });
-    renderCheck(servers);
-    renderInstall(install);
-    renderManage(manage);
-    if (!document.getElementById('page-docker-server')?.classList.contains('on')) {
-      setDockerTab(pickStartTab(servers));
-    }
-
+    (d.servers || []).forEach(s => { statusMap[s.id] = s; });
+    renderDockerServers();
   } catch (e) {
-    box.innerHTML = '<div class="empty" style="color:var(--err)">' + esc(e.message || e) + '</div>';
+    el.innerHTML = '<div class="empty" style="color:var(--err)">' + esc(e.message || e) + '</div>';
   }
 }
 
-// ---------------- вкладка «Проверка» ----------------
-
-function renderCheck(servers) {
-  const el = document.getElementById('docker-check-grid');
-  if (!el) return;
-  if (!servers.length) { el.innerHTML = '<div class="empty">Серверов нет</div>'; return; }
-  el.innerHTML = servers.map(checkCard).join('');
-  el.querySelectorAll('[data-goto]').forEach(c => c.onclick = () => {
-    const goto = c.dataset.goto;
-    if (!goto) return;
-    setDockerTab(goto);
-    scrollToCard(c.dataset.id);
-  });
+/** Сравнение версий по числовым сегментам («29.8.0» и т.п.), независимо
+ *  от суффиксов сборки — как в WG. */
+function compareVersions(a, b) {
+  const pa = String(a || '').match(/\d+/g) || [];
+  const pb = String(b || '').match(/\d+/g) || [];
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const na = i < pa.length ? +pa[i] : -1;
+    const nb = i < pb.length ? +pb[i] : -1;
+    if (na !== nb) return na - nb;
+  }
+  return 0;
 }
 
-function checkCard(s) {
+function sortedDockerServers(list) {
+  const byName = [...list].sort((a, b) =>
+    String(a.name || '').localeCompare(String(b.name || ''), 'ru', { sensitivity: 'base', numeric: true })
+      || String(a.id).localeCompare(String(b.id)));
+  const key = dkSort.key;
+  if (key === 'status') {
+    // Запущенные сверху ↔ остановленные сверху; без сервиса — всегда внизу.
+    const rank = s => {
+      const st = (s || {}).status || {};
+      if (!st.installed) return 2;
+      return String(st.active || '').toLowerCase() === 'active' ? 0 : 1;
+    };
+    const d = dkSort.descending ? -1 : 1;
+    return byName.sort((a, b) => {
+      const ra = rank(a), rb = rank(b);
+      if (ra === 2 || rb === 2) return ra - rb;
+      return (ra - rb) * d;
+    });
+  }
+  if (key === 'version') {
+    // Свежая → старая (первый клик) и обратно; без версии — всегда внизу.
+    const has = s => String((((s || {}).status || {}).version) || '').trim() !== '';
+    return byName.sort((a, b) => {
+      if (has(a) !== has(b)) return has(a) ? -1 : 1;
+      if (!has(a)) return 0;
+      const va = a.status.version, vb = b.status.version;
+      return dkSort.descending ? compareVersions(vb, va) : compareVersions(va, vb);
+    });
+  }
+  if (key === 'containers') {
+    // Больше контейнеров ↔ меньше; без сервиса — всегда внизу.
+    const has = s => dkState((s || {}).status || {}) === 'installed';
+    const cnt = s => Number((((s || {}).status || {}).stats || {}).total || 0);
+    const d = dkSort.descending ? -1 : 1;
+    return byName.sort((a, b) =>
+      has(a) !== has(b) ? (has(a) ? -1 : 1) : (cnt(a) - cnt(b)) * d);
+  }
+  return dkSort.descending ? byName.reverse() : byName;
+}
+
+function dkStatusCell(st) {
+  return String(st.active || '').toLowerCase() === 'active'
+    ? '<span class="badge on" title="Запущен">🟢 Запущен</span>'
+    : '<span class="badge off" title="Демон остановлен">🔴 Остановлен</span>';
+}
+
+function dkRowCells(s) {
   const st = s.status || {};
-  const installed = !!st.installed;
-  const known = !!Object.keys(st).length;
-  const goto = known ? (installed ? 'manage' : 'install') : '';
-  let body = `<h3>${DOCKER_ICON} ${esc(s.name)}</h3>`;
-  body += `<div class="row" style="margin-top:.3rem">${stateBadge(st)}</div>`;
-  if (known) {
-    if (installed) {
-      const v = shortVer(st.version);
-      body += `<div class="wg-card-info">Версия: <b>${v ? esc(v) : '—'}</b></div>`;
-      body += `<div class="wg-card-info">Демон: <b>${esc(st.active || '—')}</b></div>`;
-      body += `<div class="wg-card-info">Контейнеров: <b>${containerCount(st)}</b></div>`;
-    }
-    body += `<div class="wg-card-info">Проверено: ${fmtSync(st.synced_at) || '—'}</div>`;
-  } else {
-    body += `<div class="wg-note">Статус неизвестен — нажмите «Проверить все серверы».</div>`;
+  const name = `<td class="server-name-cell" data-label="Имя сервера"><strong>${esc(s.name || '—')}</strong></td>`;
+  // Недоступный сервер: колонки сервиса не показываем — работа невозможна
+  // (строка некликабельна). Причина — оффлайн или закрытый SSH-порт.
+  const blocked = serviceBlocked(s);
+  if (blocked) {
+    const [full, short] = DK_BLOCKED_NOTE[blocked];
+    return `${name}
+      <td colspan="3" class="svc-offline-cell"><span class="svc-offline-note">
+        <span class="svc-offline-note-full">${full}</span>
+        <span class="svc-offline-note-short">${short}</span>
+      </span></td>`;
   }
-  const click = goto ? ` data-goto="${goto}" data-id="${esc(s.id)}" style="cursor:pointer"` : '';
-  return `<div class="card ${goto ? 'clickable' : ''}"${click}><div class="card-body">${body}</div></div>`;
+  if (dkState(st) === 'installed') {
+    const stats = st.stats || {};
+    return `${name}
+      <td class="dk-status-cell" data-label="Статус">${dkStatusCell(st)}</td>
+      <td class="wg-version-cell" data-label="Версия">${esc(shortVer(st.version) || '—')}</td>
+      <td class="dk-containers-cell" data-label="Контейнеры">${Number(stats.running || 0)}/${Number(stats.total || 0)}</td>`;
+  }
+  // Не установлен: статус-бейдж на своём месте (как у WG), кнопка
+  // «Установить» — в столбце Версия (Контейнеры остаётся пустой).
+  // svc-badge-absent — на мобиле превращается в красный крест (маркер).
+  return `${name}
+    <td class="dk-status-cell" data-label="Статус"><span class="badge off svc-badge-absent" title="Не установлен">⚪ Не установлен</span></td>
+    <td class="wg-row-action-cell"><button type="button" class="wg-row-action" data-install="${esc(s.id)}"><span class="dk-btn-emoji">🟢 </span>Установить</button></td>
+    <td class="dk-fill-cell"></td>`;
 }
 
-// ---------------- вкладка «Установить» ----------------
+// ---------------- заголовки таблицы ----------------
 
-function renderInstall(servers) {
-  const el = document.getElementById('docker-tab-install');
+/** Статус строки для фильтра (см. DK_STATUS_FILTERS). */
+function dkFilterKey(s) {
+  if (serviceBlocked(s)) return 'blocked';
+  const st = s.status || {};
+  if (dkState(st) !== 'installed') return 'absent';
+  return String(st.active || '').toLowerCase() === 'active' ? 'running' : 'stopped';
+}
+
+const DK_STATUS_FILTERS = [
+  { key: 'running', label: '🟢 Запущен' },
+  { key: 'stopped', label: '🔴 Демон остановлен' },
+  { key: 'absent', label: '⚪ Не установлен' },
+  { key: 'blocked', label: '⛔ Недоступен (оффлайн/SSH)' },
+];
+
+function dkSortHeader(key, label, extra = '') {
+  const active = dkSort.key === key;
+  const descending = active && dkSort.descending;
+  const ariaSort = active ? (descending ? 'descending' : 'ascending') : 'none';
+  return `<th aria-sort="${ariaSort}">
+    <span class="wg-col-head">
+      <button type="button" class="server-column-sort${active ? ' on' : ''}" data-dk-sort="${esc(key)}"
+              aria-pressed="${active ? 'true' : 'false'}"
+              title="Сортировать по столбцу «${esc(label)}»">
+        <span>${esc(label)}</span>
+        <span class="server-sort-arrow" aria-hidden="true">${active ? (descending ? '↓' : '↑') : ''}</span>
+      </button>${extra}
+    </span>
+  </th>`;
+}
+
+// ---------------- рендер ----------------
+
+function renderDockerRows() {
+  const all = sortedDockerServers(Object.values(statusMap));
+  if (!all.length) return '<tr><td colspan="4" class="wg-empty-row">Нет серверов</td></tr>';
+  // Фильтр статусов (кнопка у заголовка «Статус»)
+  const hidden = statusFilterHidden('docker', DK_STATUS_FILTERS);
+  const list = hidden.size ? all.filter(s => !hidden.has(dkFilterKey(s))) : all;
+  if (!list.length) return '<tr><td colspan="4" class="wg-empty-row">Все серверы скрыты фильтром статуса</td></tr>';
+  return list.map(s => {
+    // Кликабельна только установленная строка на доступном сервере
+    // (остальные подсвечиваются, но без перехода)
+    const interactive = dkState(s.status || {}) === 'installed' && !serviceBlocked(s);
+    return `<tr class="server-table-row${interactive ? '' : ' wg-row-static'}"
+                data-sid="${esc(s.id)}"${interactive ? ' tabindex="0" role="button"' : ''}>${dkRowCells(s)}</tr>`;
+  }).join('');
+}
+
+function renderDockerServers() {
+  const el = document.getElementById('docker-servers');
   if (!el) return;
-  if (!servers.length) {
-    el.innerHTML = '<div class="empty">Нет серверов без Docker. Возможно, стоит нажать «Проверить все серверы».</div>';
+  if (!Object.keys(statusMap).length) {
+    el.innerHTML = '<div class="empty">Нет серверов</div>';
     return;
   }
-  el.innerHTML = servers.map(s => `<div class="card">
-    <div class="card-body">
-      <h3>${DOCKER_ICON} ${esc(s.name)} <span class="hint">${esc(s.host || '')}</span></h3>
-      <div class="row" style="margin-top:.3rem">${stateBadge(s.status || {})}</div>
-      <div class="wg-note">Docker Engine отсутствует на сервере.
-Установите его, чтобы управлять контейнерами, образами и Compose-проектами.</div>
-    </div>
-    <div class="card-actions">
-      <button type="button" data-install="${esc(s.id)}">🟢 Установить</button>
-      <button type="button" class="secondary" data-sync="${esc(s.id)}">🔄 Синхр.</button>
-    </div>
-  </div>`).join('');
-  el.querySelectorAll('[data-install]').forEach(b => b.onclick = () => installServer(b.dataset.install));
-  el.querySelectorAll('[data-sync]').forEach(b => b.onclick = () => syncServer(b.dataset.sync));
-}
-
-// ---------------- вкладка «Управление» ----------------
-
-function renderManage(servers) {
-  const el = document.getElementById('docker-tab-manage');
-  if (!el) return;
-  if (!servers.length) {
-    el.innerHTML = '<div class="empty">Нет серверов с установленным Docker. Возможно, стоит нажать «Проверить все серверы».</div>';
-    return;
-  }
-  el.innerHTML = servers.map(manageCard).join('');
-  el.querySelectorAll('[data-open]').forEach(b => b.onclick = () => openDockerServer(b.dataset.open));
-  el.querySelectorAll('[data-sync]').forEach(b => b.onclick = () => syncServer(b.dataset.sync));
-  el.querySelectorAll('[data-rm]').forEach(b => b.onclick = () => removeServer(b.dataset.rm));
-}
-
-function manageCard(s) {
-  const st = s.status || {};
-  const v = shortVer(st.version);
-  return `<div class="card">
-    <div class="card-body">
-      <h3>${DOCKER_ICON} ${esc(s.name)} <span class="hint">${esc(s.host || '')}</span></h3>
-      <div class="row" style="margin-top:.3rem">${stateBadge(st)}</div>
-      <div class="wg-card-info">Версия: <b>${v ? esc(v) : '—'}</b></div>
-      <div class="wg-card-info">Демон: <b>${esc(st.active || '—')}</b></div>
-      <div class="wg-card-info">Контейнеров: <b>${containerCount(st)}</b></div>
-    </div>
-    <div class="card-actions">
-      <button type="button" data-open="${esc(s.id)}">Открыть</button>
-      <button type="button" class="secondary" data-sync="${esc(s.id)}">🔄 Синхр.</button>
-      <button type="button" class="danger" data-rm="${esc(s.id)}">🗑 Удалить</button>
-    </div>
+  el.innerHTML = `<div class="server-table-wrap">
+    <table class="server-table dk-server-table">
+      <thead><tr>
+        ${dkSortHeader('name', 'Имя сервера')}
+        ${dkSortHeader('status', 'Статус', statusFilterBtn('docker'))}
+        ${dkSortHeader('version', 'Версия')}
+        ${dkSortHeader('containers', 'Контейнеры')}
+      </tr></thead>
+      <tbody>${renderDockerRows()}</tbody>
+    </table>
   </div>`;
+  bindStatusFilter('docker', DK_STATUS_FILTERS, renderDockerServers);
 }
 
-function scrollToCard(id) {
-  if (!id) return;
-  const sel = `#docker-tab-manage [data-open="${CSS.escape(id)}"], #docker-tab-install [data-install="${CSS.escape(id)}"]`;
-  document.querySelector(sel)?.closest('.card')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+/** Клик по строке — только установленленный Docker на доступном сервере:
+ *  открывается экран этого сервера. «Не установлен» и оффлайн никуда не ведут
+ *  (действие неустановленного — кнопка в объединённой области). */
+async function openDockerRow(id) {
+  const srv = statusMap[id] || {};
+  if (serviceBlocked(srv) || dkState(srv.status || {}) !== 'installed') return;
+  openDockerServer(id);
 }
 
-// ---------------- вкладки ----------------
+// ---------------- события таблицы списка ----------------
 
-function setDockerTab(tab) {
-  dockerTab = tab;
-  document.querySelectorAll('#docker-tabs [data-dktab]').forEach(b =>
-    b.classList.toggle('on', b.dataset.dktab === tab));
-  ['check', 'install', 'manage'].forEach(t => {
-    const el = document.getElementById('docker-tab-' + t);
-    if (el) el.classList.toggle('hidden', t !== tab);
+function bindDockerServersList() {
+  const el = document.getElementById('docker-servers');
+  if (!el || el.dataset.bound) return;
+  el.dataset.bound = '1';
+  el.addEventListener('click', async event => {
+    const sortBtn = event.target.closest('[data-dk-sort]');
+    if (sortBtn) {
+      event.preventDefault(); event.stopPropagation();
+      const key = sortBtn.dataset.dkSort;
+      // «Версия» — первый клик сразу от свежей к старой (как в WG)
+      dkSort = dkSort.key === key
+        ? { key, descending: !dkSort.descending }
+        : { key, descending: key === 'version' };
+      renderDockerServers();
+      return;
+    }
+    const installBtn = event.target.closest('[data-install]');
+    if (installBtn) {
+      event.preventDefault(); event.stopPropagation();
+      installServer(installBtn.dataset.install);
+      return;
+    }
+    const row = event.target.closest('tr[data-sid]');
+    if (row) openDockerRow(row.dataset.sid);
   });
-  const hint = document.getElementById('docker-tab-hint');
-  if (hint) {
-    hint.textContent = tab === 'check' && !dockerHasServers
-      ? 'Серверов пока нет. Добавьте сервер, чтобы начать проверку.'
-      : TAB_HINT[tab] || '';
-  }
+  el.addEventListener('keydown', event => {
+    if (event.key !== 'Enter' && event.key !== ' ') return;
+    const row = event.target.closest('tr[data-sid]');
+    if (!row) return;
+    event.preventDefault();
+    openDockerRow(row.dataset.sid);
+  });
 }
 
 async function installServer(id) {
@@ -329,28 +385,19 @@ async function installServer(id) {
   if (!(await dockerConfirm('Установка Docker',
     `Вы действительно хотите установить Docker на сервер «${name}»?\n\n` +
     `Будет установлен Docker Engine через официальный скрипт get.docker.com ` +
-    `(~15 минут). Процесс необратим.`,
+    `. Процесс необратим.`,
     'Установить'))) return;
-  await enqueueAction(id, 'install', {}, 'Установка в очереди');
+  // Живой прогресс в модалке (паттерн установки 3x-ui): get.docker.com
+  // шумный, ~15 минут — без окна было не видно, что происходит.
+  await enqueueAction(id, 'install', {}, null, task => openTaskModal({
+    title: `Установка Docker — ${name}`,
+    taskId: task.id,
+    doneLabel: 'Готово — Docker установлен',
+    onDone: t => { if (t.success) window.refreshAfterServiceChange?.(id); },
+    onClose: () => { loadDocker(); },
+  }));
 }
 
-async function syncServer(id) {
-  try {
-    await j(`${srvBase(id)}/sync`, { method: 'POST' });
-    toast('Статус обновлён', true);
-    await loadDocker();
-  } catch (e) { toast(e.message, false); }
-}
-
-async function removeServer(id) {
-  if (!(await dockerConfirm(
-    'Удаление Docker',
-    `Удалить Docker Engine с сервера «${nameOf(id)}»?\n\n` +
-    `Пакеты docker-ce/containerd будут удалены, но /var/lib/docker ` +
-    `(образы, тома, контейнеры) сохранится.`,
-    'Удалить'))) return;
-  await enqueueAction(id, 'remove', {}, 'Удаление в очереди');
-}
 
 // ---------------- отдельный экран сервера ----------------
 
@@ -379,11 +426,15 @@ async function openDockerServer(id, opts = {}) {
     localStorage.setItem('bot4vps_page', 'docker-server');
     localStorage.setItem('bot4vps_docker_server_id', id);
   } catch (_) {}
-  document.getElementById('docker-srv-title').textContent = 'Docker · ' + nameOf(id);
+  // Иконка в h1 живёт отдельно — текст пишем в span, чтобы не затирать SVG.
+  const titleEl = document.querySelector('#docker-srv-title .srv-title-name');
+  if (titleEl) titleEl.textContent = 'Docker · ' + nameOf(id);
   const subEl0 = document.getElementById('docker-srv-subtitle');
   if (subEl0) subEl0.textContent = '';
   const widgets = document.getElementById('docker-srv-widgets');
   if (widgets) widgets.innerHTML = '';
+  const actionsEl0 = document.getElementById('docker-srv-actions');
+  if (actionsEl0) actionsEl0.innerHTML = '';
   document.getElementById('docker-srv-body').innerHTML = '<div class="empty">Загрузка…</div>';
   document.getElementById('docker-images-body').innerHTML = '<div class="empty">Загрузка…</div>';
   document.getElementById('docker-compose-body').innerHTML = '<div class="empty">Загрузка…</div>';
@@ -397,10 +448,19 @@ async function openDockerServer(id, opts = {}) {
   showPage('docker-server');
   await loadServerDetail(id);
   startLivePoll(id);
+  // Прогресс загрузки образов — на любой вкладке: начнётся докачка (хоть из ТГ),
+  // сами откроем «Образы», а по запуску контейнера вернём на «Контейнеры».
+  startPullPoll();
 }
 
 function backToDockerList() {
   stopLivePoll();
+  stopPullPoll();
+  dockerPulling = [];
+  _hadPulling = false;
+  _pullAutoShown = false;
+  _pullContainerArmed = null;
+  _pullCancelledSeen = false;
   dockerServerId = null;
   try {
     localStorage.setItem('bot4vps_page', 'docker');
@@ -410,19 +470,44 @@ function backToDockerList() {
   loadDocker();
 }
 
+/** Docker не установлен, а пользователь оказался на странице сервиса
+ *  (восстановление сессии, устаревшая ссылка, завершившееся удаление) —
+ *  уходим туда, откуда пришли: в карточку сервера или в список Docker. */
+async function leaveUninstalledPage(id) {
+  const returnToServer = dockerEntryContext === 'server' && id;
+  stopLivePoll();
+  dockerServerId = null;
+  try { localStorage.removeItem('bot4vps_docker_server_id'); } catch (_) {}
+  if (returnToServer) {
+    try {
+      const { openServer } = await import('./servers.js?v=20260915-sysfix-v2');
+      await openServer(id);
+      return;
+    } catch (_) { /* модуль не загрузился — fallback в список ниже */ }
+  }
+  backToDockerList();
+}
+
 async function loadServerDetail(id) {
   try {
     const d = await j(stateUrl(id));
     dockerServerState = d.state || {};
+    // Не установлен — на этой странице делать нечего: уводим пользователя
+    // туда, откуда он пришёл (карточка сервера / список Docker). Покрывает и
+    // восстановление сессии, и устаревшую вкладку.
+    if (dockerServerState.installed === false) {
+      await leaveUninstalledPage(id); return;
+    }
     try {
       const stacks = await j(`${srvBase(id)}/stacks`);
       const rows = Array.isArray(stacks.rows) ? stacks.rows : [];
       dockerComposeCounts = {
         local: rows.filter(r => r.in_library).length,
         server: rows.filter(r => r.source === 'server').length,
+        diverged: rows.filter(r => r.in_library && r.source === 'server' && r.lib_match === false).length,
       };
     } catch (_) {
-      dockerComposeCounts = { local: 0, server: 0 };
+      dockerComposeCounts = { local: 0, server: 0, diverged: 0 };
     }
     renderServerDetail(dockerServerState);
   } catch (e) {
@@ -437,72 +522,82 @@ function renderServerDetail(st) {
   const s = st || {};
   if (!s.installed) {
     if (widgetsEl) widgetsEl.innerHTML = '';
+    const actionsEl = document.getElementById('docker-srv-actions');
+    if (actionsEl) actionsEl.innerHTML = '';
+    const badgeOff = document.getElementById('docker-srv-badge');
+    if (badgeOff) badgeOff.innerHTML = '<span class="badge off">Не установлен</span>';
     body.innerHTML = '<div class="empty">Docker не установлен на этом сервере.</div>';
     return;
   }
   const containers = Array.isArray(s.containers) ? s.containers : [];
   const stats = s.stats || { total: containers.length, running: 0, managed: 0, images: 0, volumes: 0 };
 
-  const badgeEl = document.getElementById('docker-srv-badge');
-  if (badgeEl) {
-    badgeEl.innerHTML = '<span class="badge on">Установлен</span>';
-  }
-  // Дата последней синхронизации (из кэша): показывает, насколько свежи данные.
-  const subEl = document.getElementById('docker-srv-subtitle');
-  if (subEl) {
-    subEl.textContent = 'Посл. синхронизация: ' + (fmtSync(s.synced_at) || '—');
-  }
-
   const daemonOk = String(s.active || '').toLowerCase() === 'active';
+
   const daemonHtml = daemonOk
     ? '<span class="ssh-dot ok"></span> Запущен'
     : `<span class="ssh-dot err"></span> ${esc(s.active ? 'Остановлен' : '—')}`;
 
-  const widget = (icon, val, label, sub) => `
-    <div class="info-block svc-widget">
+  // ── Верхний грид в стиле WireGuard: Демон / Статистика / Compose ──
+  const infoRow = (label, value) =>
+    `<div class="info-row"><span class="info-label">${esc(label)}</span><span class="info-value">${value}</span></div>`;
+
+  const daemonCard = `
+    <div class="info-block svc-card">
+      <h2>Демон Docker</h2>
+      ${infoRow('Статус', daemonHtml)}
+      ${infoRow('Версия', esc(shortVer(s.version) || s.version || '—'))}
+      ${infoRow('Дата последней синхронизации', esc(fmtSync(s.synced_at) || '—'))}
+    </div>`;
+
+  const total = stats.total || containers.length;
+  const statTile = (icon, value, label) => `
+    <div class="svc-stat-card">
       <div class="svc-stat-icon">${icon}</div>
-      <div class="svc-stat-text">
-        <div class="svc-stat-val">${val}</div>
-        <div class="svc-stat-label">${esc(label)}</div>
-        ${sub ? `<div class="svc-stat-sub">${esc(sub)}</div>` : ''}
+      <div class="svc-stat-val">${esc(String(value))}</div>
+      <div class="svc-stat-label">${esc(label)}</div>
+    </div>`;
+  const statsCard = `
+    <div class="info-block svc-card">
+      <h2>Статистика</h2>
+      <div class="svc-stats-grid-3">
+        ${statTile('▦', `${stats.running || 0} / ${total}`, 'Запущено / Всего')}
+        ${statTile('💿', stats.images ?? '—', 'Образы')}
+        ${statTile('🗄', stats.volumes ?? '—', 'Тома')}
       </div>
     </div>`;
 
-  const composeWidget = `
-    <div class="info-block svc-widget docker-compose-widget">
-      <div class="svc-stat-icon">🧩</div>
-      <div class="docker-compose-body">
-        <div class="docker-compose-counts">
-          <div><div class="svc-stat-label">Локальных</div><div class="svc-stat-val">${dockerComposeCounts.local}</div></div>
-          <div class="docker-compose-divider"></div>
-          <div><div class="svc-stat-label">На сервере</div><div class="svc-stat-val">${dockerComposeCounts.server}</div></div>
-        </div>
-        <div class="docker-compose-title">Compose проекты</div>
-      </div>
+  const composeCard = `
+    <div class="info-block svc-card">
+      <h2>Compose проекты</h2>
+      ${infoRow('Локальных (библиотека)', esc(String(dockerComposeCounts.local)))}
+      ${infoRow('На сервере', esc(String(dockerComposeCounts.server)))}
+      ${infoRow('Расходится', esc(String(dockerComposeCounts.diverged)))}
     </div>`;
 
   if (widgetsEl) {
-    widgetsEl.innerHTML = `<div class="svc-widgets-4 docker-widgets">
-      ${widget(DOCKER_ICON, daemonHtml, 'Демон Docker', shortVer(s.version) || '—')}
-      ${widget('📦', esc(`${stats.running || 0} / ${stats.total || containers.length}`), 'Контейнеры', 'Запущено / Всего')}
-      ${widget('💿', esc(String(stats.images ?? '—')), 'Образы', 'Установлено')}
-      ${composeWidget}
-    </div>`;
+    widgetsEl.innerHTML = `<div class="svc-top-grid">${daemonCard}${statsCard}${composeCard}</div>`;
   }
 
-  // Каркас блока контейнеров создаём один раз — иначе поиск теряет фокус на каждый ввод
+  renderSideActions(s);
+
+  // ── Вкладка «Контейнеры»: широкая карточка в левой колонке ──
+  // Каркас создаём один раз — иначе поиск теряет фокус на каждый ввод
   let card = body.querySelector('.docker-ct-card');
   if (!card) {
     body.innerHTML = `
-      <div class="info-block docker-ct-card">
-        <div class="docker-ct-toolbar">
-          <input type="search" id="docker-ct-search" placeholder="🔍 Поиск контейнера…" autocomplete="off"/>
-          <select id="docker-ct-filter" title="Статус">
-            <option value="all">Все</option>
-            <option value="running">Запущенные</option>
-            <option value="stopped">Остановленные</option>
-          </select>
-          <button type="button" id="docker-ct-create">＋ Создать контейнер</button>
+      <div class="info-block svc-card docker-ct-card">
+        <div class="svc-card-head svc-card-head-one-line">
+          <h2>Контейнеры <span class="hint" data-ct-count>(${containers.length})</span></h2>
+          <div class="svc-card-actions">
+            <input type="search" id="docker-ct-search" placeholder="🔍 Поиск контейнера…" autocomplete="off"/>
+            <select id="docker-ct-filter" title="Статус">
+              <option value="all">Все</option>
+              <option value="running">Запущенные</option>
+              <option value="stopped">Остановленные</option>
+            </select>
+            <button type="button" id="docker-ct-create">＋ Создать контейнер</button>
+          </div>
         </div>
         <div class="docker-ct-scroll" id="docker-ct-list"></div>
       </div>`;
@@ -530,9 +625,87 @@ function renderServerDetail(st) {
     const filter = body.querySelector('#docker-ct-filter');
     if (search && document.activeElement !== search) search.value = dockerContainerSearch;
     if (filter && document.activeElement !== filter) filter.value = dockerContainerFilter;
+    const countEl = card.querySelector('[data-ct-count]');
+    if (countEl) countEl.textContent = `(${containers.length})`;
   }
 
   fillContainerList(s);
+}
+
+// ── «Дополнительные действия»: постоянная карточка справа от вкладок ──
+// Пересобирается на каждом рендере (live-poll): кнопка демона меняется на
+// состояние из свежего стейта. Полей ввода внутри нет — фокус терять нечему.
+function renderSideActions(s) {
+  const el = document.getElementById('docker-srv-actions');
+  if (!el) return;
+  const daemonOk = String(s.active || '').toLowerCase() === 'active';
+  const daemonBtn = daemonOk
+    ? `<button type="button" class="svc-action svc-action-warn" data-dk-side="daemon-stop">
+         <b>⏹ Остановить Docker</b>
+         <span>Выключить демон Docker на сервере</span>
+       </button>`
+    : `<button type="button" class="svc-action" data-dk-side="daemon-start">
+         <b>▶ Запустить Docker</b>
+         <span>Включить демон Docker на сервере</span>
+       </button>`;
+  el.innerHTML = `
+    <h2>Дополнительные действия</h2>
+    <button type="button" class="svc-action" data-dk-side="pull">
+      <b>⬇️ Загрузить образ</b>
+      <span>Скачать образ из реестра (Docker Hub и др.)</span>
+    </button>
+    <button type="button" class="svc-action" data-dk-side="prune">
+      <b>🧹 Очистить неиспользуемые образы</b>
+      <span>Удалить образы без привязанных контейнеров</span>
+    </button>
+    <button type="button" class="svc-action" data-dk-side="sync">
+      <b>⟳ Синхронизировать</b>
+      <span>Обновить состояние с сервера</span>
+    </button>
+    ${daemonBtn}
+    <button type="button" class="svc-action svc-action-danger" data-dk-side="remove">
+      <b>🗑 Удалить Docker</b>
+      <span>Удалить пакеты Docker с сервера</span>
+    </button>`;
+
+  const bind = (sel, fn) => el.querySelector(sel)?.addEventListener('click', fn);
+  bind('[data-dk-side="pull"]', openPullModal);
+  bind('[data-dk-side="prune"]', pruneImages);
+  bind('[data-dk-side="sync"]', async () => {
+    if (!dockerServerId) return;
+    try {
+      await j(`${srvBase(dockerServerId)}/sync`, { method: 'POST' });
+      await loadServerDetail(dockerServerId);
+      if (dockerCurrentTab === 'images') await loadImages();
+      else if (dockerCurrentTab === 'compose') await loadStacks();
+      toast('Синхронизация выполнена', true);
+    } catch (e) {
+      toast(e.message, false);
+    }
+  });
+  bind('[data-dk-side="daemon-stop"]', async () => {
+    if (!dockerServerId) return;
+    if (!(await dockerConfirm('Остановить Docker',
+      'Выключить демон Docker на этом сервере?\n\n' +
+      'Запущенные контейнеры продолжат работать (ими управляет containerd), ' +
+      'но панель не сможет управлять ими до включения демона.',
+      'Остановить'))) return;
+    await enqueueAction(dockerServerId, 'daemon_stop', {}, 'Остановка демона в очереди');
+  });
+  bind('[data-dk-side="daemon-start"]', async () => {
+    if (!dockerServerId) return;
+    await enqueueAction(dockerServerId, 'daemon_start', {}, 'Запуск демона в очереди');
+  });
+  // Удаление сервиса — как у WG: подтверждение → задача в очереди (do_remove).
+  bind('[data-dk-side="remove"]', async () => {
+    if (!dockerServerId) return;
+    if (!(await dockerConfirm('Удалить Docker',
+      `Удалить Docker с этого сервера?\n\n` +
+      `Будут удалены пакеты Docker Engine; данные в /var/lib/docker ` +
+      `(образы, контейнеры, тома) сохранятся.`,
+      'Удалить'))) return;
+    await enqueueAction(dockerServerId, 'remove', {}, 'Удаление в очереди');
+  });
 }
 
 function fillContainerList(st) {
@@ -561,11 +734,11 @@ function fillContainerList(st) {
     const portsArr = Array.isArray(c.ports) ? c.ports : (c.ports ? [c.ports] : []);
     const ports = portsArr.length ? portsArr.join(', ') : '—';
     const uptime = c.uptime_seconds != null ? formatUptime(c.uptime_seconds) : (c.status || '—');
-    // service_urls строит backend. Выбранный URL используется кнопкой открытия;
-    // выбор из нескольких портов находится во вторичном меню «⋯».
+    // service_urls строит backend. Кнопка открытия — рядом с «⋯», в один клик;
+    // выбор порта, когда их несколько, — в меню «⋯».
     const selected = selectedServiceUrl(c);
     const openBtn = selected
-      ? `<button type="button" class="secondary docker-ct-open" data-cid="${esc(c.id)}" title="Открыть сервис в новой вкладке">↗ Открыть сервис</button>`
+      ? `<button type="button" class="secondary docker-ct-open" data-cid="${esc(c.id)}" title="Открыть сервис (порт ${esc(selected.port)})">↗ Открыть</button>`
       : '';
     return `<tr>
       <td class="col-name"><span class="docker-ct-cell"><b>${esc(c.name)}</b>${c.managed ? ' <span class="badge on">Bot4VPS</span>' : ''}</span></td>
@@ -627,6 +800,8 @@ function openContainerMenu(anchor, name) {
     : `<button type="button" data-cact="start">Запустить контейнер</button>`;
   const urls = serviceUrls(c);
   const selected = selectedServiceUrl(c);
+  // Кнопка «↗ Открыть» живёт в строке рядом с «⋯»; в меню остаётся только
+  // выбор порта, когда сервисов/портов несколько.
   const portMenu = urls.length > 1 && selected
     ? `<button type="button" class="docker-ct-port-entry" data-cport-menu
          aria-haspopup="menu" aria-expanded="false">
@@ -749,11 +924,112 @@ async function loadImages() {
   if (!body || !dockerServerId) return;
   try {
     const d = await j(`${srvBase(dockerServerId)}/images`);
-    const images = d.images || [];
-    renderImages(images);
+    lastImages = d.images || [];
+    renderImages(lastImages);
   } catch (e) {
     body.innerHTML = '<div class="empty">' + esc(e.message) + '</div>';
   }
+}
+
+// ---------------- прогресс загрузки образов (pull_progress на бэке) ----------------
+// Задача (docker pull / предзагрузка compose и контейнеров) пишет проценты в
+// реестр на бэке; экран Docker-сервера опрашивает лёгкий in-memory эндпоинт
+// без SSH — на любой вкладке, не только «Образы».
+//
+// Сценарий пользователя: началась загрузка (вдруг откуда — контейнер, compose,
+// ТГ, другое окно) → один раз открываем вкладку «Образы» с живым баром.
+// Докачка кончилась запуском контейнера/стека → переходим на «Контейнеры»;
+// просто набор образов (image_pull) — остаёмся на «Образах».
+
+let dockerPulling = [];   // [{image, percent, detail, cancelled}, ...]
+let lastImages = [];
+let _pullTimer = null;
+let _hadPulling = false;
+let _pullAutoShown = false;     // вкладку «Образы» для этой пачки уже открывали
+let _pullContainerArmed = null; // свой enqueue запуска стека/контейнера ждёт конца докачки
+let _pullCancelledSeen = false; // в этой пачке была отмена — на «Контейнеры» не уходим
+
+function stopPullPoll() {
+  if (_pullTimer) { clearInterval(_pullTimer); _pullTimer = null; }
+}
+
+function startPullPoll() {
+  stopPullPoll();
+  pullTick();
+  _pullTimer = setInterval(pullTick, 2000);
+}
+
+// Контейнерный запуск идёт прямо сейчас (очередь задач)? Понимаем по именам
+// задач: «запуск стека» матчит и «перезапуск стека». Покрывает ТГ и другие
+// окна — там своего enqueue-флага у нас нет.
+async function containerTaskRunning() {
+  try {
+    const r = await j('/api/queues');
+    const row = (r.queues || []).find(q => q.server_id === dockerServerId);
+    if (!row) return false;
+    return [row.running, ...(row.queue || [])].some(t => t && t.name && (
+      String(t.name).includes('запуск стека')
+      || String(t.name).includes('запуск контейнера')));
+  } catch { return false; }
+}
+
+// Докачка закончилась: это был запуск контейнера/стека?
+async function afterPullsFinished() {
+  let containerStart = !!_pullContainerArmed;
+  _pullContainerArmed = null;
+  if (!containerStart) containerStart = await containerTaskRunning();
+  if (containerStart && dockerCurrentTab !== 'containers') switchDockerTab('containers');
+}
+
+async function pullTick() {
+  if (!dockerServerId) { stopPullPoll(); return; }
+  try {
+    const d = await j(`${srvBase(dockerServerId)}/images/pulling`);
+    const pulling = d.pulling || [];
+    // Отмена в пачке (кнопка ✕): контейнер НЕ запустится, значит и перенос
+    // на «Контейнеры» после исчезновения строки — ложный. Запоминаем до
+    // конца пачки: флаг cancelled приходит и через in-place обновление.
+    if (pulling.some(p => p.cancelled)) _pullCancelledSeen = true;
+    // Менялись только проценты — не дёргаем весь рендер, обновляем бары на месте.
+    if (dockerPulling.length === pulling.length
+        && pulling.every((p, i) => p.image === dockerPulling[i].image)) {
+      pulling.forEach((p, i) => {
+        const row = document.querySelector(`[data-pull-row="${CSS.escape(p.image)}"]`);
+        if (!row) return;
+        row.querySelector('.img-pull-fill').style.width = `${p.percent}%`;
+        row.querySelector('.img-pull-text').textContent = p.cancelled
+          ? 'отменяется…'
+          : `${p.percent}%${p.detail ? ' · ' + p.detail : ''}`;
+        row.classList.toggle('img-pulling-cancelled', !!p.cancelled);
+        const btn = row.querySelector('.img-pull-cancel');
+        if (btn) btn.disabled = !!p.cancelled;
+      });
+      dockerPulling = pulling;
+      return;
+    }
+    dockerPulling = pulling;
+    renderImages(lastImages);
+    if (pulling.length) {
+      _hadPulling = true;
+      // Один раз за пачку открываем «Образы»; открытая модалка — не под ней же
+      // дёргать вкладки, подождём закрытия (следующий тик это доиграет).
+      if (!_pullAutoShown && dockerCurrentTab !== 'images'
+          && !document.querySelector('.modal-bg.open')) {
+        _pullAutoShown = true;
+        switchDockerTab('images');
+      }
+    } else if (_hadPulling) {
+      // Последняя загрузка закончилась — в списке появился новый образ.
+      const wasCancelled = _pullCancelledSeen;
+      _hadPulling = false;
+      _pullAutoShown = false;
+      _pullCancelledSeen = false;
+      loadImages().catch(() => {});
+      // После отмены остаёмся на «Образах»: контейнер не запустился, задача
+      // вот-вот завершится «Отменено» — переносить некуда и незачем.
+      if (!wasCancelled) afterPullsFinished().catch(() => {});
+    }
+  } catch { /* повторим на следующем тике */ }
 }
 
 function renderImages(images) {
@@ -763,10 +1039,30 @@ function renderImages(images) {
     const full = `${img.repository}:${img.tag}`.toLowerCase();
     return !dockerImageSearch || full.includes(dockerImageSearch.trim().toLowerCase());
   });
-  const toolbar = `<div class="svc-toolbar docker-images-toolbar">
-    <input type="search" id="docker-image-search" placeholder="🔍 Поиск образа…" value="${esc(dockerImageSearch)}"/>
-    <button type="button" id="docker-pull-open">⬇️ Загрузить образ</button>
-    <button type="button" class="secondary" id="docker-prune-images">🧹 Очистить неиспользуемые</button>
+  const pullingRows = dockerPulling
+    .filter(p => !dockerImageSearch
+      || p.image.toLowerCase().includes(dockerImageSearch.trim().toLowerCase()))
+    .map(p => {
+      const parts = String(p.image || '').split('/');
+      const name = parts[parts.length - 1] || p.image;
+      const text = p.cancelled
+        ? 'отменяется…'
+        : `${p.percent}%${p.detail ? ' · ' + p.detail : ''}`;
+      return `<tr class="img-pulling-row${p.cancelled ? ' img-pulling-cancelled' : ''}" data-pull-row="${esc(p.image)}">
+      <td><b>${esc(name)}</b></td>
+      <td colspan="4"><div class="img-pulling-cell">
+        <div class="img-pull-track"><div class="img-pull-fill" style="width:${p.percent}%"></div></div>
+        <span class="img-pull-text">${esc(text)}</span>
+        <button type="button" class="img-pull-cancel" data-pull-cancel="${esc(p.image)}" title="Отменить загрузку"${p.cancelled ? ' disabled' : ''}>✕</button>
+      </div></td>
+    </tr>`;
+    }).join('');
+  const toolbar = `<div class="svc-card-head svc-card-head-one-line">
+    <h2>Образы <span class="hint">(${images.length})</span></h2>
+    <div class="svc-card-actions">
+      <input type="search" id="docker-image-search" placeholder="🔍 Поиск образа…" value="${esc(dockerImageSearch)}"/>
+      <button type="button" id="docker-pull-open">⬇️ Загрузить образ</button>
+    </div>
   </div>`;
   const rows = filtered.map(img => {
     const fullName = `${img.repository}:${img.tag}`;
@@ -780,8 +1076,8 @@ function renderImages(images) {
       <td><button type="button" class="danger" data-img-rm="${esc(fullName)}">Удалить</button></td>
     </tr>`;
   }).join('');
-  const content = filtered.length
-    ? `<div class="svc-table-wrap docker-images-table-wrap"><table class="svc-table docker-images-table"><thead><tr><th>Имя</th><th>Версия</th><th>Размер</th><th>Дата загрузки</th><th>Действие</th></tr></thead><tbody>${rows}</tbody></table></div>`
+  const content = (filtered.length || pullingRows)
+    ? `<div class="svc-table-wrap docker-images-table-wrap"><table class="svc-table docker-images-table"><thead><tr><th>Имя</th><th>Версия</th><th>Размер</th><th>Дата загрузки</th><th>Действие</th></tr></thead><tbody>${pullingRows}${rows}</tbody></table></div>`
     : `<div class="empty svc-empty">${images.length ? 'Ничего не найдено' : 'Образов нет'}</div>`;
   body.innerHTML = `<div class="info-block docker-images-card">${toolbar}${content}</div>`;
   body.querySelector('#docker-pull-open')?.addEventListener('click', openPullModal);
@@ -793,6 +1089,27 @@ function renderImages(images) {
     if (input) { input.focus(); input.setSelectionRange(dockerImageSearch.length, dockerImageSearch.length); }
   });
   body.querySelectorAll('[data-img-rm]').forEach(b => b.onclick = () => removeImage(b.dataset.imgRm));
+  body.querySelectorAll('[data-pull-cancel]').forEach(b => b.onclick = () => cancelPull(b.dataset.pullCancel));
+}
+
+// Кнопка «✕» на строке загрузки: убить процесс загрузки на сервере. Задача,
+// которая качала (docker run / compose up / просто pull), завершится
+// «Отменено пользователем» — запуск контейнера/стека прерывается.
+async function cancelPull(image) {
+  if (!(await dockerConfirm('Отмена загрузки',
+    `Отменить загрузку образа «${image}»?` +
+    ' Если образ качался для запуска контейнера или compose-стека — запуск будет прерван.',
+    'Отменить загрузку'))) return;
+  try {
+    const r = await j(`${srvBase(dockerServerId)}/images/cancel`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ image }),
+    });
+    if (r.cancelled) toast('Загрузка отменяется', true);
+    else toast('Загрузка уже завершилась', false);
+  } catch (e) {
+    toast(e.message, false);
+  }
 }
 
 async function removeImage(image) {
@@ -895,10 +1212,13 @@ function renderStacks(data) {
   if (!card) {
     body.innerHTML = `
       <div class="info-block docker-ct-card docker-stack-card">
-        <div class="docker-ct-toolbar">
-          <input type="search" id="docker-stack-search" placeholder="🔍 Поиск проекта…" autocomplete="off"/>
-          <button type="button" class="secondary" id="docker-stack-ignored-btn" title="Игнорируемые проекты">🚫 Игнорируемые</button>
-          <button type="button" id="docker-stack-new">➕ Новый проект</button>
+        <div class="svc-card-head svc-card-head-one-line">
+          <h2>Compose проекты <span class="hint" data-stack-count>(${rows.length})</span></h2>
+          <div class="svc-card-actions">
+            <input type="search" id="docker-stack-search" placeholder="🔍 Поиск проекта…" autocomplete="off"/>
+            <button type="button" class="secondary" id="docker-stack-ignored-btn" title="Игнорируемые проекты">🚫 Игнорируемые</button>
+            <button type="button" id="docker-stack-new">➕ Новый проект</button>
+          </div>
         </div>
         <div class="err-hint hidden" id="docker-stack-srv-warn" style="margin:0 0 .5rem"></div>
         <div class="docker-ct-scroll" id="docker-stack-list"></div>
@@ -919,6 +1239,8 @@ function renderStacks(data) {
     // Обработчики назначены один раз при создании каркаса выше.
     const search = body.querySelector('#docker-stack-search');
     if (search && document.activeElement !== search) search.value = dockerStackSearch;
+    const countEl = body.querySelector('[data-stack-count]');
+    if (countEl) countEl.textContent = `(${rows.length})`;
   }
 
   // Плашка «Сервер недоступен» — общая для обеих веток (обновляется на
@@ -1803,12 +2125,20 @@ async function refreshLogs() {
 
 // ---------------- тяжёлые действия (через очередь → polling /api/tasks/{id}) ----------------
 
-async function enqueueAction(id, action, params, msg) {
+async function enqueueAction(id, action, params, msg, onTask) {
+  // Запуск стека/контейнера после докачки образов возвращает на «Контейнеры»
+  // (просто набор образов через image_pull — остаёмся на «Образах»).
+  if (id === dockerServerId
+      && (action === 'compose_up' || action === 'compose_restart'
+          || action === 'container_run')) {
+    _pullContainerArmed = action;
+  }
   try {
     const r = await j(`${srvBase(id)}/enqueue/${encodeURIComponent(action)}`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ params }),
     });
+    if (onTask && r.task) { onTask(r.task); return; }
     toast(msg || 'В очереди', true);
     if (r.task) watchTask(r.task.id, id, action);
   } catch (e) { toast(e.message, false); }
@@ -1816,50 +2146,39 @@ async function enqueueAction(id, action, params, msg) {
 
 // ---------------- live-вывод задачи ----------------
 
-// На экране сервера лог показываем в его блоке; в списке — в общем.
+// На экране сервера лог показываем в его блоке; из списка — тихо
+// (как в WG): без блока вывода, по завершении тост и обновление таблицы.
 function watchTask(taskId, serverId, action) {
-  const onDetail = document.getElementById('page-docker-server')?.classList.contains('on');
-  const wrap = document.getElementById(onDetail ? 'docker-srv-log-wrap' : 'docker-task-log-wrap');
-  const log = document.getElementById(onDetail ? 'docker-srv-log' : 'docker-task-log');
-  if (wrap) wrap.classList.remove('hidden');
-  if (!log) return;
+  const onDetailPage = () =>
+    document.getElementById('page-docker-server')?.classList.contains('on');
   const tick = async () => {
     try {
       const t = await j('/api/tasks/' + encodeURIComponent(taskId));
-      const head = `${esc(t.emoji || '')} ${esc(t.name || '')} · ${esc(t.status || '')} · ${esc(t.duration || '')}`;
-      const lines = t.output_lines || [];
-      const fallback = t.result?.output || t.result?.error || t.error || '(нет вывода)';
-      const bodyHtml = lines.length
-        ? lines.map(ansiToHtml).join('\n')
-        : ansiToHtml(fallback);
-      log.innerHTML = `<div class="tasklog-head">${head}</div><div class="tasklog-body">${bodyHtml}</div>`;
-      log.scrollTop = log.scrollHeight;
       if (t.is_done) {
         clearInterval(timers[taskId]); delete timers[taskId];
+        // Удаление сервиса уводит со страницы: откуда пришли — туда и вернём
+        // (карточка сервера / список Docker). Как у WG.
+        if (action === 'remove') {
+          if (t.success) {
+            await leaveUninstalledPage(serverId);
+            toast('Docker удалён', true);
+          } else {
+            toast(t.error || 'Удаление Docker завершилось с ошибкой', false);
+            // При ошибке остаёмся на странице — обновляем состояние.
+            if (onDetailPage() && serverId) await loadServerDetail(serverId);
+            else await loadDocker();
+          }
+          return;
+        }
+        const lines = t.output_lines || [];
         // Показываем user-friendly toast при ошибке (не технические детали из лога)
         if (!t.success) {
           const errMsg = t.error || (lines.length ? lines[0] : 'Ошибка выполнения задачи');
           toast(errMsg, false);
+        } else {
+          toast(`${t.emoji || '✅'} ${t.name || 'Задача'} — выполнена`, true);
         }
-        if (action === 'remove') {
-          const sid = serverId;
-          stopLivePoll();
-          dockerServerId = null;
-          try { localStorage.removeItem('bot4vps_docker_server_id'); } catch (_) {}
-          if (dockerEntryContext === 'server' && sid) {
-            try {
-              const { openServer } = await import('./servers.js?v=20260913-hostkey-v2');
-              await openServer(sid);
-            } catch (_) {
-              backToDockerList();
-            }
-          } else {
-            backToDockerList();
-          }
-          return;
-        }
-        const stillDetail = document.getElementById('page-docker-server')?.classList.contains('on');
-        if (stillDetail && serverId) {
+        if (onDetailPage() && serverId) {
           await loadServerDetail(serverId);
           // Обновить активную вкладку, если задача могла изменить её данные
           if (dockerCurrentTab === 'images'
@@ -1871,12 +2190,6 @@ function watchTask(taskId, serverId, action) {
           }
         } else {
           await loadDocker();
-          // Сервер установлен — он переехал из «Установить» в «Управление»,
-          // ведём пользователя туда же (только если установка удалась).
-          if (action === 'install' && t.success) {
-            setDockerTab('manage');
-            scrollToCard(serverId);
-          }
         }
         // Кнопки «Быстрых действий» зависят от статуса сервиса — обновляем их.
         if (action === 'install' && t.success) window.refreshAfterServiceChange?.(serverId);
@@ -1890,59 +2203,32 @@ function watchTask(taskId, serverId, action) {
 
 export function stopDockerTimers() {
   stopLivePoll();
+  stopPullPoll();
   Object.keys(timers).forEach(k => { clearInterval(timers[k]); delete timers[k]; });
 }
 
 export function bindDockerUI() {
-  document.querySelectorAll('#docker-tabs [data-dktab]').forEach(b =>
-    b.addEventListener('click', () => setDockerTab(b.dataset.dktab)));
-  setDockerTab('check');
+  bindDockerServersList();
 
-  document.getElementById('docker-sync-all')?.addEventListener('click', async () => {
-    try {
-      const r = await j(`/api/services/${SID}/bulk-check`, { method: 'POST' });
-      toast('Проверка запущена', true);
-      if (r.task) watchTask(r.task.id, null);
-    } catch (e) { toast(e.message, false); }
+  // Лёгкие пробы доступности идут фоном, пока панель открыта (SSE);
+  // при смене online/offline перечитываем таблицу (экран сервера не трогаем —
+  // там свой live-poll).
+  window.addEventListener('bot4vps:availability-changed', () => {
+    if (document.getElementById('page-docker')?.classList.contains('on')) loadDocker();
   });
-  document.getElementById('docker-live-log-close')?.addEventListener('click', () =>
-    document.getElementById('docker-task-log-wrap')?.classList.add('hidden'));
 
   // экран конкретного сервера
   document.getElementById('btn-back-docker')?.addEventListener('click', backToDockerList);
   document.getElementById('btn-back-docker-server')?.addEventListener('click', async () => {
     if (!dockerServerId) return;
     try {
-      const { openServer } = await import('./servers.js?v=20260913-hostkey-v2');
+      const { openServer } = await import('./servers.js?v=20260915-sysfix-v2');
       await openServer(dockerServerId);
     } catch (e) {
       console.error(e);
       showPage('servers');
     }
   });
-  document.getElementById('docker-srv-refresh')?.addEventListener('click', async () => {
-    if (!dockerServerId) return;
-    // Синхронизация: do_sync → запись кэша (как у WG). Только так обновляется
-    // synced_at; прежний loadServerDetail дёргал get_state без записи кэша.
-    try {
-      await j(`${srvBase(dockerServerId)}/sync`, { method: 'POST' });
-      await loadServerDetail(dockerServerId);
-      if (dockerCurrentTab === 'images') loadImages();
-      else if (dockerCurrentTab === 'compose') loadStacks();
-      toast('Синхронизация выполнена', true);
-    } catch (e) {
-      toast(e.message, false);
-    }
-  });
-  document.getElementById('docker-srv-delete')?.addEventListener('click', async () => {
-    if (!dockerServerId) return;
-    if (!(await dockerConfirm('Удаление сервиса',
-      `Удалить Docker с сервера «${nameOf(dockerServerId)}»?\n\nОбразы и тома (/var/lib/docker) сохранятся.`,
-      'Удалить'))) return;
-    enqueueAction(dockerServerId, 'remove', {}, 'Удаление в очереди');
-  });
-  document.getElementById('docker-srv-log-close')?.addEventListener('click', () =>
-    document.getElementById('docker-srv-log-wrap')?.classList.add('hidden'));
 
   // диалог подтверждения
   document.getElementById('docker-dialog-ok')?.addEventListener('click', () => closeDockerDialog(true));
@@ -2063,3 +2349,12 @@ export function openDockerServerById(id) { return openDockerServer(id, { from: '
 
 // Публичный API для установки из внешних модулей (servers.js).
 export function openInstall(id) { return installServer(id); }
+
+// Фоновая задача Docker (например, подхваченная резюмом после перезагрузки
+// страницы) завершилась — обновляем список, если открыта страница Docker.
+document.addEventListener('bot4vps:task-done', e => {
+  const t = e.detail || {};
+  if (!String(t.name || '').startsWith('Docker:')) return;
+  const on = id => document.getElementById(id)?.classList.contains('on');
+  if (on('page-docker') || on('page-docker-server')) loadDocker();
+});

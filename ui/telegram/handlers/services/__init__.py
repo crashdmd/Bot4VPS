@@ -24,3 +24,4 @@ from .base import (  # noqa: F401
 # Side-effect: регистрация ServiceUI в реестре.
 from . import wireguard  # noqa: F401
 from . import docker  # noqa: F401
+from . import xui  # noqa: F401

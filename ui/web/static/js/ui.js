@@ -27,6 +27,7 @@ export function confirmAction({
   cancelText = 'Отмена',
   danger = true,
   confirmFirst = true,
+  checkbox = null,
 } = {}) {
   const modal = document.getElementById('confirm-modal');
   if (!modal) return Promise.resolve(false);
@@ -36,7 +37,19 @@ export function confirmAction({
   document.getElementById('confirm-modal-title').textContent = title || 'Подтвердите действие';
   const messageEl = document.getElementById('confirm-modal-message');
   messageEl.textContent = message;
-  messageEl.classList.toggle('hidden', !message);
+  messageEl.classList.toggle('hidden', !message && !checkbox);
+  let checkboxInput = null;
+  if (checkbox) {
+    const row = document.createElement('label');
+    row.style.cssText = 'display:flex;align-items:flex-start;gap:.45rem;margin-top:.7rem;cursor:pointer';
+    checkboxInput = document.createElement('input');
+    checkboxInput.type = 'checkbox';
+    checkboxInput.checked = !!checkbox.checked;
+    const text = document.createElement('span');
+    text.textContent = checkbox.label || '';
+    row.append(checkboxInput, text);
+    messageEl.append(row);
+  }
 
   const ok = document.getElementById('confirm-modal-ok');
   const cancel = document.getElementById('confirm-modal-cancel');
@@ -50,7 +63,10 @@ export function confirmAction({
     if (confirmFirst) actions.insertBefore(ok, cancel);
     else actions.insertBefore(cancel, ok);
   }
-  ok.onclick = () => closeConfirmDialog(true);
+  ok.onclick = () => {
+    if (checkboxInput) checkbox.checked = checkboxInput.checked;
+    closeConfirmDialog(true);
+  };
   cancel.onclick = () => closeConfirmDialog(false);
   modal.onkeydown = e => {
     if (e.key === 'Escape') {

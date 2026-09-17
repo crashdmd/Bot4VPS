@@ -15,6 +15,7 @@ from core.integrator import StepRunner
 from core.ssh import create_ssh_client, exec_sudo
 
 from . import stats, validation
+from .images import pull_image_on
 
 
 def _build_run_cmd(name: str, image: str, ports: List[str], envs: List[str], restart: str) -> str:
@@ -47,10 +48,9 @@ def run_container(server: dict, params: Dict[str, Any], emit) -> Dict[str, str]:
     ssh = create_ssh_client(server)
     runner = StepRunner(ssh, server, emit)
     try:
-        runner.run(
-            "pull_image", f"docker pull {shlex.quote(image)}",
-            title=f"Загрузка образа «{image}»",
-        )
+        # Загрузка образа — общим кодом (Docker API с живым прогрессом):
+        # строки в лог задачи, проценты на вкладку «Образы».
+        pull_image_on(ssh, server, image, emit)
         runner.run(
             "run_container", _build_run_cmd(name, image, ports, envs, restart),
             title=f"Запуск контейнера «{name}»",

@@ -1,26 +1,28 @@
 import { tickClock, syncServerClock, showPage, toast, parseEmoji, initEmojiObserver, confirmAction, bindTelegramHealthDialog } from './ui.js';
 import { loadDashboard, loadSummary, bindDashboard, stopDashMetrics, updateDashboardData, updateDashboardState } from './dashboard.js?v=20260913-hostkey-v2';
-import { loadEvents, openEventDetail, applyEventsSnapshot, initSystemMonitor, stopSystemMonitor } from './monitor.js?v=20260913-hostkey-v2';
+import { loadEvents, openEventDetail, applyEventsSnapshot, initSystemMonitor, stopSystemMonitor } from './monitor.js?v=20260915-taskfail-v2';
 import { loadServers, loadQueues, loadHistory, loadGroupsAndKeys,
   bindServerUI, stopWatchers, openServer, closeGroupsPanel, lastServerTab,
   startSshProbeLoop, stopSshProbeLoop,
-} from './servers.js?v=20260913-hostkey-v2';
+} from './servers.js?v=20260915-sysfix-v2';
 import { loadScripts, bindScriptsUI } from './scripts.js?v=20260913-hostkey-v2';
-import { loadWireguard, bindWireguardUI, stopWgTimers, openWgServerById } from './wireguard.js?v=20260913-hostkey-v2';
-import { loadDocker, bindDockerUI, stopDockerTimers, openDockerServerById } from './docker.js?v=20260913-hostkey-v2';
-import { bindTasksUI } from './tasks.js?v=20260816-task-history-v3';
+import { loadWireguard, bindWireguardUI, stopWgTimers, openWgServerById } from './wireguard.js?v=20260914-wgsrv-icon-v7';
+import { loadDocker, bindDockerUI, stopDockerTimers, openDockerServerById } from './docker.js?v=20260915-dksrv-v21';
+import { loadXui, stopXuiTimers, stopXuiCardPoll, openXuiServerById } from './3xui.js?v=20260917-selfsni-url-v4';
+import { bindTasksUI } from './tasks.js?v=20260914-autoupdate-v2';
 import { loadFiles, bindFilesUI } from './files.js?v=20260913-hostkey-v2';
 import { bindEditorUI } from './editor.js?v=20260815-scripts-table-v1';
 import { bindTerminalUI, closeTerminal } from './terminal.js?v=20260905-glassblue-v2';
-import { startSSE, registerNotificationsRefresh } from './sse.js?v=20260913-hostkey-v2';
+import { startSSE, registerNotificationsRefresh } from './sse.js?v=20260917-xui-sse-v1';
 import { state, setPage, clearQuickSetupServer } from './state.js';
 import { j, esc } from './api.js';
+import { resumeBackgroundTasks } from './taskmodal.js?v=20260914-v3';
 import { initAuth, bindAuthUI } from './auth.js';
 import { initSetup, bindSetupUI } from './setup.js?v=20260910-setup-v4';
 import { bindGlobalSearch } from './search.js?v=20260913-hostkey-v2';
 import { bindBackupUI, loadBackups, stopBackupTimers } from './backup.js?v=20260912-tzdrop-v1';
 
-const QUICK_SETUP_MODULE_URL = './quick_setup.js?v=20260913-hostkey-v2';
+const QUICK_SETUP_MODULE_URL = './quick_setup.js?v=20260915-sysfix-v1';
 const quickSetupModule = import(QUICK_SETUP_MODULE_URL).catch(error => {
   console.error('[quick-setup] module unavailable:', error);
   return null;
@@ -92,6 +94,8 @@ function onNav(page) {
   if (page !== 'server' && page !== 'terminal') closeTerminal();
   if (page !== 'wireguard' && page !== 'wireguard-server') stopWgTimers();
   if (page !== 'docker' && page !== 'docker-server') stopDockerTimers();
+  if (page !== 'xui' && page !== 'xui-server') stopXuiTimers();
+  if (page !== 'xui-server') stopXuiCardPoll();
   if (page !== 'dashboard') stopDashMetrics();
   if (page !== 'monitor') stopSystemMonitor();
   if (page !== 'backups') stopBackupTimers();
@@ -103,6 +107,7 @@ function onNav(page) {
   if (page === 'scripts') loadScripts();
   if (page === 'wireguard') loadWireguard();
   if (page === 'docker') loadDocker();
+  if (page === 'xui') loadXui();
   if (page === 'files') loadFiles();
   if (page === 'backups') loadBackups();
   if (page === 'queues') { loadQueues(); loadHistory(); }
@@ -289,8 +294,25 @@ async function restoreSession() {
     }
   }
 
+  let xuiServerId = null;
+  try { xuiServerId = localStorage.getItem('bot4vps_xui_server_id'); } catch (_) {}
+  if (page === 'xui-server' && xuiServerId) {
+    try {
+      await openXuiServerById(xuiServerId);
+      return;
+    } catch (_) {
+      try {
+        localStorage.removeItem('bot4vps_xui_server_id');
+        localStorage.setItem('bot4vps_page', 'xui');
+      } catch (_) {}
+      onNav('xui');
+      return;
+    }
+  }
+
   if (page && page !== 'servers' && page !== 'server'
-      && page !== 'wireguard-server' && page !== 'docker-server') {
+      && page !== 'wireguard-server' && page !== 'docker-server'
+      && page !== 'xui-server') {
     onNav(page);
   }
 }
@@ -381,6 +403,10 @@ async function boot() {
   setInterval(tickClock, 1000);
   tickClock();
   startSSE();
+  // Незавершённые задачи (перезагрузка страницы убила их фоновый поллинг):
+  // подхватываем молчаливые ватчеры — финал придёт тостом, активная страница
+  // сервиса обновится сама.
+  resumeBackgroundTasks();
   await restoreSession();
   // Если восстановили «Настройки», onNav уже загрузил активную категорию.
 

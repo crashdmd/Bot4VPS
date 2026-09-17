@@ -61,6 +61,28 @@ def _security_revision():
     return ":".join(parts)
 
 
+def _xui_cache_revision():
+    """Непрозрачная сигнатура кэш-файлов 3x-ui для межпроцессного SSE."""
+    import hashlib
+
+    from core import integrator
+
+    cache_dir = integrator.CACHE_DIR / "3x-ui"
+    if not cache_dir.is_dir():
+        parts = ["missing"]
+    else:
+        parts = []
+        for path in sorted(cache_dir.glob("*.json")):
+            try:
+                stat = path.stat()
+            except OSError:
+                continue
+            parts.append(f"{path.name}:{stat.st_mtime_ns}:{stat.st_size}:{stat.st_ino}")
+        if not parts:
+            parts = ["empty"]
+    return hashlib.sha256("|".join(parts).encode("utf-8")).hexdigest()
+
+
 def _snapshot():
     """Короткий снимок для SSE (без тяжёлых SSH)."""
     out = {
@@ -116,6 +138,7 @@ def _snapshot():
                 "host_ip": mon.get("host_ip"),
                 "group": s.get("group"),
                 "online": avail.get("online"),
+                "port_ok": avail.get("port_ok"),
                 "ssh_error": avail.get("ssh_error") or "",
                 "last_error": avail.get("last_error") or "",
                 "uptime": (mon.get("system") or {}).get("uptime"),
@@ -170,6 +193,11 @@ def _snapshot():
         out["security_revision"] = _security_revision()
     except Exception as e:
         out["security_revision_error"] = str(e)
+
+    try:
+        out["xui_cache_revision"] = _xui_cache_revision()
+    except Exception as e:
+        out["xui_cache_revision_error"] = str(e)
 
     return out
 

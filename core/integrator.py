@@ -212,6 +212,25 @@ class Service:
         """Read-only запрос состояния сервера → данные для кэша."""
         return {}
 
+    def persistent_cache_fields(self) -> tuple[str, ...]:
+        """Ключи расширений кэша, которые live-sync не имеет права стирать.
+
+        Живое состояние сервиса всегда заменяется целиком. Расширения, которыми
+        управляет сам сервис (например, локальная настройка поверх сервиса),
+        объявляются явно: это не позволяет случайно законсервировать устаревшие
+        поля live-пробы.
+        """
+        return ()
+
+    def card_action_requires_sync(self, action: str) -> bool:
+        """Нужна ли sync после быстрого действия карточки.
+
+        По умолчанию card_* — мутации, поэтому sync обязателен. Cache-only
+        accessors могут точечно вернуть False и не должны открывать SSH ради
+        отображения уже сохранённых данных.
+        """
+        return True
+
     def get_state(self, server_id: str) -> Dict[str, Any]:
         """Живое чтение состояния БЕЗ записи кэша — для экранов UI, которым нужна
         актуальная статистика при открытии/рефреше (а не «тяжёлая» синхронизация).
@@ -242,7 +261,18 @@ class Service:
         Integrator и handler не знают, какие действия есть у WireGuard/Docker —
         сервис сам формирует список. Базовая реализация: install / sync / remove
         по факту installed из get_status().
+
+        Пустой server_id — служебный вызов из resolve_task_title (имя задачи
+        в очереди): сервер не нужен, отдаём полный каталог обеих веток, чтобы
+        task_title резолвился для любого действия, а не только текущего
+        статуса (на этом живут 3x-ui и наследники без своего get_actions).
         """
+        if not server_id:
+            return [
+                ServiceAction("install", "🟢 Установить", style="primary", task_title="установка"),
+                ServiceAction("sync", "🔵 Синхронизировать", task_title="синхронизация"),
+                ServiceAction("confirm_remove", "🗑 Удалить сервис", style="danger", task_title="удаление"),
+            ]
         status = self.get_status(server_id) or {}
         installed = bool(status.get("installed"))
         items: List[ServiceAction] = []
@@ -701,16 +731,82 @@ def params_schema(service_id: str) -> List[Parameter]:
     """
     return _get_service(service_id).params_schema()
 
+def card_action_requires_sync(service_id: str, action: str) -> bool:
+    """Политика post-action sync из контракта конкретного сервиса.
 
-async def sync(service_id: str, server_id: str) -> Dict[str, Any]:
-    """Напрямую (без очереди): read-only запрос состояния → кэш."""
+    Это отдельный лёгкий вызов без server_id/SSH: router применяет его после
+    ``card_*`` и может не синхронизировать cache-only accessor.
+    """
+    return bool(_get_service(service_id).card_action_requires_sync(action))
+
+
+async def sync(service_id: str, server_id: str, ssh=None) -> Dict[str, Any]:
+    """Напрямую (без очереди): read-only запрос состояния → кэш.
+
+    ``ssh``: готовое соединение — общий фоновый job проверяет все сервисы
+    сервера за один коннект (см. sync_server_services)."""
     svc = _get_service(service_id)
-    data = await svc.do_sync(server_id)
-    data = dict(data)
+    data = await svc.do_sync(server_id, ssh)
+    return _write_synced_cache(service_id, server_id, svc, data)
+
+
+def _write_synced_cache(
+    service_id: str, server_id: str, svc: Service, live_data: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Записать свежую live-пробу, сохраняя только объявленные расширения.
+
+    Весь read/merge/write держим под одной RLock: иначе параллельный
+    ``update_cache(..., fakesite=...)`` мог бы вклиниться между чтением и
+    перезаписью sync и всё-таки потерять расширение.
+    """
+    data = dict(live_data or {})
     data.setdefault("service_id", service_id)
     data["synced_at"] = datetime.now().isoformat(timespec="seconds")
-    write_cache(service_id, server_id, data)
+    try:
+        persistent = tuple(svc.persistent_cache_fields() or ())
+    except Exception:
+        persistent = ()
+    with _CACHE_LOCK:
+        previous = read_cache(service_id, server_id)
+        for field in persistent:
+            if field in previous and field not in data:
+                data[field] = previous[field]
+        write_cache(service_id, server_id, data)
     return data
+
+
+async def sync_server_services(server_id: str) -> Dict[str, Dict[str, Any]]:
+    """Все сервисы на одном сервере за ОДНО SSH-соединение (фоновый job).
+
+    Пишет кэш каждого сервиса отдельно (те же записи, что ручная
+    синхронизация). Провал одного сервиса не останавливает остальные:
+    в кэш падает {"installed": False, "error": ...} — честный статус.
+    Возвращает {service_id: данные_кэша}.
+    """
+    from core.ssh import create_ssh_client
+    from core.storage import find_server
+
+    server = find_server(server_id)
+    if not server:
+        return {}
+    ssh = await asyncio.to_thread(create_ssh_client, server)
+    try:
+        out: Dict[str, Dict[str, Any]] = {}
+        for manifest in list_services():
+            try:
+                out[manifest.id] = await sync(manifest.id, server_id, ssh=ssh)
+            except Exception as e:
+                # ошибка конкретного сервиса не валит проход по остальным;
+                # persistent extension state (объявленное сервисом) сохраняем
+                # тем же путём, что и при успешной live-синхронизации.
+                err = {"installed": False, "error": str(e),
+                       "service_id": manifest.id}
+                out[manifest.id] = _write_synced_cache(
+                    manifest.id, server_id, _get_service(manifest.id), err,
+                )
+        return out
+    finally:
+        ssh.close()
 
 
 

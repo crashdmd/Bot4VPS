@@ -136,16 +136,13 @@ def update_server_certificate(server):
     ssl_host = server.get("ssl_host", host)
 
     # Тяжёлые сетевые операции — вне блокировки, чтобы не держать лок
-    # во время DNS/SSL-проверок.
-    try:
-        host_ip = socket.gethostbyname(host)
-    except OSError:
-        host_ip = host
+    # во время DNS/SSL-проверок. Резолв — через публичную цепочку DNS
+    # (см. core.dns_resolve): системный резолвер при FakeIP на роутере
+    # возвращает фейковые адреса.
+    from core.dns_resolve import resolve_host
 
-    try:
-        ssl_ip = socket.gethostbyname(ssl_host)
-    except OSError:
-        ssl_ip = ssl_host
+    host_ip = resolve_host(host) or host
+    ssl_ip = resolve_host(ssl_host) or ssl_host
 
     new_cert = check_certificate(ssl_host)
 
@@ -179,6 +176,85 @@ def update_server_certificate(server):
             "new_expires": new_cert["expires"]
         }
     return None
+
+
+def clear_server_ssl(server_id: str) -> None:
+    """Убрать SSL-поля из записи мониторинга сервера.
+
+    Домен сертификата удалён или отслеживание выключено: certificate/ssl_host/
+    ssl_ip больше не актуальны. availability/system не трогаем.
+    """
+    with _MONITOR_LOCK:
+        monitor = load_monitor()
+        entry = monitor.get(server_id)
+        if not entry:
+            return
+        changed = False
+        for key in ("ssl_host", "ssl_ip", "certificate"):
+            if key in entry:
+                del entry[key]
+                changed = True
+        if changed:
+            save_monitor(monitor)
+
+
+def refresh_server_host_ip(server) -> bool:
+    """Обновить host_ip сервера с доменным адресом (без SSL-чека!).
+
+    Раньше host_ip в monitor.json писала только SSL-проверка — у сервера
+    без certificate_check в списке «Серверы» стоял прочерк, пока не
+    включишь SSL. Теперь IP резолвится для любого домена: цепочка публичных
+    DNS (core.dns_resolve), системный резолвер не спрашивается при FakeIP.
+
+    None от резолвера НЕ затирает прежнее значение (временный сбой DNS не
+    должен прятать карточку). Возвращает True, если IP записан.
+    """
+    from core.dns_resolve import is_ip_literal, resolve_host
+
+    host = (server.get("host") or "").strip()
+    server_id = server.get("id")
+    if not host or not server_id or is_ip_literal(host):
+        return False
+
+    ip = resolve_host(host)
+    if not ip:
+        return False
+
+    with _MONITOR_LOCK:
+        monitor = load_monitor()
+        entry = monitor.setdefault(server_id, {})
+        if entry.get("host_ip") == ip:
+            return False
+        entry["host_ip"] = ip
+        save_monitor(monitor)
+    return True
+
+
+def refresh_domain_ips(servers) -> None:
+    """Резолв host_ip для списка серверов (job system_sync, создание сервера).
+
+    Домены независимы — резолвим параллельно; каждая цепочка — максимум
+    два UDP-запроса по 2с, так что полный проход по списку укладывается
+    в один таймаут, а не в сумму по всем серверам.
+    """
+    from concurrent.futures import ThreadPoolExecutor
+
+    todo = [s for s in servers
+            if s.get("id") and (s.get("host") or "").strip()]
+    if not todo:
+        return
+
+    def _one(server: dict) -> None:
+        try:
+            refresh_server_host_ip(server)
+        except Exception as e:
+            print(f"[DNS] {server.get('name', '?')}: {e}", flush=True)
+
+    try:
+        with ThreadPoolExecutor(max_workers=min(8, len(todo))) as ex:
+            list(ex.map(_one, todo))
+    except Exception as e:
+        print(f"[DNS] refresh_domain_ips: {e}", flush=True)
 
 
 def run_monitor(group_name: str | None = None):
@@ -236,26 +312,70 @@ def refresh_server_state(server_id: str):
 # ==========================================================
 
 # Сколько секунд статус считается актуальным для лёгкого опроса.
-LIGHT_CHECK_TTL_SECONDS = 30.0
+LIGHT_CHECK_TTL_SECONDS = 4.0
+# Метка последней лёгкой пробы (epoch, секундная точность). `checked` в
+# monitor.json пишется с точностью до минуты — для TTL в секундах используем
+# эту in-memory метку; файловая `checked` остаётся фолбэком после рестарта.
+_LIGHT_CHECK_LAST: dict[str, float] = {}
 
 # Дедупликация: id серверов, чей пинг уже в полёте (другой поток/вкладка).
 _inflight_light_checks: set[str] = set()
 _inflight_lock = threading.Lock()
 
 
-def _probe_server_online(server: dict) -> bool:
-    """Лёгкая проба по ядерному критерию: ICMP → TCP port → 80 → 443.
+def _probe_light(server: dict) -> tuple[bool, bool]:
+    """Лёгкая проба availability-монитора и SSE-петли: (сеть жива, SSH-порт доступен).
 
-    Единый зонд для availability-монитора и SSE-петли (см. _probe_network).
+    Критерий сети — ядерный (ICMP → TCP port → 80 → 443), но все зонды идут
+    ПАРАЛЛЕЛЬНО: у каждого свой таймаут, поэтому недоступный сервер
+    проверяется за ~один таймаут, а не за сумму четырёх (было до 8 с).
+    SSH-порт — отдельный результат: страницы сервисов (WG/Docker/3x-ui)
+    блокируют работу с сервисом, когда он закрыт, даже если сеть в целом жива.
     """
-    from core.servers import _probe_network
+    from concurrent.futures import ThreadPoolExecutor
+    from ping3 import ping
+
+    host = server.get("host") or ""
+    port = int(server.get("port") or 22)
+    ports = [port, 80, 443]
+
+    def _icmp() -> bool:
+        try:
+            return bool(ping(host, timeout=2))
+        except Exception:
+            return False
+
+    def _tcp(p: int) -> bool:
+        try:
+            sock = socket.create_connection((host, p), timeout=2)
+            try:
+                sock.close()
+            except Exception:
+                pass
+            return True
+        except Exception:
+            return False
+
+    ex = ThreadPoolExecutor(max_workers=1 + len(ports))
     try:
-        _ms, network = _probe_network(
-            server.get("host") or "", server.get("port") or 22
-        )
-        return network != "none"
+        icmp_f = ex.submit(_icmp)
+        port_f = ex.submit(_tcp, port)
+        fallback_fs = [ex.submit(_tcp, p) for p in ports[1:]]
+        # SSH-порт — главный критерий: открыт → сервер доступен для работы,
+        # остальные зонды не ждём (иначе ICMP-таймаут тянул бы пробу до 2 с
+        # даже на живом сервере).
+        port_ok = port_f.result()
+        if port_ok:
+            return True, True
+        icmp_ok = icmp_f.result()
+        fallback_ok = [f.result() for f in fallback_fs]
     except Exception:
-        return False
+        return False, False
+    finally:
+        # Лишние воркеры (например, висящий ICMP) не задерживаем
+        ex.shutdown(wait=False)
+    online = icmp_ok or port_ok or any(fallback_ok)
+    return online, port_ok
 
 
 def light_check_stale(server: dict, monitor: dict | None = None) -> bool:
@@ -287,25 +407,38 @@ def light_check_servers(servers: list[dict]) -> list[dict]:
 
     with _inflight_lock:
         todo = [s for s in servers if s.get("id") and s["id"] not in _inflight_light_checks]
+        # Заявленные в этом вызове серверы чистим в finally по ПОЛНОМУ списку:
+        # фильтр свежести ниже перезаписывает todo, и отфильтрованный сервер
+        # иначе навсегда застревал бы в «в полёте» — пробы прекращались.
+        claimed = list(todo)
         for s in todo:
             _inflight_light_checks.add(s["id"])
     if not todo:
         return []
 
     # Актуальность переоцениваем под общим снимком monitor (одна загрузка файла).
+    # In-memory метка уточняет файловую (та — с точностью до минуты): проба
+    # повторяется не чаще, чем раз в LIGHT_CHECK_TTL_SECONDS.
     monitor = load_monitor()
-    todo = [s for s in todo if light_check_stale(s, monitor)]
+    now_ts = time.time()
+    with _inflight_lock:
+        todo = [
+            s for s in todo
+            if light_check_stale(s, monitor)
+            and (now_ts - _LIGHT_CHECK_LAST.get(s.get("id"), 0.0)) > LIGHT_CHECK_TTL_SECONDS
+        ]
 
     events = []
     try:
         for server in todo:
             server_id = server["id"]
             try:
-                online = _probe_server_online(server)
+                online, port_ok = _probe_light(server)
                 event = update_server_availability(
                     server,
                     online=online,
                     error="",
+                    port_ok=port_ok,
                     # system не передаём: проба не даёт системных данных
                 )
                 if event:
@@ -315,10 +448,12 @@ def light_check_servers(servers: list[dict]) -> list[dict]:
             finally:
                 with _inflight_lock:
                     _inflight_light_checks.discard(server_id)
+                    _LIGHT_CHECK_LAST[server_id] = time.time()
     finally:
-        # гарантированно чистим, если серверы исчезли из todo после фильтра
+        # Чистим по полному списку заявленных (включая отфильтрованных) —
+        # проба могла не понадобиться, но сервер не должен оставаться in-flight.
         with _inflight_lock:
-            for s in todo:
+            for s in claimed:
                 _inflight_light_checks.discard(s.get("id"))
     return events
 
@@ -482,6 +617,7 @@ def update_server_availability(
     error: str = "",
     system: dict | None = None,
     ssh_error: str | None = None,
+    port_ok: bool | None = None,
 ):
     """
     Обновляет состояние доступности сервера.
@@ -496,6 +632,9 @@ def update_server_availability(
     None = проба SSH не выполнялаcь — прежнее значение сохраняется
     (сетевые зонды не должны затирать статус, записанный SSH-пробой
     из metrics/system_sync).
+    port_ok — доступен ли TCP-порт сервера (SSH): отдельный критерий для
+    страниц сервисов. None = зонд не выполнялся, прежнее значение
+    сохраняется.
 
     Возвращает:
         None
@@ -517,6 +656,11 @@ def update_server_availability(
 
         now = datetime.now().strftime("%Y-%m-%d %H:%M")
 
+        # system-блок: пишем при ЛЮБОЙ передаче, не под гейтом экономии
+        # записи availability. Лёгкие пробы обновляют checked каждую минуту,
+        # и SSH-сбор (раз в 15 минут) иначе попадал в «ничего не изменилось»
+        # — ОС/ядро/hostname молча терялись (регрессия гейта).
+        system_changed = system is not None and entry.get("system") != system
         if system is not None:
             entry["system"] = system
 
@@ -526,6 +670,7 @@ def update_server_availability(
                 "online": online,
                 "last_error": error,
                 "ssh_error": ssh_error or "",
+                "port_ok": port_ok,
                 "checked": now
             }
 
@@ -533,15 +678,31 @@ def update_server_availability(
             return None
 
         previous_online = availability["online"]
+        previous_error = availability.get("last_error")
+        previous_ssh_error = availability.get("ssh_error")
+        previous_port_ok = availability.get("port_ok")
+        previous_checked = availability.get("checked")
 
         availability["online"] = online
         availability["last_error"] = error
         # SSH-проба не выполнялась — статус аутентификации не трогаем
         if ssh_error is not None:
             availability["ssh_error"] = ssh_error
+        if port_ok is not None:
+            availability["port_ok"] = port_ok
         availability["checked"] = now
 
-        save_monitor(monitor)
+        # Лёгкие пробы идут каждые несколько секунд (SSE-петля): файл пишем
+        # только при реальном изменении статуса либо раз в минуту (гранулярность
+        # checked) — иначе monitor.json перезаписывался бы на каждом тике.
+        changed = (
+            previous_online != online
+            or previous_error != error
+            or (ssh_error is not None and previous_ssh_error != ssh_error)
+            or (port_ok is not None and previous_port_ok != port_ok)
+        )
+        if changed or system_changed or previous_checked != now:
+            save_monitor(monitor)
 
     if previous_online == online:
         return None
@@ -621,16 +782,9 @@ async def availability_monitor_job(context):
 
     def _probe(server: dict) -> dict | None:
         """Лёгкая проба одного сервера: возвращает событие смены или None."""
-        from core.servers import _probe_network
         try:
-            _ms, network = _probe_network(
-                server.get("host") or "", server.get("port") or 22
-            )
-        except Exception:
-            network = "none"
-        online = network != "none"
-        try:
-            return update_server_availability(server, online=online, error="")
+            online, port_ok = _probe_light(server)
+            return update_server_availability(server, online=online, error="", port_ok=port_ok)
         except Exception as e:
             print(f"[AVAILABILITY] {server.get('name', '?')}: {e}", flush=True)
             return None
@@ -672,6 +826,9 @@ async def online_monitor_job(context):
     уведомления о доступности/недоступности теперь зона лёгкого
     availability-монитора. Интервал ядерный (см. schedule_monitor_jobs),
     настройки в UI для него не выносятся.
+
+    Здесь же — периодический резолв host_ip доменных серверов (без SSL-чека):
+    список «Серверы» и карточка видят актуальный IP всегда.
     """
     from concurrent.futures import ThreadPoolExecutor
     from core.storage import load_servers
@@ -691,6 +848,8 @@ async def online_monitor_job(context):
     if servers:
         with ThreadPoolExecutor(max_workers=min(8, len(servers))) as ex:
             list(ex.map(_collect, servers))
+
+    refresh_domain_ips(servers)
 
 
 def _load_reported_missing_keys() -> dict:

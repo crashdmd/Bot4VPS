@@ -343,6 +343,11 @@ async def finish_add_server(
 
     server_id = save_new_server(state, auth_type, password=password, key_path=key_path)
 
+    # Автопроверка сервисов (WG/Docker/3x-ui) нового сервера — сразу,
+    # фоном: не ждать тика services_sync (до 15 минут).
+    from core.jobs_runtime import schedule_services_sync
+    schedule_services_sync(server_id)
+
     if ssl_enabled:
         # Сервер уже сохранён — визард добавления завершён до перехода
         # к SSL-шагу (finish_ssl_setup подчищает оба словаря, но если

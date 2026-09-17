@@ -654,9 +654,7 @@ img.emoji{
 #docker-srv-body .grid,
 #docker-images-body .grid,
 #docker-tab-manage .grid,
-#docker-tab-install .grid,
-#wg-tab-manage .grid,
-#wg-tab-install .grid{
+#docker-tab-install .grid{
   grid-template-columns:repeat(auto-fill,minmax(320px,400px));
 }
 
@@ -715,9 +713,7 @@ img.emoji{
   #docker-srv-body .grid,
   #docker-images-body .grid,
   #docker-tab-manage .grid,
-  #docker-tab-install .grid,
-  #wg-tab-manage .grid,
-  #wg-tab-install .grid{grid-template-columns:minmax(0,1fr)}
+  #docker-tab-install .grid{grid-template-columns:minmax(0,1fr)}
   .metric-card{padding:1rem}
   .metric-card .metric-value{font-size:1.5rem}
   .metric-card .metric-icon{width:36px;height:36px;font-size:1.1rem}
@@ -741,12 +737,13 @@ img.emoji{
 /* Брендовые SVG-иконки (WireGuard/Docker, simple-icons) — фирменные цвета.
    Тёмная база: гранат WG светлеет (на тёмном #88171a не читается),
    голубой Docker одинаково смотрится на любом фоне */
-:root{--wg-brand:#cf6367;--docker-brand:#2496ed}
-:root[data-theme="light"]{--wg-brand:#88171a;--docker-brand:#1877c9}
-:root[data-theme="glass"]{--wg-brand:#d0686d;--docker-brand:#2496ed}
+:root{--wg-brand:#cf6367;--docker-brand:#2496ed;--xui-brand:#30e0b0}
+:root[data-theme="light"]{--wg-brand:#88171a;--docker-brand:#1877c9;--xui-brand:#0c8f6c}
+:root[data-theme="glass"]{--wg-brand:#d0686d;--docker-brand:#2496ed;--xui-brand:#30e0b0}
 .brand-icon{width:1.1em;height:1.1em;display:inline-block;vertical-align:-0.18em}
 .brand-wg{fill:var(--wg-brand)}
 .brand-docker{fill:var(--docker-brand)}
+.brand-xui{fill:none;stroke:var(--xui-brand);stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}
 /* На цветных плашках метрик дашборда кит остаётся монохромным:
    фирменный голубой спорил бы с зелёным градиентом */
 .metric-card .metric-icon .brand-icon{fill:currentColor}

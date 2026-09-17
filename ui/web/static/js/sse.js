@@ -1,10 +1,12 @@
 import { state, setServers } from './state.js';
-import { applyEventsSnapshot } from './monitor.js?v=20260913-hostkey-v2';
+import { applyEventsSnapshot } from './monitor.js?v=20260915-taskfail-v2';
 
 let es = null;
 let notificationsRefresh = null;
 let taskHistoryRevision = null;
 let securityRevision = null;
+let xuiCacheRevision = null;
+let onlineById = null;   // id -> true/false (до первого снапшота — null)
 
 export function registerNotificationsRefresh(handler) {
   notificationsRefresh = typeof handler === 'function' ? handler : null;
@@ -48,6 +50,18 @@ export function stopSSE() {
 
 function applySnapshot(data) {
   if (data.servers) {
+    // Смена online/offline любого сервера — отдельное событие: страницы
+    // сервисов (WG/Docker) перечитывают список, чтобы оффлайн-строки были
+    // актуальны без захода на страницу «Серверы».
+    const nextOnline = new Map(data.servers.map(s => [s.id, `${s.online}|${s.port_ok ?? ''}`]));
+    if (onlineById) {
+      let changed = false;
+      for (const [id, online] of nextOnline) {
+        if (onlineById.get(id) !== online) { changed = true; break; }
+      }
+      if (changed) window.dispatchEvent(new CustomEvent('bot4vps:availability-changed'));
+    }
+    onlineById = nextOnline;
     const previousById = new Map(state.servers.map(server => [server.id, server]));
     setServers(data.servers.map(s => {
       const previous = previousById.get(s.id) || {};
@@ -60,7 +74,7 @@ function applySnapshot(data) {
         has_running: !!s.has_running,
       };
     }));
-    import('./servers.js?v=20260913-hostkey-v2').then(m => {
+    import('./servers.js?v=20260915-sysfix-v2').then(m => {
       if (state.page === 'servers' && m.renderServersFromState) m.renderServersFromState();
     }).catch(() => {});
   }
@@ -72,7 +86,7 @@ function applySnapshot(data) {
       && data.task_history_revision !== taskHistoryRevision) {
     taskHistoryRevision = data.task_history_revision;
     if (state.page === 'queues') {
-      import('./servers.js?v=20260913-hostkey-v2').then(m => {
+      import('./servers.js?v=20260915-sysfix-v2').then(m => {
         m.loadHistory?.();
       }).catch(() => {});
     }
@@ -86,6 +100,12 @@ function applySnapshot(data) {
     // сессии Web — Настройки перечитывают карточки «Безопасность».
     if (known) window.dispatchEvent(new CustomEvent('bot4vps:security-changed'));
   }
+  if (data.xui_cache_revision
+      && data.xui_cache_revision !== xuiCacheRevision) {
+    const known = xuiCacheRevision !== null;
+    xuiCacheRevision = data.xui_cache_revision;
+    if (known) window.dispatchEvent(new CustomEvent('bot4vps:xui-cache-changed'));
+  }
   if (data.events) {
     // Не перетираем раскрытый список коротким срезом — мержим в кэш и
     // рендерим с учётом выбранного пользователем лимита (см. monitor.js).
@@ -94,7 +114,7 @@ function applySnapshot(data) {
     }
     // Открытая карточка сервера — обновить блок «Недавние события»
     if (state.page === 'server') {
-      import('./servers.js?v=20260913-hostkey-v2').then(m => {
+      import('./servers.js?v=20260915-sysfix-v2').then(m => {
         if (m.refreshOpenServerEvents) m.refreshOpenServerEvents();
         else if (m.openServerId) {
           // fallback: модуль мог ещё не экспортировать helper

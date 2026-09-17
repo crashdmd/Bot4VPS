@@ -26,7 +26,7 @@ from core import integrator
 from core.integrator import get_manifest, list_services
 from core.storage import find_server, load_servers
 from core.task_manager import task_manager
-from state import SERVICE_INSTALL_STATE
+from state import SERVICE_INSTALL_STATE, XUI_TG_STATE
 from ui.telegram import task_ui
 
 from .services._shared import (
@@ -322,6 +322,15 @@ async def process_service_callback(query, data: str) -> bool:
         and _parse_svc(data)[0] in _WIZARD_OPS | {"install"}
     ):
         SERVICE_INSTALL_STATE.pop(query.from_user.id, None)
+
+    xui_state = XUI_TG_STATE.get(query.from_user.id)
+    if xui_state and xui_state.get("flow") == "install":
+        if not (
+            data.startswith("svc:")
+            and _parse_svc(data)[0].startswith("xui_i_")
+            and _parse_svc(data)[1] == "3x-ui"
+        ):
+            XUI_TG_STATE.pop(query.from_user.id, None)
 
     # --- prefix-маршруты (хабы) ---
     if data.startswith("tasks_svc_check:"):

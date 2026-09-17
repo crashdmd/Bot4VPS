@@ -82,6 +82,15 @@ def save_new_server(
     servers.append(server)
     save_servers(servers)
 
+    # Доменный адрес: сразу резолвим host_ip в monitor.json — IP в списке
+    # «Серверы» не должен ждать тика system_sync. Best-effort: сбой DNS
+    # не должен ломать создание сервера.
+    try:
+        from core.monitor import refresh_domain_ips
+        refresh_domain_ips([server])
+    except Exception as e:
+        print(f"[WIZARD] host_ip on create: {e}", flush=True)
+
     return server["id"]
 
 

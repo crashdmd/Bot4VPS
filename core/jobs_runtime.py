@@ -94,6 +94,64 @@ def get_core_queue():
     return _core_queue
 
 
+# Автопроверка сервисов (WG/Docker/3x-ui/…): общий проход по всем серверам.
+# Один SSH-коннект на сервер — все сервисы за раз; кэш каждого сервиса
+# обновляется отдельно. Кнопки «Проверить все серверы» в UI больше не нужны.
+SERVICES_SYNC_INTERVAL = 15 * 60
+# серверов одновременно (SSH-хендшейки + пробы не должны упираться в лимиты)
+SERVICES_SYNC_CONCURRENCY = 5
+
+
+async def services_sync_job(_context=None) -> None:
+    """Пройти все серверы и обновить состояние всех сервисов в кэш.
+
+    Тихий: события/уведомления не создаёт (кэш читают списки UI).
+    Недоступный сервер пропускается с записью в лог — проход продолжается.
+    """
+    from core import integrator
+    from core.storage import load_servers
+
+    servers = load_servers()
+    if not servers:
+        return
+    sem = asyncio.Semaphore(SERVICES_SYNC_CONCURRENCY)
+
+    async def _one(server: dict) -> None:
+        async with sem:
+            try:
+                await integrator.sync_server_services(server["id"])
+            except Exception as e:
+                print(
+                    f"[JOBS] services_sync {server.get('name') or server['id']}: {e}",
+                    flush=True,
+                )
+
+    await asyncio.gather(*(_one(s) for s in servers))
+
+
+def schedule_services_sync(server_id: str) -> None:
+    """Разовая синхронизация сервисов ОДНОГО сервера в фоне (fire-and-forget).
+
+    Вызывается при создании сервера (Web/TG): списки и карточки сразу видят,
+    что установлено (WG/Docker/3x-ui), не дожидаясь тика services_sync
+    (до 15 минут). Недоступный сервер — просто запись в лог, вызывающего
+    не касается. Без запущенного event loop — тихий no-op.
+    """
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return
+
+    async def _run() -> None:
+        from core import integrator
+        try:
+            await integrator.sync_server_services(server_id)
+        except Exception as e:
+            print(f"[JOBS] services_sync once {server_id}: {e}", flush=True)
+
+    loop.create_task(_run())
+
+
 async def start_core_jobs() -> CoreJobQueue:
     """Поднять очередь ядра и спланировать jobs мониторинга.
 
@@ -122,7 +180,21 @@ async def start_core_jobs() -> CoreJobQueue:
         name="tls_renew",
     )
 
-    print("[JOBS] ядерная JobQueue запущена (system_sync + мониторинг + tls_renew)", flush=True)
+    # Автопроверка сервисов на всех серверах: первый прогон скоро после
+    # старта (страницы сразу свежие), далее каждые 15 минут. Ручные входы
+    # (кнопки на карточках, post-action sync в _svc_executor) остаются.
+    queue.run_repeating(
+        services_sync_job,
+        interval=SERVICES_SYNC_INTERVAL,
+        first=30,
+        name="services_sync",
+    )
+
+    print(
+        "[JOBS] ядерная JobQueue запущена "
+        "(system_sync + мониторинг + tls_renew + services_sync)",
+        flush=True,
+    )
     return queue
 
 

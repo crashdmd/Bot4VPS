@@ -3,7 +3,8 @@
  * Без Task Manager — операции идут синхронно через API ядра.
  */
 import { j, esc } from './api.js';
-import { showPage, toast, confirmAction, formatServerDateTime } from './ui.js';
+import { showPage, toast, confirmAction, formatServerDateTime, parseEmoji } from './ui.js';
+import { bindEmojiPicker } from './emoji_picker.js?v=20260915-emojipick-v1';
 import {
   state,
   setPage,
@@ -162,10 +163,16 @@ function row(label, value, actionsHtml = '') {
 function renderSystem(sys, d, local) {
   const name = local?.name ?? d?.name;
   const group = local?.group ?? d?.group;
+  // Имя — с кнопкой эмодзи (🙂), как в модалке добавления сервера:
+  // общий пикер emoji_picker.js, тот же набор флагов и эмодзи.
   const nameRow = `<div class="qs-row qs-setting-row">
     <span class="qs-row-label"><strong>Имя</strong><small>отображается в списке серверов</small></span>
     <span class="qs-row-value qs-setting-control">
-      <input id="qs-set-name" value="${esc(String(name || ''))}" style="width:11rem" maxlength="64">
+      <div class="pw-wrap af-name-wrap">
+        <input id="qs-set-name" value="${esc(String(name || ''))}" style="width:11rem" maxlength="64">
+        <button type="button" class="eye af-emoji-btn" id="qs-set-emoji-btn" title="Вставить эмодзи">🙂</button>
+        <div class="af-emoji-pop hidden" id="qs-set-emoji-pop"></div>
+      </div>
       <button type="button" class="qs-compact" id="qs-set-name-btn">Сохранить</button>
     </span>
   </div>`;
@@ -188,7 +195,7 @@ function renderSystem(sys, d, local) {
     <span class="qs-row-value qs-setting-control">
       <input type="checkbox" id="qs-set-cert"${sslEnabled ? ' checked' : ''}>
       <span class="qs-ssl-host${sslEnabled ? '' : ' hidden'}" id="qs-set-ssl-wrap">
-        <input id="qs-set-ssl" value="${esc(String(local?.ssl_host || ''))}" style="width:9.5rem" maxlength="255" placeholder="domain.com">
+        <input id="qs-set-ssl" value="${esc(String(local?.ssl_host || (sslEnabled ? sslPrefillHost() : '')))}" style="width:9.5rem" maxlength="255" placeholder="domain.com">
         <button type="button" class="qs-compact" id="qs-set-ssl-btn">Сохранить</button>
       </span>
     </span>
@@ -1032,6 +1039,8 @@ function bindActions() {
   document.getElementById('qs-btn-upgrade')?.addEventListener('click', onUpgrade);
   document.getElementById('qs-set-name-btn')?.addEventListener('click', onSetName);
   document.getElementById('qs-set-group-btn')?.addEventListener('click', onSetGroup);
+  // Эмодзи у поля имени: общий пикер с модалкой добавления сервера
+  bindEmojiPicker({ inputId: 'qs-set-name', btnId: 'qs-set-emoji-btn', popId: 'qs-set-emoji-pop' });
   document.getElementById('qs-set-name')?.addEventListener('keydown', e => {
     if (e.key === 'Enter') onSetName();
   });
@@ -1127,12 +1136,12 @@ async function onSetName() {
   if (!name) { showContextToast(context, 'Имя не может быть пустым', false); return; }
   setBusy(true, context);
   try {
-    await requestForContext(context,
+    const r = await requestForContext(context,
       `/api/servers/${encodeURIComponent(context.serverId)}`,
       { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) },
     );
     showContextToast(context, 'Имя сохранено', true);
-    await reloadOverview({ updates: false }, context);
+    refreshLocalFromPatch(context, r.server);
   } catch (e) {
     showContextToast(context, e.message || 'Не удалось сохранить имя', false);
   } finally {
@@ -1146,12 +1155,12 @@ async function onSetGroup() {
   const group = document.getElementById('qs-set-group')?.value || '';
   setBusy(true, context);
   try {
-    await requestForContext(context,
+    const r = await requestForContext(context,
       `/api/servers/${encodeURIComponent(context.serverId)}`,
       { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ group }) },
     );
     showContextToast(context, 'Группа сохранена', true);
-    await reloadOverview({ updates: false }, context);
+    refreshLocalFromPatch(context, r.server);
   } catch (e) {
     showContextToast(context, e.message || 'Не удалось сохранить группу', false);
   } finally {
@@ -1163,13 +1172,65 @@ async function onSetGroup() {
 function syncSslRow(on) {
   const wrap = document.getElementById('qs-set-ssl-wrap');
   if (wrap) wrap.classList.toggle('hidden', !on);
-  if (on) setTimeout(() => document.getElementById('qs-set-ssl')?.focus(), 50);
+  if (on) {
+    const input = document.getElementById('qs-set-ssl');
+    // Пустое поле при включении выглядит как «ничего не произошло»,
+    // хотя проверка и так ушла бы по host: сразу показываем домен
+    // сервера (если host — домен, а не IP).
+    if (input && !input.value.trim()) {
+      const prefill = sslPrefillHost();
+      if (prefill) input.value = prefill;
+    }
+    setTimeout(() => document.getElementById('qs-set-ssl')?.focus(), 50);
+  }
+}
+
+// Домен для подстановки в поле SSL: host сервера, если он сам домен.
+// IP-адрес (v4/v6) не подставляем — нужен отдельный домен пользователя.
+function sslPrefillHost() {
+  const host = String(lastOverview?.host || '').trim();
+  if (!host || /^\d+\.\d+\.\d+\.\d+$/.test(host) || host.includes(':')) return '';
+  return host;
+}
+
+// Перерисовать только секцию «Система» (и шапку) из ответа PATCH локальных
+// полей — имя/группа/SSL. Полный reloadOverview после таких правок не
+// нужен: он заново гоняет SSH-диагностику всех модулей (секунды) ради
+// смены локального поля.
+function refreshLocalFromPatch(context, server) {
+  if (!contextIsCurrent(context) || !server) return;
+  if (lastOverview) {
+    lastOverview.server_name = server.name || lastOverview.server_name;
+    const nameEl = document.getElementById('qs-server-name');
+    if (nameEl) {
+      nameEl.textContent = lastOverview.server_name;
+      // имя с эмодзи: textContent не порождает element-ноду,
+      // emoji-observer его не видит — парсим явно
+      parseEmoji(nameEl);
+    }
+    const local = lastOverview.local_settings;
+    if (local) {
+      if (server.name !== undefined) local.name = server.name;
+      if (server.group !== undefined) local.group = server.group;
+      local.ssl_enabled = !!server.certificate_check;
+      local.ssl_host = server.ssl_host || '';
+    }
+  }
+  const el = document.getElementById('qs-sec-system');
+  if (el) {
+    const tmp = document.createElement('div');
+    tmp.innerHTML = renderSystem(lastOverview?.system, lastOverview?.diagnostics, lastOverview?.local_settings);
+    el.replaceWith(tmp.firstElementChild);
+    bindActions();
+    applyQsSection();
+  }
 }
 
 // Чекбокс «Проверять SSL» — как в старой модалке «Изменить настройки»:
 // PATCH certificate_check (сервер заодно пересобирает сертификат в
-// monitor.json). При включении отправляем домен как есть: пустая строка
-// на сервере означает «удалить домен» (проверка по host).
+// monitor.json — уже в фоне, ответ не ждёт DNS+TLS). При включении
+// отправляем домен как есть: пустая строка на сервере означает
+// «удалить домен» (проверка по host).
 async function onSetSslCheck() {
   const context = captureContext();
   if (busy || !context) return;
@@ -1181,12 +1242,12 @@ async function onSetSslCheck() {
     : { certificate_check: false };
   setBusy(true, context);
   try {
-    await requestForContext(context,
+    const r = await requestForContext(context,
       `/api/servers/${encodeURIComponent(context.serverId)}`,
       { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) },
     );
     showContextToast(context, on ? 'Проверка SSL включена' : 'Проверка SSL выключена', true);
-    await reloadOverview({ updates: false }, context);
+    refreshLocalFromPatch(context, r.server);
   } catch (e) {
     showContextToast(context, e.message || 'Не удалось сохранить настройку SSL', false);
     if (box) box.checked = !on; // вернуть видимое состояние к сохранённому
@@ -1205,12 +1266,12 @@ async function onSetSslHost() {
   const host = (document.getElementById('qs-set-ssl')?.value || '').trim();
   setBusy(true, context);
   try {
-    await requestForContext(context,
+    const r = await requestForContext(context,
       `/api/servers/${encodeURIComponent(context.serverId)}`,
       { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ certificate_check: true, ssl_host: host }) },
     );
     showContextToast(context, host ? 'Домен SSL сохранён' : 'Домен удалён — проверка по host', true);
-    await reloadOverview({ updates: false }, context);
+    refreshLocalFromPatch(context, r.server);
   } catch (e) {
     showContextToast(context, e.message || 'Не удалось сохранить домен SSL', false);
   } finally {

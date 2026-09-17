@@ -114,14 +114,36 @@ async def api_service_status(sid: str):
     no-store обязателен: UI перерисовывает кнопки сразу после установки/удаления
     сервиса, а браузер иначе отдаёт сохранённый ответ этого же GET со старым
     installed — кнопка остаётся в прежнем состоянии.
+
+    online — доступность сервера из того же availability-кэша, что и страница
+    «Серверы» (core.monitor); port_ok — доступен ли SSH-порт. Страницы сервисов
+    блокируют работу, когда port_ok=false (или online=false, если порт ещё не
+    проверяли). None = ещё не проверяли.
     """
     try:
         from core import integrator
         from core.storage import load_servers
+        from core.monitor import load_monitor
+        monitor = load_monitor()
         rows = []
         for s in load_servers():
             status = await integrator.call(sid, s["id"], "get_status") or {}
-            rows.append({"id": s["id"], "name": s["name"], "host": s.get("host", ""), "status": status})
+            monitor_entry = monitor.get(s["id"]) or {}
+            avail = monitor_entry.get("availability") or {}
+            rows.append({
+                "id": s["id"],
+                "name": s["name"],
+                "host": s.get("host", ""),
+                # Резолвенный IP из monitor.json: UI-потребителям не нужно
+                # снова ходить в DNS только ради автоподстановки адреса.
+                "host_ip": monitor_entry.get("host_ip"),
+                # online — сеть в целом (как на странице «Серверы»);
+                # port_ok — доступен ли SSH-порт: страницы сервисов (WG/Docker/
+                # 3x-ui) блокируют работу при false, даже если сеть жива.
+                "online": avail.get("online"),
+                "port_ok": avail.get("port_ok"),
+                "status": status,
+            })
         return JSONResponse(
             {"servers": rows},
             headers={"Cache-Control": "no-store, must-revalidate"},
@@ -162,6 +184,44 @@ async def api_service_images(sid: str, server_id: str):
         raise
     except Exception as e:
         return err(e)
+
+
+@router.get("/api/services/{sid}/{server_id}/images/pulling")
+async def api_service_images_pulling(sid: str, server_id: str):
+    """Активные загрузки образов (Docker): снимок pull_progress из памяти.
+
+    Лёгкий поллинг вкладки «Образы» — без SSH: единственный наблюдатель
+    прогресса загрузки — задача, которая её выполняет, и она уже пишет
+    проценты в реестр. Для остальных сервисов — пусто.
+    """
+    if sid != "docker":
+        return {"pulling": []}
+    from services.docker.impl import pull_progress
+    return {"pulling": pull_progress.snapshot(server_id)}
+
+
+class ImageCancelBody(BaseModel):
+    image: str
+
+
+@router.post("/api/services/{sid}/{server_id}/images/cancel")
+async def api_service_images_cancel(sid: str, server_id: str, body: ImageCancelBody):
+    """Отменить активную загрузку образа (кнопка ✕ на вкладке «Образы»).
+
+    Убивает процесс загрузки на сервере SSH-клиентом самой задачи (новое
+    подключение не открывается); выполняющаяся задача видит обрыв и
+    завершается «Отменено пользователем». False — загрузка уже закончилась.
+    """
+    if sid != "docker":
+        return {"cancelled": False}
+    image = (body.image or "").strip()
+    if not image:
+        return {"cancelled": False}
+    import asyncio
+
+    from services.docker.impl import images
+    cancelled = await asyncio.to_thread(images.cancel_pull, server_id, image)
+    return {"cancelled": cancelled}
 
 
 @router.get("/api/services/{sid}/{server_id}/stacks")
@@ -512,6 +572,46 @@ async def api_service_sync(sid: str, server_id: str):
         data = await integrator.sync(sid, server_id)
         return {"ok": True, "status": data}
     except ValueError as e:
+        raise HTTPException(400, str(e))
+    except HTTPException:
+        raise
+    except Exception as e:
+        return err(e)
+
+
+class QuickActionBody(BaseModel):
+    params: Optional[dict] = None
+
+
+@router.post("/api/services/{sid}/{server_id}/action/{action}")
+async def api_service_quick_action(sid: str, server_id: str, action: str, body: QuickActionBody):
+    """Быстрое действие карточки сервиса (без очереди задач).
+
+    Контракт: у сервиса должен быть метод ``card_<action>`` — префикс и
+    есть граница доверия. do_* (тяжёлые: install/update/remove) сюда не
+    проходят принципиально — они только через ``enqueue/{action}``.
+    После мутации — sync кэша (ошибка sync не глотаем, отдаём в ответе)."""
+    import re as _re
+    if not _re.fullmatch(r"[a-z0-9_]{1,64}", action or ""):
+        raise HTTPException(400, "Недопустимое имя действия")
+    try:
+        from core import integrator
+        from core.integrator import StepError
+        try:
+            res = await integrator.call(
+                sid, server_id, f"card_{action}", body.params or {},
+            )
+        except StepError as e:
+            raise HTTPException(400, _step_error_message(e))
+        out = res if isinstance(res, dict) else {"success": bool(res)}
+        if integrator.card_action_requires_sync(sid, action):
+            sync_info = await _sync_after(sid, server_id)
+            out.update(sync_info)
+        return out
+    except ValueError as e:
+        # метод card_* не найден — неизвестное действие
+        if "не найден" in str(e):
+            raise HTTPException(404, str(e))
         raise HTTPException(400, str(e))
     except HTTPException:
         raise
@@ -946,5 +1046,126 @@ async def api_service_bulk_check(sid: str):
         raise HTTPException(400, str(e))
     except HTTPException:
         raise
+    except Exception as e:
+        return err(e)
+
+
+# ------------------------------------------------------------------
+# Релизы и превью установки (generic по контракту: методы сервиса)
+# ------------------------------------------------------------------
+
+class ResolveSourceBody(BaseModel):
+    params: Optional[dict] = None
+
+
+@router.post("/api/services/{sid}/{server_id}/resolve-source")
+async def api_service_resolve_source(sid: str, server_id: str, body: ResolveSourceBody):
+    """Превью источника артефакта ДО установки (шаг-превью модалки):
+    tag/source/local_tarball/пометки свежести. Вызывает do_resolve_source
+    контракта (read-only, без очереди). Generic по sid."""
+    try:
+        from core import integrator
+        data = await integrator.call(
+            sid, server_id, "do_resolve_source", body.params or {}
+        )
+        return data if isinstance(data, dict) else {"result": data}
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except HTTPException:
+        raise
+    except Exception as e:
+        return err(e)
+
+
+@router.get("/api/services/{sid}/{server_id}/install-result")
+async def api_service_install_result(sid: str, server_id: str):
+    """Креды/URL установленной панели (из кэша сервиса, секреты расшифрованы)
+    — финальное окно установки и карточка. Generic по sid: get_install_result."""
+    try:
+        from core import integrator
+        data = await integrator.call(sid, server_id, "get_install_result")
+        return data if isinstance(data, dict) else {"result": data}
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except HTTPException:
+        raise
+    except Exception as e:
+        return err(e)
+
+
+@router.get("/api/services/{sid}/{server_id}/db-export")
+async def api_service_db_export(sid: str, server_id: str):
+    """Скачать резервную копию базы сервиса (.db) на устройство.
+
+    Generic по sid, но метод контракта — card_export_db (3x-ui):
+    возвращает bytes + имя файла; роутер отдаёт их как вложение."""
+    try:
+        from core import integrator
+        data = await integrator.call(sid, server_id, "card_export_db", {})
+        if not isinstance(data, dict) or not isinstance(
+                data.get("data"), (bytes, bytearray)):
+            raise HTTPException(500, "Сервис вернул неожиданный формат экспорта")
+        import urllib.parse
+        fname = str(data.get("filename") or "database.db")
+        quoted = urllib.parse.quote(fname)
+        return Response(
+            content=bytes(data["data"]),
+            media_type="application/octet-stream",
+            headers={
+                "Content-Disposition": f"attachment; filename*=UTF-8''{quoted}",
+            },
+        )
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except HTTPException:
+        raise
+    except Exception as e:
+        return err(e)
+
+
+@router.post("/api/services/{sid}/{server_id}/db-import")
+async def api_service_db_import(
+    sid: str, server_id: str,
+    file: UploadFile = File(...),
+):
+    """Загрузить .db/.dump с устройства для восстановления базы сервиса.
+
+    Файл кладём в data/tmp (одна задача = один файл, задача удаляет его),
+    затем — enqueue db_import с local_path. База подменяется с бэкапом
+    и авторестартом панели (контракт do_db_import)."""
+    import os
+    import secrets
+    from pathlib import Path
+    try:
+        name = file.filename or "import.db"
+        if Path(name).suffix.lower() not in (".db", ".dump"):
+            raise HTTPException(400, "Поддерживаются файлы .db и .dump")
+        data = await file.read()
+        if not data:
+            raise HTTPException(400, "Файл пуст")
+        if len(data) > 5 * 1024 * 1024:
+            raise HTTPException(400, "Максимальный размер — 5 МБ")
+        tmp_dir = Path("data") / "tmp"
+        tmp_dir.mkdir(parents=True, exist_ok=True)
+        # имя генерируем сами: содержимое важнее пользовательского имени,
+        # в local_path допускаем только basename без каталогов
+        local = f"xui-db-import-{secrets.token_hex(8)}.bin"
+        (tmp_dir / local).write_bytes(data)
+        from core import integrator
+        task = await integrator.enqueue(
+            sid, server_id, "db_import", {"local_path": str(tmp_dir / local)},
+            src="web",
+        )
+        from core.task_manager import task_manager
+        return {
+            "ok": True,
+            "task": task_brief(task),
+            "position": task_manager.queue_position(task.id),
+            "ahead": task_manager.tasks_ahead(task.id),
+        }
+    except HTTPException:
+        raise
+    except ValueError as e:
+        raise HTTPException(400, str(e))
     except Exception as e:
         return err(e)

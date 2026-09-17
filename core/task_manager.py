@@ -55,6 +55,9 @@ class TaskResult:
     output: str = ""
     error: Optional[str] = None
     warnings: bool = False
+    # Пользовательская отмена (не сбой): задача завершится статусом CANCELLED
+    # (⚠️, событие WARNING), а не FAILED (❌, CRITICAL-уведомление).
+    cancelled: bool = False
 
 
 # executor(payload, task, progress_cb) -> TaskResult
@@ -191,6 +194,7 @@ class Task:
                 "output": (self.result.output or "")[-4000:],
                 "error": self.result.error,
                 "warnings": self.result.warnings,
+                "cancelled": self.result.cancelled,
             } if self.result else None,
         }
 
@@ -225,6 +229,7 @@ class Task:
                 output=str(result_data.get("output") or ""),
                 error=result_data.get("error"),
                 warnings=bool(result_data.get("warnings")),
+                cancelled=bool(result_data.get("cancelled")),
             )
 
         payload = data.get("payload") or {}
@@ -622,6 +627,12 @@ class TaskManager:
                         if (result.warnings or result.exit_code == 30)
                         else TaskStatus.SUCCESS
                     )
+                elif result.cancelled:
+                    # Отмена исполнителем (например, кнопка «✕» на загрузке
+                    # образа): это решение пользователя, а не сбой — без
+                    # CRITICAL-события и без записи в failure-стрик очереди.
+                    task.status = TaskStatus.CANCELLED
+                    task.error = result.error or "Отменено пользователем"
                 else:
                     task.status = TaskStatus.FAILED
                     task.error = result.error or f"exit {result.exit_code}"

@@ -33,6 +33,7 @@ from core.storage import find_server
 from core.task_manager import TaskResult
 
 from . import compose, compose_store, containers, images, lifecycle, stats
+from .images import PullCancelled
 
 
 class Service(BaseService):
@@ -72,15 +73,49 @@ class Service(BaseService):
             + ", ".join(runner.completed),
         )
 
-    def _read_live(self, server_id: str) -> Dict[str, Any]:
+    async def do_daemon_stop(
+        self, server_id: str, params: Dict[str, Any],
+        progress_cb: Callable[[str], Awaitable[None]],
+    ) -> TaskResult:
+        server = find_server(server_id)
+        if not server:
+            return TaskResult(success=False, error="Сервер не найден")
+        async with sync_progress(progress_cb) as emit:
+            runner = await asyncio.to_thread(lifecycle.daemon_stop, server, emit)
+        return TaskResult(
+            success=True,
+            output="Демон Docker остановлен (запущенные контейнеры продолжают "
+            "работать). Шаги: " + ", ".join(runner.completed),
+        )
+
+    async def do_daemon_start(
+        self, server_id: str, params: Dict[str, Any],
+        progress_cb: Callable[[str], Awaitable[None]],
+    ) -> TaskResult:
+        server = find_server(server_id)
+        if not server:
+            return TaskResult(success=False, error="Сервер не найден")
+        async with sync_progress(progress_cb) as emit:
+            runner = await asyncio.to_thread(lifecycle.daemon_start, server, emit)
+        return TaskResult(
+            success=True,
+            output="Демон Docker запущен. Шаги: " + ", ".join(runner.completed),
+        )
+
+    def _read_live(self, server_id: str, ssh=None) -> Dict[str, Any]:
         """Единое read-only живое чтение: версия Docker + статус демона + список
         контейнеров со статистикой (Phase 2). Ничего не пишет в кэш — это делает
         фреймворк sync() после do_sync. Используется и do_sync (→ кэш), и
-        get_state (→ живой ответ без кэша)."""
+        get_state (→ живой ответ без кэша).
+
+        ``ssh``: готовое соединение (общий фоновый job проверяет все сервисы
+        сервера за один коннект) — тогда не создаём и не закрываем своё."""
         server = find_server(server_id)
         if not server:
             return {"installed": False, "error": "Сервер не найден"}
-        ssh = create_ssh_client(server)
+        own = ssh is None
+        if own:
+            ssh = create_ssh_client(server)
         try:
             _, ver, _ = exec_sudo(
                 ssh, server,
@@ -146,14 +181,23 @@ class Service(BaseService):
                 c["service_url"] = urls[0]["url"] if urls else ""
             # Phase 4: добавить список образов (только если демон активен)
             images_list: List[Dict[str, Any]] = []
+            volumes_count = 0
             if installed and active == "active":
                 images_list = images.list_images(server)
+                _, vol_out, _ = exec_sudo(
+                    ssh, server, "docker volume ls -q 2>/dev/null | wc -l",
+                )
+                try:
+                    volumes_count = int(vol_out.strip() or 0)
+                except ValueError:
+                    volumes_count = 0
             running = sum(1 for c in containers_list if c.get("state") == "running")
             stats_summary = {
                 "total": len(containers_list),
                 "running": running,
                 "managed": sum(1 for c in containers_list if c.get("managed")),
                 "images": len(images_list),
+                "volumes": volumes_count,
             }
             # Задачи здесь НЕ отдаём: их место — меню «Очереди» (/api/queues).
             # core не должен зависеть от ui.web.
@@ -166,11 +210,12 @@ class Service(BaseService):
                 "stats": stats_summary,
             }
         finally:
-            ssh.close()
+            if own:
+                ssh.close()
 
-    async def do_sync(self, server_id: str) -> Dict[str, Any]:
+    async def do_sync(self, server_id: str, ssh=None) -> Dict[str, Any]:
         try:
-            data = await asyncio.to_thread(self._read_live, server_id)
+            data = await asyncio.to_thread(self._read_live, server_id, ssh)
         except Exception as e:
             data = {"installed": False, "error": str(e)}
         # integrator.sync() переписывает кэш ЦЕЛИКОМ (write_cache), а не
@@ -212,7 +257,11 @@ class Service(BaseService):
         if not server:
             return TaskResult(success=False, error="Сервер не найден")
         async with sync_progress(progress_cb) as emit:
-            info = await asyncio.to_thread(containers.run_container, server, params, emit)
+            try:
+                info = await asyncio.to_thread(containers.run_container, server, params, emit)
+            except PullCancelled as e:
+                # Кнопка «✕» на вкладке «Образы»: docker run не выполнялся.
+                return TaskResult(success=False, error=str(e), cancelled=True)
         return TaskResult(
             success=True,
             output=f"Контейнер «{info['name']}» запущен из образа {info['image']}.",
@@ -513,9 +562,13 @@ class Service(BaseService):
             )
         key = params.get("key") or None
         async with sync_progress(progress_cb) as emit:
-            dep = await asyncio.to_thread(
-                fn, server, stack, emit, source, key
-            )
+            try:
+                dep = await asyncio.to_thread(
+                    fn, server, stack, emit, source, key
+                )
+            except PullCancelled as e:
+                # Кнопка «✕» на вкладке «Образы»: up -d не выполнялся.
+                return TaskResult(success=False, error=str(e), cancelled=True)
         where = dep.working_dir if hasattr(dep, "working_dir") else ""
         suffix = f" ({where})" if where else ""
         name = dep.project if hasattr(dep, "project") else stack
@@ -606,7 +659,10 @@ class Service(BaseService):
             return TaskResult(success=False, error="Сервер не найден")
         image = str(params.get("image") or "").strip()
         async with sync_progress(progress_cb) as emit:
-            result_image = await asyncio.to_thread(images.pull_image, server, image, emit)
+            try:
+                result_image = await asyncio.to_thread(images.pull_image, server, image, emit)
+            except PullCancelled as e:
+                return TaskResult(success=False, error=str(e), cancelled=True)
         return TaskResult(
             success=True,
             output=f"Образ «{result_image}» загружен.",
@@ -644,6 +700,31 @@ class Service(BaseService):
     def get_actions(self, server_id: str) -> List[ServiceAction]:
         status = self.get_status(server_id) or {}
         installed = bool(status.get("installed"))
+        # Пустой server_id — служебный вызов из resolve_task_title (имя задачи
+        # в очереди): сервер не нужен, отдаём полный каталог всех действий
+        # (установку, действия вкладок и удаление), чтобы task_title резолвился
+        # всегда — раньше «Docker: install» оставалось сырым именем.
+        if not server_id:
+            return [
+                ServiceAction("install", "🟢 Установить", style="primary", task_title="установка"),
+                ServiceAction("sync", "🔵 Синхронизировать", task_title="синхронизация"),
+                ServiceAction("container_run", "➕ Запустить контейнер", task_title="запуск контейнера"),
+                ServiceAction("container_start", "▶ Запустить контейнер", task_title="запуск контейнера"),
+                ServiceAction("container_stop", "⏹ Остановить контейнер", task_title="остановка контейнера"),
+                ServiceAction("container_restart", "🔄 Перезапустить контейнер", task_title="перезапуск контейнера"),
+                ServiceAction("container_rm", "🗑 Удалить контейнер", task_title="удаление контейнера"),
+                ServiceAction("image_pull", "⬇️ Загрузить образ", task_title="загрузка образа"),
+                ServiceAction("image_rm", "🗑 Удалить образ", task_title="удаление образа"),
+                ServiceAction("image_prune", "🧹 Очистить неиспользуемые образы", task_title="очистка неиспользуемых образов"),
+                ServiceAction("compose_up", "🧩 Запустить стек", task_title="запуск стека"),
+                ServiceAction("compose_down", "⏹ Остановить стек", task_title="остановка стека"),
+                ServiceAction("compose_restart", "🔄 Перезапустить / применить", task_title="перезапуск стека"),
+                ServiceAction("compose_import", "⬇️ Импорт стека с сервера", task_title="импорт стека"),
+                ServiceAction("compose_delete_remote", "🗑 Удалить стек с сервера", task_title="удаление стека с сервера"),
+                ServiceAction("daemon_stop", "⏹ Остановить демон Docker", task_title="остановка демона Docker"),
+                ServiceAction("daemon_start", "▶ Запустить демон Docker", task_title="запуск демона Docker"),
+                ServiceAction("confirm_remove", "🗑 Удалить сервис", style="danger", task_title="удаление"),
+            ]
         items: List[ServiceAction] = []
         if not installed:
             items.append(ServiceAction(
@@ -684,6 +765,14 @@ class Service(BaseService):
         items.append(ServiceAction(
             "compose_delete_remote", "🗑 Удалить стек с сервера", group="compose",
             task_title="удаление стека с сервера",
+        ))
+        items.append(ServiceAction(
+            "daemon_stop", "⏹ Остановить демон Docker",
+            task_title="остановка демона Docker",
+        ))
+        items.append(ServiceAction(
+            "daemon_start", "▶ Запустить демон Docker",
+            task_title="запуск демона Docker",
         ))
         items.append(ServiceAction(
             "confirm_remove", "🗑 Удалить сервис", style="danger", task_title="удаление",

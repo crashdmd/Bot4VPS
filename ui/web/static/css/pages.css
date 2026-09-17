@@ -2141,17 +2141,6 @@ label{
 }
 
 /* WireGuard специфика */
-#wg-tab-manage{
-  align-items:start;
-}
-#wg-tab-manage .card-actions{
-  justify-content:flex-start;
-}
-#wg-tab-manage .card-actions button{
-  flex:0 1 auto;
-  min-width:max-content;
-  white-space:nowrap;
-}
 
 /* Docker специфика */
 .docker-card-info{
@@ -2493,6 +2482,10 @@ label{
 .svc-card-actions input[type=search]{
   min-width:160px;padding:.4rem .6rem;border-radius:6px;border:1px solid var(--border);background:var(--field);color:var(--text);
 }
+/* фильтр статуса контейнеров в шапке карточки Docker — в тон строке поиска */
+.svc-card-actions select{
+  padding:.4rem .6rem;border-radius:6px;border:1px solid var(--border);background:var(--field);color:var(--text);
+}
 .svc-stats-grid{
   display:grid;grid-template-columns:1fr 1fr;gap:.75rem;
 }
@@ -2517,8 +2510,12 @@ label{
 .svc-side-actions{display:flex;flex-direction:column;gap:.5rem}
 .svc-action{
   display:flex;flex-direction:column;align-items:flex-start;gap:.15rem;
-  text-align:left;width:100%;padding:.7rem .8rem;border-radius:8px;
+  text-align:left;width:100%;min-width:0;max-width:100%;box-sizing:border-box;
+  white-space:normal;padding:.7rem .8rem;border-radius:8px;
   border:1px solid var(--border);background:var(--card);color:var(--text);cursor:pointer;
+}
+.svc-action b,.svc-action span{
+  min-width:0;max-width:100%;white-space:normal;overflow-wrap:anywhere;
 }
 .svc-action:hover{border-color:var(--border-hover,var(--accent))}
 .svc-action b{font-size:.9rem}
@@ -2651,6 +2648,12 @@ label{
   grid-template-columns:1fr 1fr;
   gap:.6rem;
 }
+/* stats: 3 mini-cards в один ряд (Docker: контейнеры/образы/тома) */
+.svc-stats-grid-3{
+  display:grid;
+  grid-template-columns:repeat(3,minmax(0,1fr));
+  gap:.6rem;
+}
 .svc-stat-card{
   border:1px solid var(--border);
   border-radius:8px;
@@ -2721,6 +2724,23 @@ label{
 .info-row .info-value{
   min-width:0;
 }
+
+.fakesite-path{margin-top:.55rem}
+.fakesite-path:first-child{margin-top:0}
+.fakesite-path-label{display:block;margin-bottom:.25rem}
+.fakesite-path-box{
+  display:grid;
+  grid-template-columns:minmax(0,1fr) auto;
+  align-items:center;
+  gap:.35rem;
+  padding:.3rem .35rem .3rem .5rem;
+  border:1px solid var(--border);
+  border-radius:.35rem;
+  background:var(--field);
+  min-width:0;
+}
+.fakesite-path-box .mono{min-width:0;overflow-wrap:anywhere}
+.fakesite-path-box .secondary{padding:.13rem .32rem;line-height:1}
 
 .svc-profiles .svc-card-head{flex-shrink:0}
 .svc-profiles .wg-prof-scroll{flex:1 1 auto}
@@ -2852,9 +2872,6 @@ label{
 /* Вкладка «Compose проекты»: единая таблица в общем стиле (как контейнеры).
    Карточка .docker-ct-card и зона прокрутки .docker-ct-scroll общие —
    ограничение по числу строк (--ct-max-rows) наследуется автоматически. */
-.docker-stack-card{
-  margin-top:.8rem;
-}
 .docker-stack-table .col-name{width:30%}
 .docker-stack-table .col-src{width:20%}
 .docker-stack-table .col-status{width:16%}
@@ -2951,6 +2968,18 @@ label{
 .docker-images-table th:nth-child(3),.docker-images-table td:nth-child(3){width:15%}
 .docker-images-table th:nth-child(4),.docker-images-table td:nth-child(4){width:28%}
 .docker-images-table th:nth-child(5),.docker-images-table td:nth-child(5){width:15%;text-align:left}
+/* Идёт загрузка образа: имя сразу, на месте остальных колонок — прогресс-бар.
+   Тот же паттерн, что .backup-progress (трек --field, заполнение --accent). */
+.img-pulling-row td{border-bottom:1px solid var(--border)}
+.img-pulling-cell{display:flex;align-items:center;gap:.6rem}
+.img-pull-track{flex:1 1 auto;min-width:0;height:5px;background:var(--field);border-radius:10px;overflow:hidden}
+.img-pull-fill{display:block;height:100%;background:var(--accent);border-radius:inherit;transition:width .35s ease}
+.img-pull-text{flex:0 0 auto;font-size:.78rem;color:var(--text-dim);font-variant-numeric:tabular-nums;white-space:nowrap}
+/* «✕» справа от строки загрузки: убить загрузку (задача завершится отменой). */
+.img-pull-cancel{flex:0 0 auto;width:22px;height:22px;padding:0;line-height:1;border:none;border-radius:6px;background:transparent;color:var(--text-dim);font-size:.8rem;cursor:pointer}
+.img-pull-cancel:hover:not(:disabled){background:var(--field);color:var(--err)}
+.img-pull-cancel:disabled{opacity:.4;cursor:default}
+.img-pulling-cancelled .img-pull-fill{background:var(--text-dim);transition:none}
 
 /* Docker server detail */
 #docker-srv-widgets{margin:0 0 .2rem}
@@ -2995,6 +3024,84 @@ label{
   /* Лимит по числу строк: (строки + 1 заголовок) × высота строки.
      При 7 строках и 44px → 8 × 44 = 352px. Меньше — таблица не скроллится. */
   max-height:calc((var(--ct-max-rows) + 1) * var(--ct-row-h));
+}
+/* Экран Docker: контент вкладок — левая колонка, «Доп. действия» — правая.
+   Высоту строки задаёт карточка действий: flex-basis:0 у зоны прокрутки не
+   даёт таблице растягивать строку, всё сверх высоты уходит в скролл. */
+.docker-srv-left{display:flex;flex-direction:column;min-width:0;min-height:0}
+.docker-srv-left > div{display:flex;flex-direction:column;flex:1 1 auto;min-height:0}
+.docker-srv-left > div > .info-block{flex:1 1 auto;min-height:0;display:flex;flex-direction:column}
+
+/* Карточка 3x-ui (этап 4): левая колонка main-grid — стопка карточек
+   (Панель/Сервис/Аккаунт/Система), справа — боковые действия. */
+.xui-srv-left{display:flex;flex-direction:column;min-width:0;gap:1rem}
+/* шапка блока «Сертификат»: заголовок слева + https/http-бейдж прижат вправо */
+.xui-cert-head{display:flex;align-items:center;flex-wrap:wrap;gap:.5rem;justify-content:space-between}
+/* «Аккаунт панели» и «Сертификат» на одном уровне: аккаунт слева.
+   align-items по умолчанию (stretch) — блоки пары одной высоты,
+   низ ровный (Access URL в узкой Панели переносится на 2 строки). */
+.xui-srv-pair{display:grid;grid-template-columns:1fr 1fr;gap:1rem}
+/* кнопки Сервиса — сеткой в 2 колонки, как таблица: [Запустить|Рестарт] /
+   [Обновить|Другая версия] / [Логи] — кнопки занимают ячейки целиком,
+   ровно, не гуляют вправо-влево */
+.xui-svc-btns{display:grid;grid-template-columns:1fr 1fr;gap:.45rem}
+.xui-svc-btns .secondary{width:100%}
+/* правая колонка карточки 3x-ui: «Система» сверху, «Доп. действий» под
+   ней, общесеточные пропорции 7fr/3fr */
+.xui-srv-side{display:flex;flex-direction:column;min-width:0;gap:1rem}
+.xui-srv-side .info-block{margin:0}
+/* кнопка BBR — компактная, чтобы строка была в одну строку и «Система»
+   не перерастала по высоте соседний «Сервис» */
+#xui-srv-body [data-xui-bbr]{padding:.15rem .6rem;font-size:.78rem}
+/* команда в полёте: кнопки карточки неактивны до результата (xuiCardBusy) */
+#xui-srv-body.xui-card-busy button{opacity:.55;pointer-events:none;cursor:default}
+@media (max-width:1100px){
+  .xui-srv-pair{grid-template-columns:minmax(0,1fr);min-width:0}
+  .xui-srv-pair > .info-block{min-width:0;max-width:100%}
+}
+.xui-srv-left .info-block{margin:0}
+/* Access URL: длинный адрес переносится — кнопка «Перейти» остаётся
+   на одной высоте с первой строкой адреса, а не центрируется по всему
+   переносу. Кнопка компактная, в размер строки (.85rem). */
+.xui-url-row .info-value{align-items:flex-start;flex-wrap:wrap;justify-content:flex-end}
+.xui-url-row .info-value .secondary{
+  padding:.15rem .6rem;
+  font-size:.78rem;
+}
+
+.docker-srv-left .docker-ct-scroll{
+  flex:1 1 0;
+  max-height:none;
+  min-height:calc(4 * var(--ct-row-h));
+}
+.docker-srv-left .docker-images-card .docker-images-table-wrap{
+  flex:1 1 0;
+  overflow:auto;
+  min-height:9rem;
+}
+/* Кнопки-действия в шапках вкладок (Создать контейнер / Загрузить образ /
+   Игнорируемые / Новый проект) — компактные и одинакового размера.
+   min-width с запасом поверх самой длинной подписи (~187px), height фиксирует
+   разнобой высоты строк из-за полноширинных символов (＋) и эмодзи. */
+.docker-srv-left .svc-card-actions button{
+  padding:.45rem .75rem;font-size:.8rem;gap:.35rem;
+  min-width:12rem;height:2.1rem;
+}
+/* — Мобильная версия страницы Docker-сервера — */
+@media (max-width:640px){
+  /* Три короткие вкладки — ужимаем, чтобы не уходили в горизонтальный скролл */
+  #docker-srv-tabs{gap:.2rem}
+  #docker-srv-tabs button{padding:.55rem .5rem;font-size:.82rem}
+  /* Шапки карточек: поиск на всю ширину, фильтр и кнопки — второй строкой */
+  .docker-srv-left .svc-card-actions{width:100%;gap:.35rem}
+  .docker-srv-left .svc-card-actions input[type=search]{flex:1 1 100%;min-width:0}
+  .docker-srv-left .svc-card-actions select{width:auto;flex:0 1 auto;padding:.4rem .45rem;font-size:.82rem}
+  .docker-srv-left .svc-card-actions button{flex:0 0 auto;padding:.45rem .55rem;font-size:.8rem;min-width:0;height:auto}
+  /* Плитки статистики остаются одним рядом из трёх (у WG аналогично 2×2,
+     а не колонкой), чуть компактнее */
+  .svc-stats-grid-3{grid-template-columns:repeat(3,minmax(0,1fr))}
+  .svc-stat-card{padding:.5rem .45rem}
+  .svc-stat-card .svc-stat-val{font-size:1.05rem}
 }
 .docker-ct-table{
   width:100%;
@@ -3975,7 +4082,24 @@ button.server-host-reveal:hover,button.server-host-reveal:focus-visible{backgrou
 .server-host-copy{display:inline-grid;place-items:center;width:1.25rem;height:1.25rem;min-height:0;padding:0!important;border-radius:.25rem;color:var(--text-dim);font-size:.72rem;line-height:1;flex:0 0 auto}
 button.server-host-copy:hover,button.server-host-copy:focus-visible{background:var(--field);box-shadow:none;color:var(--accent);transform:none}
 .server-host-copy.copied{color:var(--ok);background:var(--ok-bg)}
-.server-host-value{color:var(--text-dim)}
+/* Колонка со «скрытым до клика» значением (IP/Endpoint/URL): фиксируем
+   ширину ЯЧЕЙКИ, а не внутреннего span — в auto-layout таблицы max-width
+   на span не ограничивает min-content колонки, и при показе значения
+   (••• → реальный текст) вся таблица перераспределялась и «дёргалась».
+   width на td алгоритм уважает; эллипсис — на .server-host-value.
+   Проверено headless-замером masked vs revealed: Δ ширины колонки = 0. */
+.server-table td.server-host-cell{width:12rem;max-width:12rem}
+.server-table td.wg-endpoint-cell{width:14rem;max-width:14rem}
+.server-table td.xui-panel-cell{width:34rem;max-width:34rem}
+/* Панель: адрес+⧉ строго под заголовком колонки (слева), «Перейти ↗»
+   прижата вправо внутри ячейки, но не приклеена к краю — отступ справа
+   равен паддингу ячейки (итого ~1.5rem от края таблицы).
+   width:100% обязателен: без него inline-flex сжимается по контенту и
+   space-between не растягивает ячейку (замер: зазор 227px). */
+.xui-panel-content{width:100%;justify-content:space-between;align-items:center}
+.xui-open-btn{margin-right:6.75rem}
+.server-host-value{color:var(--text-dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%;display:inline-block;vertical-align:bottom}
+.server-host-content{min-width:0}
 .server-host-empty{color:var(--text-dim)}
 .server-table-wrap{width:100%;max-height:40.5rem;overflow:auto;overscroll-behavior:contain;scrollbar-gutter:stable;border:1px solid var(--border);border-radius:var(--radius-md);background:var(--panel)}
 .server-table{width:100%;min-width:50rem;border-collapse:collapse;font-size:.85rem}
@@ -4030,6 +4154,245 @@ button.server-host-copy:hover,button.server-host-copy:focus-visible{background:v
   .server-host-cell{grid-column:1;grid-row:2;font-size:.75rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .server-table td:nth-child(3){grid-column:2;grid-row:1 / span 2;align-self:center}
   .server-table td:nth-child(4),.server-table td:nth-child(5),.server-table td:nth-child(6){display:none}
+}
+
+/* ===== WireGuard: список серверов (таблица в паттерне «Серверов») ===== */
+/* Подзаголовок раздела (короткое описание сервиса под h1) */
+.section-sub{margin:.3rem 0 0;color:var(--text-dim);font-size:.85rem;font-weight:400;max-width:44rem}
+/* Заголовок с сортировкой (фильтров нет: имя/статус сортируются) */
+.wg-col-head{display:inline-flex;align-items:center;gap:.25rem}
+/* ===== Фильтр статусов у заголовка «Статус» (Docker/WG/3x-ui) ===== */
+/* Десктоп: кнопка-воронка в потоке, сразу после подписи «Статус».
+   Мобайл: абсолютная привязка к углу th — не сдвигает центрированный
+   заголовок на сетке равных третей. Активный фильтр подсвечен акцентом. */
+.server-table thead th:has(.status-filter-btn){position:relative}
+.server-table thead .status-filter-btn{
+  width:1.45rem;height:1.45rem;padding:0;margin-left:.3rem;flex:0 0 auto;
+  display:inline-flex;align-items:center;justify-content:center;
+  border:1px solid var(--border);border-radius:var(--radius-sm);
+  background:var(--panel);color:var(--text-muted);
+  font-size:.7rem;line-height:1;cursor:pointer;box-shadow:none;
+}
+.server-table thead .status-filter-btn:hover,
+.server-table thead .status-filter-btn:focus-visible{color:var(--text);box-shadow:none}
+.server-table thead .status-filter-btn.on{color:var(--accent);border-color:var(--accent)}
+@media(max-width:640px){
+  .server-table thead .status-filter-btn{
+    position:absolute;right:.15rem;top:50%;transform:translateY(-50%);margin-left:0;
+  }
+  .server-table thead .status-filter-btn:hover,
+  .server-table thead .status-filter-btn:focus-visible{transform:translateY(-50%)}
+}
+/* Попап с чекбоксами: fixed — не обрезается sticky/overflow предками */
+.status-filter-pop{
+  position:fixed;z-index:60;min-width:13rem;max-width:16rem;
+  display:flex;flex-direction:column;gap:.1rem;
+  padding:.4rem;background:var(--bg-base);border:1px solid var(--border);
+  border-radius:var(--radius-md);box-shadow:0 .5rem 1.25rem rgba(0,0,0,.18);
+}
+.status-filter-item{
+  display:flex;align-items:center;gap:.45rem;
+  padding:.32rem .5rem;border-radius:var(--radius-sm);
+  font-size:.82rem;cursor:pointer;user-select:none;
+}
+.status-filter-item:hover{background:var(--accent-soft)}
+.status-filter-item input{margin:0;accent-color:var(--accent)}
+/* Статус/версия/профили: компактные ячейки */
+.wg-status-cell{white-space:nowrap}
+.wg-version-cell,.wg-profiles-cell{color:var(--text-dim);white-space:nowrap}
+/* Объединённая область действия (Установить/Миграция) — кнопка по центру,
+   не на всю ширину объединённых колонок */
+.wg-row-action-cell{text-align:center}
+.wg-row-action{min-height:0;padding:.4rem .9rem!important;font-size:.8rem}
+/* Не установлен / классический конфиг: строка подсвечивается как все,
+   но не ведёт никуда — курсор обычный, фокуса нет
+   (действует только кнопка «Установить»/«Миграция») */
+.wg-row-static{cursor:default}
+.wg-empty-row{padding:1rem .75rem;color:var(--text-dim);text-align:center}
+/* Мобильная раскладка: имя сверху, статус справа, Endpoint (с портом) под
+   именем, Версия/Профили скрыты; область действия — на всю ширину под
+   строкой. Правила ниже по файлу перебивают общие nth-child-правила
+   .server-table. */
+@media(max-width:640px){
+  /* «Статус» — второй заголовок (в «Серверах» order:6 относится к IP) */
+  .server-table.wg-server-table thead th:nth-child(2){order:0}
+  /* Заголовки скрытых на мобиле колонок (Версия/Профили) не показываем */
+  .server-table.wg-server-table thead th:nth-child(3),
+  .server-table.wg-server-table thead th:nth-child(4){display:none}
+  /* Шапка — как на десктопе: строка заголовков с линией снизу (как th
+     на компе), без тёмного блока и рамки-коробки */
+  .server-table.wg-server-table thead{position:static;padding:0 .7rem .45rem;border:0;border-bottom:1px solid var(--border);border-radius:0;background:transparent;box-shadow:none;margin-bottom:.5rem}
+  /* Оставшиеся три заголовка (Имя, Статус, глаз Endpoint) — равные по ширине
+     на всю полосу шапки; выглядят как заголовки, а не кнопки (без рамки/фона) */
+  .server-table.wg-server-table thead tr{gap:.4rem}
+  .server-table.wg-server-table thead th{flex:1 1 0;display:flex}
+  .server-table.wg-server-table thead .wg-col-head,
+  .server-table.wg-server-table thead .server-host-heading{flex:1 1 auto;display:flex;justify-content:center}
+  .server-table.wg-server-table thead th .server-column-sort{
+    flex:1 1 auto;justify-content:center;text-align:center;
+    border:0;background:transparent;box-shadow:none;transform:none;color:var(--text-muted);
+  }
+  .server-table.wg-server-table thead th button.server-column-sort:hover,
+  .server-table.wg-server-table thead th button.server-column-sort:focus-visible{
+    background:transparent;box-shadow:none;transform:none;color:var(--text);
+  }
+  .server-table.wg-server-table thead th .server-column-sort.on{color:var(--accent);background:transparent}
+  .server-table.wg-server-table thead th .server-host-visibility{
+    width:100%;min-height:2rem;border:0;background:transparent;box-shadow:none;transform:none;
+    color:var(--text-muted);justify-content:center;
+  }
+  .server-table.wg-server-table thead th button.server-host-visibility:hover,
+  .server-table.wg-server-table thead th button.server-host-visibility:focus-visible{
+    background:transparent;box-shadow:none;transform:none;color:var(--text);
+  }
+  .server-table.wg-server-table thead th .server-host-visibility.on{color:var(--accent);background:transparent}
+  /* Выравнивание заголовков в тон значениям: Имя — влево, Статус — по центру,
+     Endpoint (глаз) — вправо */
+  .server-table.wg-server-table thead th:nth-child(1) .wg-col-head{justify-content:flex-start}
+  .server-table.wg-server-table thead th:nth-child(1) .server-column-sort{
+    justify-content:flex-start;text-align:left;padding:.15rem 0;white-space:normal;
+  }
+  .server-table.wg-server-table thead th:nth-child(5) .server-host-heading{justify-content:flex-end}
+  .server-table.wg-server-table thead th:nth-child(5) .server-host-visibility{justify-content:flex-end}
+  /* Строка — равные трети, как в шапке (паттерн Docker): имя слева,
+     статус-маркер по центру своего столбца, Endpoint справа — в одну строку.
+     Таблица 3x-ui (строки с td.xui-panel-cell) раскладку не меняет: URL
+     панели остаётся под именем, у неё свой контент. */
+  .server-table.wg-server-table tbody tr:not(:has(td.xui-panel-cell)){
+    grid-template-columns:minmax(0,1fr) minmax(0,1fr) minmax(0,1fr);
+    gap:.25rem .4rem;
+  }
+  .server-table.wg-server-table tbody tr:not(:has(td.xui-panel-cell)) td.wg-status-cell{
+    grid-column:2;grid-row:1;align-self:center;justify-self:center;text-align:center;
+  }
+  .server-table.wg-server-table tbody tr:not(:has(td.xui-panel-cell)) td.wg-endpoint-cell{
+    display:block;grid-column:3;grid-row:1;align-self:center;justify-self:end;text-align:right;
+    font-size:.75rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding-right:.5rem;
+  }
+  .server-table.wg-server-table td.wg-status-cell{grid-column:2;grid-row:1 / span 2;align-self:center}
+  .server-table.wg-server-table td.wg-version-cell,.server-table.wg-server-table td.wg-profiles-cell{display:none}
+  .server-table.wg-server-table td.wg-endpoint-cell{display:block;grid-column:1;grid-row:2;font-size:.75rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  /* Сервер без сервиса / классический конфиг: одна строка — имя · статус ·
+     компактная кнопка «Установить»/«Миграция» у правого края */
+  .server-table.wg-server-table tbody tr:has(td.wg-row-action-cell) td.wg-row-action-cell{
+    display:block;grid-column:3;grid-row:1;align-self:center;justify-self:end;margin:0;text-align:right;
+  }
+  .server-table.wg-server-table .wg-row-action{padding:.35rem .45rem!important;font-size:.72rem;white-space:nowrap}
+  .server-table.wg-server-table .wg-row-action .svc-btn-emoji{display:none}
+  /* Endpoint с портом длиннее голого IP — не даём растягивать карточку */
+  .server-table.wg-server-table td.wg-endpoint-cell .server-host-content{min-width:0;max-width:100%}
+  .server-table.wg-server-table td.wg-endpoint-cell .server-host-value{max-width:100%}
+}
+
+/* Оффлайн-сервер (WG и Docker): вместо колонок сервиса — сообщение,
+   строка некликабельна. Кегль/начертание — стандартные ячейки таблицы */
+.svc-offline-cell{text-align:center;color:var(--err)}
+.svc-offline-note-short{display:none}
+@media(max-width:640px){
+  /* На мобиле карточка в одну строку: имя · короткое «⛔ Оффлайн» */
+  .server-table .svc-offline-cell{display:block;grid-column:2;grid-row:1;align-self:center;margin:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .server-table .svc-offline-cell .svc-offline-note-full{display:none}
+  .server-table .svc-offline-cell .svc-offline-note-short{display:inline}
+}
+
+/* ===== Docker: список серверов (таблица в паттерне WG) ===== */
+/* Статус/контейнеры: компактные ячейки (кнопка «Установить» в объединённой
+   области и оффлайн-строка переиспользуют классы wg-row-action-cell /
+   wg-row-action / svc-offline-cell из WG-блока) */
+.dk-status-cell{white-space:nowrap}
+.dk-containers-cell{color:var(--text-dim);white-space:nowrap}
+/* Мобильная раскладка: всё в одну строку — имя · Статус · Контейнеры
+   (значение компактное, места много не занимает); три заголовка видны все
+   (равные трети). Правила ниже по файлу перебивают общие nth-child-правила
+   .server-table. */
+@media(max-width:640px){
+  .server-table.dk-server-table thead{
+    position:static;padding:0 .7rem .45rem;border:0;border-bottom:1px solid var(--border);
+    border-radius:0;background:transparent;box-shadow:none;margin-bottom:.5rem;
+  }
+  /* «Статус» — второй, как в WG и как в самой строке. Без сброса общее
+     правило «Серверов» (order:6 у второго th) уводит его в конец, и шапка
+     получается «Имя · Контейнеры · Статус», а строка — имя · статус · 0/0. */
+  .server-table.dk-server-table thead th:nth-child(2){order:0}
+  /* Заголовок «Версия» на мобиле не показываем (как в WG) */
+  .server-table.dk-server-table thead th:nth-child(3){display:none}
+  .server-table.dk-server-table thead tr{gap:.4rem}
+  /* Шапка — равные трети, выравнивание в тон значениям: Имя — влево,
+     Статус — по центру, Контейнеры — вправо */
+  .server-table.dk-server-table thead th{flex:1 1 0;min-width:0;display:flex}
+  .server-table.dk-server-table thead .wg-col-head{flex:1 1 auto;display:flex;justify-content:flex-start}
+  .server-table.dk-server-table thead th .server-column-sort{
+    flex:1 1 auto;justify-content:flex-start;text-align:left;
+    border:0;background:transparent;box-shadow:none;transform:none;color:var(--text-muted);
+    /* Горизонтальный паддинг мешает подписям втиснуться в равную треть */
+    padding:.15rem 0;white-space:normal;
+  }
+  .server-table.dk-server-table thead th:nth-child(2) .server-column-sort{justify-content:center;text-align:center}
+  .server-table.dk-server-table thead th:last-child .server-column-sort{justify-content:flex-end;text-align:right}
+  .server-table.dk-server-table thead th button.server-column-sort:hover,
+  .server-table.dk-server-table thead th button.server-column-sort:focus-visible{
+    background:transparent;box-shadow:none;transform:none;color:var(--text);
+  }
+  .server-table.dk-server-table thead th .server-column-sort.on{color:var(--accent);background:transparent}
+  /* Строка — равные трети, КАК В ШАПКЕ: имя слева в своём столбце,
+     статус-маркер по центру своего столбца, контейнеры справа. */
+  .server-table.dk-server-table tbody tr{
+    grid-template-columns:minmax(0,1fr) minmax(0,1fr) minmax(0,1fr);
+    gap:.25rem .4rem;
+  }
+  .server-table.dk-server-table td.server-name-cell{text-align:left;align-self:center}
+  .server-table.dk-server-table td.wg-version-cell,
+  .server-table.dk-server-table td.dk-fill-cell{display:none}
+  .server-table.dk-server-table td.dk-status-cell{grid-column:2;grid-row:1;align-self:center;justify-self:center;text-align:center}
+  .server-table.dk-server-table td.dk-containers-cell{display:block;grid-column:3;grid-row:1;align-self:center;justify-self:end;text-align:right;font-size:.75rem;padding-right:.5rem}
+  /* Кнопка «Установить» — в одну строку с именем и маркером: на мобиле
+     прячем эмодзи и сжимаем кнопку, чтобы влезла в равную треть */
+  .server-table.dk-server-table tbody tr:has(td.wg-row-action-cell) td.wg-row-action-cell{
+    display:block;grid-column:3;grid-row:1;align-self:center;justify-self:end;margin:0;
+  }
+  .server-table.dk-server-table .wg-row-action{padding:.35rem .45rem;font-size:.72rem;white-space:nowrap}
+  .server-table.dk-server-table .wg-row-action .dk-btn-emoji{display:none}
+  /* Оффлайн: имя слева · короткое «⛔ Оффлайн» справа */
+  .server-table.dk-server-table td.svc-offline-cell{grid-column:2/4;justify-self:end}
+}
+
+/* ===== Мобильные статус-маркеры в списках сервисов (Docker/WG/3x-ui) =====
+   Бейдж статуса превращается в цветную точку: зелёная — запущен/установлен,
+   жёлтая — классический конфиг (WG), красная — демон остановлен; красный
+   крест (svc-badge-absent) — не установлен. Текст остаётся на десктопе
+   и в title. У WG рядом с точкой живёт ⚠ импортированных профилей
+   (у кнопки свой font-size, td с font-size:0 ей не мешает). 3x-ui
+   переиспользует wg-status-cell — накрывается теми же правилами. */
+@media(max-width:640px){
+  .server-table td.dk-status-cell,
+  .server-table td.wg-status-cell{font-size:0;line-height:0;position:relative}
+  /* ⚠ импортированных профилей — справа от центрированной точки, чтобы
+     маркер оставался точно по центру своего столбца */
+  .server-table td.wg-status-cell .wg-imported-indicator{
+    position:absolute;left:calc(50% + .5rem);top:50%;transform:translateY(-50%);margin-left:0;
+  }
+  /* Сплошная заливка цветом темы: полупрозрачный тинт бейджа нечитаем */
+  .server-table td.dk-status-cell .badge,
+  .server-table td.wg-status-cell .badge{
+    font-size:0;padding:0;gap:0;border:0;box-shadow:none;
+    width:.7rem;height:.7rem;min-width:.7rem;
+    border-radius:50%;
+  }
+  .server-table td.dk-status-cell .badge.on,
+  .server-table td.wg-status-cell .badge.on{background:var(--ok)}
+  .server-table td.dk-status-cell .badge.off,
+  .server-table td.wg-status-cell .badge.off{background:var(--err)}
+  .server-table td.dk-status-cell .badge.ssl-warn,
+  .server-table td.wg-status-cell .badge.ssl-warn{background:var(--warn)}
+  .server-table td.dk-status-cell .badge.svc-badge-absent,
+  .server-table td.wg-status-cell .badge.svc-badge-absent{
+    border-radius:0;background:transparent;border-color:transparent;
+    width:auto;height:auto;min-width:0;
+  }
+  .server-table td.dk-status-cell .badge.svc-badge-absent::before,
+  .server-table td.wg-status-cell .badge.svc-badge-absent::before{
+    content:"✕";font-size:.8rem;font-weight:700;color:var(--err);line-height:1;
+  }
 }
 
 /* ===== Quick Setup / Базовые настройки ===== */
@@ -4445,3 +4808,59 @@ button.server-host-copy:hover,button.server-host-copy:focus-visible{background:v
   .set-tls-actions{flex-wrap:wrap}
   .tg-toggle-row{flex-wrap:wrap}
 }
+
+/* 3x-ui: колонка «Панель» шире WG-endpoint (протокол+порт+path) — лимит
+   td.xui-panel-cell задан в общем блоке выше (34rem, как и wg 14rem).
+   На мобиле td становится блочной карточкой: фиксированная ширина и
+   десктопный отступ кнопки (6.75rem) не нужны — они давили URL до 14px
+   и наезжали кнопкой на ⧉. URL+⧉ слева, «Перейти ↗» — у правого края
+   карточки; выравнивание по имени (без лишнего padding-left). */
+@media (max-width:640px){
+  .server-table td.server-host-cell,
+  .server-table td.wg-endpoint-cell,
+  .server-table td.xui-panel-cell{width:auto;max-width:100%;padding-left:0}
+  .xui-open-btn{margin-right:0}
+  .server-table td.xui-panel-cell .xui-panel-content{gap:.4rem}
+}
+
+/* ===== Визард установки 3x-ui: компактность и мобильная высота ===== */
+/* Подсказки в лейблах шагов — мелким приглушённым (как .tabs-hint), а не
+   базовым 14px body: лейблы «Пароль», «Порт», «Web base path» с длинной
+   подсказкой не разбухают в две строки на всю ширину. */
+#xui-install-modal label.row{gap:.35rem}
+#xui-install-modal label.row .hint{font-size:.75rem;color:var(--text-dim);line-height:1.35}
+/* Модалка визарда: на мобиле почти весь экран, поля — компактнее.
+   Десктоп не трогаем. */
+@media (max-width:640px){
+  #xui-install-modal .modal{padding:1rem;max-height:calc(100dvh - 1rem)}
+  #xui-install-modal .modal input:not([type="checkbox"]):not([type="radio"]){
+    padding:.5rem .6rem;font-size:.9rem}
+  #xui-install-modal .modal .tabs-hint{font-size:.72rem}
+  #xui-install-modal .modal .actions{gap:.4rem}
+  #xui-install-modal .modal .actions button{padding:.5rem .8rem}
+}
+
+/* 3x-ui: «Перейти ↗» в ячейке «Панель» — сразу после ⧉, с отступом:
+   не нужно заходить в карточку сервиса, чтобы открыть панель. */
+.xui-open-btn{border:0;background:transparent;box-shadow:none;color:var(--accent);
+  font:inherit;font-size:.78rem;padding:.15rem .3rem!important;min-height:0;
+  border-radius:.25rem;white-space:nowrap;flex:0 0 auto;cursor:pointer}
+.xui-open-btn:hover,.xui-open-btn:focus-visible{background:var(--accent-soft);box-shadow:none;transform:none}
+
+/* «Аккаунт панели» и «Сертификат»: кнопки-плитки с тем же вертикальным
+   зазором, что в «Доп. действиях» (svc-side-actions gap .5rem) — блоки
+   пары выглядят одинаково и не отличаются плотностью */
+.xui-stack-card{display:flex;flex-direction:column;gap:.5rem}
+.xui-stack-card h2{margin:0 0 .25rem}
+
+/* «Доп. действия» 3x-ui: колонка растягивает блок до низа карточки
+   (система + доп. = высота левой колонки). Кнопки делят высоту поровну
+   и центрируют подпись — «Удалить» прижат к нижней кромке, без
+   мёртвой зоны под последней кнопкой */
+.xui-srv-side .svc-side-actions{height:auto;flex:1 1 auto}
+.xui-srv-side .svc-side-actions .svc-action{flex:1 1 auto;justify-content:center}
+
+/* тот же отступ заголовок→первая кнопка, что в паре Аккаунт/Сертификат
+   (там h2 margin .25rem + gap .5rem; здесь был дефолт .75rem — кнопки
+   начинались на 8px ниже) */
+.xui-srv-side .svc-side-actions h2{margin:0 0 .25rem}

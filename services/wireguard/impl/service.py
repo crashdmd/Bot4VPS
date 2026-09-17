@@ -320,16 +320,21 @@ class Service(BaseService):
         finally:
             ssh.close()
 
-    def _read_live(self, server_id: str) -> Dict[str, Any]:
+    def _read_live(self, server_id: str, ssh=None) -> Dict[str, Any]:
         """Единое read-only живое чтение состояния: существующие пробы + статистика
         (wg show wg0 dump), name→pubkey, server_public_key и поля конфига
         (address/port/dns) для префиля модалки. Ничего не пишет в кэш — это делает
         фреймворк ``sync()`` после ``do_sync``. Используется и ``do_sync`` (→ кэш),
-        и ``get_state`` (→ живой ответ без кэша)."""
+        и ``get_state`` (→ живой ответ без кэша).
+
+        ``ssh``: готовое соединение (общий фоновый job проверяет все сервисы
+        сервера за один коннект) — тогда не создаём и не закрываем своё."""
         server = find_server(server_id)
         if not server:
             return {"installed": False, "error": "Сервер не найден"}
-        ssh = create_ssh_client(server)
+        own = ssh is None
+        if own:
+            ssh = create_ssh_client(server)
         try:
             _, ver, _ = exec_sudo(
                 ssh, server,
@@ -450,11 +455,12 @@ class Service(BaseService):
                 "dns": dns,
             }
         finally:
-            ssh.close()
+            if own:
+                ssh.close()
 
-    async def do_sync(self, server_id: str) -> Dict[str, Any]:
+    async def do_sync(self, server_id: str, ssh=None) -> Dict[str, Any]:
         try:
-            return await asyncio.to_thread(self._read_live, server_id)
+            return await asyncio.to_thread(self._read_live, server_id, ssh)
         except Exception as e:
             return {"installed": False, "error": str(e)}
 
@@ -633,6 +639,25 @@ class Service(BaseService):
         return {}
 
     def get_actions(self, server_id: str) -> List[ServiceAction]:
+        # Пустой server_id — служебный вызов из resolve_task_title (имя задачи
+        # в очереди): отдаём полный каталог всех действий, чтобы task_title
+        # резолвился для любого из них, а не только текущего статуса сервера
+        # (раньше «WireGuard: remove» оставалось сырым именем).
+        if not server_id:
+            return [
+                ServiceAction("install", "🟢 Установить", style="primary", task_title="установка"),
+                ServiceAction("sync", "🔵 Синхронизировать", task_title="синхронизация"),
+                ServiceAction("confirm_migrate", "🔄 Выполнить миграцию", style="primary", task_title="миграция"),
+                ServiceAction("set_endpoint", "✏️ Изменить Endpoint", task_title="смена Endpoint"),
+                ServiceAction("add", "➕ Добавить профиль", group="profiles", task_title="добавление профиля"),
+                ServiceAction("remove_profile", "🗑 Удалить профиль", task_title="удаление профиля"),
+                ServiceAction("rename_profile", "✏️ Переименовать профиль", task_title="переименование профиля"),
+                ServiceAction("toggle_profile", "🔘 Включить/выключить профиль", task_title="переключение профиля"),
+                ServiceAction("reissue_profile", "🔄 Перевыпустить профиль", task_title="перевыпуск профиля"),
+                ServiceAction("reissue_all", "🔄 Перевыпустить все профили", task_title="перевыпуск всех профилей"),
+                ServiceAction("reset_stats", "📊 Сбросить статистику", task_title="сброс статистики"),
+                ServiceAction("confirm_remove", "🗑 Удалить сервис", style="danger", task_title="удаление"),
+            ]
         status = self.get_status(server_id) or {}
         installed = bool(status.get("installed"))
         items: List[ServiceAction] = []

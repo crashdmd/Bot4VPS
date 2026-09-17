@@ -15,6 +15,9 @@ KEY_PASTE_NEW_STATE = {}
 SERVICE_INSTALL_STATE = {}
 SVC_PROFILE_ADD_STATE = {}
 
+# 3x-ui Telegram UI: user_id → active text/document flow or transient callback tokens.
+XUI_TG_STATE = {}
+
 # Docker (Telegram UI)
 # Пошаговый мастер запуска контейнера: user_id → {step, server, image, name, ports[], env[], restart}
 DOCKER_RUN_WIZARD = {}

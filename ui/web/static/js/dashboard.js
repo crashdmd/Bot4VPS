@@ -2,7 +2,7 @@
 import { j, esc } from './api.js';
 import { showPage, plural, toast, bindPasswordToggles, serverHour, formatServerTimestamp } from './ui.js';
 import { setPage } from './state.js';
-import { loadEvents, openEventDetail, applyEventsSnapshot, showUpdateModal } from './monitor.js?v=20260913-hostkey-v2';
+import { loadEvents, openEventDetail, applyEventsSnapshot, showUpdateModal } from './monitor.js?v=20260915-taskfail-v2';
 
 
 // ---------- Первоначальная настройка Telegram ----------
@@ -239,7 +239,7 @@ function uptimeRu(raw) {
 /** Переиспользуем модалку добавления сервера со страницы «Серверы». */
 function bindDashAdd(box) {
   box.querySelector('[data-dash-add]')?.addEventListener('click', async () => {
-    const m = await import('./servers.js?v=20260913-hostkey-v2');
+    const m = await import('./servers.js?v=20260915-sysfix-v2');
     m.openAddServerModal();
   });
 }
@@ -418,7 +418,7 @@ export function stopDashMetrics() {
 
 async function openServerFromDash(id) {
   stopDashMetrics();
-  const m = await import('./servers.js?v=20260913-hostkey-v2');
+  const m = await import('./servers.js?v=20260915-sysfix-v2');
   setPage('servers');
   showPage('servers');
   m.openServer(id);

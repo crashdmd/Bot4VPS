@@ -1,20 +1,23 @@
 // Страница WireGuard: тонкий слой отображения над обобщённым services-роутером.
 // Вся бизнес-логика — на бэке (core.integrator + services/wireguard).
 //
-// Три вкладки: Проверка (обзор всех), Установить (нет WG), Управление (есть WG).
-// Управление — компактный список серверов; клик «Открыть» → отдельный экран
-// конкретного сервера (#page-wireguard-server), а НЕ раскрытие внутри карточки.
+// Список серверов — таблица в паттерне раздела «Серверы» (server-table):
+// Имя (сорт) · Статус (цикл группировок) · Версия (сорт от свежей) ·
+// Endpoint (скрыт как IP, показывается с портом) · Профили.
+// Отдельного статуса «не проверен» нет: пустой кэш = «не установлен».
+// Клик по строке: установлен → экран WG этого сервера; остальные строки —
+// без перехода (действие только кнопкой «Установить»/«Миграция» в
+// объединённой области трёх последних колонок). Фильтров нет: имя и статус
+// сортируются, статус — циклом из трёх раскладок (см. WG_STATUS_ORDERS).
 // Все диалоги — в стиле интерфейса (модалка #wg-dialog), без браузерных alert/prompt.
 import { j, esc } from './api.js';
+import { openTaskModal } from './taskmodal.js?v=20260914-v3';
+import { statusFilterBtn, statusFilterHidden, bindStatusFilter } from './statusfilter.js?v=20260915-v1';
 import { toast, showPage, serverDateTimeParts, serverDayDifference } from './ui.js';
-import { ansiToHtml } from './ansi.js';
-import { WIREGUARD_ICON } from './icons.js?v=20260905-brandicons-v2';
 
 const SID = 'wireguard';
 const timers = {};                  // taskId -> polling-интервал
 let statusMap = {};                 // id -> {name, host, status}
-let wgHasServers = false;           // для корректной подсказки пустого обзора
-let wgTab = 'check';
 let installParams = null;
 let installTarget = null;
 
@@ -24,12 +27,6 @@ let wgEntryContext = 'list';        // 'list' | 'server' — откуда отк
 let wgServerState = null;           // последний live-state (для префиля модалки)
 let wgImportedBannerHidden = false;  // состояние видимости баннера текущего сервера
 const importBannerClosedKey = id => `wg_import_banner_closed_${id}`;
-
-const TAB_HINT = {
-  check: 'Обзор состояния WireGuard на всех серверах. Нажмите «Проверить все серверы», чтобы обновить данные.',
-  install: 'Здесь отображаются серверы, на которых WireGuard ещё не установлен.',
-  manage: 'Серверы с установленным WireGuard. Нажмите «Открыть», чтобы перейти к управлению профилями, статистикой и конфигурацией.',
-};
 
 const srvBase = id => `/api/services/${SID}/${encodeURIComponent(id)}`;
 const stateUrl = id => `${srvBase(id)}/state`;
@@ -51,12 +48,6 @@ function isPrivateHost(h) {
   if (!m) return false;
   const a = +m[1], b = +m[2];
   return a === 10 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || a === 127;
-}
-function stateBadge(st) {
-  if (!st || !Object.keys(st).length) return '<span class="badge unk">⚪ не проверен</span>';
-  if (st.needs_migration) return '<span class="badge ssl-warn">🟡 Классический конфиг</span>';
-  if (st.installed) return '<span class="badge on">🟢 WireGuard установлен</span>';
-  return '<span class="badge off">⚪ не установлен</span>';
 }
 
 // СЫРЫЕ байты → человекочитаемые единицы. Сервис отдаёт байты; UI форматирует (ТЗ §19).
@@ -157,168 +148,421 @@ const wgConfirm = (title, message, okText = 'ОК', cancelText = 'Отмена')
 const wgPrompt = (title, message, value = '', placeholder = '', okText = 'ОК', cancelText = 'Отмена') =>
   showDialog({ title, message, input: true, value, placeholder, okText, cancelText });
 
-// ---------------- загрузка списка ----------------
+// ---------------- список серверов (таблица в паттерне «Серверов») ----------------
 
+// Сортировка/видимость Endpoint — локальное состояние страницы.
+// Статус сортируется не ↑/↓, а циклом из трёх раскладок (4-й клик = 1-му):
+let wgSort = { key: 'name', descending: false };
+let wgStatusRotation = 0;             // индекс в WG_STATUS_ORDERS
+let wgRevealAllEndpoints = false;
+const wgEndpointRevealed = new Set();
 
-/** Стартовая вкладка списка серверов по уже известному status API.
- *  нет данных проверки → check;
- *  хотя бы один installed → manage;
- *  проверка была, установленного нет → install.
- */
-function pickStartTab(servers) {
-  let anyKnown = false;
-  let anyInstalled = false;
-  for (const s of servers || []) {
-    const st = s.status || {};
-    if (!Object.keys(st).length) continue;
-    anyKnown = true;
-    if (st.installed) anyInstalled = true;
-  }
-  if (!anyKnown) return 'check';
-  if (anyInstalled) return 'manage';
-  return 'install';
+/** Состояние WG на сервере. «Не проверен» не существует: пустой кэш
+ *  трактуется как «не установлен» (актуализация — забота фоновой проверки). */
+function wgState(st) {
+  if (st && st.needs_migration) return 'classic';
+  if (st && st.installed) return 'installed';
+  return 'absent';
 }
+
+/** Работа с сервисом на этом сервере невозможна (availability-кэш — тот же
+ *  источник, что страница «Серверы»): строка некликабельна, вместо колонок
+ *  сервиса — сообщение. Критерий — SSH-порт (port_ok): без него управлять
+ *  сервисом всё равно нечем, даже если сеть в целом жива. Пока порт не
+ *  проверяли (null), смотрим сетевую доступность. null ≠ заблокировано. */
+function serviceBlocked(s) {
+  const portOk = (s || {}).port_ok;
+  if (portOk === false) return (s || {}).online === false ? 'down' : 'ssh';
+  if (portOk == null && (s || {}).online === false) return 'down';
+  return null;
+}
+
+const WG_BLOCKED_NOTE = {
+  down: ['⛔ Сервер оффлайн — работа с сервисом невозможна', '⛔ Оффлайн'],
+  ssh: ['⛔ SSH-порт недоступен — работа с сервисом невозможна', '⛔ Нет SSH'],
+};
+
+const WG_STATUS_LABEL = {
+  installed: '🟢 Установлен',
+  classic: '🟡 Классический конфиг',
+  absent: '⚪ Не установлен',
+};
+// Раскладки групп статусов по клику на заголовок «Статус»:
+// 1-й клик — установленные сверху, 2-й — не установленные, 3-й — классика;
+// внутри каждой группы — по алфавиту.
+const WG_STATUS_ORDERS = [
+  ['installed', 'classic', 'absent'],
+  ['absent', 'classic', 'installed'],
+  ['classic', 'installed', 'absent'],
+];
 
 export async function loadWireguard() {
+  const el = document.getElementById('wg-servers');
+  if (!el) return;
   try {
     const d = await j(`/api/services/${SID}/status`);
-    const servers = d.servers || [];
-    wgHasServers = servers.length > 0;
     statusMap = {};
-    servers.forEach(s => { statusMap[s.id] = s; });
-    const install = [], manage = [];
-    servers.forEach(s => {
-      const st = s.status || {};
-      if (!Object.keys(st).length) return;          // не проверен — только во вкладке «Проверка»
-      (st.installed ? manage : install).push(s);
-    });
-    renderCheck(servers);
-    renderInstall(install);
-    renderManage(manage);
-    // Не трогаем вкладки, если открыт экран конкретного сервера
-    if (!document.getElementById('page-wireguard-server')?.classList.contains('on')) {
-      setWgTab(pickStartTab(servers));
-    }
+    (d.servers || []).forEach(s => { statusMap[s.id] = s; });
+    renderWgServers();
   } catch (e) {
-    document.getElementById('wg-check-grid').innerHTML = '<div class="empty">' + esc(e.message) + '</div>';
+    el.innerHTML = '<div class="empty">' + esc(e.message || e) + '</div>';
   }
 }
 
-// ---------------- вкладка «Проверка» ----------------
-
-function renderCheck(servers) {
-  const el = document.getElementById('wg-check-grid');
-  if (!servers.length) { el.innerHTML = '<div class="empty">Нет серверов</div>'; return; }
-  el.innerHTML = servers.map(checkCard).join('');
-  el.querySelectorAll('[data-goto]').forEach(c => c.onclick = () => {
-    const goto = c.dataset.goto;
-    if (!goto) return;
-    setWgTab(goto);
-    if (goto === 'manage' || goto === 'install') scrollToCard(c.dataset.id);
-  });
+function filteredWgServers() {
+  // Фильтр статусов (кнопка у заголовка «Статус»)
+  const hidden = statusFilterHidden('wireguard', WG_STATUS_FILTERS);
+  const all = Object.values(statusMap);
+  if (!hidden.size) return all;
+  return all.filter(s => !hidden.has(wgFilterKey(s)));
 }
 
-function checkCard(s) {
+/** Статус строки для фильтра (см. WG_STATUS_FILTERS). */
+function wgFilterKey(s) {
+  if (serviceBlocked(s)) return 'blocked';
+  return wgState((s || {}).status || {});
+}
+
+const WG_STATUS_FILTERS = [
+  { key: 'installed', label: '🟢 Установлен' },
+  { key: 'classic', label: '🟡 Классический конфиг' },
+  { key: 'absent', label: '⚪ Не установлен' },
+  { key: 'blocked', label: '⛔ Недоступен (оффлайн/SSH)' },
+];
+
+function wgProfilesTotal(st) {
+  const stats = (st && st.stats) || {};
+  if (stats.total != null) return Number(stats.total);
+  return profileCount(st);
+}
+
+/** Сравнение версий по числовым сегментам («1.0.20210914» и т.п.),
+ *  независимо от дистро-суффиксов. */
+function compareVersions(a, b) {
+  const pa = String(a || '').match(/\d+/g) || [];
+  const pb = String(b || '').match(/\d+/g) || [];
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const na = i < pa.length ? +pa[i] : -1;
+    const nb = i < pb.length ? +pb[i] : -1;
+    if (na !== nb) return na - nb;
+  }
+  return 0;
+}
+
+function sortedWgServers(list) {
+  const byName = [...list].sort((a, b) =>
+    String(a.name || '').localeCompare(String(b.name || ''), 'ru', { sensitivity: 'base', numeric: true })
+      || String(a.id).localeCompare(String(b.id)));
+  const key = wgSort.key;
+  if (key === 'status') {
+    // Цикл раскладок; sort стабилен — алфавит внутри групп сохраняется.
+    const order = WG_STATUS_ORDERS[wgStatusRotation];
+    const rank = s => order.indexOf(wgState((s || {}).status || {}));
+    return byName.sort((a, b) => rank(a) - rank(b));
+  }
+  if (key === 'version') {
+    // Свежая → старая (первый клик) и обратно; без версии — всегда внизу.
+    const has = s => String(((s || {}).status || {}).version || '').trim() !== '';
+    return byName.sort((a, b) => {
+      if (has(a) !== has(b)) return has(a) ? -1 : 1;
+      if (!has(a)) return 0;
+      const va = a.status.version, vb = b.status.version;
+      return wgSort.descending ? compareVersions(vb, va) : compareVersions(va, vb);
+    });
+  }
+  if (key === 'profiles') {
+    const d = wgSort.descending ? -1 : 1;
+    return byName.sort((a, b) => (wgProfilesTotal(a.status) - wgProfilesTotal(b.status)) * d);
+  }
+  return wgSort.descending ? byName.reverse() : byName;
+}
+
+function wgStatusCell(s) {
   const st = s.status || {};
-  const installed = !!st.installed;
-  const known = !!Object.keys(st).length;
-  const goto = known ? (installed ? 'manage' : 'install') : '';
-  let body = `<h3>${WIREGUARD_ICON} ${esc(s.name)}</h3><div class="row" style="margin-top:.3rem">${stateBadge(st)}</div>`;
-  if (installed) {
-    const v = shortVer(st.version);
-    body += `<div class="wg-card-info">Версия: <b>${v ? esc(v) : '—'}</b></div>`;
-    if (st.needs_migration) {
-      body += `<div class="wg-card-info">Peer’ов в wg0.conf: <b>${Number(st.classic_peer_count || 0)}</b></div>`;
-    } else {
-      body += `<div class="wg-card-info">Endpoint: <b>${st.endpoint ? esc(st.endpoint) : 'не задан'}</b></div>`;
-      body += `<div class="wg-card-info">Профилей: <b>${profileCount(st)}</b></div>`;
+  const stateKey = wgState(st);
+  const badgeCls = stateKey === 'installed' ? 'on' : (stateKey === 'classic' ? 'ssl-warn' : 'off');
+  // title — подпись статуса (на мобиле бейдж превращается в цветной маркер);
+  // svc-badge-absent — красный крест на мобиле
+  const title = stateKey === 'classic' ? ' title="Требуется миграция в формат Bot4VPS"'
+    : ` title="${WG_STATUS_LABEL[stateKey].replace(/^\S+\s/, '')}"`;
+  const absentCls = stateKey === 'absent' ? ' svc-badge-absent' : '';
+  // Индикатор импортированных профилей — как был у карточек управления.
+  let imported = '';
+  if (stateKey === 'installed') {
+    const hasImported = Array.isArray(st.profiles) && st.profiles.some(pr => pr && pr.managed === false);
+    if (hasImported) {
+      imported = ` <button type="button" class="wg-imported-indicator" data-imported-open="${esc(s.id)}" title="Есть импортированные профили" aria-label="Есть импортированные профили">⚠</button>`;
     }
   }
-  body += `<div class="wg-card-info">Проверено: ${fmtSync(st.synced_at) || '—'}</div>`;
-  const click = goto ? ` data-goto="${goto}" data-id="${esc(s.id)}" style="cursor:pointer"` : '';
-  return `<div class="card ${goto ? 'clickable' : ''}"${click}><div class="card-body">${body}</div></div>`;
+  return `<span class="badge ${badgeCls}${absentCls}"${title}>${WG_STATUS_LABEL[stateKey]}</span>${imported}`;
 }
 
-// ---------------- вкладка «Установить» ----------------
-
-function renderInstall(servers) {
-  const el = document.getElementById('wg-tab-install');
-  if (!servers.length) {
-    el.innerHTML = '<div class="empty">Нет серверов без WireGuard. Возможно, стоит нажать «Проверить все серверы».</div>';
-    return;
-  }
-  el.innerHTML = servers.map(s => `<div class="card">
-    <div class="card-body">
-      <h3>${WIREGUARD_ICON} ${esc(s.name)}</h3>
-      <div class="row" style="margin-top:.3rem">${stateBadge(s.status || {})}</div>
-      <div class="wg-note">WireGuard отсутствует на сервере.
-Установите и настройте сервис, чтобы начать управлять VPN-профилями.</div>
-    </div>
-    <div class="card-actions"><button type="button" data-install="${esc(s.id)}">🟢 Установить</button></div>
-  </div>`).join('');
-  el.querySelectorAll('[data-install]').forEach(b => b.onclick = () => openInstall(b.dataset.install));
+/** Endpoint — «IP» этой таблицы: скрыт по умолчанию (•••), глаз в заголовке
+ *  и построчное раскрытие, копирование. Показывается с портом, если он
+ *  известен (client Endpoint = host:port). Классы переиспользуем от
+ *  IP-колонки «Серверов», чтобы не плодить параллельные стили. */
+function wgEndpointText(s) {
+  const st = (s && s.status) || {};
+  const ep = String(st.endpoint || '').trim();
+  if (!ep) return '';
+  const port = st.port != null && String(st.port).trim() !== '' ? ':' + st.port : '';
+  return ep + port;
 }
 
-// ---------------- вкладка «Управление» (компактный список) ----------------
-
-function renderManage(servers) {
-  const el = document.getElementById('wg-tab-manage');
-  if (!servers.length) {
-    el.innerHTML = '<div class="empty">Нет серверов с установленным WireGuard. Возможно, стоит нажать «Проверить все серверы».</div>';
-    return;
-  }
-  el.innerHTML = servers.map(manageCard).join('');
-  // Управляемый сервер → «Открыть» (отдельный экран). Классика → только «Миграция».
-  el.querySelectorAll('[data-open]').forEach(b => b.onclick = () => openWgServer(b.dataset.open));
-  el.querySelectorAll('[data-imported-open]').forEach(b => {
-    b.onclick = (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      try {
-        localStorage.removeItem(importBannerClosedKey(b.dataset.importedOpen));
-      } catch (_) {}
-      openWgServer(b.dataset.importedOpen);
-    };
-  });
-  el.querySelectorAll('[data-migrate]').forEach(b => b.onclick = () => doMigrate(b.dataset.migrate));
+function wgEndpointCell(s) {
+  const id = String(s.id ?? '');
+  const ep = wgEndpointText(s);
+  if (!ep) return '<span class="server-host-empty">—</span>';
+  const value = wgRevealAllEndpoints || wgEndpointRevealed.has(id)
+    ? `<span class="server-host-value">${esc(ep)}</span>`
+    : `<button type="button" class="server-host-reveal" data-wg-endpoint-reveal="${esc(id)}"
+               title="Показать Endpoint" aria-label="Показать Endpoint сервера «${esc(s.name || '')}»">
+         <span aria-hidden="true">••••••••</span>
+       </button>`;
+  return `<span class="server-host-content">
+    ${value}
+    <button type="button" class="server-host-copy" data-wg-endpoint-copy="${esc(id)}"
+            title="Копировать Endpoint" aria-label="Копировать Endpoint сервера «${esc(s.name || '')}»">
+      <span aria-hidden="true">⧉</span>
+    </button>
+  </span>`;
 }
 
-function manageCard(s) {
+function wgRowCells(s) {
   const st = s.status || {};
-  const v = shortVer(st.version);
-  const classic = !!st.needs_migration;
-  if (classic) {
-    return `<div class="card">
-      <div class="card-body">
-        <h3>${WIREGUARD_ICON} ${esc(s.name)} <span class="hint">${esc(s.host || '')}</span></h3>
-        <div class="row" style="margin-top:.3rem">${stateBadge(st)}</div>
-        <div class="wg-card-info">Версия: <b>${v ? esc(v) : '—'}</b></div>
-        <div class="wg-note">WireGuard установлен, но конфигурация ещё не переведена в формат Bot4VPS.</div>
-        <div class="wg-card-info">Peer’ов в wg0.conf: <b>${Number(st.classic_peer_count || 0)}</b></div>
-      </div>
-      <div class="card-actions"><button type="button" data-migrate="${esc(s.id)}">♻️ Миграция</button></div>
-    </div>`;
+  const stateKey = wgState(st);
+  const name = `<td class="server-name-cell" data-label="Имя"><strong>${esc(s.name || '—')}</strong></td>`;
+  // Недоступный сервер: колонки сервиса не показываем — работа невозможна
+  // (строка некликабельна). Причина — оффлайн или закрытый SSH-порт.
+  const blocked = serviceBlocked(s);
+  if (blocked) {
+    const [full, short] = WG_BLOCKED_NOTE[blocked];
+    return `${name}
+      <td colspan="4" class="svc-offline-cell"><span class="svc-offline-note">
+        <span class="svc-offline-note-full">${full}</span>
+        <span class="svc-offline-note-short">${short}</span>
+      </span></td>`;
   }
-  const hasImported = Array.isArray(st.profiles) && st.profiles.some(pr => pr && pr.managed === false);
-  const importedIndicator = hasImported
-    ? `<button type="button" class="wg-imported-indicator wg-manage-imported-indicator" data-imported-open="${esc(s.id)}" title="Есть импортированные профили" aria-label="Есть импортированные профили">⚠</button>`
-    : '';
-  return `<div class="card">
-    <div class="card-body">
-      <h3>${WIREGUARD_ICON} ${esc(s.name)} <span class="hint">${esc(s.host || '')}</span></h3>
-      <div class="row" style="margin-top:.3rem">${stateBadge(st)}${importedIndicator}</div>
-      <div class="wg-card-info">Версия: <b>${v ? esc(v) : '—'}</b></div>
-      <div class="wg-card-info">Endpoint: <b>${st.endpoint ? esc(st.endpoint) : 'не задан'}</b></div>
-      <div class="wg-card-info">Профилей: <b>${profileCount(st)}</b></div>
-    </div>
-    <div class="card-actions"><button type="button" data-open="${esc(s.id)}">Открыть</button></div>
-  </div>`;
+  const status = `<td class="wg-status-cell" data-label="Статус">${wgStatusCell(s)}</td>`;
+  if (stateKey === 'installed') {
+    const stats = st.stats || {};
+    return `${name}${status}
+      <td class="wg-version-cell" data-label="Версия">${esc(shortVer(st.version) || '—')}</td>
+      <td class="wg-profiles-cell" data-label="Профили">${Number(stats.online || 0)}/${wgProfilesTotal(st)}</td>
+      <td class="server-host-cell wg-endpoint-cell" data-label="Endpoint">${wgEndpointCell(s)}</td>`;
+  }
+  // Не установлен / классический конфиг: вместо Версии/Endpoint/Профилей —
+  // объединённая область с центрированным действием.
+  const action = stateKey === 'classic'
+    ? `<button type="button" class="wg-row-action" data-migrate="${esc(s.id)}"><span class="svc-btn-emoji">♻️ </span>Миграция</button>`
+    : `<button type="button" class="wg-row-action" data-install="${esc(s.id)}"><span class="svc-btn-emoji">🟢 </span>Установить</button>`;
+  return `${name}${status}
+    <td colspan="3" class="wg-row-action-cell">${action}</td>`;
 }
 
-function scrollToCard(id) {
-  const sel = id ? `#wg-tab-manage [data-open="${CSS.escape(id)}"], #wg-tab-install [data-install="${CSS.escape(id)}"]` : '#wg-tab-manage';
-  const srv = document.querySelector(sel);
-  if (srv) srv.closest('.card')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+// ---------------- заголовки таблицы ----------------
+
+function wgSortHeader(key, label) {
+  const active = wgSort.key === key;
+  const descending = active && wgSort.descending;
+  const ariaSort = active ? (descending ? 'descending' : 'ascending') : 'none';
+  return `<th aria-sort="${ariaSort}">
+    <span class="wg-col-head">
+      <button type="button" class="server-column-sort${active ? ' on' : ''}" data-wg-sort="${esc(key)}"
+              aria-pressed="${active ? 'true' : 'false'}"
+              title="Сортировать по столбцу «${esc(label)}»">
+        <span>${esc(label)}</span>
+        <span class="server-sort-arrow" aria-hidden="true">${active ? (descending ? '↓' : '↑') : ''}</span>
+      </button>
+    </span>
+  </th>`;
+}
+
+/** Заголовок «Статус»: цикл из трёх раскладок (4-й клик = 1-му), поэтому
+ *  стрелка одна из ↑ / ↓ / ⇅ по текущей раскладке. */
+function wgStatusHeader() {
+  const active = wgSort.key === 'status';
+  const arrow = active ? ['↑', '↓', '⇅'][wgStatusRotation] : '';
+  const ariaSort = active
+    ? (wgStatusRotation === 1 ? 'descending' : (wgStatusRotation === 2 ? 'other' : 'ascending'))
+    : 'none';
+  return `<th aria-sort="${ariaSort}">
+    <span class="wg-col-head">
+      <button type="button" class="server-column-sort${active ? ' on' : ''}" data-wg-sort="status"
+              aria-pressed="${active ? 'true' : 'false'}"
+              title="Группировать по статусу">
+        <span>Статус</span>
+        <span class="server-sort-arrow" aria-hidden="true">${arrow}</span>
+      </button>${statusFilterBtn('wireguard')}
+    </span>
+  </th>`;
+}
+
+function wgEndpointHeader() {
+  const label = wgRevealAllEndpoints ? 'Скрыть Endpoint всех серверов' : 'Показать Endpoint всех серверов';
+  return `<th>
+    <span class="server-host-heading">
+      <span>Endpoint</span>
+      <button type="button" class="server-host-visibility${wgRevealAllEndpoints ? ' on' : ''}"
+              data-wg-endpoint-visibility-toggle aria-pressed="${wgRevealAllEndpoints ? 'true' : 'false'}"
+              title="${label}" aria-label="${label}">
+        <span aria-hidden="true">👁</span>
+      </button>
+    </span>
+  </th>`;
+}
+
+// ---------------- рендер ----------------
+
+function renderWgRows() {
+  const list = sortedWgServers(filteredWgServers());
+  if (!list.length) {
+    return Object.keys(statusMap).length
+      ? '<tr><td colspan="5" class="wg-empty-row">Все серверы скрыты фильтром статуса</td></tr>'
+      : '<tr><td colspan="5" class="wg-empty-row">Нет серверов</td></tr>';
+  }
+  return list.map(s => {
+    const stateKey = wgState(s.status || {});
+    // Кликабельна только установленная строка на доступном сервере
+    // (остальные подсвечиваются, но без перехода)
+    const interactive = stateKey === 'installed' && !serviceBlocked(s);
+    return `<tr class="server-table-row${interactive ? '' : ' wg-row-static'}"
+                data-sid="${esc(s.id)}"${interactive ? ' tabindex="0" role="button"' : ''}>${wgRowCells(s)}</tr>`;
+  }).join('');
+}
+
+function renderWgServers() {
+  const el = document.getElementById('wg-servers');
+  if (!el) return;
+  if (!Object.keys(statusMap).length) {
+    el.innerHTML = '<div class="empty">Нет серверов</div>';
+    return;
+  }
+  el.innerHTML = `<div class="server-table-wrap">
+    <table class="server-table wg-server-table">
+      <thead><tr>
+        ${wgSortHeader('name', 'Имя сервера')}
+        ${wgStatusHeader()}
+        ${wgSortHeader('version', 'Версия')}
+        ${wgSortHeader('profiles', 'Профили')}
+        ${wgEndpointHeader()}
+      </tr></thead>
+      <tbody>${renderWgRows()}</tbody>
+    </table>
+  </div>`;
+  bindStatusFilter('wireguard', WG_STATUS_FILTERS, renderWgServers);
+}
+
+/** Клик по строке — только установленным сервисом: открывается экран WG
+ *  этого сервера. «Классический конфиг» и «Не установлен» никуда не ведут
+ *  (действие — кнопка в объединённой области). */
+async function openWgRow(id) {
+  const srv = statusMap[id] || {};
+  if (serviceBlocked(srv) || wgState(srv.status || {}) !== 'installed') return;
+  openWgServer(id);
+}
+
+// ---------------- события таблицы списка ----------------
+
+function bindWgServersList() {
+  const el = document.getElementById('wg-servers');
+  if (!el || el.dataset.bound) return;
+  el.dataset.bound = '1';
+
+  el.addEventListener('click', async event => {
+    // Сортировка: полный ререндер (стрелки живут в thead)
+    const sortBtn = event.target.closest('[data-wg-sort]');
+    if (sortBtn) {
+      event.preventDefault();
+      event.stopPropagation();
+      const key = sortBtn.dataset.wgSort;
+      if (key === 'status') {
+        // Цикл из трёх раскладок, 4-й клик возвращает первую
+        if (wgSort.key === 'status') wgStatusRotation = (wgStatusRotation + 1) % WG_STATUS_ORDERS.length;
+        wgSort = { key: 'status', descending: false };
+      } else if (wgSort.key === key) {
+        wgSort = { key, descending: !wgSort.descending };
+      } else {
+        // Версия: первый клик — от свежей к старой, остальные — по возрастанию
+        wgSort = { key, descending: key === 'version' };
+      }
+      renderWgServers();
+      return;
+    }
+
+    // Видимость Endpoint: глаз в заголовке
+    const visibility = event.target.closest('[data-wg-endpoint-visibility-toggle]');
+    if (visibility) {
+      event.preventDefault();
+      event.stopPropagation();
+      wgRevealAllEndpoints = !wgRevealAllEndpoints;
+      if (!wgRevealAllEndpoints) wgEndpointRevealed.clear();
+      renderWgServers();
+      return;
+    }
+
+    // Построчное раскрытие Endpoint
+    const reveal = event.target.closest('[data-wg-endpoint-reveal]');
+    if (reveal) {
+      event.preventDefault();
+      event.stopPropagation();
+      wgEndpointRevealed.add(String(reveal.dataset.wgEndpointReveal || ''));
+      renderWgServers();
+      return;
+    }
+
+    // Копирование Endpoint (с портом)
+    const copy = event.target.closest('[data-wg-endpoint-copy]');
+    if (copy) {
+      event.preventDefault();
+      event.stopPropagation();
+      const ep = wgEndpointText(statusMap[copy.dataset.wgEndpointCopy]);
+      if (!ep) { toast('Endpoint не задан', false); return; }
+      copyToClipboard(ep);
+      copy.classList.add('copied');
+      setTimeout(() => copy.classList.remove('copied'), 1200);
+      return;
+    }
+
+    // Действия в объединённой области — исключение из клика по строке
+    const installBtn = event.target.closest('[data-install]');
+    if (installBtn) {
+      event.preventDefault();
+      event.stopPropagation();
+      openInstall(installBtn.dataset.install);
+      return;
+    }
+    const migrateBtn = event.target.closest('[data-migrate]');
+    if (migrateBtn) {
+      event.preventDefault();
+      event.stopPropagation();
+      doMigrate(migrateBtn.dataset.migrate);
+      return;
+    }
+    const importedBtn = event.target.closest('[data-imported-open]');
+    if (importedBtn) {
+      event.preventDefault();
+      event.stopPropagation();
+      try {
+        localStorage.removeItem(importBannerClosedKey(importedBtn.dataset.importedOpen));
+      } catch (_) {}
+      openWgServer(importedBtn.dataset.importedOpen);
+      return;
+    }
+
+    // Клик по строке
+    const row = event.target.closest('tr[data-sid]');
+    if (row) openWgRow(row.dataset.sid);
+  });
+
+  // Enter/Space на строке — как клик
+  el.addEventListener('keydown', event => {
+    if (event.key !== 'Enter' && event.key !== ' ') return;
+    const row = event.target.closest('tr[data-sid]');
+    if (!row) return;
+    event.preventDefault();
+    openWgRow(row.dataset.sid);
+  });
 }
 
 // ---------------- отдельный экран конкретного сервера ----------------
@@ -351,7 +595,9 @@ async function openWgServer(id, opts = {}) {
     localStorage.setItem('bot4vps_page', 'wireguard-server');
     localStorage.setItem('bot4vps_wg_server_id', id);
   } catch (_) {}
-  document.getElementById('wg-srv-title').textContent = 'WireGuard · ' + nameOf(id);
+  // Иконка в h1 живёт отдельно — текст пишем в span, чтобы не затирать SVG.
+  const titleEl = document.querySelector('#wg-srv-title .srv-title-name');
+  if (titleEl) titleEl.textContent = 'WireGuard · ' + nameOf(id);
   document.getElementById('wg-srv-body').innerHTML = '<div class="empty">Загрузка…</div>';
   showPage('wireguard-server');
   await loadWgServerDetail(id);
@@ -372,7 +618,6 @@ function backToWgList() {
     localStorage.setItem('bot4vps_page', 'wireguard');
     localStorage.removeItem('bot4vps_wg_server_id');
   } catch (_) {}
-  setWgTab('manage');
   showPage('wireguard');
   loadWireguard();
 }
@@ -1001,11 +1246,12 @@ async function saveConfig() {
 
 // ---------------- установка / миграция / перевыпуск (тяжёлые — через очередь) ----------------
 
-async function enqueueAction(id, action, params, msg) {
+async function enqueueAction(id, action, params, msg, onTask) {
   try {
     const r = await j(`${srvBase(id)}/enqueue/${encodeURIComponent(action)}`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ params }),
     });
+    if (onTask && r.task) { onTask(r.task); return; }
     toast(msg || 'В очереди', true);
     if (r.task) watchTask(r.task.id, id, action);
   } catch (e) { toast(e.message, false); }
@@ -1037,24 +1283,14 @@ async function reissueAllProfiles(id) {
   await enqueueAction(id, 'reissue_all', {}, 'Перевыпуск профилей в очереди');
 }
 
-// ---------------- live-вывод задачи ----------------
+// ---------------- сопровождение фоновой задачи ----------------
 
+/** Тихое сопровождение задачи: прогресс-лога на странице больше нет —
+ *  по завершении тост (успех/ошибка) и обновление данных. */
 function watchTask(taskId, serverId, action) {
-  const wrap = document.getElementById('wg-task-log-wrap');
-  const log = document.getElementById('wg-task-log');
-  if (wrap) wrap.classList.remove('hidden');
-  if (!log) return;
   const tick = async () => {
     try {
       const t = await j('/api/tasks/' + encodeURIComponent(taskId));
-      const head = `${esc(t.emoji || '')} ${esc(t.name || '')} · ${esc(t.status || '')} · ${esc(t.duration || '')}`;
-      const lines = t.output_lines || [];
-      const fallback = t.result?.output || t.result?.error || t.error || '(нет вывода)';
-      const body = lines.length
-        ? lines.map(ansiToHtml).join('\n')
-        : ansiToHtml(fallback);
-      log.innerHTML = `<div class="tasklog-head">${head}</div><div class="tasklog-body">${body}</div>`;
-      log.scrollTop = log.scrollHeight;
       if (t.is_done) {
         clearInterval(timers[taskId]); delete timers[taskId];
         if (action === 'remove') {
@@ -1070,7 +1306,7 @@ function watchTask(taskId, serverId, action) {
 
             if (returnToServer) {
               try {
-                const { openServer } = await import('./servers.js?v=20260913-hostkey-v2');
+                const { openServer } = await import('./servers.js?v=20260915-sysfix-v2');
                 await openServer(serverId);
               } catch (_) {
                 backToWgList();
@@ -1078,17 +1314,22 @@ function watchTask(taskId, serverId, action) {
             } else {
               backToWgList();
             }
+            toast('WireGuard удалён', true);
           } else {
             toast(t.error || 'Удаление WireGuard завершилось с ошибкой', false);
           }
           return;
+        }
+        if (t.success) {
+          toast(`${t.emoji || '✅'} ${t.name || 'Задача'} — выполнена`, true);
+        } else {
+          toast(t.error || `${t.name || 'Задача'} завершилась с ошибкой`, false);
         }
         const onDetail = document.getElementById('page-wireguard-server')?.classList.contains('on');
         if (onDetail && serverId) {
           await loadWgServerDetail(serverId);
         } else {
           await loadWireguard();
-          if (action === 'install') setWgTab('manage');
         }
         // Кнопки «Быстрых действий» зависят от статуса сервиса — обновляем их.
         if (action === 'install' && t.success) window.refreshAfterServiceChange?.(serverId);
@@ -1166,7 +1407,18 @@ async function confirmInstall() {
   const ep = document.getElementById('wg-install-endpoint').value.trim();
   if (ep) params.WG_ENDPOINT = ep;
   closeModalEl(document.getElementById('wg-install-modal'));
-  await enqueueAction(installTarget.id, 'install', params, 'Установка в очереди');
+  // Живой прогресс в модалке (паттерн установки 3x-ui): лог со
+  // stick-to-bottom, «в фон ↓», финал с «Закрыть». Тоста-заглушки больше нет.
+  await enqueueAction(
+    installTarget.id, 'install', params, null,
+    task => openTaskModal({
+      title: `Установка WireGuard — ${installTarget.name}`,
+      taskId: task.id,
+      doneLabel: 'Готово — WireGuard установлен',
+      onDone: t => { if (t.success) window.refreshAfterServiceChange?.(installTarget.id); },
+      onClose: () => { loadWireguard(); },
+    }),
+  );
 }
 
 // ---------------- QR ----------------
@@ -1177,38 +1429,17 @@ function showQr(id, name) {
   openModalEl(document.getElementById('wg-qr-modal'));
 }
 
-// ---------------- вкладки ----------------
-
-function setWgTab(tab) {
-  wgTab = tab;
-  document.querySelectorAll('#wg-tabs [data-wgtab]').forEach(b => b.classList.toggle('on', b.dataset.wgtab === tab));
-  ['check', 'install', 'manage'].forEach(t => {
-    const el = document.getElementById('wg-tab-' + t);
-    if (el) el.classList.toggle('hidden', t !== tab);
-  });
-  const hint = document.getElementById('wg-tab-hint');
-  if (hint) {
-    hint.textContent = tab === 'check' && !wgHasServers
-      ? 'Серверов пока нет. Добавьте сервер, чтобы начать проверку.'
-      : TAB_HINT[tab] || '';
-  }
-}
-
 // ---------------- bind ----------------
 
 export function bindWireguardUI() {
-  document.querySelectorAll('#wg-tabs [data-wgtab]').forEach(b => b.addEventListener('click', () => setWgTab(b.dataset.wgtab)));
-  setWgTab('check');
-
-  document.getElementById('wg-sync-all')?.addEventListener('click', async () => {
-    try {
-      const r = await j(`/api/services/${SID}/bulk-check`, { method: 'POST' });
-      toast('Проверка запущена', true);
-      if (r.task) watchTask(r.task.id, null);
-    } catch (e) { toast(e.message, false); }
+  // Лёгкие пробы доступности идут фоном, пока панель открыта (SSE);
+  // при смене online/offline перечитываем список — оффлайн-строки и данные
+  // сервиса актуальны без захода на страницу «Серверы».
+  window.addEventListener('bot4vps:availability-changed', () => {
+    if (document.getElementById('page-wireguard')?.classList.contains('on')) loadWireguard();
   });
-  document.getElementById('wg-task-log-close')?.addEventListener('click', () =>
-    document.getElementById('wg-task-log-wrap').classList.add('hidden'));
+
+  bindWgServersList();
 
   // диалог (confirm/prompt) — кнопки OK/Cancel; backdrop НЕ закрывает
   const dlg = document.getElementById('wg-dialog');
@@ -1229,7 +1460,7 @@ export function bindWireguardUI() {
     if (!wgServerId) return;
 
     try {
-      const { openServer } = await import('./servers.js?v=20260913-hostkey-v2');
+      const { openServer } = await import('./servers.js?v=20260915-sysfix-v2');
       await openServer(wgServerId);
     } catch (e) {
       console.error('Не удалось открыть карточку сервера:', e);
@@ -1288,3 +1519,12 @@ export function bindWireguardUI() {
 
 // Публичный API для входа со страницы сервера и восстановления сессии.
 export function openWgServerById(id) { return openWgServer(id, { from: 'server' }); }
+
+// Фоновая задача WireGuard (например, подхваченная резюмом после перезагрузки
+// страницы) завершилась — обновляем список, если открыта страница WireGuard.
+document.addEventListener('bot4vps:task-done', e => {
+  const t = e.detail || {};
+  if (!String(t.name || '').startsWith('WireGuard:')) return;
+  const on = id => document.getElementById(id)?.classList.contains('on');
+  if (on('page-wireguard') || on('page-wireguard-server')) loadWireguard();
+});

@@ -134,3 +134,41 @@ def remove(server: dict, emit) -> StepRunner:
     finally:
         ssh.close()
     return runner
+
+
+def daemon_stop(server: dict, emit) -> StepRunner:
+    """Остановить docker.service. Запущенные контейнеры не трогаем: они живут
+    под containerd и продолжают работать, пока демон выключен.
+
+    Вместе с сервисом останавливаем docker.socket: пока сокет слушает, любой
+    docker-CLI (в т.ч. наши же read-пробы панели) подключается к нему и systemd
+    молча поднимает демон обратно (socket activation)."""
+    ssh = create_ssh_client(server)
+    runner = StepRunner(ssh, server, emit)
+    try:
+        runner.run("stop_service", "systemctl stop docker docker.socket",
+                   title="Остановка docker.service и docker.socket")
+        runner.run("verify_stopped",
+                   'a=$(systemctl is-active docker 2>/dev/null || true); '
+                   'b=$(systemctl is-active docker.socket 2>/dev/null || true); '
+                   'echo "docker=$a socket=$b"; '
+                   '[ "$a" != "active" ] && [ "$b" != "active" ]',
+                   title="Проверка: демон и сокет не активны")
+    finally:
+        ssh.close()
+    return runner
+
+
+def daemon_start(server: dict, emit) -> StepRunner:
+    """Запустить docker.service (после ручной остановки или сбоя).
+    docker.socket поднимаем тоже — daemon_stop останавливал оба."""
+    ssh = create_ssh_client(server)
+    runner = StepRunner(ssh, server, emit)
+    try:
+        runner.run("start_service", "systemctl start docker.socket docker",
+                   title="Запуск docker.socket и docker.service")
+        runner.run("verify", "docker info >/dev/null",
+                   title="Проверка: docker info")
+    finally:
+        ssh.close()
+    return runner

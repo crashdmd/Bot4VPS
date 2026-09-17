@@ -2,11 +2,12 @@ import { j, esc } from './api.js';
 import { ansiToHtml } from './ansi.js';
 import { toast, showPage, bindPasswordToggles, parseEmoji, confirmAction, formatServerDateTime, serverDateTimeParts, serverDayDifference, serverNow } from './ui.js';
 import { state, setServers, setGroups, setKeys, setOpenServer, setPage, setServerGroupTab, setServerSort, setServerQuery as updateServerQuery } from './state.js';
-import { WIREGUARD_ICON, DOCKER_ICON } from './icons.js?v=20260905-brandicons-v2';
+import { WIREGUARD_ICON, DOCKER_ICON, XUI_ICON } from './icons.js?v=20260905-brandicons-v3';
 import { openTerminal, closeTerminal } from './terminal.js?v=20260904-termfit-v1';
-import { openEventDetail, applyEventsSnapshot } from './monitor.js?v=20260913-hostkey-v2';
+import { openEventDetail, applyEventsSnapshot } from './monitor.js?v=20260915-taskfail-v2';
 import { openTaskLog, cancelTaskAPI } from './tasks.js?v=20260816-task-history-v3';
 import { openBackupsForServer } from './backup.js?v=20260912-tzdrop-v1';
+import { toggleEmojiPop, bindEmojiPicker } from './emoji_picker.js?v=20260915-emojipick-v1';
 
 /** @deprecated use state.servers */
 export let lastServers = state.servers;
@@ -770,15 +771,18 @@ async function renderQuickActions(id) {
   if (revision !== quickActionsRevision) return;
   qa.replaceChildren(fragment);
 
-  const [wireGuardResult, dockerResult] = await Promise.allSettled([
+  const [wireGuardResult, dockerResult, xuiResult] = await Promise.allSettled([
     checkWireGuardStatus(id),
     checkDockerStatus(id),
+    checkXuiStatus(id),
   ]);
   if (revision !== quickActionsRevision) return;
   const wireGuardInstalled = wireGuardResult.status === 'fulfilled'
     && wireGuardResult.value === true;
   const dockerInstalled = dockerResult.status === 'fulfilled'
     && dockerResult.value === true;
+  const xuiInstalled = xuiResult.status === 'fulfilled'
+    && xuiResult.value === true;
 
   fragment = document.createDocumentFragment();
 
@@ -796,24 +800,16 @@ async function renderQuickActions(id) {
     addAction('Установить Docker', DOCKER_ICON, 'secondary', () => confirmInstallDocker(id));
   }
 
-  // 4. Запустить скрипт
+  // 4. 3x-ui
+  if (xuiInstalled) {
+    addAction('Панель управления 3x-ui', XUI_ICON, 'secondary', () => openXuiServer(id));
+  } else {
+    addAction('Установить 3x-ui', XUI_ICON, 'secondary', () => confirmInstallXui(id));
+  }
+
+  // 5. Запустить скрипт
   addAction('Запустить скрипт', '▶', 'secondary',
     () => import('./scripts.js?v=20260913-hostkey-v2').then(m => m.openRunModal(id, null)));
-
-  // 5. Перезагрузить сервер
-  addAction('Перезагрузить сервер', '🔄', 'secondary', async () => {
-    const approved = await confirmAction({
-      title: 'Перезагрузить сервер?',
-      message: 'Сервер будет перезагружен.',
-      confirmText: 'Перезагрузить',
-      confirmFirst: true,
-    });
-    if (!approved) return;
-    try {
-      const r = await j('/api/servers/' + encodeURIComponent(id) + '/reboot', { method: 'POST' });
-      toast(r.ok ? 'Сервер перезагружается' : 'Ошибка', r.ok);
-    } catch (e) { toast(e.message, false); }
-  });
 
   // 6. Удалить сервер
   addAction('Удалить сервер', '🗑', '', deleteServer,
@@ -1069,8 +1065,14 @@ export async function openServer(id) {
     const sys = mon.system || {};
     state.openServerData = data; window._openServerData = data;
 
-    // Заголовок и IP
-    document.getElementById('srv-title').textContent = s.name || id;
+    // Заголовок и IP. Имя может содержать эмодзи (пикер в QS и модалке):
+    // textContent не порождает element-ноду — emoji-observer его не видит,
+    // парсим шапку явно.
+    const titleEl = document.getElementById('srv-title');
+    if (titleEl) {
+      titleEl.textContent = s.name || id;
+      parseEmoji(titleEl);
+    }
     const ipEl = document.getElementById('srv-ip');
     if (ipEl) ipEl.textContent = mon.host_ip || s.host || '—';
 
@@ -1213,29 +1215,42 @@ async function checkServiceInstalled(serviceId, serverId) {
 
 const checkWireGuardStatus = id => checkServiceInstalled('wireguard', id);
 const checkDockerStatus = id => checkServiceInstalled('docker', id);
+const checkXuiStatus = id => checkServiceInstalled('3x-ui', id);
 
 // Открыть панель WireGuard для сервера
 function openWireGuardServer(serverId) {
-  import('./wireguard.js?v=20260913-hostkey-v2').then(m => m.openWgServerById(serverId));
+  import('./wireguard.js?v=20260914-wgsrv-icon-v7').then(m => m.openWgServerById(serverId));
 }
 
 // Открыть модальное окно установки WireGuard
 function confirmInstallWireGuard(serverId) {
-  import('./wireguard.js?v=20260913-hostkey-v2')
+  import('./wireguard.js?v=20260914-wgsrv-icon-v7')
     .then(m => m.openInstall(serverId))
     .catch(err => console.error('Ошибка загрузки модуля WireGuard:', err));
 }
 
 // Открыть панель Docker для сервера
 function openDockerServer(serverId) {
-  import('./docker.js?v=20260913-hostkey-v2').then(m => m.openDockerServerById(serverId));
+  import('./docker.js?v=20260915-dksrv-v21').then(m => m.openDockerServerById(serverId));
 }
 
 // Открыть модальное окно установки Docker
 function confirmInstallDocker(serverId) {
-  import('./docker.js?v=20260913-hostkey-v2')
+  import('./docker.js?v=20260915-dksrv-v21')
     .then(m => m.openInstall(serverId))
     .catch(err => console.error('Ошибка загрузки модуля Docker:', err));
+}
+
+// Открыть карточку 3x-ui для сервера
+function openXuiServer(serverId) {
+  import('./3xui.js?v=20260917-selfsni-url-v4').then(m => m.openXuiServerById(serverId));
+}
+
+// Открыть визард установки 3x-ui
+function confirmInstallXui(serverId) {
+  import('./3xui.js?v=20260917-selfsni-url-v4')
+    .then(m => m.openInstallWizard(serverId))
+    .catch(err => console.error('Ошибка загрузки модуля 3x-ui:', err));
 }
 
 /** @deprecated вкладки карточки убраны; terminal → openServerTerminal() */
@@ -1706,9 +1721,41 @@ export function openAddServerModal() {
     document.getElementById('add-server-modal').classList.add('open');
     toggleAddAuth();
     toggleAddSslHost();
-    toggleAfEmojiPop(false);
+    toggleEmojiPop('af-emoji-pop', false);
     bindPasswordToggles();
+    // фокус в первое поле: Enter/Escape работают сразу после открытия
+    document.getElementById('af-name')?.focus();
   });
+}
+
+// Закрыть модалку добавления и очистить форму: следующее открытие должно
+// встречать пустые поля, а не данные предыдущего сервера.
+function closeAddServerModal() {
+  const modal = document.getElementById('add-server-modal');
+  if (!modal) return;
+  modal.classList.remove('open');
+  resetAddServerForm();
+}
+
+function resetAddServerForm() {
+  const set = (id, v) => { const el = document.getElementById(id); if (el) el.value = v; };
+  set('af-name', '');
+  set('af-host', '');
+  set('af-port', '22');
+  set('af-user', 'root');
+  set('af-auth', 'password');
+  set('af-password', '');
+  set('af-key', '');
+  set('af-ssl', '');
+  const g = document.getElementById('af-group');
+  if (g) g.selectedIndex = 0;
+  const cert = document.getElementById('af-cert');
+  if (cert) cert.checked = false;
+  const test = document.getElementById('af-test');
+  if (test) test.checked = true;
+  document.getElementById('af-key-wrap')?.classList.add('hidden');
+  document.getElementById('af-ssl-wrap')?.classList.add('hidden');
+  toggleEmojiPop('af-emoji-pop', false);
 }
 
 function toggleAddAuth() {
@@ -1722,60 +1769,8 @@ function toggleAddAuth() {
   if (input) input.placeholder = isKey ? 'если пользователь не root — можно оставить пустым' : '';
 }
 
-/** Эмодзи для имени сервера: кнопка 🙂 у поля ввода → всплывающая сетка.
- *  Первыми идут флаги стран (с тултипом-названием), затем обычные эмодзи. */
-const AF_NAME_FLAGS = [
-  ['🇩🇪', 'Германия'], ['🇳🇱', 'Нидерланды'], ['🇫🇮', 'Финляндия'], ['🇸🇪', 'Швеция'],
-  ['🇳🇴', 'Норвегия'], ['🇩🇰', 'Дания'], ['🇬🇧', 'Великобритания'], ['🇮🇪', 'Ирландия'],
-  ['🇫🇷', 'Франция'], ['🇧🇪', 'Бельгия'], ['🇱🇺', 'Люксембург'], ['🇦🇹', 'Австрия'],
-  ['🇨🇭', 'Швейцария'], ['🇪🇸', 'Испания'], ['🇵🇹', 'Португалия'], ['🇮🇹', 'Италия'],
-  ['🇵🇱', 'Польша'], ['🇨🇿', 'Чехия'], ['🇸🇰', 'Словакия'], ['🇭🇺', 'Венгрия'],
-  ['🇷🇴', 'Румыния'], ['🇧🇬', 'Болгария'], ['🇬🇷', 'Греция'], ['🇭🇷', 'Хорватия'],
-  ['🇸🇮', 'Словения'], ['🇷🇸', 'Сербия'], ['🇱🇹', 'Литва'], ['🇱🇻', 'Латвия'],
-  ['🇪🇪', 'Эстония'], ['🇺🇦', 'Украина'], ['🇷🇺', 'Россия'], ['🇧🇾', 'Беларусь'],
-  ['🇲🇩', 'Молдова'], ['🇮🇸', 'Исландия'], ['🇲🇹', 'Мальта'], ['🇨🇾', 'Кипр'],
-  ['🇹🇷', 'Турция'], ['🇬🇪', 'Грузия'], ['🇦🇲', 'Армения'], ['🇦🇿', 'Азербайджан'],
-  ['🇰🇿', 'Казахстан'], ['🇮🇱', 'Израиль'], ['🇦🇪', 'ОАЭ'], ['🇸🇬', 'Сингапур'],
-  ['🇯🇵', 'Япония'], ['🇭🇰', 'Гонконг'], ['🇨🇳', 'Китай'], ['🇰🇷', 'Южная Корея'],
-  ['🇮🇳', 'Индия'], ['🇮🇩', 'Индонезия'], ['🇹🇭', 'Таиланд'], ['🇻🇳', 'Вьетнам'],
-  ['🇺🇸', 'США'], ['🇨🇦', 'Канада'], ['🇲🇽', 'Мексика'], ['🇧🇷', 'Бразилия'],
-  ['🇦🇷', 'Аргентина'], ['🇨🇱', 'Чили'], ['🇦🇺', 'Австралия'], ['🇳🇿', 'Новая Зеландия'],
-  ['🇿🇦', 'ЮАР'], ['🇪🇬', 'Египет'], ['🇳🇬', 'Нигерия'], ['🇰🇪', 'Кения'],
-  ['🇶🇦', 'Катар'], ['🇰🇼', 'Кувейт'], ['🇸🇦', 'Саудовская Арабия'], ['🇵🇭', 'Филиппины'],
-  ['🇲🇾', 'Малайзия'], ['🇹🇼', 'Тайвань'], ['🇧🇩', 'Бангладеш'], ['🇵🇰', 'Пакистан'],
-];
-const AF_NAME_EMOJIS = [
-  '🖥', '💻', '🌐', '🌍', '🐧', '🚀', '⚡', '🔥', '🛡', '💾', '🗄', '🗃',
-  '📦', '🧠', '🐳', '🔑', '🔒', '🧩', '⚙', '📡', '🛰', '🎯', '✨', '🌩',
-];
-
-function afEmojiItem(e, title = '') {
-  return `<button type="button" class="af-emoji-item" data-emoji="${e}"${title ? ` title="${title}"` : ''}>${e}</button>`;
-}
-
-function toggleAfEmojiPop(force) {
-  const pop = document.getElementById('af-emoji-pop');
-  if (!pop) return;
-  if (!pop.childElementCount) {
-    pop.innerHTML = AF_NAME_FLAGS.map(([e, t]) => afEmojiItem(e, t)).join('')
-      + '<div class="af-emoji-sep"></div>'
-      + AF_NAME_EMOJIS.map(e => afEmojiItem(e)).join('');
-  }
-  const show = force === undefined ? pop.classList.contains('hidden') : force;
-  pop.classList.toggle('hidden', !show);
-}
-
-function insertAfEmoji(emoji) {
-  const inp = document.getElementById('af-name');
-  if (!inp) return;
-  const start = inp.selectionStart ?? inp.value.length;
-  const end = inp.selectionEnd ?? start;
-  inp.value = inp.value.slice(0, start) + emoji + inp.value.slice(end);
-  const pos = start + emoji.length;
-  inp.focus();
-  inp.setSelectionRange(pos, pos);
-  toggleAfEmojiPop(false);
-}
+// Сетка эмодзи для имени — общая с Quick Setup (emoji_picker.js),
+// здесь привязана к модалке добавления сервера.
 
 /** Поле домена живёт в заголовке рядом с чекбоксом «Проверять SSL»:
  *  без включённой проверки домен не нужен — поле не показываем. */
@@ -1784,7 +1779,12 @@ function toggleAddSslHost() {
   document.getElementById('af-ssl-wrap')?.classList.toggle('hidden', !on);
 }
 
+// Повторный клик по «Создать» во время SSH-пробы не должен плодить серверы:
+// держим флаг до завершения запроса.
+let afSubmitting = false;
+
 export async function submitAddServer() {
+  if (afSubmitting) return;
   const body = {
     name: document.getElementById('af-name').value.trim(),
     host: document.getElementById('af-host').value.trim(),
@@ -1800,15 +1800,30 @@ export async function submitAddServer() {
     test: document.getElementById('af-test').checked,
   };
   if (!body.name || !body.host) { toast('Имя и host обязательны', false); return; }
+
+  const saveBtn = document.getElementById('af-save');
+  const cancelBtn = document.getElementById('af-cancel');
+  const saveLabel = saveBtn.textContent;
+  afSubmitting = true;
+  saveBtn.disabled = true;
+  cancelBtn.disabled = true;
+  saveBtn.textContent = body.test ? '⏳ Проверяем SSH…' : '⏳ Создаём…';
   try {
     const r = await j('/api/servers', {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
     });
-    document.getElementById('add-server-modal').classList.remove('open');
+    closeAddServerModal();
     toast('Сервер добавлен', true);
     await loadServers();
     if (r.id) openServer(r.id);
-  } catch (e) { toast(e.message, false); }
+  } catch (e) {
+    toast(e.message, false);
+  } finally {
+    afSubmitting = false;
+    saveBtn.disabled = false;
+    cancelBtn.disabled = false;
+    saveBtn.textContent = saveLabel;
+  }
 }
 
 export function bindServerUI(options = {}) {
@@ -1831,25 +1846,43 @@ export function bindServerUI(options = {}) {
     const sid = currentOpenServerId();
     if (sid) openBackupsForServer(sid);
   });
+  document.getElementById('btn-reboot-server')?.addEventListener('click', async () => {
+    const id = currentOpenServerId();
+    if (!id) return;
+    const approved = await confirmAction({
+      title: 'Перезагрузить сервер?',
+      message: 'Сервер будет перезагружен.',
+      confirmText: 'Перезагрузить',
+      confirmFirst: true,
+    });
+    if (!approved) return;
+    try {
+      const r = await j('/api/servers/' + encodeURIComponent(id) + '/reboot', { method: 'POST' });
+      toast(r.ok ? 'Сервер перезагружается' : 'Ошибка', r.ok);
+    } catch (e) { toast(e.message, false); }
+  });
   document.getElementById('btn-open-terminal')?.addEventListener('click', () => openServerTerminal());
   document.getElementById('btn-back-from-terminal')?.addEventListener('click', () => backFromTerminal());
   document.getElementById('af-auth')?.addEventListener('change', toggleAddAuth);
   document.getElementById('af-cert')?.addEventListener('change', toggleAddSslHost);
-  document.getElementById('af-emoji-btn')?.addEventListener('click', (e) => {
-    e.stopPropagation();
-    toggleAfEmojiPop();
-  });
-  document.getElementById('af-emoji-pop')?.addEventListener('click', (e) => {
-    const item = e.target.closest('.af-emoji-item');
-    if (item) insertAfEmoji(item.dataset.emoji);
-  });
-  // Клик мимо поля имени — закрыть всплывающий список эмодзи
-  document.addEventListener('click', (e) => {
-    if (!e.target.closest('.af-name-wrap')) toggleAfEmojiPop(false);
-  });
+  // Эмодзи у поля имени: сетка и клик-мимо — общие (emoji_picker.js)
+  bindEmojiPicker({ inputId: 'af-name', btnId: 'af-emoji-btn', popId: 'af-emoji-pop' });
   document.getElementById('af-save')?.addEventListener('click', submitAddServer);
-  document.getElementById('af-cancel')?.addEventListener('click', () =>
-    document.getElementById('add-server-modal').classList.remove('open'));
+  document.getElementById('af-cancel')?.addEventListener('click', closeAddServerModal);
+  // Клавиатура в модалке: Enter из поля ввода — «Создать» (повторный Enter
+  // во время отправки игнорируется флагом afSubmitting), Escape — закрыть.
+  document.getElementById('add-server-modal')?.addEventListener('keydown', e => {
+    if (e.key === 'Enter') {
+      const tag = e.target.tagName;
+      if (tag === 'INPUT' || tag === 'SELECT') {
+        e.preventDefault();
+        submitAddServer();
+      }
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      closeAddServerModal();
+    }
+  });
   bindPasswordToggles();
 }
 

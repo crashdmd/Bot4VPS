@@ -3,7 +3,7 @@ import { esc } from './api.js';
 import { state, setPage } from './state.js';
 import { showPage } from './ui.js';
 import { WIREGUARD_ICON, DOCKER_ICON } from './icons.js?v=20260905-brandicons-v2';
-import { setServerQuery as setServerListQuery } from './servers.js?v=20260913-hostkey-v2';
+import { setServerQuery as setServerListQuery } from './servers.js?v=20260915-sysfix-v2';
 
 let searchResults = [];
 
@@ -178,7 +178,7 @@ function renderResults(box, results) {
       const id = item.dataset.id;
 
       if (type === 'server') {
-        import('./servers.js?v=20260913-hostkey-v2').then(m => {
+        import('./servers.js?v=20260915-sysfix-v2').then(m => {
           setPage('servers');
           showPage('servers');
           m.openServer(id);

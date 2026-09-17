@@ -377,13 +377,20 @@ async def show_tasks_menu(query):
     await query.edit_message_text(
         "📋 Задачи\n\nВыберите тип:",
         reply_markup=InlineKeyboardMarkup([
-            [InlineKeyboardButton("📜 Скрипты", callback_data="scripts")],
-            [InlineKeyboardButton("🛡 WireGuard", callback_data="tasks_svc:wireguard")],
+            [
+                InlineKeyboardButton("📜 Скрипты", callback_data="scripts"),
+                InlineKeyboardButton("🛡 WireGuard", callback_data="tasks_svc:wireguard"),
+            ],
             # У Docker собственный хаб (owns_hub): проверка / установка /
             # Compose / серверы — диспетчер отдаст ему op "hub".
-            [InlineKeyboardButton("🐳 Docker", callback_data="tasks_svc:docker")],
-            [InlineKeyboardButton("💾 Работа с Backup", callback_data="bk:entry:tasks")],
-            [InlineKeyboardButton("📋 Задачи", callback_data="task_queues")],
+            [
+                InlineKeyboardButton("🐳 Docker", callback_data="tasks_svc:docker"),
+                InlineKeyboardButton("🌐 3x-ui", callback_data="tasks_svc:3x-ui"),
+            ],
+            [
+                InlineKeyboardButton("💾 Работа с Backup", callback_data="bk:entry:tasks"),
+                InlineKeyboardButton("📋 Задачи", callback_data="task_queues"),
+            ],
             [InlineKeyboardButton("⬅️ Главное меню", callback_data="main")],
         ]),
     )
