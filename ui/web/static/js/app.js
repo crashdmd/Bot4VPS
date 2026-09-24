@@ -1,10 +1,10 @@
 import { tickClock, syncServerClock, showPage, toast, parseEmoji, initEmojiObserver, confirmAction, bindTelegramHealthDialog } from './ui.js';
-import { loadDashboard, loadSummary, bindDashboard, stopDashMetrics, updateDashboardData, updateDashboardState } from './dashboard.js?v=20260913-hostkey-v2';
-import { loadEvents, openEventDetail, applyEventsSnapshot, initSystemMonitor, stopSystemMonitor } from './monitor.js?v=20260915-taskfail-v2';
+import { loadDashboard, loadSummary, bindDashboard, stopDashMetrics, updateDashboardData, updateDashboardState } from './dashboard.js?v=20260924-history-v1';
+import { loadEvents, EVENTS_LIMIT, openEventDetail, applyEventsSnapshot, initSystemMonitor, stopSystemMonitor } from './monitor.js?v=20260925-changelog-md-v2';
 import { loadServers, loadQueues, loadHistory, loadGroupsAndKeys,
   bindServerUI, stopWatchers, openServer, closeGroupsPanel, lastServerTab,
   startSshProbeLoop, stopSshProbeLoop,
-} from './servers.js?v=20260915-sysfix-v2';
+} from './servers.js?v=20260924-task-history-head-v1';
 import { loadScripts, bindScriptsUI } from './scripts.js?v=20260913-hostkey-v2';
 import { loadWireguard, bindWireguardUI, stopWgTimers, openWgServerById } from './wireguard.js?v=20260914-wgsrv-icon-v7';
 import { loadDocker, bindDockerUI, stopDockerTimers, openDockerServerById } from './docker.js?v=20260915-dksrv-v21';
@@ -13,14 +13,14 @@ import { bindTasksUI } from './tasks.js?v=20260914-autoupdate-v2';
 import { loadFiles, bindFilesUI } from './files.js?v=20260913-hostkey-v2';
 import { bindEditorUI } from './editor.js?v=20260815-scripts-table-v1';
 import { bindTerminalUI, closeTerminal } from './terminal.js?v=20260905-glassblue-v2';
-import { startSSE, registerNotificationsRefresh } from './sse.js?v=20260917-xui-sse-v1';
+import { startSSE, registerNotificationsRefresh } from './sse.js?v=20260924-history-v1';
 import { state, setPage, clearQuickSetupServer } from './state.js';
 import { j, esc } from './api.js';
 import { resumeBackgroundTasks } from './taskmodal.js?v=20260914-v3';
 import { initAuth, bindAuthUI } from './auth.js';
 import { initSetup, bindSetupUI } from './setup.js?v=20260910-setup-v4';
-import { bindGlobalSearch } from './search.js?v=20260913-hostkey-v2';
-import { bindBackupUI, loadBackups, stopBackupTimers } from './backup.js?v=20260912-tzdrop-v1';
+import { bindGlobalSearch } from './search.js?v=20260924-notify-icon-v1';
+import { bindBackupUI, loadBackups, stopBackupTimers } from './backup.js?v=20260925-notify-gate-v2';
 
 const QUICK_SETUP_MODULE_URL = './quick_setup.js?v=20260915-sysfix-v1';
 const quickSetupModule = import(QUICK_SETUP_MODULE_URL).catch(error => {
@@ -46,7 +46,7 @@ async function openQuickSetupFromCard(serverId) {
 
 // Settings — отдельная подсистема. Загружаем её лениво, чтобы ошибка нового
 // модуля не останавливала Dashboard, Servers и остальные страницы.
-const settingsModule = import('./settings.js?v=20260913-hostkey-v2')
+const settingsModule = import('./settings.js?v=20260925-notify-blocks-v17')
   .catch(error => {
     console.error('[settings] module unavailable:', error);
     return null;
@@ -68,7 +68,9 @@ async function refreshAll() {
     loadHistory(),
     loadScripts(),
     loadFiles(),
-    loadEvents(state.page === 'events' ? 100 : 5),
+    // Полный список тянем, только когда открыт журнал уведомлений: в
+    // остальное время хватает короткого среза, он всё равно обновит кэш.
+    loadEvents(historyTab() === 'events' && state.page === 'history' ? EVENTS_LIMIT : 5),
     loadWireguard(),
     loadDocker(),
   ]);
@@ -82,10 +84,60 @@ function clearQuickSetupLocation() {
   history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
 }
 
+// «История событий» — одна страница с двумя вкладками. Раньше это были два
+// пункта меню («Задачи» и «Журнал уведомлений»); старые имена страниц остались
+// алиасами, чтобы переходы из дашборда, поиска и сохранённой страницы не
+// сломались. Содержимое и поведение вкладок — прежнее.
+const HISTORY_TAB_KEY = 'bot4vps_history_tab';
+
+function storedHistoryTab() {
+  try {
+    const saved = localStorage.getItem(HISTORY_TAB_KEY);
+    return saved === 'queues' ? 'queues' : 'events';
+  } catch (_) { return 'events'; }
+}
+
+export function historyTab() {
+  return state.historyTab || storedHistoryTab();
+}
+
+export function setHistoryTab(tab) {
+  const name = tab === 'queues' ? 'queues' : 'events';
+  state.historyTab = name;
+  document.querySelectorAll('[data-history-tab]').forEach(button => {
+    const on = button.dataset.historyTab === name;
+    button.classList.toggle('on', on);
+    button.setAttribute('aria-selected', String(on));
+  });
+  const events = document.getElementById('history-panel-events');
+  const queues = document.getElementById('history-panel-queues');
+  if (events) events.hidden = name !== 'events';
+  if (queues) queues.hidden = name !== 'queues';
+  try { localStorage.setItem(HISTORY_TAB_KEY, name); } catch (_) {}
+}
+window.b4vHistoryTab = setHistoryTab;
+
+function bindHistoryTabs() {
+  document.querySelectorAll('[data-history-tab]').forEach(button => {
+    button.addEventListener('click', () => {
+      setHistoryTab(button.dataset.historyTab);
+      if (historyTab() === 'events') loadEvents();
+      else { loadQueues(); loadHistory(); }
+    });
+  });
+  setHistoryTab(historyTab());
+}
+
 function onNav(page) {
   if (state.page === 'quick-setup' && page !== 'quick-setup') {
     clearQuickSetupServer();
     clearQuickSetupLocation();
+  }
+  // Старые адреса страниц ведут на свою вкладку «Истории событий».
+  let tab = null;
+  if (page === 'events' || page === 'queues') {
+    tab = page;
+    page = 'history';
   }
   setPage(page);
   if (page !== 'servers') closeGroupsPanel();
@@ -101,8 +153,12 @@ function onNav(page) {
   if (page !== 'backups') stopBackupTimers();
   if (page !== 'settings') stopSettingsPageTimers();
   showPage(page);
+  if (tab) setHistoryTab(tab);
   if (page === 'dashboard') loadDashboard();
-  if (page === 'events') loadEvents();
+  if (page === 'history') {
+    if (historyTab() === 'events') loadEvents();
+    else { loadQueues(); loadHistory(); }
+  }
   if (page === 'servers') { loadServers(); startSshProbeLoop(); }
   if (page === 'scripts') loadScripts();
   if (page === 'wireguard') loadWireguard();
@@ -110,7 +166,6 @@ function onNav(page) {
   if (page === 'xui') loadXui();
   if (page === 'files') loadFiles();
   if (page === 'backups') loadBackups();
-  if (page === 'queues') { loadQueues(); loadHistory(); }
   if (page === 'monitor') { loadDashboard(); initSystemMonitor(); }
   if (page === 'settings') loadSettingsPage();
 }
@@ -150,7 +205,6 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape') closeDrawer(
 document.getElementById('btn-events-mark-read')?.addEventListener('click', () => {
   markAllNotificationsRead();
 });
-document.getElementById('btn-journal')?.addEventListener('click', () => loadEvents(100)); // expanded
 document.getElementById('btn-events-clear')?.addEventListener('click', async () => {
   if (!await confirmAction({
     message: 'Очистить журнал событий?',
@@ -159,7 +213,7 @@ document.getElementById('btn-events-clear')?.addEventListener('click', async () 
   try {
     await j('/api/events', { method: 'DELETE' });
     toast('Очищено', true);
-    loadEvents(5);
+    loadEvents();
   } catch (e) { toast(e.message, false); }
 });
 
@@ -185,6 +239,7 @@ import('./groups_panel.js?v=20260913-hostkey-v2')
 bindAuthUI();
 bindSetupUI();
 bindGlobalSearch();
+bindHistoryTabs();
 bindBackupUI();
 bindTelegramHealthDialog();
 quickSetupModule.then(module => module?.bindQuickSetupNav({
@@ -193,7 +248,9 @@ quickSetupModule.then(module => module?.bindQuickSetupNav({
 })).catch(() => {});
 window.addEventListener('bot4vps:open-settings-category', async event => {
   const category = event.detail?.category;
-  if (category !== 'telegram') return;
+  // Telegram и Уведомления: второй нужен, когда причина не в боте, а в общем
+  // выключателе доставки (страница резервных копий ведёт именно туда).
+  if (category !== 'telegram' && category !== 'notify') return;
   try {
     const module = await settingsModule;
     if (!module) throw new Error('settings module unavailable');
@@ -201,7 +258,7 @@ window.addEventListener('bot4vps:open-settings-category', async event => {
     onNav('settings');
     closeDrawer();
   } catch (_) {
-    toast('Не удалось открыть настройки Telegram', false);
+    toast('Не удалось открыть настройки', false);
   }
 });
 
@@ -437,13 +494,13 @@ async function boot() {
   setInterval(() => {
     if (state.sseConnected) {
       // только тяжёлое, чего нет в snapshot
-      if (state.page === 'queues') loadQueues();
+      if (state.page === 'history' && historyTab() === 'queues') loadQueues();
       return;
     }
     loadSummary();
     loadHeaderData(); // обновляем хедер
     if (state.page === 'servers') loadServers();
-    if (state.page === 'queues') { loadQueues(); loadHistory(); }
+    if (state.page === 'history' && historyTab() === 'queues') { loadQueues(); loadHistory(); }
   }, 8000);
 }
 
@@ -576,10 +633,11 @@ async function loadNotificationsDropdown() {
       });
 
       // Действие относится ко всем непрочитанным, а не только к показанной
-      // пятёрке. Сами события остаются в журнале.
+      // пятёрке. Сами события остаются в журнале. Подпись короткая: в узком
+      // выпадающем списке длинная фраза ломалась посреди слова.
       const markReadBtn = document.createElement('button');
       markReadBtn.className = 'dropdown-btn';
-      markReadBtn.textContent = '✓ Пометить все как прочитанные';
+      markReadBtn.textContent = '✓ Прочитать все';
       markReadBtn.addEventListener('click', e => {
         e.stopPropagation();
         markAllNotificationsRead(allUnread);

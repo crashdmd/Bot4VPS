@@ -560,13 +560,18 @@ def masterkey_field_labels(fields: list[str]) -> str:
 
 def tg_enable() -> None:
     from core.config import get_telegram_config, set_telegram_enabled
+    from core.notification_policy import purge_all_pending
 
     cfg = get_telegram_config()
     if not cfg.get("token_set"):
         raise ValueError("Сначала задайте Bot Token (пункт 2)")
     if cfg.get("user_id") is None:
         raise ValueError("Сначала задайте Telegram User ID (пункт 3)")
+    was_enabled = bool(cfg.get("enabled"))
     set_telegram_enabled(True)
+    if not was_enabled:
+        # Переход «выключен → включён»: накопленное не приходит залпом.
+        purge_all_pending()
     _restart_and_verify()
     running, note = _wait_telegram_state()
     if not running:
@@ -575,8 +580,11 @@ def tg_enable() -> None:
 
 def tg_disable() -> None:
     from core.config import set_telegram_enabled
+    from core.notification_policy import purge_all_pending
 
     set_telegram_enabled(False)
+    # Telegram выключен — очередь доставки закрывается целиком (план §10).
+    purge_all_pending()
     _restart_and_verify()
 
 

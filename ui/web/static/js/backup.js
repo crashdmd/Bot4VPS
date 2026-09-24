@@ -1470,6 +1470,36 @@ function setTelegramHealth(value) {
   if (normalized) telegramHealth = normalized;
 }
 
+/* Общий выключатель уведомлений (Настройки → Уведомления): канал Telegram и
+   категории. Он главнее пер-серверных галочек — снятый тумблер или выключенная
+   категория «Резервные копии» глушат доставку целиком. null — состояние ещё не
+   известно, догадываться о нём нельзя. */
+let generalNotifications = { channel: null, categories: null };
+
+function setGeneralNotifications(value) {
+  if (!value || typeof value !== 'object') return;
+  generalNotifications = {
+    channel: typeof value.channel === 'boolean' ? value.channel : null,
+    categories: value.categories && typeof value.categories === 'object'
+      ? value.categories
+      : null,
+  };
+}
+
+function generalNotificationIssue() {
+  const state = generalNotifications;
+  if (state.channel === null && !state.categories) return '';
+  const off = [];
+  if (state.channel === false) off.push('снят тумблер «Оповещать в Telegram»');
+  if (state.categories?.backups === false) off.push('выключена категория «Резервные копии»');
+  if (!off.length) return '';
+  return `Уведомления выключены в общих настройках Bot4VPS: ${off.join(' и ')} (Настройки → Уведомления).`;
+}
+
+function telegramNotificationReason() {
+  return generalNotificationIssue() || telegramHealth.reason;
+}
+
 function renderTelegramHealthIndicator() {
   const warning = document.querySelector('[data-telegram-health-warning]');
   if (!warning) return;
@@ -1477,17 +1507,37 @@ function renderTelegramHealthIndicator() {
     document.querySelector('[name="notify_backup_enabled"]'),
     document.querySelector('[name="notify_restore_enabled"]'),
   ].some(checkbox => checkbox?.checked);
+  const issue = generalNotificationIssue();
   const health = telegramHealth;
   const healthy = health.code === 'OK';
-  const visible = notificationsEnabled && !healthy;
+  // Галочки серверов включены, но доставка выключена в общем: либо Telegram
+  // недоступен, либо общий тумблер/категория. В обоих случаях «!» уместен.
+  const visible = notificationsEnabled && (!healthy || Boolean(issue));
+  const reason = issue || health.reason;
   warning.classList.toggle('hidden', !visible);
-  warning.title = visible ? health.reason : '';
-  warning.setAttribute('aria-label', healthy
+  warning.title = visible ? reason : '';
+  warning.setAttribute('aria-label', healthy && !issue
     ? 'Уведомления в Telegram доступны'
-    : `Уведомления в Telegram недоступны. ${health.reason}`);
+    : `Уведомления в Telegram недоступны. ${reason}`);
 }
 
 async function openTelegramHealthWarning() {
+  const issue = generalNotificationIssue();
+  if (issue) {
+    // Сам Telegram проверять незачем: причина не в нём, а в общем выключателе,
+    // и починка живёт в другом разделе настроек.
+    showTelegramHealthDialog({
+      ok: false,
+      code: 'NOTIFICATIONS_DISABLED',
+      reason: issue,
+      source: 'backup',
+      settingsLabel: 'Открыть «Уведомления»',
+      onOpenSettings: () => window.dispatchEvent(new CustomEvent('bot4vps:open-settings-category', {
+        detail: { category: 'notify' },
+      })),
+    });
+    return;
+  }
   let health = telegramHealth;
   if (health.code === 'NOT_CONFIGURED' || health.code === 'API_ERROR') {
     try {
@@ -1529,6 +1579,7 @@ async function loadTelegramHealth() {
   try {
     const status = await j('/api/telegram/status');
     setTelegramHealth(status?.health);
+    setGeneralNotifications(status?.notifications);
   } catch (_) {
     setTelegramHealth({
       code: 'API_ERROR',
@@ -1632,8 +1683,8 @@ function renderSettingsTab() {
   const health = telegramHealth;
   const automaticEnabled = Boolean(settingsValue(settings, 'automatic', 'enabled', false));
   const notify = notificationSettings(settings);
-  const telegramWarningVisible = health.code !== 'OK'
-    && (notify.backup.enabled || notify.restore.enabled);
+  const offline = Boolean(generalNotificationIssue()) || health.code !== 'OK';
+  const telegramWarningVisible = offline && (notify.backup.enabled || notify.restore.enabled);
   const automaticFields = () => automaticEnabled ? `<label>Время<input name="daily_time" type="time" value="${esc(settingsValue(settings, 'automatic', 'daily_time', '02:30'))}"></label>
       <label>Хранить последних backup<input name="keep_last" type="number" min="1" value="${esc(settingsValue(settings, 'automatic', 'keep_last', 7))}"></label>` : '';
   const repainted = paint(host, `<form class="backup-settings" id="backup-settings-form" onsubmit="return false">
@@ -1651,8 +1702,8 @@ function renderSettingsTab() {
       <div id="backup-automatic-fields" class="backup-automatic-fields">${automaticFields()}</div>
       <div class="backup-telegram-notifications">
         <div class="backup-telegram-heading">
-          <span>Уведомления в Телеграмм</span>
-          <button type="button" class="backup-telegram-warning${telegramWarningVisible ? '' : ' hidden'}" data-telegram-health-warning title="${telegramWarningVisible ? esc(health.reason) : ''}" aria-label="Уведомления в Telegram недоступны. ${esc(health.reason)}">!</button>
+          <span>Уведомления в Telegram</span>
+          <button type="button" class="backup-telegram-warning${telegramWarningVisible ? '' : ' hidden'}" data-telegram-health-warning title="${telegramWarningVisible ? esc(telegramNotificationReason()) : ''}" aria-label="${telegramWarningVisible ? `Уведомления в Telegram недоступны. ${esc(telegramNotificationReason())}` : 'Уведомления в Telegram доступны'}">!</button>
         </div>
         <div class="backup-notification-groups">
           ${notificationRowMarkup('backup', notify.backup)}

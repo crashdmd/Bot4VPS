@@ -763,6 +763,26 @@ def _saved_telegram_credentials() -> tuple[str, int | None]:
     return token, get_telegram_config().get("user_id")
 
 
+def _notifications_delivery_state() -> dict:
+    """Общий выключатель уведомлений: канал и категории (Настройки → Уведомления).
+
+    Нужен страницам со своей тонкой настройкой доставки (резервные копии):
+    снятый общий тумблер или выключенная категория глушат их галочки, и об
+    этом нужно сказать прямо — иначе галочки выглядят рабочими.
+    """
+    try:
+        from core.config import get_notification_categories, get_telegram_channel
+
+        return {
+            "channel": get_telegram_channel(),
+            "categories": get_notification_categories(),
+        }
+    except Exception:
+        # Состояние общего выключателя — дополнение к статусу, а не сам статус:
+        # нечитаемый конфиг не должен ронять раздел.
+        return {}
+
+
 def _telegram_status_payload() -> dict:
     from core.config import _read_config_raw
     from core.secretbox import MasterKeyMissingError
@@ -805,6 +825,7 @@ def _telegram_status_payload() -> dict:
             token=token,
             chat_id=user_id,
         ),
+        "notifications": _notifications_delivery_state(),
     }
 
 
@@ -906,6 +927,12 @@ async def api_telegram_start():
         }
 
     set_telegram_enabled(True)
+    if not tg.get("enabled"):
+        # Переход «выключен → включён»: накопленное за выключенное время не
+        # должно прийти залпом — учитываются только новые события (план §10).
+        from core.notification_policy import purge_all_pending
+
+        purge_all_pending()
     if _running():
         return {"ok": True, "message": "Уже запущен", **_telegram_status_payload()}
     try:
@@ -933,8 +960,15 @@ async def api_telegram_stop():
         await stop_telegram()
     except Exception as e:
         set_telegram_enabled(False)
+        from core.notification_policy import purge_all_pending
+
+        purge_all_pending()
         return {"ok": False, "error": str(e), **_telegram_status_payload()}
     set_telegram_enabled(False)
+    # Telegram выключен — очередь доставки закрывается целиком (план §10).
+    from core.notification_policy import purge_all_pending
+
+    purge_all_pending()
     return {"ok": True, "message": "Остановлен", **_telegram_status_payload()}
 
 

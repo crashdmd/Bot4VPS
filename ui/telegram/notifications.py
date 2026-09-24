@@ -1,9 +1,11 @@
 import asyncio
 import time
 import uuid
+from datetime import datetime
 
 from telegram import InlineKeyboardMarkup, InlineKeyboardButton
 
+from core import notification_state
 from core.notification_queue import (
     claim_notification,
     complete_notification,
@@ -178,9 +180,46 @@ def _menu_keyboard():
 # на сообщении помечает ВСЕ его события прочитанными и закрывает
 # аккумулятор — следующее событие начнёт новое сообщение.
 #
-# Карта живёт в памяти: после рестарта теряется — события остаются
-# непрочитанными и добираются через Web/сводку, ничего не теряется.
+# Карта — кэш над ``notification_state.live_messages``: id живого сообщения
+# лежит на диске, поэтому перезапуск панели НЕ начинает вторую сводку, а
+# продолжает ту же (события в журнале остались непрочитанными — их id и
+# восстанавливаются). Если сообщение всё-таки удалено в чате, правка не
+# пройдёт и отправится новое.
 _ACCUMULATORS: dict = {}
+
+
+def _live_message(chat_id):
+    """Аккумулятор чата: из памяти, иначе с диска (после перезапуска)."""
+    acc = _ACCUMULATORS.get(chat_id)
+    if acc is not None or chat_id is None:
+        return acc
+    stored = notification_state.get_live_message(chat_id)
+    if stored is None:
+        return None
+    digest_id = stored.get("digest_id")
+    if digest_id and digest_id not in _DIGESTS:
+        # Кнопки живого сообщения ведут на сводку, зарегистрированную до
+        # перезапуска: поднимаем её по тем же id, иначе нажатие показало бы
+        # «Сводка устарела» на непрочитанном сообщении.
+        _DIGESTS[digest_id] = {"events": list(stored.get("event_ids") or []), "ts": time.time()}
+    _ACCUMULATORS[chat_id] = stored
+    return stored
+
+
+def _remember_live_message(chat_id, message_id, event_ids, digest_id=None) -> None:
+    """Живое сообщение существует — запомнить в памяти и на диске."""
+    notification_state.set_live_message(chat_id, message_id, event_ids, digest_id)
+    _ACCUMULATORS[chat_id] = {
+        "message_id": message_id,
+        "event_ids": list(event_ids or []),
+        "digest_id": digest_id,
+    }
+
+
+def _forget_live_message(chat_id) -> None:
+    """Живого сообщения больше нет (прочитано/закрыто/удалено)."""
+    _ACCUMULATORS.pop(chat_id, None)
+    notification_state.clear_live_message(chat_id)
 
 
 def _event_unread(event_id) -> bool:
@@ -193,14 +232,15 @@ def _accumulator_unread_ids(chat_id) -> list:
 
     Если всё прочитано/удалено — аккумулятор закрывается, возвращается [].
     """
-    acc = _ACCUMULATORS.get(chat_id)
+    acc = _live_message(chat_id)
     if not acc:
         return []
     ids = [eid for eid in acc.get("event_ids", []) if _event_unread(eid)]
     if not ids:
-        _ACCUMULATORS.pop(chat_id, None)
+        _forget_live_message(chat_id)
         return []
-    acc["event_ids"] = ids
+    if ids != list(acc.get("event_ids", [])):
+        _remember_live_message(chat_id, acc.get("message_id"), ids, acc.get("digest_id"))
     return ids
 
 
@@ -223,10 +263,10 @@ def mark_message_event_read(chat_id, message_id, *, action: str = "") -> bool:
     Возвращает True, если нажатие пришлось на живое сообщение-уведомление
     этого чата; кнопки на прочих сообщениях — no-op.
     """
-    acc = _ACCUMULATORS.get(chat_id)
+    acc = _live_message(chat_id)
     if not acc or acc.get("message_id") != message_id:
         return False
-    _ACCUMULATORS.pop(chat_id, None)
+    _forget_live_message(chat_id)
     if action.startswith(("notif:g:", "notif:e:", "notif:d:")):
         return True
     if len(acc.get("event_ids", [])) > 1 and not action.startswith("notif:r:"):
@@ -255,6 +295,7 @@ async def _deliver_to_chat(
         # Всё уже прочитано/удалено (например, через Web) — молча.
         return True
 
+    digest_id = None
     if len(ids) == 1 and notification is not None:
         text = format_event_text(notification)
         kb = _event_keyboard(notification, user_id=chat_id)
@@ -262,7 +303,7 @@ async def _deliver_to_chat(
         digest_id = _register_digest(ids)
         text, kb = _digest_summary(digest_id)
 
-    acc = _ACCUMULATORS.get(chat_id)
+    acc = _live_message(chat_id)
     editor = getattr(bot, "edit_message_text", None)
     if acc is not None and base_ids and callable(editor):
         try:
@@ -275,7 +316,7 @@ async def _deliver_to_chat(
         except Exception as e:
             if "message is not modified" in str(e).lower():
                 # Текст не изменился (повторная доставка тех же событий).
-                acc["event_ids"] = ids
+                _remember_live_message(chat_id, acc["message_id"], ids, digest_id)
                 return True
             # Сообщение удалено/недоступно для правки — шлём новое.
             print(
@@ -283,13 +324,13 @@ async def _deliver_to_chat(
                 flush=True,
             )
         else:
-            acc["event_ids"] = ids
+            _remember_live_message(chat_id, acc["message_id"], ids, digest_id)
             return True
 
     sent = await send_telegram_message(bot, chat_id=chat_id, text=text, reply_markup=kb)
     message_id = getattr(sent, "message_id", None)
     if message_id is not None:
-        _ACCUMULATORS[chat_id] = {"message_id": message_id, "event_ids": ids}
+        _remember_live_message(chat_id, message_id, ids, digest_id)
     return True
 
 
@@ -375,6 +416,7 @@ async def send_event_notification(bot, notification: dict, event_id: str = None)
 
     owner = f"immediate:{uuid.uuid4().hex}"
     queue_id = None
+    claimed = None
     if event_id:
         if journal_only and not buffered:
             # Синхронный путь: без queue-row; при провале вернём False и
@@ -384,6 +426,7 @@ async def send_event_notification(bot, notification: dict, event_id: str = None)
                 "owner": owner,
                 "event_id": event_id,
                 "notification": notification,
+                "row": None,
             })
         if journal_only:
             # Пока событие сидит в буфере, fallback-очередь должна существовать:
@@ -407,12 +450,228 @@ async def send_event_notification(bot, notification: dict, event_id: str = None)
         "owner": owner,
         "event_id": event_id,
         "notification": notification,
+        "row": claimed,
     }
     if not buffered:
         return await _deliver_single(bot, entry)
     _buffer_entry(bot, entry)
     # Ответ «принято в доставку»: fallback лежит в очереди под нашим claim.
     return True
+
+
+# --------------------------------------------------------------
+# Единая точка принятия решения по Telegram-доставке
+# --------------------------------------------------------------
+# Все решения принимаются в момент попытки доставки, а не при создании
+# события: к этому моменту известно и прочтение в Web, и текущее состояние
+# сервера. См. plans/TELEGRAM_NOTIFICATIONS_PLAN.md, раздел 3.
+
+# Исходы: «close» — окончательно закрыть строку очереди; «defer» — оставить
+# её и проверить снова на следующем тике; «send» — доставить.
+CLOSE = "close"
+DEFER = "defer"
+SEND = "send"
+
+
+def _web_open() -> bool:
+    """Открыта ли сейчас веб-панель (только факт живого подключения)."""
+    from core import web_presence
+
+    return web_presence.is_web_open()
+
+
+def _window_seconds() -> float:
+    """N — существующий интервал проверки доступности, в секундах.
+
+    Одно число на три роли: период проверки, частота сообщений в Telegram и
+    окно схлопывания (план, §4). Отдельной настройки выдержки нет.
+    """
+    from core.config import load_config
+
+    monitor = (load_config() or {}).get("monitor") or {}
+    online = monitor.get("online") or {}
+    try:
+        minutes = float(online.get("interval", 5))
+    except (TypeError, ValueError):
+        minutes = 5.0
+    if minutes != minutes or minutes < 0:  # NaN и отрицательные
+        minutes = 5.0
+    return minutes * 60.0
+
+
+def _event_age_seconds(row) -> float:
+    """Сколько событие лежит в очереди (0 — возраст неизвестен)."""
+    created = row.get("created") if isinstance(row, dict) else None
+    if not isinstance(created, str) or not created:
+        return 0.0
+    try:
+        return max(0.0, time.time() - datetime.fromisoformat(created).timestamp())
+    except (ValueError, OSError, OverflowError):
+        return 0.0
+
+
+def _server_state(server_id: str):
+    """Фактическое состояние сервера из мониторинга: "online"/"offline"/None.
+
+    Источник факта — существующий мониторинг (план, §16): своё состояние
+    доступности Telegram не измеряет.
+    """
+    if not server_id:
+        return None
+    try:
+        from core.monitor import load_monitor
+
+        entry = (load_monitor() or {}).get(str(server_id)) or {}
+        availability = entry.get("availability") or {}
+        online = availability.get("online")
+    except Exception:
+        return None
+    if online is None:
+        return None
+    return notification_state.ONLINE if online else notification_state.OFFLINE
+
+
+def _deferred_by_window(row) -> bool:
+    """Отложить ли обычное событие: открыта панель, N ещё не прошло.
+
+    Пока панель открыта, события копятся и уходят не чаще одного раза в N —
+    чтобы пользователь успел прочитать их в Web и не получить дубль
+    (план, §4).
+    """
+    window = _window_seconds()
+    if window <= 0:
+        return False
+    if _event_age_seconds(row) < window:
+        return True
+    last_sent = notification_state.get_last_sent_at()
+    return last_sent is not None and (time.time() - last_sent) < window
+
+
+def _entry_availability(notification: dict, row: dict, details: dict) -> bool:
+    from core.notification_policy import is_availability
+
+    return is_availability(str(notification.get("type") or row.get("type") or ""), details)
+
+
+def _is_availability_entry(entry: dict) -> bool:
+    """Событие доступности сервера (участвует в схлопывании)."""
+    notification = entry.get("notification") or {}
+    row = entry.get("row") or {}
+    details = (
+        notification.get("details")
+        or notification.get("data")
+        or row.get("details")
+        or {}
+    )
+    if not isinstance(details, dict):
+        details = {}
+    return _entry_availability(notification, row, details)
+
+
+def _resolve_availability(entry: dict, notification: dict, details: dict):
+    """Схлопывание online/offline по фактическому состоянию (план, §6)."""
+    from core.notification_policy import availability_notification
+
+    server_id = str(details.get("server_id") or "")
+    state = _server_state(server_id)
+    row = entry.get("row") or {}
+    if not server_id or state is None:
+        # Факта нет (сервер удалён, мониторинг ещё не писал) — гасить нечем.
+        if _web_open() and _deferred_by_window(row):
+            return DEFER, None
+        return SEND, None
+
+    # О сервере ещё ни разу не сообщали — считаем, что сообщали «online»,
+    # иначе первый же реальный offline нового сервера был бы подавлен.
+    reported = notification_state.get_last_reported(server_id) or notification_state.ONLINE
+    if state == reported:
+        # Событие уже не соответствует факту: «упал и поднялся» внутри окна.
+        return CLOSE, None
+
+    # События доступности ждут N всегда — иначе пару не схлопнуть.
+    if _event_age_seconds(row) < _window_seconds():
+        return DEFER, None
+
+    payload = availability_notification(
+        state,
+        server_id=server_id,
+        server_name=str(details.get("server_name") or "сервер"),
+        error=str(details.get("error") or ""),
+        details=details,
+    )
+    return SEND, payload
+
+
+def _resolve(entry: dict):
+    """Решение по одной строке очереди: (исход, подменённое уведомление)."""
+    from core.notification_policy import (
+        category_enabled,
+        category_of,
+        telegram_channel_enabled,
+    )
+
+    notification = entry.get("notification") or {}
+    row = entry.get("row") or {}
+    event_type = str(notification.get("type") or row.get("type") or "")
+    details = (
+        notification.get("details")
+        or notification.get("data")
+        or row.get("details")
+        or {}
+    )
+    if not isinstance(details, dict):
+        details = {}
+    event_id = entry.get("event_id")
+
+    # Канал Telegram выключен — глушим всё, что идёт через очередь. Веб это не
+    # касается: события там остаются непрочитанными.
+    if not telegram_channel_enabled():
+        return CLOSE, None
+
+    # Категория решает всё, исключений нет: аварии панели (несовпадение
+    # host key, восстановление повреждённой базы) — это та же категория
+    # «Системные и аварии панели», и её выключатель глушит их наравне с
+    # остальными служебными событиями.
+    category = category_of(event_type)
+    if category is not None:
+        # Онлайн/офлайн и SSL решает тумблер их проверки, остальные —
+        # своя галочка категории (core/notification_policy.category_enabled).
+        if not category_enabled(category):
+            return CLOSE, None
+
+    event = get_event(event_id) if event_id else None
+    if event_id and (event is None or event.get("read") is True):
+        # Прочитано в Web или удалено из журнала — дубль не отправляем.
+        return CLOSE, None
+
+    if not entry.get("queue_id"):
+        # Строки в очереди нет — откладывать нечего, доставляем сразу.
+        return SEND, None
+
+    if _is_availability_entry(entry):
+        return _resolve_availability(entry, notification, details)
+
+    if _web_open() and _deferred_by_window(row):
+        return DEFER, None
+    return SEND, None
+
+
+def _remember_delivery(notification: dict) -> None:
+    """Отметить факт доставки: последнее сообщённое состояние и время отправки.
+
+    Вызывается только после успешной отправки: иначе провал доставки
+    заставил бы считать состояние сообщённым и заглушил бы аварию.
+    """
+    details = (notification or {}).get("details") or (notification or {}).get("data") or {}
+    if isinstance(details, dict) and _entry_availability(notification or {}, {}, details):
+        server_id = str(details.get("server_id") or "")
+        state = (
+            notification_state.OFFLINE
+            if details.get("reason") == EventReason.SERVER_OFFLINE.value
+            else notification_state.ONLINE
+        )
+        notification_state.set_last_reported(server_id, state)
+    notification_state.set_last_sent_at()
 
 
 async def _deliver_single(bot, entry: dict) -> bool:
@@ -425,14 +684,19 @@ async def _deliver_single(bot, entry: dict) -> bool:
     from core.config import load_config
 
     try:
-        # Web UI мог отметить событие прочитанным до отправки — не дублируем.
-        if event_id:
-            event = get_event(event_id)
-            if event is None or event.get("read") is True:
-                if queue_id:
-                    complete_notification(queue_id, owner)
-                    queue_id = None
-                return True
+        verdict, payload = _resolve(entry)
+        if verdict == CLOSE:
+            if queue_id:
+                complete_notification(queue_id, owner)
+                queue_id = None
+            return True
+        if verdict == DEFER:
+            if queue_id:
+                release_notification(queue_id, owner)
+                queue_id = None
+            return True
+        if payload is not None:
+            notification = payload
 
         config = load_config()
         allowed = config.get("allowed_users", [])
@@ -469,6 +733,8 @@ async def _deliver_single(bot, entry: dict) -> bool:
         if queue_id and delivered > 0:
             if complete_notification(queue_id, owner):
                 queue_id = None
+        if delivered > 0:
+            _remember_delivery(notification)
         return delivered > 0
     finally:
         if queue_id:
@@ -821,8 +1087,36 @@ async def _deliver_digest(bot, entries: list, chat_ids=None) -> bool:
 
     if not live:
         return True
+
+    # События доступности не сводятся в общую пачку: их текст зависит от
+    # фактического состояния сервера, и решение принимается по одному —
+    # иначе в сводку попали бы и «упал», и «поднялся». Обычные события
+    # идут прежним путём.
+    availability = []
+    ordinary = []
+    for entry in live:
+        if _is_availability_entry(entry):
+            availability.append(entry)
+        else:
+            ordinary.append(entry)
+
+    delivered_availability = False
+    for entry in availability:
+        try:
+            delivered_availability = (
+                await _deliver_single(bot, entry) or delivered_availability
+            )
+        except Exception as e:
+            print(f"[NOTIF] availability delivery failed: {e}", flush=True)
+            if entry.get("queue_id"):
+                release_notification(entry["queue_id"], entry["owner"])
+
+    if not ordinary:
+        return delivered_availability
+
+    live = ordinary
     if len(live) == 1:
-        return await _deliver_single(bot, live[0])
+        return await _deliver_single(bot, live[0]) or delivered_availability
 
     new_ids = [entry["event_id"] for entry in live if entry.get("event_id")]
 
@@ -859,7 +1153,9 @@ async def _deliver_digest(bot, entries: list, chat_ids=None) -> bool:
                 complete_notification(entry["queue_id"], entry["owner"])
             else:
                 release_notification(entry["queue_id"], entry["owner"])
-    return delivered > 0
+    if delivered > 0:
+        notification_state.set_last_sent_at()
+    return delivered > 0 or delivered_availability
 
 
 # --------------------------------------------------------------
@@ -890,8 +1186,11 @@ def set_delivery_bot(bot) -> None:
             _MAIN_LOOP = None
     else:
         _MAIN_LOOP = None
-        # Живые сообщения-аккумуляторы привязаны к сессии бота; после
-        # остановки ТГ правки невозможны — начинаем с чистого листа.
+        # Кэш живых сообщений сбрасываем — он относился к сессии бота. Само
+        # сообщение при этом НЕ забыто: запись остаётся на диске
+        # (``notification_state.live_messages``) и поднимется при следующем
+        # обращении, иначе каждый перезапуск панели начинал бы новую сводку
+        # вместо дописывания непрочитанной (жалоба 2026-09-24).
         _ACCUMULATORS.clear()
 
 
@@ -913,6 +1212,16 @@ async def drain_pending_notifications() -> bool:
     if not pending:
         return True
 
+    # Выключенная категория (и выключенный Telegram целиком) означает «закрыть
+    # уже накопившееся»: при повторном включении старые события не приходят
+    # залпом (план, §10).
+    from core.notification_policy import purge_disabled_categories
+
+    if purge_disabled_categories():
+        pending = get_pending_notifications()
+        if not pending:
+            return True
+
     entries = []
     for item in pending:
         queue_id = item.get("id")
@@ -927,6 +1236,7 @@ async def drain_pending_notifications() -> bool:
             "owner": owner,
             "event_id": claimed.get("event_id"),
             "notification": claimed,
+            "row": claimed,
         })
     if not entries:
         return True

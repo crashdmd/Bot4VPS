@@ -49,12 +49,21 @@ def create_event(
         details=details,
     )
 
+    # Выключенная категория означает «это не уведомление» — и в вебе, и в
+    # Telegram: событие остаётся в журнале, но сразу прочитанным и без очереди.
+    # Решение о канале Telegram (notifications.telegram_channel) сюда НЕ
+    # входит: выключенный канал не должен делать события прочитанными в вебе.
+    if _suppressed(event_type, details):
+        from .events import mark_as_read
+        mark_as_read(event_id)
+        return event_id
+
     should_enqueue = (
         level == EventLevel.CRITICAL or notify
         if enqueue is None
         else bool(enqueue)
     )
-    if should_enqueue:
+    if should_enqueue and telegram_channel_enabled():
         enqueue_event(
             event_id=event_id,
             event_type=event_type.value,
@@ -65,6 +74,25 @@ def create_event(
         )
 
     return event_id
+
+
+def _suppressed(event_type, details) -> bool:
+    """Категория события выключена целиком (см. notification_policy)."""
+    try:
+        from .notification_policy import suppress_event
+    except Exception:
+        return False
+    kind = getattr(event_type, "value", event_type)
+    return suppress_event(kind, details)
+
+
+def telegram_channel_enabled() -> bool:
+    """Включён ли канал Telegram (бот при этом работает отдельно)."""
+    try:
+        from .notification_policy import telegram_channel_enabled as enabled
+    except Exception:
+        return True
+    return enabled()
 
 
 # --------------------------------------------------
@@ -163,6 +191,10 @@ async def notify_event(
         details=details,
         notify=True,
     )
+    # Категория выключена или канал Telegram выключен — рассылать нечего:
+    # событие уже лежит в журнале (в первом случае — прочитанным).
+    if _suppressed(event_type, details) or not telegram_channel_enabled():
+        return event_id
     await dispatch_notifiers(
         {
             "type": event_type.value,

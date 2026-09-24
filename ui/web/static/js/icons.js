@@ -15,3 +15,11 @@ export const DOCKER_ICON =
 // цвет — var(--xui-brand), stroke-иконка, как у навигационной.
 export const XUI_ICON =
   '<svg class="brand-icon brand-xui" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 6c3.2 0 4.6 1.2 4.6 3s-1.4 3-4.6 3c3.2 0 4.6 1.2 4.6 3s-1.4 3-4.6 3"/><path d="M14.5 6 21 18M21 6l-6.5 12"/></svg>';
+
+// Колокольчик «Уведомлений». Именно SVG, а не эмодзи 🔔: в меню настроек
+// twemoji перерисовывает эмодзи цветной картинкой, а остальные иконки там —
+// одноцветные глифы цвета плитки. Заливка — currentColor (1em от кегля).
+// Рисунок подтянут к краям viewBox (scale 1.25 вокруг центра): плитка в меню
+// небольшая, а сам колокольчик занимал в ней лишь половину ширины.
+export const NOTIFY_ICON =
+  '<svg class="notify-icon" width="1.15em" height="1.15em" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" focusable="false"><g transform="translate(12 11.2) scale(1.25) translate(-12 -11.2)"><path d="M12 3.2c-2.65 0-4.8 2.15-4.8 4.8v3.35L5.6 14.6h12.8l-1.6-3.25V8c0-2.65-2.15-4.8-4.8-4.8z"/><circle cx="12" cy="17.5" r="1.7"/></g></svg>';

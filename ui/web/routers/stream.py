@@ -210,23 +210,37 @@ async def api_stream(request: Request):
     Клиент может отказаться от polling.
     """
     async def event_gen():
-        # hello
-        yield f"event: hello\ndata: {json.dumps({'ok': True})}\n\n"
-        # Лёгкие TCP-пинги stale-серверов идут в фоне, пока есть хоть один
-        # подключённый SSE-клиент (панель открыта). Следующий снапшот (через 3 с)
-        # подхватит обновлённый статус. Событие online/offline — в журнал.
-        light_task = None
-        while True:
-            if await request.is_disconnected():
-                break
-            try:
-                if light_task is None or light_task.done():
-                    light_task = asyncio.create_task(_light_checks())
-                snap = await asyncio.to_thread(_snapshot)
-                yield f"event: snapshot\ndata: {json.dumps(snap, ensure_ascii=False, default=str)}\n\n"
-            except Exception as e:
-                yield f"event: error\ndata: {json.dumps({'error': str(e)})}\n\n"
-            await asyncio.sleep(3)
+        # Пока этот поток жив, панель считается открытой: от этого зависит
+        # выдержка Telegram-уведомлений (core/web_presence). Клиент
+        # продлевает присутствие на каждом витке, поэтому потерянный
+        # disconnect не оставляет вечного «панель открыта».
+        import uuid
+
+        from core import web_presence
+
+        client_id = uuid.uuid4().hex
+        web_presence.client_connected(client_id)
+        try:
+            # hello
+            yield f"event: hello\ndata: {json.dumps({'ok': True})}\n\n"
+            # Лёгкие TCP-пинги stale-серверов идут в фоне, пока есть хоть один
+            # подключённый SSE-клиент (панель открыта). Следующий снапшот (через 3 с)
+            # подхватит обновлённый статус. Событие online/offline — в журнал.
+            light_task = None
+            while True:
+                if await request.is_disconnected():
+                    break
+                web_presence.touch(client_id)
+                try:
+                    if light_task is None or light_task.done():
+                        light_task = asyncio.create_task(_light_checks())
+                    snap = await asyncio.to_thread(_snapshot)
+                    yield f"event: snapshot\ndata: {json.dumps(snap, ensure_ascii=False, default=str)}\n\n"
+                except Exception as e:
+                    yield f"event: error\ndata: {json.dumps({'error': str(e)})}\n\n"
+                await asyncio.sleep(3)
+        finally:
+            web_presence.client_disconnected(client_id)
 
     return StreamingResponse(
         event_gen(),

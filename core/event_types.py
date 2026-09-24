@@ -60,3 +60,7 @@ class EventReason(str, Enum):
     RESTORE_CANCELLED = "restore_cancelled"
     CONFIG_RESTORED = "config_restored"
     SSH_KEY_MISSING = "ssh_key_missing"
+    # Предъявлен неизвестный host key: подключения к серверу заблокированы.
+    # Причина видна в подробностях события («Причина» в карточке уведомления)
+    # и отличает эту аварию от обычных сообщений о host key.
+    HOST_KEY_MISMATCH = "host_key_mismatch"

@@ -161,6 +161,8 @@ def _event_details(server: dict, extra: Optional[dict] = None) -> dict:
 
 
 def report_mismatch(server: dict, expected: dict, presented: dict) -> None:
+    from core.event_types import EventReason
+
     sid = str(server.get("id") or server.get("name") or "")
     if sid in _mismatch_reported:
         return
@@ -176,6 +178,7 @@ def report_mismatch(server: dict, expected: dict, presented: dict) -> None:
         _event_details(
             server,
             {
+                "reason": EventReason.HOST_KEY_MISMATCH.value,
                 "expected_fingerprint": expected.get("fingerprint"),
                 "presented_fingerprint": presented.get("fingerprint"),
             },

@@ -1,5 +1,8 @@
 import { j, esc } from './api.js';
-import { toast, plural, confirmAction, formatServerTimestamp } from './ui.js';
+import { toast, plural, confirmAction, formatServerDateTime } from './ui.js';
+// Разметка описания версии — в своём модуле: поднабор markdown плюс
+// экранирование раньше тегов (см. changelog-md.js).
+import { changelogBody } from './changelog-md.js?v=20260925-changelog-md-v1';
 
 // Кэш состояния updater'а (обновляется по кликам и во время установки;
 // SSE-перерисовки блока мониторинга используют кэш, запросов не плодят).
@@ -8,7 +11,7 @@ let updatePollTimer = null;
 
 // Карточка «Проверки мониторинга»: только ручные проверки.
 // Конфигурация (Online/SSL интервалы и тумблеры, автопроверка обновлений)
-// переехала в Настройки (settings.js: категории «Общие» и «Обновления»).
+// переехала в Настройки (settings.js: категории «Уведомления» и «Обновления»).
 export function renderMonitorChecks() {
   const el = document.getElementById('monitor-cfg');
   if (!el) return;
@@ -114,7 +117,7 @@ export async function showUpdateModal() {
   }
   openActionModal({
     title: `🆕 Доступно обновление Bot4VPS — ${esc(data.version)}`,
-    bodyHtml: `<pre class="event-detail-pre" style="max-height:50vh;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere">${esc(data.changelog)}</pre>`,
+    bodyHtml: changelogBody(data.changelog, '50vh'),
     okText: 'Обновить',
     width: 'min(760px,100%)',
     onOk: async () => {
@@ -139,7 +142,7 @@ export async function showHistoryModal() {
   }
   openActionModal({
     title: `📜 Описание версии — Bot4VPS ${esc(data.version)}`,
-    bodyHtml: `<pre class="event-detail-pre" style="max-height:50vh;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere">${esc(data.changelog)}</pre>`,
+    bodyHtml: changelogBody(data.changelog, '50vh'),
     okText: 'Откатить',
     cancelText: 'Закрыть',
     danger: true,
@@ -242,7 +245,7 @@ async function showVersionDescription(version) {
   } catch (e) { toast(e.message, false); return; }
   openActionModal({
     title: `📜 Описание версии — Bot4VPS ${esc(data.version)}`,
-    bodyHtml: `<pre class="event-detail-pre" style="max-height:60vh;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere">${esc(data.changelog)}</pre>`,
+    bodyHtml: changelogBody(data.changelog, '60vh'),
     okText: 'Закрыть',
     cancelText: null,
     width: 'min(760px,100%)',
@@ -335,40 +338,27 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 });
 
-// Сколько событий показывать. «Все» НЕ схлопывается при polling:
-// SSE-снапшот мержит свежие события в кэш (dedup/sort/cap), а рендер всегда
-// идёт из кэша с учётом _eventsLimit — поэтому раскрытый список не перетирается
-// коротким (8) серверным срезом и скролл не отбрасывается наверх.
-const EVENTS_LIMIT_KEY = 'bot4vps_events_limit';
-const EVENTS_CACHE_MAX = 200;
+// Список уведомлений показывается целиком — раскрывать нечего, кнопки «Все»
+// больше нет. Показ идёт всегда из кэша, а SSE-снапшот (короткий срез) мержится
+// в него свежими событиями сверху, поэтому live-обновление не схлопывает
+// список и не отбрасывает скролл наверх.
+export const EVENTS_LIMIT = 200;  // столько же хранит и сам журнал (logs.events)
+const EVENTS_CACHE_MAX = EVENTS_LIMIT;
 
-function _loadLimit() {
-  try {
-    const v = parseInt(localStorage.getItem(EVENTS_LIMIT_KEY), 10);
-    return v > 0 ? v : 5;
-  } catch { return 5; }
-}
-function _saveLimit() {
-  try { localStorage.setItem(EVENTS_LIMIT_KEY, String(_eventsLimit)); } catch {}
-}
-
-let _eventsLimit = _loadLimit();
 let _eventsCache = [];
 
-export async function loadEvents(limit) {
-  if (typeof limit === 'number') { _eventsLimit = limit; _saveLimit(); }
+export async function loadEvents(limit = EVENTS_LIMIT) {
   try {
-    const data = await j('/api/events?limit=' + _eventsLimit);
+    const data = await j('/api/events?limit=' + limit);
     _eventsCache = data.events || [];
-    renderEvents(_eventsCache.slice(0, _eventsLimit), 'events');
+    renderEvents(_eventsCache, 'events');
   } catch (e) {
     document.getElementById('events').innerHTML = '<div class="empty">' + esc(e.message) + '</div>';
   }
 }
 
 // SSE отдаёт короткий срез (8). Мержим его в кэш (по id, без дублей; свежие
-// сверху по timestamp; cap EVENTS_CACHE_MAX), а показываем столько, сколько
-// раскрыл пользователь. Так live-обновление не схлопывает «Все».
+// сверху по timestamp; cap EVENTS_CACHE_MAX) и показываем кэш целиком.
 export function applyEventsSnapshot(events) {
   if (!Array.isArray(events) || !events.length) return;
   const byId = new Map();
@@ -377,8 +367,17 @@ export function applyEventsSnapshot(events) {
   _eventsCache = Array.from(byId.values())
     .sort((a, b) => (b.timestamp || '').localeCompare(a.timestamp || ''))
     .slice(0, EVENTS_CACHE_MAX);
-  renderEvents(_eventsCache.slice(0, _eventsLimit), 'events');
+  renderEvents(_eventsCache, 'events');
 }
+
+// Тип события — слово из журнала (info / warning / critical), в чипе своего
+// цвета. Незнакомый уровень показываем как info, а не прячем.
+const EVENT_LEVEL_CLS = {
+  info: 'info',
+  warning: 'warning',
+  critical: 'critical',
+  error: 'critical',
+};
 
 export function renderEvents(list, id) {
   const el = document.getElementById(id);
@@ -386,31 +385,23 @@ export function renderEvents(list, id) {
   // Сохраняем scroll, чтобы polling не «отбрасывал» вверх
   const prevScroll = el.scrollTop;
   if (!list.length) { el.innerHTML = '<div class="empty">Нет</div>'; return; }
-  el.innerHTML = list.map((e, i) => {
-    const lvl = e.level || 'info';
-    const sn = (e.details && (e.details.server_name || e.details.name)) || '';
-    const reason = (e.details && e.details.reason) || '';
-    const taskVisualClass = {
-      task_finished: 'ok',
-      task_queued: 'info',
-      task_queue_paused: 'warning',
-      task_failed: 'error',
-      task_cancelled: 'warning',
-      task_started: 'info',
-    }[reason];
-    const ok = /online|renewed|finished/.test(reason) || lvl === 'info';
-    const visualClass = taskVisualClass
-      || (ok && lvl !== 'critical' && lvl !== 'warning' ? 'ok' : lvl);
-    const eid = e.id || String(i);
-    const unreadClass = e.read ? '' : 'is-unread';
-    const readLabel = e.read
-      ? '<span class="event-read">Прочитано</span>'
-      : '<span class="event-read is-unread">Не прочитано</span>';
-    return `<div class="event ${esc(visualClass)} ${unreadClass}" data-event-id="${esc(eid)}" title="Открыть детали">
-      <div class="barline"></div>
-      <div class="body"><div class="title">${esc(e.title)}</div>
-      <div class="meta">${esc(formatServerTimestamp(e.timestamp))}${sn ? ' · ' + esc(sn) : ''}${readLabel}</div></div></div>`;
-  }).join('');
+  el.innerHTML = `<table class="task-history-table events-table">
+    <thead><tr><th>Дата</th><th>Описание</th><th>Тип</th><th>Статус</th></tr></thead>
+    <tbody>${list.map((e, i) => {
+      const lvl = e.level || 'info';
+      const sn = (e.details && (e.details.server_name || e.details.name)) || '';
+      const eid = e.id || String(i);
+      const status = e.read
+        ? '<span class="task-status read">Прочитано</span>'
+        : '<span class="task-status unread">Не прочитано</span>';
+      return `<tr data-event-id="${esc(eid)}" class="lvl-${esc(lvl)}${e.read ? '' : ' is-unread'}" title="Открыть детали">
+        <td class="task-history-date" data-label="Дата">${esc(formatServerDateTime(e.timestamp))}</td>
+        <td class="task-history-name events-desc" data-label="Описание">${esc(e.title)}${sn ? ' <span class="events-desc-server">· ' + esc(sn) + '</span>' : ''}</td>
+        <td class="events-type" data-label="Тип"><span class="task-status ${EVENT_LEVEL_CLS[lvl] || 'info'}">${esc(lvl)}</span></td>
+        <td class="events-status" data-label="Статус">${status}</td>
+      </tr>`;
+    }).join('')}</tbody>
+  </table>`;
   el.scrollTop = prevScroll;
   el.querySelectorAll('[data-event-id]').forEach(node => {
     node.onclick = () => openEventDetail(node.dataset.eventId);
@@ -443,7 +434,7 @@ export async function openEventDetail(eventId) {
       // Перерисовываем список событий если мы на странице событий
       const eventsEl = document.getElementById('events');
       if (eventsEl) {
-        renderEvents(_eventsCache.slice(0, _eventsLimit), 'events');
+        renderEvents(_eventsCache, 'events');
       }
       // Уведомляем об изменении статуса для обновления бейджа
       window.dispatchEvent(new Event('event-read'));
@@ -453,7 +444,7 @@ export async function openEventDetail(eventId) {
   }
 
   const d = e.details || {};
-  const ts = formatServerTimestamp(e.timestamp);
+  const ts = formatServerDateTime(e.timestamp);
   const lines = [
     ['Время', ts],
     ['Уровень', (e.level || '').toUpperCase()],

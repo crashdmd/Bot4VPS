@@ -109,7 +109,7 @@ export function infoModal({ title, message = '', okText = 'Ок' } = {}) {
   return new Promise(resolve => { confirmResolve = resolve; });
 }
 
-export function showTelegramHealthDialog({ ok = false, code = '', reason = '', source = 'settings', onOpenSettings = null } = {}) {
+export function showTelegramHealthDialog({ ok = false, code = '', reason = '', source = 'settings', onOpenSettings = null, settingsLabel = '' } = {}) {
   const modal = document.getElementById('telegram-health-modal');
   if (!modal) return;
   telegramHealthReturnFocus = document.activeElement;
@@ -117,6 +117,14 @@ export function showTelegramHealthDialog({ ok = false, code = '', reason = '', s
 
   const fromBackup = source === 'backup';
   const notChecked = fromBackup && code === 'NOT_CONFIGURED';
+  // Кнопка ведёт туда, где причина: обычно это раздел Telegram, но выключенный
+  // общий тумблер уведомлений живёт в «Уведомлениях» — там её и подписываем.
+  const settingsButton = document.getElementById('telegram-health-settings');
+  if (settingsButton) {
+    settingsButton.textContent = settingsLabel
+      || modal.dataset.settingsLabelDefault
+      || settingsButton.textContent;
+  }
   document.getElementById('telegram-health-title').textContent = ok
     ? '✓ Telegram работает'
     : (notChecked ? 'Уведомления в ТГ не проверены'
@@ -152,16 +160,20 @@ export function bindTelegramHealthDialog() {
   const modal = document.getElementById('telegram-health-modal');
   if (!modal || modal.dataset.bound) return;
   modal.dataset.bound = '1';
+  const settingsButton = document.getElementById('telegram-health-settings');
+  // Исходная подпись кнопки — как в разметке: открытие диалога из другого
+  // раздела её меняет, поэтому запоминаем её один раз до всех показов.
+  if (settingsButton) modal.dataset.settingsLabelDefault = settingsButton.textContent;
   document.getElementById('telegram-health-ok')?.addEventListener('click', () => closeTelegramHealthDialog());
   document.getElementById('telegram-health-settings')?.addEventListener('click', () => closeTelegramHealthDialog({ openSettings: true }));
-  modal.addEventListener('click', event => {
-    if (event.target === modal) closeTelegramHealthDialog();
-  });
-  modal.addEventListener('keydown', event => {
-    if (event.key === 'Escape') {
-      event.preventDefault();
-      closeTelegramHealthDialog();
-    }
+  // Клик мимо окна диалог не закрывает: он показывает причину, которую нужно
+  // прочитать и унести в настройки, а не смахнуть случайным нажатием рядом.
+  // Escape поэтому слушаем на документе, а не на самом окне: клик по затемнению
+  // уводит фокус из диалога, и событие до него уже не доходит.
+  document.addEventListener('keydown', event => {
+    if (event.key !== 'Escape' || !modal.classList.contains('open')) return;
+    event.preventDefault();
+    closeTelegramHealthDialog();
   });
 }
 

@@ -1152,6 +1152,23 @@ class BackupManager:
             return False
         return bool(section.get("success" if success else "error"))
 
+    @staticmethod
+    def _push_allowed(notify: bool) -> bool:
+        """Пускать ли событие о копии в Telegram — с учётом общего выключателя.
+
+        Пер-серверные галочки — тонкая настройка; общая категория «Резервные
+        копии» (Настройки → Уведомления) главнее: выключенная, она глушит
+        доставку целиком, включая критические провалы. В журнал событие при этом
+        всё равно попадает — прочитанным, это делает ``create_event``.
+        """
+        if not notify:
+            return False
+        from core.notification_policy import suppress_event, telegram_channel_enabled
+
+        if suppress_event(EventType.BACKUP.value, None):
+            return False
+        return telegram_channel_enabled()
+
     def _emit_backup_event(
         self,
         *,
@@ -1174,7 +1191,7 @@ class BackupManager:
         error_code = str((error or {}).get("code") or "")
         critical = (not success) and not cancelled and self._critical_failure(error_code)
         telegram_report = bool(operation.get("initiated_from_telegram"))
-        notify = (
+        notify = self._push_allowed(
             not telegram_report
             and (
                 critical
@@ -1268,7 +1285,7 @@ class BackupManager:
         """
         critical = (not success) and not cancelled and bool(mutation_started)
         telegram_report = bool(operation.get("initiated_from_telegram"))
-        notify = (
+        notify = self._push_allowed(
             not telegram_report
             and (
                 critical

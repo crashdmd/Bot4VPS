@@ -38,6 +38,7 @@ async def api_monitor_set(body: MonitorPatch):
             get_monitor_config,
             get_update_check_config,
         )
+        closed = 0
         if body.name == "update":
             # Чекбокс «Проверять обновления»: только enabled, без interval
             if body.enabled is None:
@@ -47,6 +48,12 @@ async def api_monitor_set(body: MonitorPatch):
         elif body.name in ("online", "ssl"):
             if body.enabled is not None:
                 set_monitor_enabled(body.name, bool(body.enabled))
+                if not body.enabled:
+                    # «Проверять и сообщать» — одно решение: выключенная
+                    # проверка закрывает и уже накопившиеся строки этой
+                    # категории, иначе при включении они придут залпом.
+                    from core.notification_policy import purge_category
+                    closed = purge_category(body.name)
             if body.interval is not None:
                 if body.interval < 1:
                     raise HTTPException(400, "interval >= 1")
@@ -63,7 +70,74 @@ async def api_monitor_set(body: MonitorPatch):
             print(f"[WEB] monitor reschedule: {e}", flush=True)
         cfg = get_monitor_config()
         cfg["update"] = get_update_check_config()
-        return {"ok": True, "monitor": cfg}
+        return {"ok": True, "monitor": cfg, "closed": closed}
+    except HTTPException:
+        raise
+    except Exception as e:
+        return err(e)
+
+
+class NotificationCategoryPatch(BaseModel):
+    name: str
+    enabled: bool
+
+
+@router.get("/api/notifications/categories")
+async def api_notification_categories_get():
+    """Категории уведомлений Telegram: что доставлять, а что нет."""
+    try:
+        from core.config import get_notification_categories, get_telegram_channel
+        return {
+            "ok": True,
+            "categories": get_notification_categories(),
+            "telegram_channel": get_telegram_channel(),
+        }
+    except Exception as e:
+        return err(e)
+
+
+@router.post("/api/notifications/categories")
+async def api_notification_categories_set(body: NotificationCategoryPatch):
+    """Переключить категорию.
+
+    Выключение закрывает уже накопившиеся события этой категории: при
+    повторном включении они не приходят залпом (план §10).
+    """
+    try:
+        from core.config import set_notification_category
+        from core.notification_policy import purge_disabled_categories
+
+        categories = set_notification_category(body.name, bool(body.enabled))
+        closed = 0 if body.enabled else purge_disabled_categories()
+        return {"ok": True, "categories": categories, "closed": closed}
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except HTTPException:
+        raise
+    except Exception as e:
+        return err(e)
+
+
+class TelegramChannelPatch(BaseModel):
+    enabled: bool
+
+
+@router.post("/api/notifications/channel")
+async def api_notification_channel_set(body: TelegramChannelPatch):
+    """Канал Telegram: присылать уведомления или нет.
+
+    Это только про доставку в Telegram. Уведомления в вебе (журнал событий,
+    метка «не прочитано») остаются как есть: выключенный канал не помечает
+    веб-события прочитанными. Бот при этом продолжает работать — команды, коды
+    восстановления и тест Telegram по-прежнему отвечают.
+    """
+    try:
+        from core.config import set_telegram_channel
+        from core.notification_policy import purge_all_pending
+
+        enabled = set_telegram_channel(bool(body.enabled))
+        closed = 0 if enabled else purge_all_pending()
+        return {"ok": True, "telegram_channel": enabled, "closed": closed}
     except HTTPException:
         raise
     except Exception as e:

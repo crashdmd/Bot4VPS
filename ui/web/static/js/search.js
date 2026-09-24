@@ -2,8 +2,8 @@
 import { esc } from './api.js';
 import { state, setPage } from './state.js';
 import { showPage } from './ui.js';
-import { WIREGUARD_ICON, DOCKER_ICON } from './icons.js?v=20260905-brandicons-v2';
-import { setServerQuery as setServerListQuery } from './servers.js?v=20260915-sysfix-v2';
+import { WIREGUARD_ICON, DOCKER_ICON, NOTIFY_ICON } from './icons.js?v=20260924-notify-icon-v1';
+import { setServerQuery as setServerListQuery } from './servers.js?v=20260924-task-history-head-v1';
 
 let searchResults = [];
 
@@ -104,13 +104,12 @@ function performSearch(query) {
   const sections = [
     { name: 'Дашборд', page: 'dashboard', icon: '📊' },
     { name: 'Серверы', page: 'servers', icon: '🖥' },
-    { name: 'Задачи', page: 'queues', icon: '📋' },
+    { name: 'История событий', page: 'history', icon: '🗂' },
     { name: 'WireGuard', page: 'wireguard', icon: WIREGUARD_ICON },
     { name: 'Docker', page: 'docker', icon: DOCKER_ICON },
     { name: 'Скрипты', page: 'scripts', icon: '📜' },
     { name: 'Файлы', page: 'files', icon: '📂' },
     { name: 'Мониторинг', page: 'monitor', icon: '📡' },
-    { name: 'Журнал уведомлений', page: 'events', icon: '📖' },
     { name: 'Настройки', page: 'settings', icon: '⚙️' }
   ];
 
@@ -126,12 +125,13 @@ function performSearch(query) {
     }
   });
 
-  // Поиск по категориям Настроек («общие» → Настройки → Общие):
+  // Поиск по категориям Настроек («общие» → Настройки → Параметры):
   // те же id, что рендерит renderNav() в settings.js
   const settingsSections = [
-    { name: 'Общие', id: 'common', icon: '◉', desc: 'Мониторинг и интерфейс' },
+    { name: 'Параметры', id: 'common', icon: '◉', desc: 'Часовой пояс и оформление' },
     { name: 'Безопасность', id: 'web', icon: '🛡', desc: 'Вход, 2FA, мастер-ключ, порт' },
     { name: 'Telegram', id: 'telegram', icon: '↗', desc: 'Бот и получатель' },
+    { name: 'Уведомления', id: 'notify', icon: NOTIFY_ICON, desc: 'Что панель сообщает и куда' },
     { name: 'История и данные', id: 'data', icon: '▤', desc: 'Лимиты хранения' },
     { name: 'Обновления', id: 'updates', icon: '⇧', desc: 'Проверка и установка' },
     { name: 'О программе', id: 'about', icon: 'i', desc: 'Версия и проект' }
@@ -178,20 +178,23 @@ function renderResults(box, results) {
       const id = item.dataset.id;
 
       if (type === 'server') {
-        import('./servers.js?v=20260915-sysfix-v2').then(m => {
+        import('./servers.js?v=20260924-task-history-head-v1').then(m => {
           setPage('servers');
           showPage('servers');
           m.openServer(id);
         });
       } else if (type === 'section') {
-        setPage(id);
-        showPage(id);
+        // Через общий навигатор: он останавливает таймеры прошлой страницы
+        // и грузит данные новой (иначе на «Истории событий» вкладка
+        // переключится, а списки останутся пустыми).
+        if (window.b4vNav) window.b4vNav(id);
+        else { setPage(id); showPage(id); }
       } else if (type === 'settings') {
         // Категория настроек: открыть Настройки и выбрать её в меню
         const cat = searchResults.find(r => r.type === 'settings' && r.data.id === id);
         setPage('settings');
         showPage('settings');
-        import('./settings.js?v=20260913-hostkey-v2').then(m => {
+        import('./settings.js?v=20260925-notify-blocks-v17').then(m => {
           m.selectSettingsCategory?.(id);
         });
       }

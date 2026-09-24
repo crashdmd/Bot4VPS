@@ -4,9 +4,9 @@ import { toast, showPage, bindPasswordToggles, parseEmoji, confirmAction, format
 import { state, setServers, setGroups, setKeys, setOpenServer, setPage, setServerGroupTab, setServerSort, setServerQuery as updateServerQuery } from './state.js';
 import { WIREGUARD_ICON, DOCKER_ICON, XUI_ICON } from './icons.js?v=20260905-brandicons-v3';
 import { openTerminal, closeTerminal } from './terminal.js?v=20260904-termfit-v1';
-import { openEventDetail, applyEventsSnapshot } from './monitor.js?v=20260915-taskfail-v2';
+import { openEventDetail, applyEventsSnapshot } from './monitor.js?v=20260925-changelog-md-v2';
 import { openTaskLog, cancelTaskAPI } from './tasks.js?v=20260816-task-history-v3';
-import { openBackupsForServer } from './backup.js?v=20260912-tzdrop-v1';
+import { openBackupsForServer } from './backup.js?v=20260925-notify-gate-v2';
 import { toggleEmojiPop, bindEmojiPicker } from './emoji_picker.js?v=20260915-emojipick-v1';
 
 /** @deprecated use state.servers */
@@ -1541,7 +1541,15 @@ export async function loadQueues() {
   try {
     const data = await j('/api/queues');
     const el = document.getElementById('queues');
-    if (!data.queues.length) { el.innerHTML = '<div class="empty">Нет активных</div>'; return; }
+    if (!el) return;
+    // Нет активных задач — блок не показываем совсем: вкладка «Задачи»
+    // тогда состоит только из истории, а не из пустой заглушки. Заголовок
+    // «История задач» — разделитель между двумя блоками, поэтому живёт
+    // ровно так же: нет активных задач — нет и заголовка.
+    const title = document.getElementById('task-history-title');
+    if (!data.queues.length) { el.hidden = true; el.innerHTML = ''; if (title) title.hidden = true; return; }
+    el.hidden = false;
+    if (title) title.hidden = false;
     el.innerHTML = data.queues.map(q => {
       const run = q.running;
       const runningCard = run ? `<div class="card" style="margin-bottom:.5rem;min-height:0;background:var(--hover)">
@@ -1591,7 +1599,11 @@ export async function loadQueues() {
       } catch (e) { toast(e.message, false); }
     });
   } catch (e) {
-    document.getElementById('queues').innerHTML = '<div class="empty">' + esc(e.message) + '</div>';
+    const el = document.getElementById('queues');
+    if (el) { el.hidden = false; el.innerHTML = '<div class="empty">' + esc(e.message) + '</div>'; }
+    // Ошибка — это тоже показанный блок задач, значит заголовок на месте.
+    const title = document.getElementById('task-history-title');
+    if (title) title.hidden = false;
   }
 }
 

@@ -1306,7 +1306,7 @@ function watchTask(taskId, serverId, action) {
 
             if (returnToServer) {
               try {
-                const { openServer } = await import('./servers.js?v=20260915-sysfix-v2');
+                const { openServer } = await import('./servers.js?v=20260924-task-history-head-v1');
                 await openServer(serverId);
               } catch (_) {
                 backToWgList();
@@ -1460,7 +1460,7 @@ export function bindWireguardUI() {
     if (!wgServerId) return;
 
     try {
-      const { openServer } = await import('./servers.js?v=20260915-sysfix-v2');
+      const { openServer } = await import('./servers.js?v=20260924-task-history-head-v1');
       await openServer(wgServerId);
     } catch (e) {
       console.error('Не удалось открыть карточку сервера:', e);

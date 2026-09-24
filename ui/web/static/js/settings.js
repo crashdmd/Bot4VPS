@@ -1,7 +1,8 @@
 import { j, esc } from './api.js?v=20260821-telegram-health-v1';
 import { toast, bindPasswordToggles, confirmAction, infoModal, syncServerClock, parseEmoji } from './ui.js';
-import { loadUpdateState, showUpdateModal, showHistoryModal } from './monitor.js?v=20260915-taskfail-v2';
+import { loadUpdateState, showUpdateModal, showHistoryModal } from './monitor.js?v=20260925-changelog-md-v2';
 import { openBackupPasswordModal } from './backup-password.js?v=20260911-bpw-v16';
+import { NOTIFY_ICON } from './icons.js?v=20260924-notify-icon-v1';
 
 let account = { auth_enabled: false, username: 'admin' };
 let selectedCategory = 'common';
@@ -97,39 +98,72 @@ export function initTheme() {
 }
 
 const categories = [
-  { id: 'common', icon: '◉', title: 'Общие', subtitle: 'Мониторинг и интерфейс', render: renderCommon },
+  { id: 'common', icon: '◉', title: 'Параметры', subtitle: 'Часовой пояс и оформление', render: renderParameters },
   { id: 'web', icon: '🛡', title: 'Безопасность', subtitle: 'Вход, 2FA, мастер-ключ, порт', render: renderWeb },
   { id: 'telegram', icon: '↗', title: 'Telegram', subtitle: 'Бот и получатель', render: renderTelegram },
+  { id: 'notify', icon: NOTIFY_ICON, title: 'Уведомления', subtitle: 'Что панель сообщает и куда', render: renderNotifications },
   { id: 'data', icon: '▤', title: 'История и данные', subtitle: 'Лимиты хранения', render: renderData },
   { id: 'updates', icon: '⇧', title: 'Обновления', subtitle: 'Проверка и установка', render: renderUpdates },
   { id: 'about', icon: 'i', title: 'О программе', subtitle: 'Версия и проект', render: renderAbout },
 ];
 
 function settingRow(spec) {
-  let control = '';
+  const dependency = spec.dependsOn
+    ? ` data-depends-on="${esc(spec.dependsOn.id)}" data-depends-value="${esc(String(spec.dependsOn.value))}"`
+    : '';
+  const descriptionId = spec.descId ? ` id="${esc(spec.descId)}"` : '';
+  const helpId = `${spec.id}-help`;
+  const helpButton = spec.help
+    ? `<button type="button" class="set-help" id="${helpId}" aria-expanded="false" aria-controls="${helpId}-text" title="Подсказка">?</button>`
+    : '';
+  const helpBlock = spec.help
+    // Текст и крестик — две колонки сетки: строки длинные, и крестик поверх
+    // текста залезал бы на них. white-space:pre-line остаётся у текста.
+    ? `<div class="set-help-text" id="${helpId}-text" hidden><span class="set-help-body">${esc(spec.help)}</span><button type="button" class="set-help-close" id="${helpId}-close" aria-label="Закрыть подсказку" title="Закрыть">✕</button></div>`
+    : '';
+  // Подстройка к самой настройке (частота проверки SSL при самой проверке):
+  // живёт В ТОЙ ЖЕ карточке, но в её основной строке — между подписью и
+  // тумблером, столбиком «пояснение + маленький список». Отдельной строкой под
+  // полями карточка вырастала вдвое выше соседних (230px против 79px) и
+  // выглядела неаккуратно; описание карточки при этом уходит во вторую строку
+  // во всю ширину, поэтому по высоте карточка соседей не обгоняет. Своей
+  // карточки у подстройки нет: отдельная рамка читалась бы как ещё одна
+  // категория со своим тумблером.
+  const subDependency = spec.sub?.dependsOn
+    ? ` data-depends-on="${esc(spec.sub.dependsOn.id)}" data-depends-value="${esc(String(spec.sub.dependsOn.value))}"`
+    : '';
+  const subHint = spec.sub ? [spec.sub.title, spec.sub.desc].filter(Boolean).join(' ') : '';
+  const sub = spec.sub
+    ? `<span class="set-sub" data-setting="${esc(spec.sub.id)}"${subDependency}${subHint ? ` title="${esc(subHint)}"` : ''}><span class="set-sub-caption">${esc(spec.sub.title)}</span>${rowControl(spec.sub)}</span>`
+    : '';
+  return `<div class="set-row" data-setting="${esc(spec.id)}"${dependency}><div class="set-copy"><div class="set-name">${esc(spec.title)}${helpButton}</div><div class="set-desc"${descriptionId}>${esc(spec.desc || '')}</div></div><div class="set-ctrl">${sub}${rowControl(spec)}</div></div>${helpBlock}`;
+}
+
+function rowControl(spec) {
   if (spec.type === 'toggle') {
-    control = `<label class="set-switch"><input id="${spec.id}" type="checkbox" ${spec.value ? 'checked' : ''}><span class="set-switch-track"><span></span></span></label>`;
-  } else if (spec.type === 'number') {
-    control = `<input class="set-number" id="${spec.id}" type="number" value="${esc(spec.value)}" min="${spec.min ?? 1}" max="${spec.max ?? 10000}" inputmode="numeric">`;
-  } else if (spec.type === 'theme') {
-    control = `<div class="set-theme-choices" role="group" aria-label="Тема интерфейса"><button type="button" class="secondary" id="set-theme-light" data-theme-choice="light" aria-pressed="${spec.value === 'light'}">Светлая</button><button type="button" class="secondary" id="set-theme-dark" data-theme-choice="dark" aria-pressed="${spec.value === 'dark'}">Тёмная</button><button type="button" class="secondary" id="set-theme-glass" data-theme-choice="glass" aria-pressed="${spec.value === 'glass'}">Синяя</button></div>`;
-  } else if (spec.type === 'select') {
+    return `<label class="set-switch"><input id="${spec.id}" type="checkbox" ${spec.value ? 'checked' : ''}><span class="set-switch-track"><span></span></span></label>`;
+  }
+  if (spec.type === 'number') {
+    return `<input class="set-number" id="${spec.id}" type="number" value="${esc(spec.value)}" min="${spec.min ?? 1}" max="${spec.max ?? 10000}" inputmode="numeric">`;
+  }
+  if (spec.type === 'theme') {
+    return `<div class="set-theme-choices" role="group" aria-label="Тема интерфейса"><button type="button" class="secondary" id="set-theme-light" data-theme-choice="light" aria-pressed="${spec.value === 'light'}">Светлая</button><button type="button" class="secondary" id="set-theme-dark" data-theme-choice="dark" aria-pressed="${spec.value === 'dark'}">Тёмная</button><button type="button" class="secondary" id="set-theme-glass" data-theme-choice="glass" aria-pressed="${spec.value === 'glass'}">Синяя</button></div>`;
+  }
+  if (spec.type === 'select') {
     // Часовые пояса приходят группами по смещению («UTC-3» → все города пояса),
     // прочие списки — плоским options.
     const inner = Array.isArray(spec.groups) && spec.groups.length
       ? spec.groups.map(group => `<optgroup label="${esc(group.offset)}">${(group.zones || []).map(o => `<option value="${esc(o.value)}" ${o.value === spec.value ? 'selected' : ''}>${esc(o.label)}</option>`).join('')}</optgroup>`).join('')
       : (spec.options || []).map(o => `<option value="${esc(o.value)}" ${o.value === spec.value ? 'selected' : ''}>${esc(o.label)}</option>`).join('');
-    control = `<select id="${spec.id}" class="set-select ${esc(spec.controlClass || '')}">${inner}</select>`;
-  } else if (spec.type === 'action') {
-    control = `<button type="button" id="${spec.id}" class="${spec.danger ? 'danger' : 'secondary'}">${esc(spec.label)}</button>`;
-  } else if (spec.type === 'badge') {
-    control = `<span id="${spec.id}" class="set-badge ${esc(spec.tone || '')}">${esc(spec.value)}</span>`;
+    return `<select id="${spec.id}" class="set-select ${esc(spec.controlClass || '')}">${inner}</select>`;
   }
-  const dependency = spec.dependsOn
-    ? ` data-depends-on="${esc(spec.dependsOn.id)}" data-depends-value="${esc(String(spec.dependsOn.value))}"`
-    : '';
-  const descriptionId = spec.descId ? ` id="${esc(spec.descId)}"` : '';
-  return `<div class="set-row" data-setting="${esc(spec.id)}"${dependency}><div class="set-copy"><div class="set-name">${esc(spec.title)}</div><div class="set-desc"${descriptionId}>${esc(spec.desc || '')}</div></div><div class="set-ctrl">${control}</div></div>`;
+  if (spec.type === 'action') {
+    return `<button type="button" id="${spec.id}" class="${spec.danger ? 'danger' : 'secondary'}">${esc(spec.label)}</button>`;
+  }
+  if (spec.type === 'badge') {
+    return `<span id="${spec.id}" class="set-badge ${esc(spec.tone || '')}">${esc(spec.value)}</span>`;
+  }
+  return '';
 }
 
 function section(title, lead, rows, extra = '') {
@@ -236,6 +270,44 @@ function bindNumber(id, apply, delay = 600) {
   });
 }
 
+function bindSelect(id, apply) {
+  const select = document.getElementById(id);
+  if (!select) return;
+  let previous = select.value;
+  select.addEventListener('change', async () => {
+    const next = select.value;
+    select.disabled = true;
+    try {
+      await apply(next);
+      previous = next;
+      flashRow(select, true);
+    } catch (error) {
+      select.value = previous;
+      toast(error.message || String(error), false);
+      flashRow(select, false);
+    } finally { select.disabled = false; }
+  });
+}
+
+// Кнопка «?» у строки настройки: раскрывает пояснение под строкой.
+function bindHelp(id) {
+  const button = document.getElementById(`${id}-help`);
+  const text = document.getElementById(`${id}-help-text`);
+  if (!button || !text) return;
+  const setOpen = open => {
+    text.hidden = !open;
+    button.setAttribute('aria-expanded', String(open));
+    button.classList.toggle('on', open);
+  };
+  button.addEventListener('click', () => setOpen(text.hidden));
+  document.getElementById(`${id}-help-close`)?.addEventListener('click', () => {
+    setOpen(false);
+    // Крестик уходит вместе с текстом — уводим фокус на «?», чтобы он не
+    // потерялся на странице.
+    button.focus();
+  });
+}
+
 function flashRow(control, ok) {
   const row = control.closest('.set-row');
   if (!row) return;
@@ -315,27 +387,287 @@ function bindTimezoneSelect(initialMetadata) {
   });
 }
 
-async function renderCommon() {
-  const [cfg, timezoneMetadata] = await Promise.all([
+// Категории уведомлений: один список на веб и Telegram. Выключенная категория
+// означает «это не уведомление» — событие остаётся в журнале, но создаётся
+// прочитанным. У онлайн/офлайн и SSL отдельной галочки нет: их включает
+// проверка мониторинга («проверять и сообщать» — одно решение), поэтому у них
+// свой ключ в конфиге (monitor.<name>.enabled). У резервных копий своя
+// настройка в каждом сервере, сюда они не входят.
+// Порядок — колонками: первые четыре пункта идут в левую колонку, остальные в
+// правую (сетку заполняем по столбцам, см. .set-cat-grid в pages.css).
+// Слева — проверки, задачи, сервисы и копии, справа — остальное.
+const NOTIFY_CATEGORIES = [
+  { name: 'online', monitor: 'online', title: 'Онлайн и офлайн', desc: 'Проверять серверы в фоне по расписанию и сообщать, когда сервер пропал или снова отвечает. При открытой панели серверы проверяются в любом случае.' },
+  { name: 'tasks', title: 'Задачи', desc: 'Запуск, завершение, ошибка и отмена задач.' },
+  { name: 'services', title: 'Сервисы', desc: 'Установка, удаление и обновление сервисов.' },
+  // Резервные копии — такая же общая категория, как остальные: выключенная
+  // глушит события и в панели, и в Telegram. Пер-серверные галочки раздела
+  // «Резервные копии» остаются тонкой настройкой внутри Telegram, но общий
+  // выключатель главнее их (см. core/backup/manager.py → _push_allowed).
+  { name: 'backups', title: 'Резервные копии', desc: 'Создание копий и восстановление из них: результат операции. Что именно присылать в Telegram — успех или ошибку, создание копии или восстановление — настраивается отдельно у каждого сервера, в его настройках резервных копий.' },
+  { name: 'ssl', monitor: 'ssl', title: 'Сертификаты SSL', desc: 'Следить за сроком действия сертификатов и сообщать, когда сертификат истекает или обновлён.' },
+  { name: 'updates', title: 'Обновления панели', desc: 'Вышла новая версия и результат установки.' },
+  // «Аварии самой панели приходят всегда» из описания убрано: исключений из
+  // выключателя категорий нет, аварии панели (несовпадение host key,
+  // восстановление повреждённой базы) глушатся вместе с категорией. Всегда
+  // приходят только коды восстановления доступа и проверка Telegram — это не
+  // события журнала, они уходят напрямую (перечислены в сноске ниже).
+  { name: 'system', title: 'Системные и аварии панели', desc: 'Служебные события: база данных, конфиг, SSH-ключи, скрипты.' },
+];
+
+// Подсказка к «Интервал оповещений, мин»: одно число на три роли. Каждый
+// пункт — с новой строки (текст вставляется как есть, переносы держит
+// white-space:pre-line у .set-help-text).
+const NOTIFY_INTERVAL_HELP = [
+  'Одно число на три роли:',
+  '1) Как часто проверять серверы, пока панель закрыта: с этой периодичностью панель сама опрашивает серверы в фоне.',
+  '2) Как часто Telegram может присылать уведомления: чаще интервала уведомления не уходят, они ждут своей очереди.',
+  '3) Какой перерыв считается случайным сбоем: если сервер пропал и вернулся внутри этого интервала, панель считает это коротким сбоем и отдельно о нём не сообщает (например: перезагрузка сервера).',
+  'При открытой панели её собственная проверка доступности работает независимо от этого интервала; интервал в этот момент определяет только частоту сводок уведомлений в Telegram.',
+].join('\n');
+
+// Интервалы проверки SSL выбираются из списка: руками такое не набирают, а
+// «раз в неделю» в минутах вообще не читается.
+const SSL_INTERVALS = [
+  { value: '60', label: 'Каждый час' },
+  { value: '360', label: 'Каждые 6 часов' },
+  { value: '720', label: 'Каждые 12 часов' },
+  { value: '1440', label: 'Раз в сутки' },
+  { value: '4320', label: 'Раз в 3 суток' },
+  { value: '10080', label: 'Раз в неделю' },
+];
+
+function sslIntervalOptions(current) {
+  const value = String(current ?? 1440);
+  if (SSL_INTERVALS.some(option => option.value === value)) return SSL_INTERVALS;
+  // Значение из старого конфига не из списка — показываем как есть, чтобы не
+  // соврать о том, что реально стоит.
+  return SSL_INTERVALS.concat([{ value, label: `Сейчас: ${value} мин` }]);
+}
+
+async function patchNotificationCategory(name, enabled) {
+  const result = await j('/api/notifications/categories', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, enabled }),
+  });
+  const closed = Number(result.closed) || 0;
+  if (!enabled && closed > 0) toast(`Категория выключена. Снято с отправки: ${closed}`, true);
+  return result.categories;
+}
+
+// Тумблер проверки: выключение закрывает и накопившиеся уведомления этой
+// проверки — как у выключенной категории.
+async function patchMonitorToggle(name, enabled) {
+  const result = await j('/api/monitor/config', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, enabled }),
+  });
+  const closed = Number(result.closed) || 0;
+  if (!enabled && closed > 0) toast(`Проверка выключена. Снято с отправки: ${closed}`, true);
+  return result.monitor;
+}
+
+// Канал Telegram: выключается только доставка в Telegram. Веб это не
+// касается — уведомления в журнале остаются непрочитанными.
+async function patchTelegramChannel(enabled) {
+  const result = await j('/api/notifications/channel', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ enabled }),
+  });
+  const closed = Number(result.closed) || 0;
+  if (!enabled && closed > 0) toast(`Telegram отключён. Снято с отправки: ${closed}`, true);
+  return result.telegram_channel;
+}
+
+// Коды последней явной проверки Telegram (POST /api/telegram/health), при
+// которых сообщения не доходят, хотя бот запущен: токен отозван, чат закрыт,
+// пользователь заблокировал бота, API недоступен. «Настроечные» коды
+// (нет токена / нет ID) сюда не входят — их видно и по статусу бота.
+const TG_DELIVERY_CODES = {
+  INVALID_TOKEN: 1,
+  API_UNAVAILABLE: 1,
+  CHAT_UNAVAILABLE: 1,
+  BOT_BLOCKED: 1,
+  SEND_ERROR: 1,
+  API_ERROR: 1,
+};
+
+/** Почему Telegram сейчас не доставит уведомления. null — если доставит.
+ *
+ * Живую доступность знает только status.state (это состояние бота в процессе
+ * панели). health — результат последней явной проверки, он честно так и
+ * называется в подсказке, потому что мог устареть.
+ */
+function telegramIssue(data) {
+  if (!data) return null;
+  const status = data.status || {};
+  const state = status.state || '';
+  if (state === 'disabled' || data.enabled === false) {
+    return { code: 'DISABLED', reason: 'Telegram выключен' };
+  }
+  if (state !== 'running') {
+    return { code: state || 'ERROR', reason: status.error || 'бот не запущен' };
+  }
+  const health = data.health || {};
+  if (health.ok === false && TG_DELIVERY_CODES[health.code]) {
+    return { code: health.code, reason: `последняя проверка Telegram: ${health.reason}` };
+  }
+  return null;
+}
+
+// Подсказка над блоком канала. Включённый канал с неработающим Telegram —
+// оранжевая тревога: панель обещала присылать, а не присылает. Выключенный
+// канал тревоги не заслуживает (обещания ещё нет), поэтому текст у него о
+// другом — почему включить нельзя; показываем его не постоянно, а в ответ на
+// попытку включить (см. showTelegramIssueNote ниже), и цветом он тоже
+// выделяется: это отказ в действии, а не справка.
+function telegramIssueNote(issue, channelOn, alert = channelOn) {
+  const title = channelOn ? 'Уведомления в Telegram не доставляются' : 'Telegram не работает';
+  // Причина приходит готовой фразой с точкой — вторую не дописываем.
+  const reason = String(issue.reason || '').replace(/[.\s]+$/, '');
+  const text = channelOn
+    ? `Причина: ${reason}. Пока бот не работает, сообщения из панели не приходят.`
+    : `Пока бот не работает, включить оповещения нельзя. Причина: ${reason}.`;
+  return `<div class="set-warn-note${alert ? '' : ' is-off'}"><strong>${title}</strong><span>${esc(text)}</span><button type="button" class="modest-link" id="set-notify-tg-fix">Настроить Telegram</button></div>`;
+}
+
+/** Подсказка «включить нельзя» — в ответ на попытку включить канал.
+ *
+ * Постоянно она не висит: пока канал выключен, панель ничего не нарушает, а
+ * плашка с отказом над тумблером выглядела бы упрёком без повода. Появляется
+ * там же, где висела бы всегда — над блоком канала.
+ */
+function showTelegramIssueNote(issue) {
+  const slot = document.getElementById('set-notify-tg-slot');
+  if (!slot) return;
+  slot.innerHTML = telegramIssueNote(issue, false, true);
+  slot.hidden = false;
+  bindTelegramFixLink();
+}
+
+/** Снять подсказку и оранжевую подсветку блока — после выключения канала. */
+function clearTelegramIssueNote() {
+  const slot = document.getElementById('set-notify-tg-slot');
+  if (slot) {
+    slot.innerHTML = '';
+    slot.hidden = true;
+  }
+  document.getElementById('set-notify-tg-block')?.classList.remove('set-warn-block');
+}
+
+/** «Настроить Telegram» — переход в раздел Telegram (пробу не запускаем:
+    проверка связи отправляет настоящее сообщение в чат). */
+function bindTelegramFixLink() {
+  document.getElementById('set-notify-tg-fix')?.addEventListener('click', () => openCategory('telegram'));
+}
+
+async function renderNotifications() {
+  const [cfg, notify, tg] = await Promise.all([
     j('/api/monitor/config'),
-    j('/api/settings/timezone'),
+    j('/api/notifications/categories'),
+    j('/api/telegram/status').catch(() => null),
   ]);
+  const categories = notify.categories || {};
+  const channelOn = notify.telegram_channel !== false;
+  // Статус Telegram — не повод не открыть раздел: без него просто молчим.
+  const issue = telegramIssue(tg);
+  // Категории — в две колонки: шесть строк с тумблерами в один столбик
+  // растягиваются на целый экран, а так раздел читается почти целиком.
+  // Частота SSL едет в клетке своего тумблера: это подстрока к нему, а не
+  // отдельная категория, и в чужой колонке она бы потерялась.
+  const notifyCells = NOTIFY_CATEGORIES.map(item => {
+    const name = item.monitor || item.name;
+    const spec = {
+      id: `set-notify-${name}`, type: 'toggle', title: item.title, desc: item.desc,
+      value: item.monitor ? !!cfg[item.monitor]?.enabled : categories[name] !== false,
+    };
+    if (name === 'ssl') {
+      // Частота проверки SSL — подстройка к самой проверке, а не своя
+      // настройка: живёт в её же карточке, в основной строке (см. spec.sub в
+      // settingRow). Отдельная карточка читалась бы как ещё одна категория со
+      // своим тумблером. Выбором из списка: руками такие числа не набирают.
+      spec.sub = {
+        id: 'set-ssl-interval', type: 'select', title: 'Как часто проверять SSL',
+        desc: 'Период между проверками сертификатов.',
+        value: String(cfg.ssl?.interval ?? 1440), options: sslIntervalOptions(cfg.ssl?.interval),
+        dependsOn: { id: 'set-notify-ssl', value: true },
+      };
+    }
+    return `<div class="set-cat-cell">${settingRow(spec)}</div>`;
+  });
+  const notifyRows = [`<div class="set-cat-grid">${notifyCells.join('')}</div>`];
+  // Сноска категорий — подсказка, а не подзаголовок: заголовок у блока теперь
+  // свой (h2 «Категории уведомлений»), и второй заголовок внутри читался бы
+  // как ещё одна группа настроек.
+  // Оформлена как подсказка: обычным текстом, одним цветом (--text-dim) и без
+  // выделений — выключенная категория не «важнее» остальных пояснений панели,
+  // а жирное начало читалось как ещё один подзаголовок.
+  const catHead = `<div class="set-block-head"><p>Выключенная категория означает отсутствие уведомления: само событие создаётся так же, без изменений, в журнале, но сразу прочитанным, и в Telegram, и в панели — панель не подсказывает о нём. Резервные копии: общий выключатель глушит их и в панели, и в Telegram, а что именно присылать — создание копии или восстановление, успех или ошибку — настраивается отдельно, у каждого сервера, в разделе «Резервные копии». Коды восстановления доступа и проверка Telegram приходят всегда.</p></div>`;
+  // Канал и интервал — один блок: у включённого канала с неработающим
+  // Telegram он подсвечен целиком, вместе с подсказкой сверху.
+  const channelRows = [
+    settingRow({ id: 'set-telegram-channel', type: 'toggle', title: 'Оповещать в Telegram', desc: 'Присылать уведомления в Telegram. Выключение касается только Telegram: уведомления в панели остаются на месте. Бот продолжает работать — команды, коды восстановления и проверка связи отвечают всегда.', value: channelOn }),
+    settingRow({ id: 'set-notify-interval', type: 'number', title: 'Интервал оповещений, мин', desc: 'Как часто проверять серверы в фоне и как часто Telegram может присылать уведомления.', value: cfg.online?.interval ?? 5, min: 1, max: 10080, help: NOTIFY_INTERVAL_HELP, dependsOn: { id: 'set-telegram-channel', value: true } }),
+  ];
+  const rows = [];
+  // Место под подсказку. Когда канал выключен, она пустая и ждёт попытки
+  // включить: постоянная плашка «включить нельзя» висела бы над тумблером
+  // просто так, хотя человек ничего не делал.
+  const noteHtml = issue && channelOn ? telegramIssueNote(issue, true) : '';
+  rows.push(`<div class="set-warn-slot" id="set-notify-tg-slot"${noteHtml ? '' : ' hidden'}>${noteHtml}</div>`);
+  rows.push(`<div class="set-channel-block${issue && channelOn ? ' set-warn-block' : ''}" id="set-notify-tg-block">${channelRows.join('')}</div>`);
+  // Два самостоятельных блока: доставка в Telegram (канал и интервал) и
+  // категории — что именно считается уведомлением. Раньше это был один раздел
+  // «Уведомления» с подзаголовком посередине: «Уведомления в Telegram» читались
+  // как часть строки Telegram, а не как отдельный предмет настройки.
   const content = document.getElementById('settings-content');
-  content.innerHTML = section('Общие', 'Параметры применяются сразу после изменения.', [
-    settingRow({ id: 'set-online-enabled', type: 'toggle', title: 'Проверка доступности', desc: 'Автоматически проверять серверы по расписанию.', value: !!cfg.online?.enabled }),
-    settingRow({ id: 'set-online-interval', type: 'number', title: 'Интервал Online', desc: 'Период между проверками, в минутах.', value: cfg.online?.interval ?? 5, min: 1, max: 10080, dependsOn: { id: 'set-online-enabled', value: true } }),
-    '<div class="set-divider" role="separator"></div>',
-    settingRow({ id: 'set-ssl-enabled', type: 'toggle', title: 'Проверка SSL', desc: 'Следить за сроком действия сертификатов.', value: !!cfg.ssl?.enabled }),
-    settingRow({ id: 'set-ssl-interval', type: 'number', title: 'Интервал SSL', desc: 'Период между проверками, в минутах.', value: cfg.ssl?.interval ?? 60, min: 1, max: 10080, dependsOn: { id: 'set-ssl-enabled', value: true } }),
-    '<div class="set-divider" role="separator"></div>',
+  content.innerHTML = section(
+    'Уведомления в Telegram',
+    'Присылать уведомления в Telegram и с какой частотой. Изменения применяются сразу после переключения.',
+    rows,
+  ) + section(
+    'Категории уведомлений',
+    'Что панель считает уведомлением. Изменения применяются сразу после переключения.',
+    [catHead, ...notifyRows],
+  );
+  bindToggle('set-telegram-channel', async enabled => {
+    if (enabled && issue) {
+      // Включить канал «на будущее» нельзя: без работающего Telegram это
+      // обещание, которое панель не выполнит. Тумблер вернётся сам
+      // (bindToggle откатывает значение и показывает текст ошибки), а здесь
+      // объясняем причину прямо над тумблером — раньше, чем её начнут искать.
+      showTelegramIssueNote(issue);
+      throw new Error(`Включить нельзя: ${issue.reason}. Сначала включите Telegram в разделе «Telegram».`);
+    }
+    const result = await patchTelegramChannel(enabled);
+    // Канал выключили — тревога снята: и плашка «не доставляются», и оранжевый
+    // блок вокруг строк держались на включённом канале.
+    if (!enabled) clearTelegramIssueNote();
+    return result;
+  });
+  bindTelegramFixLink();
+  bindNumber('set-notify-interval', interval => patchMonitor('online', { interval }));
+  NOTIFY_CATEGORIES.forEach(item => {
+    const name = item.monitor || item.name;
+    bindToggle(`set-notify-${name}`, item.monitor
+      ? enabled => patchMonitorToggle(name, enabled)
+      : enabled => patchNotificationCategory(name, enabled));
+  });
+  bindSelect('set-ssl-interval', value => patchMonitor('ssl', { interval: Number(value) }));
+  bindHelp('set-notify-interval');
+  initializeSettingDependencies(content);
+}
+
+// «Параметры» — только часовой пояс и тема: всё про уведомления переехало в
+// отдельный раздел выше, «Уведомления».
+async function renderParameters() {
+  const timezoneMetadata = await j('/api/settings/timezone');
+  const content = document.getElementById('settings-content');
+  content.innerHTML = section('Параметры', 'Часовой пояс и оформление панели.', [
     settingRow({ id: 'set-timezone', type: 'select', title: 'Часовой пояс сервера', desc: 'Меняет часовую зону локального хоста Bot4VPS.', descId: 'set-timezone-desc', value: timezoneMetadata.timezone, groups: timezoneMetadata.options, controlClass: 'set-timezone-select' }),
     '<div class="set-divider" role="separator"></div>',
     settingRow({ id: 'set-theme', type: 'theme', title: 'Тема интерфейса', desc: 'Сохраняется на сервере и восстанавливается в любом браузере.', value: storedTheme() }),
   ]);
-  bindToggle('set-online-enabled', enabled => patchMonitor('online', { enabled }));
-  bindNumber('set-online-interval', interval => patchMonitor('online', { interval }));
-  bindToggle('set-ssl-enabled', enabled => patchMonitor('ssl', { enabled }));
-  bindNumber('set-ssl-interval', interval => patchMonitor('ssl', { interval }));
   bindTimezoneSelect(timezoneMetadata);
   initializeSettingDependencies(content);
   document.getElementById('set-theme-light')?.addEventListener('click', () => { setTheme('light'); flashRow(document.getElementById('set-theme-light'), true); });

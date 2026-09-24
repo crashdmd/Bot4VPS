@@ -11,6 +11,8 @@ export const state = {
   quickSetupServerId: null,
   watchTaskId: null,
   page: 'dashboard',
+  // активная вкладка страницы «История событий»: 'events' | 'queues'
+  historyTab: null,
   serverTab: 'status',
   serverGroupTab: '__all__',
   serverSort: { key: 'name', descending: false },

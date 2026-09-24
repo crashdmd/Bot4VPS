@@ -1,5 +1,5 @@
 import { state, setServers } from './state.js';
-import { applyEventsSnapshot } from './monitor.js?v=20260915-taskfail-v2';
+import { applyEventsSnapshot } from './monitor.js?v=20260925-changelog-md-v2';
 
 let es = null;
 let notificationsRefresh = null;
@@ -74,7 +74,7 @@ function applySnapshot(data) {
         has_running: !!s.has_running,
       };
     }));
-    import('./servers.js?v=20260915-sysfix-v2').then(m => {
+    import('./servers.js?v=20260924-task-history-head-v1').then(m => {
       if (state.page === 'servers' && m.renderServersFromState) m.renderServersFromState();
     }).catch(() => {});
   }
@@ -85,8 +85,8 @@ function applySnapshot(data) {
   if (data.task_history_revision !== undefined
       && data.task_history_revision !== taskHistoryRevision) {
     taskHistoryRevision = data.task_history_revision;
-    if (state.page === 'queues') {
-      import('./servers.js?v=20260915-sysfix-v2').then(m => {
+    if (state.page === 'history' && state.historyTab === 'queues') {
+      import('./servers.js?v=20260924-task-history-head-v1').then(m => {
         m.loadHistory?.();
       }).catch(() => {});
     }
@@ -109,12 +109,12 @@ function applySnapshot(data) {
   if (data.events) {
     // Не перетираем раскрытый список коротким срезом — мержим в кэш и
     // рендерим с учётом выбранного пользователем лимита (см. monitor.js).
-    if (state.page === 'events') {
+    if (state.page === 'history' && state.historyTab !== 'queues') {
       applyEventsSnapshot(data.events);
     }
     // Открытая карточка сервера — обновить блок «Недавние события»
     if (state.page === 'server') {
-      import('./servers.js?v=20260915-sysfix-v2').then(m => {
+      import('./servers.js?v=20260924-task-history-head-v1').then(m => {
         if (m.refreshOpenServerEvents) m.refreshOpenServerEvents();
         else if (m.openServerId) {
           // fallback: модуль мог ещё не экспортировать helper

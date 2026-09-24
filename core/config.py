@@ -58,6 +58,25 @@ DEFAULT_CONFIG = {
     "update_check": {
         "enabled": False
     },
+    # Уведомления. Категории — общие для всей системы: выключенная категория
+    # означает «это не уведомление» и в вебе, и в Telegram (событие остаётся
+    # в журнале, но создаётся сразу прочитанным — см. core/event_service.py).
+    # У резервных копий категория общая (backups) и она главнее пер-серверных
+    # галочек в разделе «Резервные копии» (core/backup/manager.py). Онлайн/офлайн
+    # и SSL в списке отсутствуют: их включает тумблер самой проверки
+    # (core/notification_policy.py → category_enabled).
+    # telegram_channel — канал Telegram целиком: бот при этом продолжает
+    # работать (команды, коды восстановления), выключаются только уведомления.
+    "notifications": {
+        "telegram_channel": True,
+        "categories": {
+            "tasks": True,
+            "services": True,
+            "updates": True,
+            "system": True,
+            "backups": True,
+        },
+    },
     # Лимиты хранения (число файлов): logs/tasks/<id>.json и logs/events/<id>.json.
     # Правятся через Настройки → История и данные (горячая смена + перезапуск не нужен).
     "logs": {
@@ -151,6 +170,19 @@ def load_config():
         elif not isinstance(value, int) or isinstance(value, bool) or value < 1:
             logs[name] = default
             changed = True
+    # Онлайн/офлайн и SSL больше не отдельные галочки в списке категорий: их
+    # включает тумблер самой проверки. Старый ключ категории переносим на этот
+    # тумблер — иначе «не присылать про падения» молча ожило бы после
+    # обновления. Перенос одноразовый: ключ удаляется, дальше решает UI.
+    notifications = config.get("notifications")
+    legacy = notifications.get("categories") if isinstance(notifications, dict) else None
+    if isinstance(legacy, dict):
+        for name in ("online", "ssl"):
+            if name in legacy:
+                if legacy.get(name) is False:
+                    monitor.setdefault(name, {})["enabled"] = False
+                legacy.pop(name)
+                changed = True
     if changed:
         save_config(config)
     return config
@@ -1033,6 +1065,76 @@ def set_host_timezone_config(timezone_name: str) -> str:
 def set_telegram_enabled(enabled: bool) -> None:
     """Только флаг telegram_enabled — точечный патч config.json."""
     _patch_config_keys({"telegram_enabled": bool(enabled)})
+
+
+# ==========================================================
+# Категории уведомлений Telegram (Настройки → Администрирование → Уведомления)
+# ==========================================================
+
+def get_notification_categories() -> dict:
+    """Состояние переключателей категорий: категория → включена.
+
+    Отсутствующий ключ означает «включена»: обновление панели не должно
+    молча выключать уже работающие уведомления.
+    """
+    from core.notification_policy import CATEGORY_ORDER
+
+    defaults = {name: True for name in CATEGORY_ORDER}
+    section = load_config().get("notifications")
+    categories = section.get("categories") if isinstance(section, dict) else None
+    if isinstance(categories, dict):
+        for name in defaults:
+            if name in categories:
+                defaults[name] = bool(categories[name])
+    return defaults
+
+
+def set_notification_category(name: str, enabled: bool) -> dict:
+    """Переключить одну категорию: остальные сохраняются как были.
+
+    ``_patch_config_keys`` заменяет секцию целиком, поэтому она читается
+    нормализованной (load_config доливает дефолты) и пишется вместе с
+    изменением — вместе с флагом канала Telegram, иначе он бы стёрся.
+    """
+    from core.notification_policy import CATEGORY_ORDER
+
+    if name not in CATEGORY_ORDER:
+        raise ValueError(f"неизвестная категория уведомлений: {name}")
+    merged = get_notification_categories()
+    merged[name] = bool(enabled)
+    _patch_config_keys({
+        "notifications": {
+            "telegram_channel": get_telegram_channel(),
+            "categories": merged,
+        }
+    })
+    return merged
+
+
+def get_telegram_channel() -> bool:
+    """Канал Telegram: присылать ли уведомления (бот при этом работает).
+
+    Битый или нечитаемый конфиг не должен глушить уведомления: как и у
+    остальных переключателей, здесь отказ в сторону «включено».
+    """
+    try:
+        section = load_config().get("notifications")
+    except Exception:
+        return True
+    if not isinstance(section, dict):
+        return True
+    return bool(section.get("telegram_channel", True))
+
+
+def set_telegram_channel(enabled: bool) -> bool:
+    """Переключить канал Telegram: категории сохраняются как были."""
+    _patch_config_keys({
+        "notifications": {
+            "telegram_channel": bool(enabled),
+            "categories": get_notification_categories(),
+        }
+    })
+    return bool(enabled)
 
 
 def set_telegram_credentials(*, user_id=None, bot_token=None) -> dict:

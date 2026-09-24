@@ -11,8 +11,8 @@
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://unpkg.com/twemoji@latest/dist/twemoji.min.js" crossorigin="anonymous"></script>
 <link rel="stylesheet" href="/static/css/layout.css?v=20260912-mobile-v3"/>
-<link rel="stylesheet" href="/static/css/components.css?v=20260911-paper-v22"/>
-<link rel="stylesheet" href="/static/css/pages.css?v=20260916-xuisrv-v41"/>
+<link rel="stylesheet" href="/static/css/components.css?v=20260925-changelog-md-v2"/>
+<link rel="stylesheet" href="/static/css/pages.css?v=20260925-notify-blocks-v17"/>
 <link rel="stylesheet" href="/static/vendor/xterm/xterm.css"/>
 <link rel="stylesheet" href="/static/vendor/codemirror/codemirror.min.css"/>
 <link rel="stylesheet" href="/static/vendor/codemirror/material-darker.min.css"/>
@@ -58,14 +58,11 @@
         <button type="button" data-page="backups">
           <span class="icon">📦</span> Резервные копии
         </button>
-        <button type="button" data-page="queues">
-          <span class="icon">📋</span> Задачи
+        <button type="button" data-page="history">
+          <span class="icon">🗂</span> История событий
         </button>
         <button type="button" data-page="monitor">
           <span class="icon">📡</span> Мониторинг Bot4VPS
-        </button>
-        <button type="button" data-page="events">
-          <span class="icon">📖</span> Журнал уведомлений
         </button>
       </div>
     </nav>
@@ -496,28 +493,37 @@
         </div>
       </section>
 
-      <section class="page" id="page-queues">
-        <div class="section-head"><h1>Задачи</h1></div>
-        <div id="queues"><div class="empty">—</div></div>
-        <div class="section-head task-history-head" style="margin-top:1.5rem">
-          <h1 style="font-size:1rem">История задач</h1>
-          <div class="actions" style="margin:0">
-            <button type="button" class="secondary" id="btn-task-history-clear">🗑 Очистить историю задач</button>
-          </div>
-        </div>
-        <div class="task-history-wrap" id="history"><div class="empty">—</div></div>
-      </section>
-
-      <section class="page" id="page-events">
+      <section class="page" id="page-history">
         <div class="section-head">
-          <h1>Журнал уведомлений</h1>
-          <div class="actions" style="margin:0">
-            <button type="button" class="secondary" id="btn-events-mark-read">✓ Пометить все как прочитанные</button>
-            <button type="button" class="secondary" id="btn-journal">Все</button>
+          <h1>История событий</h1>
+        </div>
+        <div class="tabs" id="history-tabs" role="tablist" aria-label="История событий" style="margin:0 0 1rem">
+          <button type="button" class="on" role="tab" aria-selected="true" data-history-tab="events">Уведомления</button>
+          <button type="button" role="tab" aria-selected="false" data-history-tab="queues">Задачи</button>
+        </div>
+        <div class="history-panel" id="history-panel-events" role="tabpanel">
+          <div class="actions" style="margin:0 0 .6rem;justify-content:flex-end">
+            <button type="button" class="secondary" id="btn-events-mark-read">✓ Прочитать все</button>
             <button type="button" class="secondary" id="btn-events-clear">🗑 Очистить журнал</button>
           </div>
+          <!-- Список всех уведомлений — в таком же блоке с прокруткой, как
+               история задач. Кнопка «Все» больше не нужна: показываем всё. -->
+          <div class="events-wrap" id="events"><div class="empty">—</div></div>
         </div>
-        <div id="events"><div class="empty">—</div></div>
+        <div class="history-panel" id="history-panel-queues" role="tabpanel" hidden>
+          <div id="queues" hidden></div>
+          <!-- Строка над списком стоит там же, где строка кнопок во вкладке
+               «Уведомления»: сам блок при переключении вкладок не двигается. -->
+          <div class="section-head task-history-head" style="margin-bottom:.6rem">
+            <!-- Заголовок — разделитель между активными задачами и историей:
+                 появляется вместе с блоком задач, иначе висит один. -->
+            <h1 style="font-size:1rem" id="task-history-title" hidden>История задач</h1>
+            <div class="actions" style="margin:0 0 0 auto">
+              <button type="button" class="secondary" id="btn-task-history-clear">🗑 Очистить историю задач</button>
+            </div>
+          </div>
+          <div class="task-history-wrap" id="history"><div class="empty">—</div></div>
+        </div>
       </section>
 
       <section class="page" id="page-backups">
@@ -1382,7 +1388,7 @@
 <script src="/static/vendor/codemirror/codemirror.min.js"></script>
 <script src="/static/vendor/codemirror/shell.min.js"></script>
 <script src="/static/vendor/codemirror/yaml.min.js"></script>
-<script type="module" src="/static/js/app.js?v=20260917-selfsni-url-v4"></script>
+<script type="module" src="/static/js/app.js?v=20260925-notify-blocks-v17"></script>
 
 
 <div class="modal-bg" id="tg-setup-modal">

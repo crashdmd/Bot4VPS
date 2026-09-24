@@ -283,3 +283,28 @@ def clear_sent():
     _store.mutate(
         lambda queue: [it for it in queue if not it.get("sent")]
     )
+
+
+def close_pending(predicate) -> int:
+    """Окончательно закрыть строки, подходящие под предикат.
+
+    Исход «закрыть» (в отличие от «отложить»): строка удаляется из очереди и
+    больше не доставляется — так гасятся события выключенной категории,
+    прочитанные события и переставшие быть актуальными online/offline
+    (``plans/TELEGRAM_NOTIFICATIONS_PLAN.md``, разделы 3 и 10).
+    Возвращает число закрытых строк.
+    """
+    closed = 0
+
+    def _close(queue: List[Dict]) -> List[Dict]:
+        nonlocal closed
+        kept = []
+        for item in queue:
+            if item.get("sent") or not predicate(item):
+                kept.append(item)
+                continue
+            closed += 1
+        return kept
+
+    _store.mutate(_close)
+    return closed

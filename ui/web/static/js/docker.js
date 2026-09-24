@@ -480,7 +480,7 @@ async function leaveUninstalledPage(id) {
   try { localStorage.removeItem('bot4vps_docker_server_id'); } catch (_) {}
   if (returnToServer) {
     try {
-      const { openServer } = await import('./servers.js?v=20260915-sysfix-v2');
+      const { openServer } = await import('./servers.js?v=20260924-task-history-head-v1');
       await openServer(id);
       return;
     } catch (_) { /* модуль не загрузился — fallback в список ниже */ }
@@ -2222,7 +2222,7 @@ export function bindDockerUI() {
   document.getElementById('btn-back-docker-server')?.addEventListener('click', async () => {
     if (!dockerServerId) return;
     try {
-      const { openServer } = await import('./servers.js?v=20260915-sysfix-v2');
+      const { openServer } = await import('./servers.js?v=20260924-task-history-head-v1');
       await openServer(dockerServerId);
     } catch (e) {
       console.error(e);

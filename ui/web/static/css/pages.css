@@ -413,14 +413,23 @@ label{
 .task-history-head{
   gap:1rem;
 }
-.task-history-wrap{
+/* Блок с прокруткой — общий для истории задач и списка уведомлений.
+   Высота фиксированная: при переключении вкладок блок стоит на месте и не
+   прыгает по высоте, содержимое внутри прокручивается. */
+.task-history-wrap,
+.events-wrap{
   max-width:100%;
-  max-height:34rem;
+  height:34rem;
   overflow-y:auto;
   overflow-x:hidden;
   border:1px solid var(--border);
   border-radius:var(--radius-md);
   background:var(--card);
+}
+/* Активные задачи отделяются от истории снизу — тогда строка с кнопками
+   истории стоит ровно там же, где строка кнопок в «Уведомлениях». */
+#queues{
+  margin-bottom:1.5rem;
 }
 .task-history-wrap > .empty{
   border:0;
@@ -531,8 +540,10 @@ label{
   .task-history-head button{
     width:100%;
   }
-  .task-history-wrap{
+  .task-history-wrap,
+  .events-wrap{
     overflow-x:hidden;
+    height:auto;
     max-height:60dvh;
   }
   .task-history-table,
@@ -1410,65 +1421,95 @@ label{
   max-height:320px;
 }
 
-/* События */
-.event{
-  display:grid;
-  grid-template-columns:4px 1fr;
-  background:var(--card);
-  border:1px solid var(--border);
-  border-radius:var(--radius-md);
-  overflow:hidden;
-  margin-bottom:0.75rem;
-  transition:all var(--transition-fast);
+/* События: список уведомлений — таблица в том же блоке с прокруткой, что и
+   история задач, поэтому карточки со своим .barline больше не нужны.
+   Цветная полоса осталась — это край первой ячейки, цвет по уровню события. */
+.events-wrap > .empty{
+  border:0;
+}
+.events-table th:nth-child(1){width:10.5rem}
+.events-table th:nth-child(2){width:auto}
+.events-table th:nth-child(3){width:10rem}
+.events-table th:nth-child(4){width:8.5rem}
+.events-table tbody tr{
   cursor:pointer;
+  /* Высота строки — как в истории задач: там её задаёт кнопка 2rem в
+     колонке «Действие», здесь такой высоты контента нет, поэтому задаём
+     строке тот же минимум (56px). Длинное описание строку растягивает. */
+  height:3.5rem;
 }
-.event:hover{
-  transform:translateX(3px);
-  box-shadow:var(--shadow-sm);
+.events-table tbody td:first-child{
+  border-left:3px solid var(--info);
 }
-
-.event .barline{
-  background:var(--info);
+.events-table tbody tr.lvl-warning td:first-child{
+  border-left-color:var(--warn);
 }
-.event.ok .barline{background:var(--ok)}
-.event.warning .barline{background:var(--warn)}
-.event.critical .barline,.event.error .barline{background:var(--err)}
-
-.event .body{
-  padding:0.875rem 1rem;
+.events-table tbody tr.lvl-critical td:first-child{
+  border-left-color:var(--err);
 }
-.event .title{
-  font-weight:600;
-  font-size:0.95rem;
-  margin-bottom:0.25rem;
-}
-.event .meta{
-  color:var(--text-muted);
-  font-size:0.8rem;
-  display:flex;
-  align-items:center;
-  gap:0.75rem;
-}
-
-/* Метка прочтения — прижата к правому краю строки с датой */
-.event-read{
-  margin-left:auto;
-  flex-shrink:0;
-  font-size:0.72rem;
-  color:var(--text-dim);
-  letter-spacing:0.02em;
-}
-.event-read.is-unread{
-  color:var(--accent);
-  font-weight:600;
-}
-/* Непрочитанное выделяем чуть плотнее — заголовок ярче */
-.event.is-unread .title{
+/* Непрочитанное — как раньше: плотнее и ярче, прочитанное приглушено. */
+.events-table .events-desc{
   color:var(--text);
 }
-.event:not(.is-unread) .title{
-  font-weight:500;
+.events-table tbody tr:not(.is-unread) .events-desc{
   color:var(--text-muted);
+  font-weight:500;
+}
+.events-desc-server{
+  color:var(--text-dim);
+  font-weight:500;
+}
+.events-type,
+.events-status{
+  white-space:nowrap;
+}
+.task-status.info{
+  color:var(--info);
+  background:var(--info-bg);
+}
+.task-status.critical{
+  color:var(--err);
+  background:var(--err-bg);
+}
+.task-status.unread{
+  color:var(--accent);
+  background:var(--hover);
+}
+.task-status.read{
+  color:var(--text-dim);
+  background:var(--hover);
+}
+/* Узкий экран: таблица раскладывается в карточку (как история задач), и
+   полоса переезжает на саму строку — иначе она подчёркивала бы одну дату. */
+@media(max-width:640px){
+  .events-table tbody td:first-child{
+    border-left:0;
+  }
+  .events-table tbody tr{
+    /* Высота строки таблицы (3.5rem, как у истории задач) здесь не годится:
+       карточка на телефоне выше — 87px при коротком описании и 125px при
+       длинном, — и содержимое вылезало из 56-пиксельной рамки на 42-80px,
+       из-за чего карточки наезжали друг на друга. Карточку, как во вкладке
+       «Задачи», растягивает содержимое. */
+    height:auto;
+    min-height:0;
+    border-left:3px solid var(--info);
+  }
+  .events-table tbody tr.lvl-warning{
+    border-left-color:var(--warn);
+  }
+  .events-table tbody tr.lvl-critical{
+    border-left-color:var(--err);
+  }
+  .events-table .events-desc{grid-column:1;grid-row:1}
+  .events-table .task-history-date{grid-column:1;grid-row:2}
+  .events-table .events-type{grid-column:1;grid-row:3}
+  .events-table .events-status{
+    grid-column:2;
+    grid-row:1 / span 3;
+    align-self:center;
+    justify-self:end;
+  }
 }
 
 /* Прогресс-индикатор задач */
@@ -3889,18 +3930,110 @@ label{
 .settings-nav button:focus-visible,.set-row button:focus-visible,.set-row input:focus-visible,.set-row select:focus-visible,.set-form input:focus-visible,.set-form button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .settings-nav-icon{display:grid;place-items:center;width:1.6rem;height:1.6rem;border-radius:.4rem;background:var(--field);color:var(--accent);font-weight:800}
 .settings-nav button.on .settings-nav-icon{background:var(--accent-fill, var(--accent));color:var(--accent-fill-text, #fff)}
+/* Колокольчик «Уведомлений» — SVG, а не эмодзи: заливка currentColor, цвет
+   берёт от плитки. В меню он крупнее соседних глифов и эмодзи (14px) —
+   плитка 1.6rem это позволяет, силуэт читается лучше. */
+.settings-nav-icon svg{display:block;width:1.6em;height:1.6em;fill:currentColor}
 .settings-nav strong,.settings-nav small{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .settings-nav strong{font-size:.82rem}.settings-nav small{margin-top:.1rem;color:var(--text-dim);font-size:.68rem}
 .settings-content{display:grid;gap:.9rem}
 .set-section,.set-form-card,.set-about{border:1px solid var(--border);border-radius:var(--radius);background:var(--card);padding:1rem}
 .set-section-head{display:flex;align-items:baseline;justify-content:space-between;gap:1rem;margin-bottom:.65rem}.set-section-head h2{font-size:1.05rem;margin:0}.set-section-head p{margin:0;color:var(--text-dim);font-size:.76rem;text-align:right}
 .set-list{display:grid;gap:.35rem}
+/* Заголовок подблока внутри раздела: у «Категорий уведомлений» своя группа и
+   своя сноска — тем же языком, что заголовки карточек (set-form-title). */
+/* Сноска — подсказка, а не подзаголовок: обычный текст одним цветом
+   (--text-dim), без выделений. Отдельного правила для strong здесь больше
+   нет: оно делало первую фразу светлее остальных, и сноска читалась как
+   второй заголовок. От сетки тумблеров сноску отделяет пустая строка
+   (отбивка в размер её же строки) — иначе подсказка липла к первой карточке. */
+.set-block-head{margin:.35rem .7rem calc(.74rem * 1.4)}.set-block-head h3{margin:0;font-size:.92rem;font-weight:650}.set-block-head p{margin:.25rem 0 0;color:var(--text-dim);font-size:.74rem;line-height:1.4}
+/* Категории уведомлений — две колонки: строки в один столбик занимают почти
+   экран. Заполняем по столбцам (четыре строки): первые четыре пункта списка
+   идут слева, остальные справа — так проверки, задачи, сервисы и копии слева,
+   а SSL/обновления/системные справа. Клетка держит свой тумблер и его
+   подстроку (частота SSL), поэтому они не разъезжаются по разным колонкам. */
+/* Высоту выравниваем ПО СТРОКАМ: карточка слева и карточка справа в одном ряду
+   получают высоту самой высокой из пары (align-items/align-content:stretch при
+   строках auto), а ряды между собой остаются разными. Строки 1fr выравнивали
+   все карточки по самой высокой — «Задачи» и «Обновления панели» стояли
+   пустыми на 159px при своём содержимом на 79px. Заодно карточка SSL не
+   меняет высоту, когда её тумблер выключен и подстройка со списком скрыта:
+   высоту пары держит «Онлайн и офлайн». */
+.set-cat-grid{position:relative;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));grid-auto-flow:column;grid-template-rows:repeat(4,auto);gap:.35rem;align-items:stretch}
+.set-cat-cell{display:grid;gap:.35rem;align-content:stretch;min-width:0}
+/* Колонки равные, поэтому разделитель ровно посередине — в щели между ними.
+   Абсолютный псевдоэлемент у грид-контейнера в раскладке не участвует. */
+.set-cat-grid::after{content:'';position:absolute;left:50%;top:.15rem;bottom:.15rem;width:1px;margin-left:-.5px;background:var(--border)}
+/* Строки категорий — рамками: в две колонки соседние тумблеры иначе сливаются
+   в одно полотно, а описания у них длинные. */
+.set-cat-grid .set-row{border-color:var(--border)}.set-cat-grid .set-row:hover{background:var(--field);border-color:var(--accent)}
+/* У строк с одним тумблером правая колонка держала минимум 7rem, хотя сам
+   тумблер — 42px: описанию оставалось 178px из 304, и оно расползалось на
+   7 строк (карточка «Онлайн и офлайн» — 159px). Отдаём ширину описанию —
+   карточки садятся по содержимому. Строки с подстройкой (SSL) не трогаем. */
+.set-cat-grid .set-row:not(:has(.set-sub))>.set-ctrl{min-width:0}
+/* Подстройка внутри карточки («Как часто проверять SSL» при самой проверке):
+   своей рамки, черты и своего отступа у неё нет — иначе читалась бы как
+   отдельная настройка.
+   Карточку с подстройкой раскладываем сеткой, а не переносом флекс-строки:
+   подпись с длинным описанием занимала всю строку, тумблер уезжал на вторую
+   и висел посреди карточки. Здесь он остаётся в своей строке справа.
+   Подстройка — одной строкой во всю ширину карточки: пояснение слева, список
+   справа. Так карточка вдвое ниже, чем с подстройкой отдельной строкой своих
+   полей (230px против 79px у соседей), и пояснение не добавляет ещё строку
+   над списком. Поставить пояснение в строку с названием нельзя: в карточке
+   328px название, пояснение, список и тумблер рядом не помещаются. */
+.set-row:has(.set-sub){display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:.15rem .6rem;align-items:center}
+.set-row:has(.set-sub)>.set-copy{display:contents}
+.set-row:has(.set-sub)>.set-copy>.set-name{grid-column:1;grid-row:1}
+.set-row:has(.set-sub)>.set-copy>.set-desc{grid-column:1/-1;grid-row:2;margin-top:0}
+.set-row:has(.set-sub)>.set-ctrl{display:contents}
+.set-row:has(.set-sub)>.set-ctrl>.set-switch{grid-column:3;grid-row:1;justify-self:end}
+.set-row:has(.set-sub)>.set-ctrl>.set-sub{grid-column:1/-1;grid-row:3;justify-self:stretch}
+.set-sub{display:flex;align-items:center;justify-content:space-between;gap:.45rem;min-width:0}
+/* Выключенная проверка SSL прячет список интервала, но МЕСТО за ним оставляем:
+   с display:none карточка садилась на высоту описания, и пара «Онлайн и
+   офлайн» / «Сертификаты SSL» меняла высоту при каждом переключении тумблера
+   (замер: 130 → 127px). visibility:hidden убирает строку с глаз и из обхода
+   табом, но не из раскладки, поэтому карточка всегда одной высоты. */
+.set-sub[hidden]{display:flex;visibility:hidden}
+.set-sub-caption{color:var(--text-dim);font-size:.68rem;line-height:1.2;white-space:nowrap;min-width:0}
+/* Маленький список: у обычного .set-select минимум 8.5rem и стрелка в 2.25rem
+   от края — в карточке это и раздувало её по ширине и высоте. */
+.set-sub .set-select{min-width:0!important;width:auto!important;font-size:.72rem;padding:.15rem 1.35rem .15rem .4rem;background-position:right .4rem center}
 .set-row{display:flex;align-items:center;justify-content:space-between;gap:1rem;min-height:3.55rem;padding:.65rem .7rem;border:1px solid transparent;border-radius:var(--radius-sm);transition:background var(--transition-fast),border-color var(--transition-fast)}
 .set-row[hidden]{display:none}
 .set-row:hover{background:var(--field);border-color:var(--border)}
 .set-row-error{border-color:var(--err)!important;background:rgba(239,68,68,.1)!important}
 .set-copy{min-width:0}.set-name{font-size:.86rem;font-weight:650}.set-desc{margin-top:.15rem;color:var(--text-dim);font-size:.74rem;line-height:1.35}.set-ctrl{display:flex;align-items:center;justify-content:flex-end;flex:0 0 auto;min-width:7rem}.set-number{width:7rem!important}.set-select{min-width:8.5rem!important;width:auto!important}.set-timezone-select{width:min(30rem,48vw)!important;max-width:30rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.set-row .set-ctrl>button{white-space:nowrap}
 .set-divider{height:1px;margin:.15rem .7rem;background:var(--border)}
+.set-note{margin-top:.7rem;padding:.6rem .7rem;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--field);color:var(--text-dim);font-size:.74rem;line-height:1.4}.set-note strong{color:var(--text)}
+/* Telegram не работает, а канал включён: строки канала и интервала собраны в
+   оранжевый блок, над ними — подсказка с причиной. Цвет — var(--warn), тот же,
+   что у предупреждений в других разделах.
+   Строки всегда лежат в своей обёртке (класс вешается/снимается на неё), а
+   подсказка — в слоте-заготовке: у выключенного канала слот пустой и скрытый,
+   подсказка приходит в него только в ответ на попытку включить. */
+.set-channel-block{display:grid;gap:.35rem}
+.set-warn-slot[hidden]{display:none}
+.set-warn-block{border:1px solid var(--warn);border-radius:var(--radius-sm);background:var(--warn-bg);padding:.15rem}
+.set-warn-note{display:grid;gap:.2rem;justify-items:start;margin-top:.2rem;padding:.6rem .7rem;border:1px solid var(--warn);border-radius:var(--radius-sm);background:var(--warn-bg);color:var(--text-dim);font-size:.74rem;line-height:1.4}.set-warn-note strong{color:var(--warn)}.set-warn-note span{color:var(--text-dim)}
+/* Канал выключен — тревоги нет, только объяснение: та же плашка без оранжевого. */
+.set-warn-note.is-off{border-color:var(--border);background:var(--field)}.set-warn-note.is-off strong{color:var(--text)}
+.set-warn-note .modest-link{margin:0;padding:.1rem 0;font-size:.74rem;font-weight:600}
+.set-help{display:inline-flex;align-items:center;justify-content:center;width:1.05rem;height:1.05rem;margin-left:.35rem;padding:0;border:1px solid var(--border);border-radius:50%;background:var(--field);color:var(--text-dim);font-size:.68rem;font-weight:700;line-height:1;cursor:pointer;vertical-align:middle}
+.set-help:hover,.set-help.on{border-color:var(--accent);color:var(--accent)}
+/* pre-line: текст подсказки приходит с переносами строк (пункты списка),
+   HTML не подмешиваем — esc() экранирует всё как есть. */
+/* pre-line: текст подсказки приходит с переносами строк (пункты списка),
+   HTML не подмешиваем — esc() экранирует всё как есть. Сетка из двух колонок:
+   текст и крестик «закрыть», который иначе наезжал бы на длинные строки. */
+.set-help-text{display:grid;grid-template-columns:1fr auto;align-items:start;gap:.5rem;margin:.15rem .7rem .45rem;padding:.6rem .7rem;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--field);color:var(--text-dim);font-size:.74rem;line-height:1.45;white-space:pre-line}.set-help-body{min-width:0}
+.set-help-close{display:inline-flex;align-items:center;justify-content:center;min-width:1.2rem;min-height:1.2rem;padding:.15rem .2rem;border:0;background:none;color:var(--text-dim);font-size:.82rem;line-height:1;cursor:pointer}.set-help-close:hover{color:var(--text)}
+.set-help-text[hidden]{display:none}
+/* Вкладки «Истории событий»: скрытая панель не должна держать место */
+.history-panel[hidden]{display:none}
 .set-theme-choices{display:flex;align-items:center;gap:.35rem}.set-theme-choices button{min-width:5.2rem}.set-theme-choices button.on,.set-theme-choices button[aria-pressed="true"]{border-color:var(--accent);background:var(--accent-fill, var(--accent));color:var(--accent-fill-text, #fff)}
 .set-switch{display:inline-flex;cursor:pointer}.set-switch input{position:absolute;opacity:0;pointer-events:none}.set-switch-track{display:block;width:2.65rem;height:1.45rem;padding:.18rem;border-radius:999px;background:var(--field-border);transition:background var(--transition-fast)}.set-switch-track span{display:block;width:1.09rem;height:1.09rem;border-radius:50%;background:var(--text-muted);transition:transform var(--transition-fast),background var(--transition-fast)}.set-switch input:checked+.set-switch-track{background:var(--accent-switch, var(--accent))}.set-switch input:checked+.set-switch-track span{transform:translateX(1.2rem);background:#fff}
 .set-badge{display:inline-flex;align-items:center;max-width:16rem;padding:.3rem .55rem;border:1px solid var(--border);border-radius:999px;color:var(--text-dim);font-size:.72rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.set-badge.ok{border-color:var(--ok);color:var(--ok)}.set-badge.warn{border-color:#d99a32;color:#eab35b}.set-badge.error{border-color:var(--err);color:var(--err)}
@@ -4056,7 +4189,46 @@ label{
 .set-about-author a:hover{color:var(--text)}
 .set-inline-actions .btn,.set-inline-actions button{padding:.55rem 1rem;font-size:.8rem}.set-about-mark{display:grid;place-items:center;width:4.5rem;height:4.5rem;border-radius:1rem;background:var(--accent-fill, var(--accent));color:var(--accent-fill-text, #fff);font-size:1.35rem;font-weight:900;box-shadow:8px 8px 0 var(--accent-soft)}.set-about h2{margin:.28rem 0 .3rem;font-size:1.45rem;letter-spacing:-.04em}.set-about p{max-width:38rem;margin:0;color:var(--text-dim);line-height:1.55}.set-about-version{margin:.8rem 0;color:var(--text-muted);font-size:.8rem}.set-about-version strong{color:var(--text)}
 .set-port-modal{text-align:center;display:grid;justify-items:center;gap:.65rem}.set-port-modal h3,.set-port-modal p{margin:0}.set-port-modal code{padding:.45rem .65rem;border-radius:var(--radius-sm);background:var(--field);color:var(--accent);overflow-wrap:anywhere}.set-spinner{width:2rem;height:2rem;border:.2rem solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:set-spin 1s linear infinite}@keyframes set-spin{to{transform:rotate(360deg)}}
-@media(max-width:760px){.settings-layout{grid-template-columns:1fr}.settings-side{position:static;padding:.65rem}.settings-side-head{padding:.15rem .25rem .55rem}.settings-side-head p{display:none}.settings-nav{display:flex;overflow-x:auto;gap:.35rem;margin-top:.55rem;padding-bottom:.15rem}.settings-nav button{display:flex;flex:0 0 auto;width:auto;min-width:max-content;gap:.4rem;padding:.5rem .6rem}.settings-nav button small{display:none}.settings-nav-icon{width:1.35rem;height:1.35rem}.set-section,.set-form-card{padding:.8rem}.set-section-head{display:block}.set-section-head p{text-align:left;margin-top:.25rem}.set-row{align-items:flex-start;padding:.6rem .55rem}.set-ctrl{min-width:6.3rem}.set-number{width:6.3rem!important}.set-timezone-select{width:min(14rem,50vw)!important;max-width:50vw}.set-about{grid-template-columns:1fr}.set-about-mark{width:3.6rem;height:3.6rem}.set-port-line input{max-width:none;flex:1}}
+@media(max-width:760px){.settings-layout{grid-template-columns:1fr}.settings-side{position:static;padding:.65rem}.settings-side-head{padding:.15rem .25rem .55rem}.settings-side-head p{display:none}.settings-nav{display:flex;overflow-x:auto;gap:.35rem;margin-top:.55rem;padding-bottom:.15rem}.settings-nav button{display:flex;flex:0 0 auto;width:auto;min-width:max-content;gap:.4rem;padding:.5rem .6rem}.settings-nav button small{display:none}.settings-nav-icon{width:1.35rem;height:1.35rem}.set-section,.set-form-card{padding:.8rem}.set-section-head{display:block}.set-section-head p{text-align:left;margin-top:.25rem}
+/* Строки настроек на телефоне: подпись и тумблер в одной строке, описание —
+   во всю ширину под ними. В две колонки, как на десктопе, описание ужималось
+   до 200px и расползалось на 6-7 строк; в один столбик с тумблером на своей
+   строке — читаемо, но каждая строка вырастала на 40px. */
+.set-row{display:grid;grid-template-columns:1fr auto;gap:.4rem .6rem;align-items:start;padding:.6rem}
+.set-copy{display:contents}.set-name{grid-column:1;grid-row:1}.set-desc{grid-column:1/-1;grid-row:2;margin-top:0}
+.set-ctrl{grid-column:2;grid-row:1;width:auto;min-width:0}
+/* Широкие поля (число, список, кнопка) — своей строкой во всю ширину: в узкой
+   правой колонке они бы резали подпись. Тумблер узкий, он остаётся справа. */
+.set-row:not(:has(.set-switch)){grid-template-columns:1fr}
+.set-row:not(:has(.set-switch)) .set-ctrl{grid-column:1;grid-row:3;justify-content:flex-start}
+.set-number{width:100%!important}.set-select{width:100%!important;min-width:0}.set-timezone-select{width:100%!important;max-width:none}
+/* Подстройка в карточке на телефоне: пояснение слева, список занимает
+   оставшуюся ширину строки — той же строкой под описанием. Клетки задаём
+   явно: общие правила строк ставят .set-ctrl во вторую колонку, из-за чего
+   список уезжал вбок узкой полосой. */
+.set-row:has(.set-sub)>.set-copy>.set-name{grid-column:1;grid-row:1}
+.set-row:has(.set-sub)>.set-copy>.set-desc{grid-column:1/-1;grid-row:2}
+.set-row:has(.set-sub)>.set-ctrl>.set-switch{grid-column:2;grid-row:1;justify-self:end}
+.set-row:has(.set-sub)>.set-ctrl>.set-sub{grid-column:1/-1;grid-row:3;justify-self:stretch}
+/* Колонок на телефоне две, как у остальных строк: в трёхколоночной сетке
+   третья клетка пустая, и её отбивка сдвигала тумблер влево от края карточки. */
+.set-row:has(.set-sub){grid-template-columns:minmax(0,1fr) auto}
+.set-sub .set-select{flex:1 1 auto;width:auto!important;font-size:.8rem}
+.set-cat-grid{grid-template-columns:1fr;grid-auto-flow:row;grid-template-rows:auto}.set-cat-grid::after{display:none}.set-block-head{margin:.35rem .6rem .15rem}.set-about{grid-template-columns:1fr}.set-about-mark{width:3.6rem;height:3.6rem}.set-port-line input{max-width:none;flex:1}
+/* Кнопки вкладки «Уведомления» — во всю строку, половина на половину, и той же
+   высоты, что «Очистить историю задач» во вкладке «Задачи»: рядом с ней узкие
+   компактные кнопки выглядели обрубками. Высоту задаёт базовый padding .65rem,
+   поэтому по вертикали переопределяем только горизонталь — иначе «🗑 Очистить
+   журнал» в половину строки не влезает. */
+#history-panel-events>.actions{flex-wrap:nowrap;gap:.5rem}
+#history-panel-events>.actions button{flex:1 1 0;min-width:0;white-space:nowrap;overflow-wrap:normal;padding:.65rem .5rem}
+/* Совсем узкий телефон (320px): подпись «🗑 Очистить журнал» шире половины
+   строки даже без боковых отступов (147.7px при 142px доступных), поэтому
+   уменьшаем шрифт. Высоту держим равной кнопке вкладки «Задачи» (39.8px):
+   line-height 17px + padding 20.8px + рамка 2px. */
+@media(max-width:340px){
+  #history-panel-events>.actions button{padding:.65rem .15rem;font-size:.8rem;line-height:17px}
+}}
 @media(prefers-reduced-motion:reduce){.set-row,.set-switch-track,.set-switch-track span{transition:none}.set-spinner{animation:none}}
 
 /* Список серверов: компактная таблица и горизонтальные вкладки групп. */
