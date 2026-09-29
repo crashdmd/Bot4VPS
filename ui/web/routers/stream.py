@@ -83,6 +83,71 @@ def _xui_cache_revision():
     return hashlib.sha256("|".join(parts).encode("utf-8")).hexdigest()
 
 
+def _metrics_watermark() -> int:
+    """Водяной знак метрик на подключении клиента: время последней пробы.
+
+    Ноль при пустой базе («покажи всё, что появится»), а не «покажи всё,
+    что накопилось»: накопленную историю рисует /api/metrics/overview, а
+    поток отдаёт только новое.
+    """
+    from core import metrics
+
+    return metrics.last_ts() or 0
+
+
+def _metrics_frames(watermark: int):
+    """Готовые кадры ``event: metrics`` для новых проб + новый водяной знак.
+
+    Не шина в памяти, а водяной знак по таблице: пробы пишет любой из трёх
+    процессов панели (web, Telegram, CLI), и внутрипроцессная шина половину
+    из них не увидела бы. Кадры собираются здесь (а не в генераторе),
+    чтобы блокирующее чтение sqlite уходило в поток и не задерживало
+    остальные события. Запись компактная (§11): одна строка виджета на
+    сервер, без параметров и выводов задач.
+    """
+    from core import metrics
+
+    frames = []
+    stamp = watermark
+    for row in metrics.tail_since(watermark):
+        stamp = max(stamp, row["ts"])
+        frames.append("event: metrics\ndata: %s\n\n" % json.dumps(row, ensure_ascii=False))
+    return frames, stamp
+
+
+def _audit_watermark() -> tuple:
+    """Водяной знак аудита на подключении клиента: ``(rowid, ts)`` последней записи.
+
+    Знак — пара, и оба ключа нужны: у мгновенной операции пара
+    ``started``/``ok`` встаёт в одну и ту же секунду, и знак по ``ts``
+    молча терял бы вторую запись; ``rowid`` после чистки журнала
+    переиспользуется, и знак только по номеру терял бы первую запись новой
+    жизни журнала. Подробности — в ``core.audit_query.tail_after``.
+
+    ``(0, 0)`` на пустом журнале («покажи то, что появится»), а не «покажи
+    всё, что накопилось»: накопленное читает ``/api/audit``.
+    """
+    from core import audit_query
+
+    return audit_query.tail_mark()
+
+
+def _audit_frames(cursor):
+    """Готовые кадры ``event: audit`` + новый знак (§11).
+
+    Компактная запись без ``params`` и без вывода задачи: тяжёлое клиент
+    добирает по ``/api/audit/{id}``, когда запись открыли.
+    """
+    from core import audit_query
+
+    rows, rowid, ts = audit_query.tail_after(cursor[0], cursor[1])
+    frames = [
+        "event: audit\ndata: %s\n\n" % json.dumps(row, ensure_ascii=False)
+        for row in rows
+    ]
+    return frames, (rowid, ts)
+
+
 def _snapshot():
     """Короткий снимок для SSE (без тяжёлых SSH)."""
     out = {
@@ -227,6 +292,10 @@ async def api_stream(request: Request):
             # подключённый SSE-клиент (панель открыта). Следующий снапшот (через 3 с)
             # подхватит обновлённый статус. Событие online/offline — в журнал.
             light_task = None
+            # Метрики: только новое, начиная с последней пробы в базе.
+            metrics_ts = await asyncio.to_thread(_metrics_watermark)
+            # Аудит: то же самое, но знак — (rowid, ts) последней записи журнала.
+            audit_mark = await asyncio.to_thread(_audit_watermark)
             while True:
                 if await request.is_disconnected():
                     break
@@ -234,6 +303,26 @@ async def api_stream(request: Request):
                 try:
                     if light_task is None or light_task.done():
                         light_task = asyncio.create_task(_light_checks())
+                    # Хвост метрик — до снимка: иначе свежая точка приехала
+                    # бы в том же такте, но после карточки, и строка виджета
+                    # отстала бы на такт.
+                    try:
+                        frames, metrics_ts = await asyncio.to_thread(_metrics_frames, metrics_ts)
+                        for frame in frames:
+                            yield frame
+                    except Exception as e:
+                        print(f"[STREAM] metrics tail: {e}", flush=True)
+                    # Записи аудита — тем же порядком и до снимка: строка
+                    # «Истории» обязана появиться в том же такте, что и
+                    # смена статуса сервера, которого действие касалось.
+                    try:
+                        frames, audit_mark = await asyncio.to_thread(
+                            _audit_frames, audit_mark
+                        )
+                        for frame in frames:
+                            yield frame
+                    except Exception as e:
+                        print(f"[STREAM] audit tail: {e}", flush=True)
                     snap = await asyncio.to_thread(_snapshot)
                     yield f"event: snapshot\ndata: {json.dumps(snap, ensure_ascii=False, default=str)}\n\n"
                 except Exception as e:

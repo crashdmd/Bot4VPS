@@ -10,9 +10,9 @@
   Operation-записи, НЕ решает семантику успеха — только команды и факты.
   Вся умность — в core/backup/self_restore.py (финализация).
 
-Цикл: stop → tar extract → daemon-reload → (pip при изменении
-requirements.txt) → start → health-check → state.json (терминальный статус
-+ сырой tar exit/stderr + результат health). Ошибка на любом шаге после
+Цикл: stop → уборка спутников БД → tar extract → daemon-reload → (pip при
+изменении requirements.txt) → start → health-check → state.json (терминальный
+статус + сырой tar exit/stderr + результат health). Ошибка на любом шаге после
 stop — best-effort старт сервиса и статус failed: оставить машину без
 сервиса хуже, чем поднять его на частично применённых файлах.
 
@@ -137,6 +137,33 @@ def _extract(job: dict, state_path: Path) -> bool:
     except OSError as e:
         _write_state(state_path, extract={"exit_code": -1, "stderr": str(e)[:300]})
         return False
+
+
+def _drop_stale_sidecars(job: dict, state_path: Path) -> bool:
+    """Убрать спутники sqlite-БД, которую сейчас перезапишет архив.
+
+    Сервис уже остановлен, поэтому ``-wal``/``-shm``/``-journal`` на месте —
+    остатки прежней БД. Рядом с восстановленным файлом они дают либо отказ
+    открытия, либо молча чужие страницы в кэше, поэтому распаковка без этой
+    уборки не начинается: пути считает ядро (там же, где имя файла БД), а
+    раннер только удаляет и докладывает факт. Отсутствие файла — норма:
+    штатная остановка сервиса заканчивается чекпойнтом и удалением WAL.
+    """
+    removed: list[str] = []
+    failed: list[str] = []
+    for raw in job.get("stale_sidecars") or ():
+        path = Path(str(raw))
+        try:
+            if path.exists() or path.is_symlink():
+                path.unlink()
+                removed.append(str(path))
+        except OSError as exc:
+            failed.append(f"{path}: {exc}")
+    _write_state(
+        state_path,
+        stale_sidecars={"removed": removed, "failed": failed},
+    )
+    return not failed
 
 
 def _daemon_reload(job: dict, state_path: Path) -> bool:
@@ -356,30 +383,39 @@ def main(argv: list[str]) -> int:
         _cleanup_inputs(job)
         return 1
 
-    # --- 2. extract -------------------------------------------------
+    # --- 2. спутники БД: снять до распаковки ------------------------
+    _write_state(state_path, stage="stale_sidecars")
+    sidecars_ok = _drop_stale_sidecars(job, state_path)
+
+    # --- 3. extract -------------------------------------------------
     _write_state(state_path, stage="extract")
-    if not _extract(job, state_path):
+    if not sidecars_ok:
+        # Не снялись спутники прежней БД — распаковывать нельзя: архивный
+        # файл БД лёг бы рядом с чужим WAL, и «восстановленный» аудит мог бы
+        # оказаться смесью двух состояний. Дерево ещё не тронуто.
+        failure = "Не удалось убрать спутники базы данных перед распаковкой"
+    elif not _extract(job, state_path):
         failure = "Распаковка архива завершилась ошибкой (детали в extract)"
 
-    # --- 3. daemon-reload -------------------------------------------
+    # --- 4. daemon-reload -------------------------------------------
     _write_state(state_path, stage="daemon_reload")
     if not _daemon_reload(job, state_path):
         if failure is None:
             failure = "systemctl daemon-reload не удался"
 
-    # --- 4. pip (только при изменении requirements.txt) -------------
+    # --- 5. pip (только при изменении requirements.txt) -------------
     _write_state(state_path, stage="pip")
     if not _pip_if_changed(job, state_path):
         if failure is None:
             failure = "pip install не удался: зависимости не соответствуют архиву"
 
-    # --- 5. start (best-effort при любой ошибке выше) ---------------
+    # --- 6. start (best-effort при любой ошибке выше) ---------------
     _write_state(state_path, stage="start")
     if not _start_service(job, state_path):
         if failure is None:
             failure = "Не удалось запустить сервис после восстановления"
 
-    # --- 6. health ---------------------------------------------------
+    # --- 7. health ---------------------------------------------------
     _write_state(state_path, stage="health")
     if failure is None and not _health(job, state_path):
         failure = "Health-check не пройден после восстановления"

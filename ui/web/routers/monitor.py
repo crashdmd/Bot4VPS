@@ -253,6 +253,7 @@ def _light_online_check(servers: list[dict]) -> tuple[dict[str, dict], list[dict
     """
     from concurrent.futures import ThreadPoolExecutor
 
+    from core.actor import in_thread_context
     from core.monitor import update_server_availability
     from core.servers import _probe_network
 
@@ -278,7 +279,7 @@ def _light_online_check(servers: list[dict]) -> tuple[dict[str, dict], list[dict
     if not servers:
         return results, events
     with ThreadPoolExecutor(max_workers=min(16, len(servers))) as ex:
-        futures = {ex.submit(_one, s): s for s in servers}
+        futures = {ex.submit(in_thread_context(_one), s): s for s in servers}
         for future, server in futures.items():
             try:
                 result, event = future.result()

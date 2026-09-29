@@ -31,6 +31,7 @@ import uuid
 from typing import Any, Dict, List, Optional, Tuple
 
 from core.integrator import StepError, StepRunner
+from core.operation_metrics import mark_direct_mutation_started
 from core.ssh import create_ssh_client, exec_sudo
 
 from . import compose_store
@@ -1125,6 +1126,7 @@ def write_remote_file(server: dict, stack: str, rel_path: str, content: str,
     sftp = None
     ssh = create_ssh_client(server)
     try:
+        mark_direct_mutation_started()
         sftp = ssh.open_sftp()
         with sftp.file(remote_tmp, "wb") as f:
             f.write(data)
@@ -1161,6 +1163,7 @@ def delete_remote_file(server: dict, stack: str, rel_path: str,
     ssh = create_ssh_client(server)
     try:
         runner = StepRunner(ssh, server, lambda _msg: None)
+        mark_direct_mutation_started()
         runner.run(
             "delete_remote_file",
             f"rm -f {shlex.quote(path)}",

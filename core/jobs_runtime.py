@@ -152,6 +152,51 @@ def schedule_services_sync(server_id: str) -> None:
     loop.create_task(_run())
 
 
+# Ретенция рядов метрик (§9 ТЗ): сырые точки — 90 дней, часовая свёртка —
+# 24 месяца. Пометки аудита не трогаются никогда — они бессрочные.
+RETENTION_INTERVAL = 24 * 60 * 60
+
+# Свёртка сырых точек в часовые агрегаты (§7.6). Час — потому что свёртка
+# идёт по часам: чаще нечего сворачивать (текущий час не сворачивается),
+# реже — на графике за сутки недоставало бы последних часов.
+METRICS_FOLD_INTERVAL = 60 * 60
+
+
+async def metrics_fold_job(_context=None) -> None:
+    """Свернуть завершённые часы в ``metric_hourly``.
+
+    Идемпотентна: повторный запуск (в том числе после простоя или после
+    ручного вызова из ретенции) перезаписывает те же часы теми же
+    значениями. В to_thread — агрегаты считает sqlite, а очередь ядра не
+    должна ждать их в event loop.
+    """
+    from core import metrics
+
+    folded = await asyncio.to_thread(metrics.fold_hours)
+    if folded:
+        print(f"[METRICS] свёрнуто часовых строк: {folded}", flush=True)
+
+
+async def state_retention_job(_context=None) -> None:
+    """Свернуть недосвёрнутое, затем обрезать ряды метрик по ретенции.
+
+    Порядок обязателен именно такой. После простоя, который длиннее сырого
+    окна (панель не работала больше 90 дней), ``prune`` удалил бы сырые
+    точки, которых часовая свёртка ещё не видела, — и они исчезли бы
+    бесследно, хотя обязаны были попасть в долгое (24 месяца) окно.
+    Свёртка же по уже свёрнутым часам почти всегда пустая — на штатном
+    графике (раз в час) она здесь ничего не делает.
+
+    Идемпотентно и тихо: на пустой БД (или до этапа 2, когда писать ещё
+    нечего) удаляет ноль строк и ничего не печатает. В to_thread — запрос
+    к sqlite блокирующий, а очередь не должна ждать его в event loop.
+    """
+    from core import metrics, state_db
+
+    await asyncio.to_thread(metrics.fold_hours)
+    await asyncio.to_thread(state_db.prune)
+
+
 async def start_core_jobs() -> CoreJobQueue:
     """Поднять очередь ядра и спланировать jobs мониторинга.
 
@@ -190,9 +235,32 @@ async def start_core_jobs() -> CoreJobQueue:
         name="services_sync",
     )
 
+    # Свёртка сырых метрик в часовые: раз в час. Первый проход раньше
+    # ретенции (90 против 120 с) — при штатном старте он пустой, но если
+    # процесс подняли после долгого простоя, он успевает свернуть
+    # накопившееся до того, как обрезка тронет сырые точки.
+    queue.run_repeating(
+        metrics_fold_job,
+        interval=METRICS_FOLD_INTERVAL,
+        first=90,
+        name="metrics_fold",
+    )
+
+    # Обрезка рядов метрик по ретенции: раз в сутки, первый проход не сразу
+    # (старт панели важнее). Регистрируется здесь, а не в тле метрик: на
+    # этапе 2 писать будет нечего, а ретенция уже должна быть на месте —
+    # иначе первый же месяц работы упрётся в объём.
+    queue.run_repeating(
+        state_retention_job,
+        interval=RETENTION_INTERVAL,
+        first=120,
+        name="state_retention",
+    )
+
     print(
         "[JOBS] ядерная JobQueue запущена "
-        "(system_sync + мониторинг + tls_renew + services_sync)",
+        "(system_sync + мониторинг + tls_renew + services_sync + "
+        "metrics_fold + state_retention)",
         flush=True,
     )
     return queue

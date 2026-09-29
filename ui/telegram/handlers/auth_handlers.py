@@ -15,7 +15,7 @@ from telegram import InlineKeyboardMarkup, InlineKeyboardButton
 import asyncio
 import os
 
-from core.storage import load_servers, save_servers, find_server
+from core.storage import commit_server, load_servers, save_servers, find_server
 from core.ssh import get_available_keys, test_connection
 from state import ADD_SERVER_STATE, EDIT_SERVER_STATE, PENDING_SERVER_CHANGES
 from ui.telegram.keyboards import EDIT_CANCEL_KB, build_auth_buttons, build_key_buttons
@@ -151,8 +151,10 @@ async def _delete_sudo_password_execute(query, server_id):
     for s in servers:
         if s["id"] == server_id:
             s.pop("password", None)
+            # commit_server: запись файла и пометка аудита вместе —
+            # «убрал sudo-пароль» остаётся в истории, как и в Web.
+            commit_server(s)
             break
-    save_servers(servers)
 
     await query.edit_message_text("✅ Sudo-пароль удалён.")
     await show_server_message(query.message, server_id)
@@ -197,11 +199,7 @@ async def _key_use_flow(query, server_id, key_name):
     ok, error = await asyncio.to_thread(test_connection, current_server)
 
     if ok:
-        for i, server in enumerate(servers):
-            if server["id"] == server_id:
-                servers[i] = current_server
-                break
-        save_servers(servers)
+        commit_server(current_server)
 
         await query.edit_message_text(
             f"✅ Выбран ключ:\n\n{key_name}\n\n✅ Проверка SSH успешна."
@@ -297,8 +295,8 @@ async def _change_to_password_flow(query, server_id):
         for s in servers:
             if s["id"] == server_id:
                 s["auth_type"] = "password"
+                commit_server(s)
                 break
-        save_servers(servers)
         await query.edit_message_text("✅ Тип авторизации изменён на Пароль.")
         await show_server_message(query.message, server_id)
     else:
@@ -319,8 +317,8 @@ async def _confirm_change_to_password(query, server_id):
     for s in servers:
         if s["id"] == server_id:
             s["auth_type"] = "password"
+            commit_server(s)
             break
-    save_servers(servers)
 
     EDIT_SERVER_STATE[query.from_user.id] = {
         "server": server_id,
@@ -341,12 +339,7 @@ async def _confirm_change_to_key(query, server_id):
     key_exists = bool(key_path) and os.path.exists(key_path)
 
     if key_exists:
-        servers = load_servers()
-        for i, s in enumerate(servers):
-            if s["id"] == server_id:
-                servers[i] = pending["server"]
-                break
-        save_servers(servers)
+        commit_server(pending["server"])
         del PENDING_SERVER_CHANGES[user_id]
 
         await query.edit_message_text("✅ Тип авторизации изменён на Ключ.")
@@ -371,12 +364,7 @@ async def _confirm_change_to_key_no(query, server_id):
     key_exists = bool(key_path) and os.path.exists(key_path)
 
     if key_exists:
-        servers = load_servers()
-        for i, s in enumerate(servers):
-            if s["id"] == server_id:
-                servers[i] = pending["server"]
-                break
-        save_servers(servers)
+        commit_server(pending["server"])
         del PENDING_SERVER_CHANGES[user_id]
 
         await query.edit_message_text("✅ Тип авторизации изменён на Ключ.")
@@ -394,13 +382,9 @@ async def _confirm_save_change(query, server_id):
         await query.edit_message_text("❌ Изменения не найдены.")
         return
 
-    servers = load_servers()
-    for i, server in enumerate(servers):
-        if server["id"] == server_id:
-            servers[i] = pending["server"]
-            break
-
-    save_servers(servers)
+    # Правка «как есть»: пользователь подтвердил сохранение после неудачной
+    # проверки SSH — решение записано в аудит вместе с результатом.
+    commit_server(pending["server"])
     del PENDING_SERVER_CHANGES[query.from_user.id]
 
     await query.edit_message_text("✅ Изменения сохранены.")

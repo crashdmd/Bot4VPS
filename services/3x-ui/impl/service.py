@@ -29,6 +29,7 @@ from core.integrator import (
     sync_progress,
     update_cache,
 )
+from core.operation_metrics import mark_direct_mutation_started
 from core.ssh import create_ssh_client, exec_sudo
 from core.ssl import clear_ssl_check, enable_ssl_check
 from core.storage import find_server
@@ -409,6 +410,7 @@ class Service(BaseService):
         ssh, server = self._card_ssh(server_id)
         try:
             self._card_check_installed(ssh, server)
+            mark_direct_mutation_started()
             active = manage.unit_action(ssh, server, action)
             return {"success": True, "active": active,
                     "output": f"x-ui: {manage.UNIT_TITLES.get(action, action)}, "
@@ -421,6 +423,7 @@ class Service(BaseService):
         ssh, server = self._card_ssh(server_id)
         try:
             self._card_check_installed(ssh, server)
+            mark_direct_mutation_started()
             on = manage.set_autostart(ssh, server, enabled)
             return {"success": True, "enabled": on,
                     "output": f"Автозагрузка x-ui {'включена' if on else 'выключена'}"}
@@ -433,6 +436,7 @@ class Service(BaseService):
         ssh, server = self._card_ssh(server_id)
         try:
             self._card_check_installed(ssh, server)
+            mark_direct_mutation_started()
             manage.change_username(ssh, server, username, restart)
             return {"success": True,
                     "output": f"Логин панели изменён: {username}"
@@ -446,6 +450,7 @@ class Service(BaseService):
         ssh, server = self._card_ssh(server_id)
         try:
             self._card_check_installed(ssh, server)
+            mark_direct_mutation_started()
             manage.change_password(ssh, server, password, restart)
             return {"success": True,
                     "output": "Пароль панели изменён (обновлён в secrets бота)"
@@ -460,6 +465,7 @@ class Service(BaseService):
         ssh, server = self._card_ssh(server_id)
         try:
             self._card_check_installed(ssh, server)
+            mark_direct_mutation_started()
             res = manage.change_port(ssh, server, port, restart,
                                      close_old_port=close_old_port)
             return {"success": True, **res,
@@ -476,6 +482,7 @@ class Service(BaseService):
         ssh, server = self._card_ssh(server_id)
         try:
             self._card_check_installed(ssh, server)
+            mark_direct_mutation_started()
             res = manage.change_path(ssh, server, path, restart)
             return {"success": True, **res,
                     "output": f"Новый web base path: {res['web_base_path']}; "
@@ -490,6 +497,7 @@ class Service(BaseService):
         ssh, server = self._card_ssh(server_id)
         try:
             self._card_check_installed(ssh, server)
+            mark_direct_mutation_started()
             res = manage.reset_settings(ssh, server, restart)
             return {"success": True, **res,
                     "output": "Настройки панели сброшены: логин/пароль admin/admin, "
@@ -502,6 +510,7 @@ class Service(BaseService):
         ssh, server = self._card_ssh(server_id)
         try:
             self._card_check_installed(ssh, server)
+            mark_direct_mutation_started()
             res = manage.set_bbr(ssh, server, enable)
             return {"success": True, **res,
                     "output": f"BBR {'включён' if res['cc'] == 'bbr' else 'выключен'} "
@@ -514,6 +523,7 @@ class Service(BaseService):
         ssh, server = self._card_ssh(server_id)
         try:
             self._card_check_installed(ssh, server)
+            mark_direct_mutation_started()
             dates = manage.update_geo(ssh, server, restart)
             note = "; сервис перезапущен" if restart else ""
             return {"success": True, "geo": dates,

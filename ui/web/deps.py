@@ -2,8 +2,10 @@
 from __future__ import annotations
 
 import traceback
+from datetime import datetime
 from typing import Any, Optional
 
+from fastapi import HTTPException
 from fastapi.responses import JSONResponse
 
 # Единый источник версии для app.py и /api/ping.
@@ -16,6 +18,34 @@ def err(e: Exception, code: int = 500) -> JSONResponse:
         status_code=code,
         content={"detail": str(e), "type": type(e).__name__},
     )
+
+
+def parse_ts(value: Optional[str], default: Optional[int]) -> Optional[int]:
+    """Время запроса: epoch-секунды или ISO-8601 (общие правила §10).
+
+    Живёт здесь, а не в роутере метрик, потому что толкователей времени в
+    API ровно один: история (§10.2), таймлайн (§10.3), метрики (§10.1) и
+    всё, что появится дальше. Два места, читающих ``from``, однажды
+    разойдутся на ISO без смещения — и один эндпоинт покажет не то окно,
+    что другой, молча.
+
+    ISO без смещения читается как местное время панели: именно так его и
+    вводят руками. Пустая строка и None — «не задано», а не ошибка.
+    """
+    if value is None or value == "":
+        return default
+    text = str(value).strip()
+    try:
+        return int(float(text))
+    except ValueError:
+        pass
+    try:
+        moment = datetime.fromisoformat(text)
+    except ValueError:
+        raise HTTPException(400, f"Время: ожидается epoch или ISO-8601, получено {value!r}")
+    if moment.tzinfo is None:
+        moment = moment.astimezone()
+    return int(moment.timestamp())
 
 
 def task_brief(t) -> Optional[dict[str, Any]]:

@@ -52,6 +52,14 @@ _OWNED_CONF_HEADER = (
 )
 
 
+class _NftablesRulesetReadError(RuntimeError):
+    pass
+
+
+class _NftablesInputChainValidationError(RuntimeError):
+    pass
+
+
 class NftablesBackend(FirewallBackend):
     name = "nftables"
 
@@ -188,36 +196,48 @@ class NftablesBackend(FirewallBackend):
 
         configured, token = self._configured_chain_token(server)
         provisioned = False
+        provisioned_chain: Optional[dict[str, Any]] = None
+        chain: Optional[dict[str, Any]] = None
         if not configured:
             # Standalone input chain нет совсем — панель создаёт базовый
             # ruleset сама (решение по итогам живого теста на свежей
             # Ubuntu: без этого через панель доступен только ufw).
-            ok, detail = self._provision_and_select_owned(ssh, server, port)
+            ok, detail, provisioned_chain = self._provision_and_select_owned(
+                ssh, server, port
+            )
             if not ok:
                 return False, detail
             provisioned = True
             token = dict(_OWNED_CHAIN_TOKEN)
-        elif self._is_owned_token(token):
-            # Live-регрессия (цикл ufw→nftables→ufw→reboot→nftables):
-            # configured-токен пережил деактивацию и ребут, а owned-таблица
-            # в runtime — нет (nftables.service disabled, на boot её никто
-            # не загрузил). Таблица была нашей — пересоздаём тем же путём,
-            # что и первый provisioning. Появившиеся за это время чужие
-            # standalone-цепочки по-прежнему требуют явного выбора.
+        else:
+            # Сохранённый выбор может пережить удаление самой цепочки. Если
+            # свежий ruleset доказывает это, _provision_and_select_owned ещё раз
+            # подтверждает отсутствие любых candidates до создания owned chain.
+            # Ошибка чтения ruleset не доказывает исчезновение цепочки и не
+            # может запускать provisioning.
             try:
-                self.validate_input_chain(ssh, server, token)
-            except (TypeError, ValueError, RuntimeError):
-                ok, detail = self._provision_and_select_owned(
+                if not self._valid_chain_token(token):
+                    raise ValueError("Некорректный nftables chain token")
+                chain = self._chain_from_snapshot(self._ruleset(ssh, server), token)
+            except (TypeError, ValueError, _NftablesRulesetReadError):
+                return False, (
+                    "Выбранная nftables input chain не прошла свежую проверку; "
+                    "изменения остановлены"
+                )
+            if chain is None:
+                ok, detail, provisioned_chain = self._provision_and_select_owned(
                     ssh, server, port
                 )
                 if not ok:
                     return False, detail
                 provisioned = True
                 token = dict(_OWNED_CHAIN_TOKEN)
-        try:
-            validated = self.validate_input_chain(ssh, server, token)
-            chain = self._find_chain(ssh, server, validated)
-        except (TypeError, ValueError, RuntimeError):
+        if provisioned_chain is not None:
+            validated = self._chain_token(provisioned_chain)
+            chain = provisioned_chain
+        elif chain is not None:
+            validated = self._chain_token(chain)
+        else:
             return False, (
                 "Выбранная nftables input chain не прошла свежую проверку; "
                 "изменения остановлены"
@@ -299,7 +319,7 @@ class NftablesBackend(FirewallBackend):
         ssh,
         server: dict,
         port: int,
-    ) -> tuple[bool, str]:
+    ) -> tuple[bool, str, Optional[dict[str, Any]]]:
         """Создать owned ruleset и зафиксировать выбор цепочки (config+memory).
 
         Единая точка и для первого provisioning (цепочек нет), и для
@@ -311,10 +331,10 @@ class NftablesBackend(FirewallBackend):
             return False, (
                 "Выберите существующую nftables input chain перед "
                 "использованием nftables"
-            )
-        ok, detail = self._provision_base_ruleset(ssh, server, port)
+            ), None
+        ok, detail, chain = self._provision_base_ruleset(ssh, server, port)
         if not ok:
-            return False, detail
+            return False, detail, None
         token = dict(_OWNED_CHAIN_TOKEN)
         try:
             compare_and_set_nftables_input_chain(
@@ -329,7 +349,7 @@ class NftablesBackend(FirewallBackend):
             return False, (
                 f"Базовая nftables input chain создана, но выбор цепочки "
                 f"не сохранён: {str(exc)[:300]}"
-            )
+            ), None
         # compare_and_set пишет в storage, но не в переданный dict —
         # а verify_switch_target ниже и последующие фазы migrate читают
         # token именно из него. Держим in-memory вид синхронным.
@@ -342,14 +362,14 @@ class NftablesBackend(FirewallBackend):
             firewall = {}
             quick_setup["firewall"] = firewall
         firewall["nftables_input_chain"] = dict(token)
-        return True, ""
+        return True, "", chain
 
     def _provision_base_ruleset(
         self,
         ssh,
         server: dict,
         port: int,
-    ) -> tuple[bool, str]:
+    ) -> tuple[bool, str, Optional[dict[str, Any]]]:
         """Создать базовый owned ruleset inet/bot4vps (runtime, без persistence).
 
         policy drop + безопасный минимум первыми: панель работает на этой же
@@ -358,16 +378,12 @@ class NftablesBackend(FirewallBackend):
         без ipv6-icmp на inet-цепочке сломается IPv6 (NDP/DAD).
         """
         snapshot = self._ruleset(ssh, server)
-        for table in snapshot["tables"]:
-            if (
-                str(table.get("family") or "").lower() == _OWNED_FAMILY
-                and str(table.get("name") or "").lower() == _OWNED_TABLE
-            ):
-                return False, (
-                    "Таблица inet bot4vps уже существует, но standalone input "
-                    "chain в ней нет; автоматическое создание базовой цепочки "
-                    "невозможно — проверьте таблицу и создайте цепочку вручную"
-                )
+        if self._owned_table_in_snapshot(snapshot):
+            return False, (
+                "Таблица inet bot4vps уже существует, но standalone input "
+                "chain в ней нет; автоматическое создание базовой цепочки "
+                "невозможно — проверьте таблицу и создайте цепочку вручную"
+            ), None
         ruleset_text = (
             f"table inet {_OWNED_TABLE} {{\n"
             f"\tchain {_OWNED_CHAIN_NAME} {{\n"
@@ -391,7 +407,7 @@ class NftablesBackend(FirewallBackend):
         if code != 0:
             return False, (
                 err or out or "Не удалось применить базовый nftables ruleset"
-            )[:600]
+            )[:600], None
         chain = None
         try:
             chain = self._chain_from_snapshot(
@@ -414,8 +430,8 @@ class NftablesBackend(FirewallBackend):
             return False, (
                 "Базовая nftables input chain не подтвердилась после создания; "
                 "таблица удалена"
-            )
-        return True, ""
+            ), None
+        return True, "", chain
 
     @staticmethod
     def _owned_chain_token(value: Any) -> bool:
@@ -424,6 +440,22 @@ class NftablesBackend(FirewallBackend):
             and value.get("family") == _OWNED_FAMILY
             and value.get("table") == _OWNED_TABLE
             and value.get("chain") == _OWNED_CHAIN_NAME
+        )
+
+    @staticmethod
+    def _owned_table_in_snapshot(snapshot: dict[str, Any]) -> bool:
+        """Есть ли в снапшоте таблица inet bot4vps (чей бы она ни была).
+
+        Единая проверка для трёх решений о ней: провижининг отказывает,
+        если таблица уже есть; rollback удаляет её, только если создал сам;
+        предикат провижининга заявляет «сейчас создадим», только если таблицы
+        нет. Разъезд этих трёх мест — та самая ошибка, при которой rollback
+        сносил таблицу, которую панель не создавала.
+        """
+        return any(
+            str(table.get("family") or "").lower() == _OWNED_FAMILY
+            and str(table.get("name") or "").lower() == _OWNED_TABLE
+            for table in snapshot.get("tables") or ()
         )
 
     def _persist_owned_ruleset(
@@ -568,11 +600,7 @@ class NftablesBackend(FirewallBackend):
             snapshot = self._ruleset(ssh, server)
         except Exception as exc:
             return False, f"Не удалось прочитать ruleset: {str(exc)[:300]}"
-        table_exists = any(
-            str(table.get("family") or "").lower() == _OWNED_FAMILY
-            and str(table.get("name") or "").lower() == _OWNED_TABLE
-            for table in snapshot["tables"]
-        )
+        table_exists = self._owned_table_in_snapshot(snapshot)
         if table_exists:
             code, out, err = exec_sudo(
                 ssh,
@@ -1374,14 +1402,20 @@ class NftablesBackend(FirewallBackend):
     def _ruleset(self, ssh, server: dict) -> dict[str, list[dict[str, Any]]]:
         code, out, err = exec_sudo(ssh, server, "nft -j -a list ruleset", timeout=30)
         if code != 0:
-            raise RuntimeError((err or out or "Не удалось прочитать nftables ruleset")[:800])
+            raise _NftablesRulesetReadError(
+                (err or out or "Не удалось прочитать nftables ruleset")[:800]
+            )
         try:
             document = json.loads(out or "")
         except (TypeError, ValueError) as exc:
-            raise RuntimeError("nftables вернул некорректный JSON ruleset") from exc
+            raise _NftablesRulesetReadError(
+                "nftables вернул некорректный JSON ruleset"
+            ) from exc
         entries = document.get("nftables") if isinstance(document, dict) else None
         if not isinstance(entries, list):
-            raise RuntimeError("nftables JSON ruleset не содержит список nftables")
+            raise _NftablesRulesetReadError(
+                "nftables JSON ruleset не содержит список nftables"
+            )
 
         tables: list[dict[str, Any]] = []
         chains_by_key: dict[tuple[str, str, str], dict[str, Any]] = {}
@@ -1396,7 +1430,7 @@ class NftablesBackend(FirewallBackend):
             if isinstance(chain, dict):
                 key = self._object_key(chain)
                 if key in chains_by_key:
-                    raise RuntimeError(
+                    raise _NftablesRulesetReadError(
                         f"Дублирующееся описание nftables chain: {'/'.join(key)}"
                     )
                 copied = dict(chain)
@@ -1428,7 +1462,7 @@ class NftablesBackend(FirewallBackend):
             raise ValueError("Некорректный nftables chain token")
         chain = self._chain_from_snapshot(self._ruleset(ssh, server), token)
         if chain is None:
-            raise RuntimeError(
+            raise _NftablesInputChainValidationError(
                 "Выбранная nftables chain исчезла или больше не является "
                 "standalone input base chain"
             )

@@ -3,18 +3,16 @@ import asyncio
 from telegram import InlineKeyboardMarkup, InlineKeyboardButton
 
 from core.storage import (
+    delete_server as delete_server_entry,
+    delete_group as delete_group_entry,
     load_servers,
-    save_servers,
-    load_groups,
-    save_groups,
     find_server,
     get_group
 )
 from core.servers import (
     get_server_info,
     format_ssh_error,
-    reboot_server,
-    wait_for_reboot
+    reboot_server_with_readiness,
 )
 from core.monitor import (
     STATUS_VALID,
@@ -301,17 +299,16 @@ async def perform_reboot(query, server_id):
 
     await query.edit_message_text(f"🔄 Перезагружаю {server['name']}...")
 
-    success = await asyncio.to_thread(reboot_server, server)
-    if not success:
+    outcome = await asyncio.to_thread(reboot_server_with_readiness, server)
+    if not outcome.accepted:
         await query.edit_message_text("❌ Не удалось выполнить команду.")
         return
 
-    returned = await wait_for_reboot(server)
-    if returned:
+    if outcome.ready:
         info = await asyncio.to_thread(get_server_info, server)
         text = f"✅ {server['name']} вернулся!\nUptime: {info['uptime']}"
     else:
-        text = f"❌ {server['name']} не вернулся за 2 минуты."
+        text = f"⚠️ {server['name']} перезагружен, но не вернулся за 2 минуты."
 
     kb = [
         [InlineKeyboardButton("📊 Обновить", callback_data=f"server:{server_id}")],
@@ -522,12 +519,9 @@ async def delete_server(query, server_id):
 
     server_name = server["name"]
 
-    servers = [
-        s for s in load_servers()
-        if s["id"] != server_id
-    ]
-
-    save_servers(servers)
+    # Удаление идёт через storage: там же пишется пометка аудита —
+    # «кто снёс сервер» одинаково видно из Web и из Telegram.
+    delete_server_entry(server_id)
 
     # Реестр ключей: секция удалённого сервера больше не нужна.
     try:
@@ -570,15 +564,14 @@ async def delete_group_confirm(query, group_name):
 
 
 async def delete_group(query, group_name):
-    groups = load_groups()
-
-    groups = [
-        group
-        for group in groups
-        if group["name"] != group_name
-    ]
-
-    save_groups(groups)
+    # storage.delete_group, а не собственный save_groups: он же проверяет,
+    # что группа пуста (между подтверждением и удалением сервер мог
+    # появиться) и пишет пометку аудита — как и удаление группы из Web.
+    try:
+        delete_group_entry(group_name)
+    except ValueError as e:
+        await query.edit_message_text(f"❌ {e}")
+        return
 
     await show_servers(
         query,

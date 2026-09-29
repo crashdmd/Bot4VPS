@@ -8,11 +8,40 @@ from pathlib import Path, PurePosixPath
 from typing import Iterator
 
 from core.install_paths import get_install_path
+from core import state_db
 
 from .errors import BackupError, ErrorCode
 
 
 DEFAULT_SYSTEMD_UNIT = Path("/etc/systemd/system/bot4vps.service")
+
+
+def _state_db_exclusions() -> tuple[str, ...]:
+    """Пути файла БД и его спутников внутри дерева установки.
+
+    Имя файла берётся у владельца схемы (``state_db``), а не пишется здесь
+    второй раз: два написания одного имени расходятся молча. БД, уведённая
+    из дерева абсолютным путём, исключать не нужно — её там нет.
+    """
+    if state_db.DB_PATH.is_absolute():
+        return ()
+    relative = PurePosixPath(state_db.DB_PATH.as_posix())
+    return tuple(
+        [relative.as_posix()]
+        + [relative.with_name(relative.name + suffix).as_posix()
+           for suffix in state_db.SIDECAR_SUFFIXES]
+    )
+
+
+# Живая sqlite (метрики и аудит) не копируется пофайлово ни в каком виде:
+# ``.db`` без ``-wal`` — состояние неизвестной давности, а тройка ``.db`` +
+# ``-wal`` + ``-shm`` снята в разные моменты и «иногда открывается» (§12.2).
+# В архив едет консистентный слепок, снятый ``VACUUM INTO`` при активных
+# писателях, — и кладётся по тому же пути дерева установки (см.
+# core/backup/state_snapshot.py). Спутники исключены и по второй причине:
+# они появляются и исчезают под рукой писателя, и обход, уже снявший по ним
+# metadata, падал бы на чтении с «Source Bot4VPS изменился во время backup».
+STATE_DB_EXCLUSIONS: tuple[str, ...] = _state_db_exclusions()
 
 # These are relative POSIX globs recorded in the manifest for the installation
 # source. External Backup Manager storage is not below install_path by contract
@@ -67,6 +96,13 @@ BOT4VPS_INSTALL_EXCLUSIONS = (
     # содержат, и восстанавливать их нельзя.
     "data/backup/maintenance_state.json",
     "data/backup/inventory-index-jobs.json",
+    # Межпроцессное состояние проверки ключей и Telegram-бота также пишется
+    # атомарной заменой и не должно ни срывать сборку, ни возвращаться из
+    # старого архива поверх текущего состояния.
+    "data/key_integrity.json",
+    "data/telegram_state.json",
+    # Живая sqlite — см. STATE_DB_EXCLUSIONS выше.
+    *STATE_DB_EXCLUSIONS,
     "logs/**/*.corrupt-*.json",
     "logs/**/*.log",
 )

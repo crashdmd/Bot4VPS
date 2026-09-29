@@ -46,6 +46,7 @@ from .restore_apply import (
     create_restore_member_list,
     verify_applied_restore_local,
 )
+from .state_snapshot import stale_state_db_sidecars
 
 SERVICE_NAME = "bot4vps"
 UNIT_PATH = "/etc/systemd/system/bot4vps.service"
@@ -300,6 +301,10 @@ def _build_job(
         "backup_filename": backup_filename,
         "archive": str(archive_file),
         "member_list": str(member_list),
+        # Спутники sqlite-файла, который перезапишет архив: их снимает
+        # раннер — уже после остановки сервиса, но до распаковки. Считает
+        # их ядро (см. state_snapshot): раннер остаётся исполнителем.
+        "stale_sidecars": stale_state_db_sidecars(plan),
         "cleanup_archive": bool(cleanup_archive),
         "layout": layout,
         "target_root": plan.get("target_root"),

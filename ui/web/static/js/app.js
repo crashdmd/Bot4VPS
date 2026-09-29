@@ -4,7 +4,7 @@ import { loadEvents, EVENTS_LIMIT, openEventDetail, applyEventsSnapshot, initSys
 import { loadServers, loadQueues, loadHistory, loadGroupsAndKeys,
   bindServerUI, stopWatchers, openServer, closeGroupsPanel, lastServerTab,
   startSshProbeLoop, stopSshProbeLoop,
-} from './servers.js?v=20260924-task-history-head-v1';
+} from './servers.js?v=20260929-metrics-history-card-v2';
 import { loadScripts, bindScriptsUI } from './scripts.js?v=20260913-hostkey-v2';
 import { loadWireguard, bindWireguardUI, stopWgTimers, openWgServerById } from './wireguard.js?v=20260914-wgsrv-icon-v7';
 import { loadDocker, bindDockerUI, stopDockerTimers, openDockerServerById } from './docker.js?v=20260915-dksrv-v21';
@@ -13,14 +13,20 @@ import { bindTasksUI } from './tasks.js?v=20260914-autoupdate-v2';
 import { loadFiles, bindFilesUI } from './files.js?v=20260913-hostkey-v2';
 import { bindEditorUI } from './editor.js?v=20260815-scripts-table-v1';
 import { bindTerminalUI, closeTerminal } from './terminal.js?v=20260905-glassblue-v2';
-import { startSSE, registerNotificationsRefresh } from './sse.js?v=20260924-history-v1';
+import { startSSE, registerNotificationsRefresh } from './sse.js?v=20260929-line-context-v32';
 import { state, setPage, clearQuickSetupServer } from './state.js';
 import { j, esc } from './api.js';
 import { resumeBackgroundTasks } from './taskmodal.js?v=20260914-v3';
 import { initAuth, bindAuthUI } from './auth.js';
 import { initSetup, bindSetupUI } from './setup.js?v=20260910-setup-v4';
-import { bindGlobalSearch } from './search.js?v=20260924-notify-icon-v1';
+import { bindGlobalSearch } from './search.js?v=20260927-audit-ui-v15';
 import { bindBackupUI, loadBackups, stopBackupTimers } from './backup.js?v=20260925-notify-gate-v2';
+import {
+  openMetricsPage, closeMetricsView, bindMetricsUI, metricsFromUrl,
+} from './metrics.js?v=20260929-metrics-history-card-v2';
+import {
+  loadAudit, resetAuditPage, auditFromUrl, openAuditRecord, bindAuditUI, refreshAudit,
+} from './audit.js?v=20260929-audit-failure-detail-v24';
 
 const QUICK_SETUP_MODULE_URL = './quick_setup.js?v=20260915-sysfix-v1';
 const quickSetupModule = import(QUICK_SETUP_MODULE_URL).catch(error => {
@@ -84,16 +90,31 @@ function clearQuickSetupLocation() {
   history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
 }
 
-// «История событий» — одна страница с двумя вкладками. Раньше это были два
+// Адрес страницы метрик чистим при уходе — как у Quick Setup: deep-link
+// должен жить до первого перехода, а не прилипать к адресу навсегда.
+function clearMetricsLocation() {
+  const url = new URL(window.location.href);
+  if (url.searchParams.get('page') !== 'metrics') return;
+  url.searchParams.delete('page');
+  url.searchParams.delete('server_id');
+  url.searchParams.delete('at');
+  url.searchParams.delete('from');
+  url.searchParams.delete('to');
+  history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
+}
+
+// «История» — одна страница с тремя вкладками. Раньше это были два
 // пункта меню («Задачи» и «Журнал уведомлений»); старые имена страниц остались
 // алиасами, чтобы переходы из дашборда, поиска и сохранённой страницы не
-// сломались. Содержимое и поведение вкладок — прежнее.
+// сломались. «Действия пользователя» — журнал аудита (§10.2), отдельная
+// вкладка той же страницы.
 const HISTORY_TAB_KEY = 'bot4vps_history_tab';
+const HISTORY_TABS = ['events', 'queues', 'actions'];
 
 function storedHistoryTab() {
   try {
     const saved = localStorage.getItem(HISTORY_TAB_KEY);
-    return saved === 'queues' ? 'queues' : 'events';
+    return HISTORY_TABS.includes(saved) ? saved : 'events';
   } catch (_) { return 'events'; }
 }
 
@@ -102,7 +123,7 @@ export function historyTab() {
 }
 
 export function setHistoryTab(tab) {
-  const name = tab === 'queues' ? 'queues' : 'events';
+  const name = HISTORY_TABS.includes(tab) ? tab : 'events';
   state.historyTab = name;
   document.querySelectorAll('[data-history-tab]').forEach(button => {
     const on = button.dataset.historyTab === name;
@@ -111,8 +132,10 @@ export function setHistoryTab(tab) {
   });
   const events = document.getElementById('history-panel-events');
   const queues = document.getElementById('history-panel-queues');
+  const actions = document.getElementById('history-panel-actions');
   if (events) events.hidden = name !== 'events';
   if (queues) queues.hidden = name !== 'queues';
+  if (actions) actions.hidden = name !== 'actions';
   try { localStorage.setItem(HISTORY_TAB_KEY, name); } catch (_) {}
 }
 window.b4vHistoryTab = setHistoryTab;
@@ -122,7 +145,8 @@ function bindHistoryTabs() {
     button.addEventListener('click', () => {
       setHistoryTab(button.dataset.historyTab);
       if (historyTab() === 'events') loadEvents();
-      else { loadQueues(); loadHistory(); }
+      else if (historyTab() === 'queues') { loadQueues(); loadHistory(); }
+      else { resetAuditPage(); loadAudit(); }
     });
   });
   setHistoryTab(historyTab());
@@ -133,12 +157,15 @@ function onNav(page) {
     clearQuickSetupServer();
     clearQuickSetupLocation();
   }
-  // Старые адреса страниц ведут на свою вкладку «Истории событий».
+  if (state.page === 'metrics' && page !== 'metrics') clearMetricsLocation();
+  // Старые адреса страниц ведут на свою вкладку «Истории».
   let tab = null;
   if (page === 'events' || page === 'queues') {
     tab = page;
     page = 'history';
   }
+  // Переход из марки графика: «История» открывается сразу на аудите.
+  if (page === 'history' && auditFromUrl()) tab = 'actions';
   setPage(page);
   if (page !== 'servers') closeGroupsPanel();
   if (page !== 'server') stopWatchers();
@@ -151,15 +178,22 @@ function onNav(page) {
   if (page !== 'dashboard') stopDashMetrics();
   if (page !== 'monitor') stopSystemMonitor();
   if (page !== 'backups') stopBackupTimers();
+  if (page !== 'metrics') closeMetricsView();
   if (page !== 'settings') stopSettingsPageTimers();
   showPage(page);
   if (tab) setHistoryTab(tab);
   if (page === 'dashboard') loadDashboard();
   if (page === 'history') {
     if (historyTab() === 'events') loadEvents();
-    else { loadQueues(); loadHistory(); }
+    else if (historyTab() === 'queues') { loadQueues(); loadHistory(); }
+    else openAuditFromUrl();
   }
   if (page === 'servers') { loadServers(); startSshProbeLoop(); }
+  if (page === 'metrics') {
+    const target = metricsFromUrl() || {};
+    openMetricsPage({ serverId: target.serverId, auditId: target.auditId, at: target.at, zoom: target.zoom })
+      .catch(e => toast(e.message, false));
+  }
   if (page === 'scripts') loadScripts();
   if (page === 'wireguard') loadWireguard();
   if (page === 'docker') loadDocker();
@@ -168,6 +202,54 @@ function onNav(page) {
   if (page === 'backups') loadBackups();
   if (page === 'monitor') { loadDashboard(); initSystemMonitor(); }
   if (page === 'settings') loadSettingsPage();
+}
+
+/** Аудит по адресу: конкретная запись (переход с марки) или просто список. */
+async function openAuditFromUrl() {
+  const target = auditFromUrl();
+  if (target?.recordId) {
+    await openAuditRecord(target.recordId);
+    return;
+  }
+  resetAuditPage();
+  await loadAudit();
+}
+
+/**
+ * Переходы между разделами «метрики ↔ аудит».
+ *
+ * Адрес меняем до `onNav`: страницы читают своё состояние из URL (deep-link
+ * — единственный источник «что открыть»), и вызывать их в обход адреса
+ * значило бы держать два способа открытия одной страницы.
+ */
+function openMetricsAt(serverId, ts, auditId = null) {
+  const url = new URL(window.location.href);
+  url.searchParams.set('page', 'metrics');
+  // Параметры чужой страницы не переезжают в новый адрес: `tab=actions`
+  // рядом с `page=metrics` — это адрес, который сам себе противоречит.
+  for (const stale of ['tab', 'record', 'group', 'from', 'to', 'audit_id']) url.searchParams.delete(stale);
+  if (serverId) url.searchParams.set('server_id', serverId);
+  else url.searchParams.delete('server_id');
+  if (ts) url.searchParams.set('at', String(ts));
+  else url.searchParams.delete('at');
+  if (auditId) url.searchParams.set('audit_id', auditId);
+  history.replaceState(null, '', `${url.pathname}${url.search}`);
+  closeDrawer();
+  onNav('metrics');
+}
+
+function openRecordFromMetrics(recordId, { server_id: serverId } = {}) {
+  const url = new URL(window.location.href);
+  url.searchParams.set('page', 'history');
+  url.searchParams.set('tab', 'actions');
+  // Окно графика — понятие страницы метрик: в адресе журнала ему не место.
+  url.searchParams.delete('at');
+  url.searchParams.delete('server_id');
+  if (recordId) url.searchParams.set('record', String(recordId));
+  history.replaceState(null, '', `${url.pathname}${url.search}`);
+  closeDrawer();
+  if (serverId) state.auditFilters = { ...(state.auditFilters || {}), server: serverId };
+  onNav('history');
 }
 
 // Мобильное меню (боковой дрэвер ≤640px)
@@ -218,7 +300,9 @@ document.getElementById('btn-events-clear')?.addEventListener('click', async () 
 });
 
 bindDashboard();
-bindServerUI({ openQuickSetup: openQuickSetupFromCard });
+bindServerUI({ openQuickSetup: openQuickSetupFromCard, openMetrics: openMetricsAt });
+bindMetricsUI({ openServer, openAuditRecord: openRecordFromMetrics });
+bindAuditUI({ openMetricsAt });
 bindScriptsUI();
 bindTasksUI();
 bindWireguardUI();
@@ -367,6 +451,17 @@ async function restoreSession() {
     }
   }
 
+  // Deep-link на страницы, у которых состояние живёт в адресе (как у
+  // Quick Setup): метрики с раскрытым сервером и аудит с раскрытой записью.
+  if (metricsFromUrl()) {
+    onNav('metrics');
+    return;
+  }
+  if (auditFromUrl()) {
+    onNav('history');
+    return;
+  }
+
   if (page && page !== 'servers' && page !== 'server'
       && page !== 'wireguard-server' && page !== 'docker-server'
       && page !== 'xui-server') {
@@ -501,6 +596,9 @@ async function boot() {
     loadHeaderData(); // обновляем хедер
     if (state.page === 'servers') loadServers();
     if (state.page === 'history' && historyTab() === 'queues') { loadQueues(); loadHistory(); }
+    // Без SSE аудит иначе замолчал бы совсем: поток — основной источник
+    // свежих записей, опрос здесь только запасной.
+    if (state.page === 'history' && historyTab() === 'actions') refreshAudit();
   }, 8000);
 }
 

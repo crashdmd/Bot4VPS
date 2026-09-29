@@ -3,7 +3,7 @@ import { esc } from './api.js';
 import { state, setPage } from './state.js';
 import { showPage } from './ui.js';
 import { WIREGUARD_ICON, DOCKER_ICON, NOTIFY_ICON } from './icons.js?v=20260924-notify-icon-v1';
-import { setServerQuery as setServerListQuery } from './servers.js?v=20260924-task-history-head-v1';
+import { setServerQuery as setServerListQuery } from './servers.js?v=20260929-metrics-history-card-v2';
 
 let searchResults = [];
 
@@ -104,6 +104,7 @@ function performSearch(query) {
   const sections = [
     { name: 'Дашборд', page: 'dashboard', icon: '📊' },
     { name: 'Серверы', page: 'servers', icon: '🖥' },
+    { name: 'Мониторинг серверов', page: 'metrics', icon: '📈' },
     { name: 'История событий', page: 'history', icon: '🗂' },
     { name: 'WireGuard', page: 'wireguard', icon: WIREGUARD_ICON },
     { name: 'Docker', page: 'docker', icon: DOCKER_ICON },
@@ -178,15 +179,15 @@ function renderResults(box, results) {
       const id = item.dataset.id;
 
       if (type === 'server') {
-        import('./servers.js?v=20260924-task-history-head-v1').then(m => {
+        import('./servers.js?v=20260929-metrics-history-card-v2').then(m => {
           setPage('servers');
           showPage('servers');
           m.openServer(id);
         });
       } else if (type === 'section') {
         // Через общий навигатор: он останавливает таймеры прошлой страницы
-        // и грузит данные новой (иначе на «Истории событий» вкладка
-        // переключится, а списки останутся пустыми).
+        // и грузит данные новой (иначе на «Истории» вкладка переключится,
+        // а списки останутся пустыми).
         if (window.b4vNav) window.b4vNav(id);
         else { setPage(id); showPage(id); }
       } else if (type === 'settings') {

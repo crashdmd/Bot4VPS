@@ -11,8 +11,16 @@ export const state = {
   quickSetupServerId: null,
   watchTaskId: null,
   page: 'dashboard',
-  // активная вкладка страницы «История событий»: 'events' | 'queues'
+  // активная вкладка страницы «История»: 'events' | 'queues' | 'actions' (аудит)
   historyTab: null,
+  // «Мониторинг серверов»: окно списка, раскрытый сервер и момент события,
+  // если на страницу пришли по ссылке «показать на графике» (deep-link `at=`)
+  metricsRange: null,
+  metricsOpenServerId: null,
+  metricsAt: null,
+  // «Действия пользователя»: выбранные фильтры и раскрытая запись
+  auditFilters: null,
+  auditRecordId: null,
   serverTab: 'status',
   serverGroupTab: '__all__',
   serverSort: { key: 'name', descending: false },
@@ -84,4 +92,10 @@ export function setServerSort(key, descending = false) {
 
 export function setServerQuery(query) {
   state.serverQuery = String(query || '');
+}
+
+/** Окно истории на странице метрик: '24h' | '7d' | '30d' | '90d'. */
+export function setMetricsRange(range) {
+  state.metricsRange = range;
+  try { localStorage.setItem('bot4vps_metrics_range', range); } catch (_) {}
 }

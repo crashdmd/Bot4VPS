@@ -299,6 +299,66 @@ export function formatServerTimestamp(value) {
   return `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute}:${parts.second}`;
 }
 
+function parseCalendarDate(value) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(value || ''));
+  if (!match) return null;
+  const [, yearText, monthText, dayText] = match;
+  const year = Number(yearText);
+  const month = Number(monthText);
+  const day = Number(dayText);
+  const instant = new Date(Date.UTC(year, month - 1, day));
+  if (instant.getUTCFullYear() !== year || instant.getUTCMonth() !== month - 1 || instant.getUTCDate() !== day) return null;
+  return { year, month, day, value: `${yearText}-${monthText}-${dayText}` };
+}
+
+function nextCalendarDate(date) {
+  const instant = new Date(Date.UTC(date.year, date.month - 1, date.day + 1));
+  const year = instant.getUTCFullYear();
+  const month = instant.getUTCMonth() + 1;
+  const day = instant.getUTCDate();
+  return { year, month, day, value: `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}` };
+}
+
+function calendarMoment(date, hour = 0, minute = 0, second = 0) {
+  return Date.UTC(date.year, date.month - 1, date.day, hour, minute, second);
+}
+
+function panelMidnight(date) {
+  let timestamp = Math.floor(calendarMoment(date) / 1000);
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const parts = serverDateTimeParts(timestamp * 1000);
+    if (!parts) return null;
+    const offset = (calendarMoment(date) - Date.UTC(
+      Number(parts.year), Number(parts.month) - 1, Number(parts.day),
+      Number(parts.hour), Number(parts.minute), Number(parts.second),
+    )) / 1000;
+    if (!offset) return timestamp;
+    timestamp += offset;
+  }
+  const parts = serverDateTimeParts(timestamp * 1000);
+  return parts && Number(parts.year) === date.year && Number(parts.month) === date.month
+    && Number(parts.day) === date.day && Number(parts.hour) === 0 && Number(parts.minute) === 0
+    ? timestamp
+    : null;
+}
+
+/** Панельный календарный диапазон: одна дата — сутки, две — включительный диапазон. */
+export function panelDateRangeWindow(fromValue, toValue = '') {
+  let start = parseCalendarDate(fromValue);
+  let end = toValue ? parseCalendarDate(toValue) : start;
+  if (!start || !end) return null;
+  if (calendarMoment(start) > calendarMoment(end)) [start, end] = [end, start];
+  const from = panelMidnight(start);
+  const until = panelMidnight(nextCalendarDate(end));
+  const to = Math.min(until, Math.floor(serverNow().getTime() / 1000));
+  if (!Number.isFinite(from) || !Number.isFinite(until) || to - from < 60) return null;
+  return { from, to, start, end, hasEnd: Boolean(toValue) };
+}
+
+export function panelCalendarToday() {
+  return formatServerTimestamp(serverNow()).slice(0, 10);
+}
+
 export function formatClock(d) {
   return serverFormatter('side-clock', {
     hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23',

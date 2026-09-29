@@ -4,6 +4,7 @@ from telegram import Update
 from telegram.ext import ContextTypes
 from telegram.error import BadRequest
 
+from core.actor import Actor, set_actor
 from core.auth import is_allowed
 from core.telegram_health import TEST_MESSAGE_OK_CALLBACK
 from core.upload import process_upload_callback
@@ -49,6 +50,12 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_allowed(query.from_user.id):
         await query.edit_message_text("⛔ Доступ запрещён.")
         return
+
+    # Главный роутер кнопок: через него идёт почти всё, что человек делает
+    # в боте. Актор ставится здесь, сразу после проверки доступа, и виден
+    # вниз по стеку (см. core/actor.py) — иначе действия из Telegram
+    # попали бы в аудит как system.
+    set_actor(Actor.telegram(query.from_user.id))
 
     # Кнопка на живом сообщении-уведомлении: закрывает аккумулятор любая,
     # а помечает ли события прочитанными — решает mark_message_event_read

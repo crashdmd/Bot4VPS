@@ -6,6 +6,8 @@ from pathlib import Path
 from typing import Any
 
 from core.install_paths import get_backup_data_path
+from core.actor import ActorType, get_actor
+from core.audit_actions import AuditAction, AuditResult
 from core.json_store import atomic_write_json
 
 from .errors import BackupError, ErrorCode, SafeError
@@ -38,6 +40,106 @@ _ALLOWED_TRANSITIONS = {
         OperationStatus.CANCELLED.value,
     },
 }
+
+
+# --- Аудит операций backup (§8.2, §16.3) -----------------------------------
+#
+# Хук стоит в единственном хранилище операций, а не у каждого вызывающего:
+# backup зовут Web, Telegram, CLI, планировщик и self-restore, и «кто снёс
+# бэкап» обязано записываться одинаково из всех входов. Терминальных
+# выходов ровно два — ``transition`` и ``complete_create_locked`` (финал
+# создания под уже взятым локом), поэтому пометка живёт рядом с ними, а не
+# в ``_apply_transition``: тот считается до записи на диск, и пометка могла
+# бы появиться о переходе, который не состоялся.
+#
+# Пара записей на операцию: ``started`` при создании и финал при переходе в
+# терминальный статус. Обе несут один ``op_id`` (= ``operation_id``), по
+# которому таймлайн считает длительность.
+_AUDIT_ACTIONS = {
+    "create": AuditAction.BACKUP_CREATE,
+    "restore": AuditAction.BACKUP_RESTORE,
+    "import": AuditAction.BACKUP_IMPORT,
+    "verify": AuditAction.BACKUP_VERIFY,
+    "delete": AuditAction.BACKUP_DELETE,
+    "retention": AuditAction.BACKUP_RETENTION,
+}
+
+_AUDIT_RESULTS = {
+    OperationStatus.COMPLETED.value: AuditResult.OK,
+    OperationStatus.FAILED.value: AuditResult.FAILED,
+    OperationStatus.CANCELLED.value: AuditResult.CANCELLED,
+}
+
+
+def _audit_server_name(server_id: str | None) -> str | None:
+    """Имя сервера снимком — как в колонке ``server_name`` у аудита серверов.
+
+    Ссылку на сервер в истории хранить нельзя: сервер удаляют, а запись
+    «снёс бэкап с prod-1» должна остаться читаемой. Best-effort: недоступное
+    хранилище серверов не должно мешать пометке об операции.
+    """
+    if not server_id:
+        return None
+    try:
+        from core.storage import find_server
+
+        server = find_server(server_id)
+        return server.get("name") if server else None
+    except Exception:
+        return None
+
+
+def _audit_operation(operation: dict, *, result: AuditResult) -> None:
+    """Записать пометку об операции backup.
+
+    Актор берётся из контекста (``core.actor``). Если операции пришлось
+    доживать до конца в другом процессе — self-restore перезапускает панель
+    и финал пишет уже новый процесс, — контекста нажавшего в нём нет, и
+    пометка наследует актора записи ``started`` по ``op_id``: пара
+    описывает одну операцию, и человек, её начавший, известен.
+    """
+    try:
+        from core import audit
+
+        action = _AUDIT_ACTIONS.get(operation.get("type"))
+        if action is None:
+            # Тип операции, которого нет в словаре: молчать нельзя (иначе
+            # действие исчезнет из истории), но и выдумывать код нечего.
+            print(f"[AUDIT] неизвестный тип операции backup: {operation.get('type')}", flush=True)
+            return
+
+        op_id = operation["operation_id"]
+        actor = get_actor()
+        if actor.type == ActorType.SYSTEM.value:
+            inherited = audit.inherit_actor(op_id)
+            if inherited is not None:
+                actor = inherited
+
+        target = operation.get("target") or {}
+        server_id = target.get("server_id")
+        audit.record(
+            action,
+            result=result,
+            server_id=server_id,
+            server_name=_audit_server_name(server_id) or (
+                "Bot4VPS" if target.get("kind") == "bot4vps" else None
+            ),
+            op_id=op_id,
+            task_id=operation.get("task_id"),
+            error=(operation.get("error") or {}).get("message"),
+            params={
+                "type": operation.get("type"),
+                "mode": operation.get("mode"),
+                "target": target,
+                "attempt": operation.get("attempt"),
+                "stage": operation.get("stage"),
+                "backup_id": operation.get("result_backup_id") or operation.get("source_backup_id"),
+                "from_telegram": operation.get("initiated_from_telegram"),
+            },
+            actor=actor,
+        )
+    except Exception as exc:
+        print(f"[AUDIT] пометка об операции backup не удалась: {exc}", flush=True)
 
 
 class OperationStore:
@@ -187,7 +289,7 @@ class OperationStore:
                 ErrorCode.INVALID_REQUEST,
                 "Некорректная Operation",
             ) from exc
-        value, _ = self.running.create_if_no_match(
+        value, created = self.running.create_if_no_match(
             operation.operation_id,
             operation_value,
             lambda record: self._same_logical_request(
@@ -197,7 +299,13 @@ class OperationStore:
                 target=normalized_target,
             ),
         )
-        return self._validate(value)
+        validated = self._validate(value)
+        if created:
+            # Дедупликация запроса вернула уже идущую операцию (``created``
+            # false) — второй пометки «начал» у неё быть не должно: действие
+            # одно, и его ``started`` уже записан.
+            _audit_operation(validated, result=AuditResult.STARTED)
+        return validated
 
     def get(self, operation_id: str) -> dict:
         record = self.running.get(operation_id)
@@ -385,6 +493,7 @@ class OperationStore:
                 )
                 atomic_write_json(source, updated)
                 self._move_locked(source, self.history._record_path(operation_id))
+                _audit_operation(updated, result=_AUDIT_RESULTS[status])
                 return updated
 
     def update_stage(self, operation_id: str, stage: str, *, heartbeat: bool = True) -> dict:
@@ -651,6 +760,7 @@ class OperationStore:
         with self.history.locked():
             atomic_write_json(source, updated)
             self._move_locked(source, self.history._record_path(operation_id))
+        _audit_operation(updated, result=AuditResult.OK)
         return updated
 
     def mark_abandoned(self, operation_id: str) -> dict:

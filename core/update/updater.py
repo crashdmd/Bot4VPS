@@ -105,9 +105,93 @@ def default_state() -> dict:
         "last_check_error": None,
         "last_update_at": None,
         "action": None,  # None | {"type","target","started_at","backup_dir"}
+        # Незакрытая пара аудита обновления (§16.3): снимок актора, кода
+        # действия и цели, снятые до перезапуска. Живёт отдельным ключом, а
+        # не внутри ``action``, потому что ``action`` переписывает раннер
+        # целиком — а раннер про аудит знать не должен.
+        "audit_op": None,
         "last_error": None,
         "pid": None,
     }
+
+
+# ==================================================================
+# Аудит обновления (пара started → ok/failed, §16.3)
+# ==================================================================
+
+def _already_finalized(op_id: str) -> bool:
+    """Есть ли у операции уже финальная пометка аудита.
+
+    Нужна из-за двух входов в закрытие пары: состояние операции читают и
+    lifespan uvicorn, и старт чистого ТГ-процесса. Оба могут увидеть один и
+    тот же ``audit_op`` — второй пометки у операции быть не должно.
+    """
+    from core import audit
+
+    return audit.has_final(op_id)
+
+
+def _audit_update_started(action_code, target: str) -> None:
+    """Пометка «начал обновление» и снимок для финала в новом процессе.
+
+    Актор берётся из контекста: кнопку нажал человек в Web, и это последний
+    момент, когда он ещё «рядом» — обновление перезапустит панель, и финал
+    запишет уже другой процесс (§6).
+    """
+    from core import audit
+    from core.audit_actions import AuditResult
+
+    op_id = audit.new_op_id()
+    audit.record(
+        action_code,
+        result=AuditResult.STARTED,
+        op_id=op_id,
+        params={"version": target, "type": getattr(action_code, "value", action_code)},
+    )
+    write_state(audit_op={
+        "op_id": op_id,
+        "action": getattr(action_code, "value", action_code),
+        "target": target,
+        "actor": audit.snapshot(),
+        "started_at": _now_iso(),
+    })
+
+
+def _audit_update_finished(
+    state: dict,
+    action: dict | None,
+    *,
+    ok: bool,
+    error: str | None = None,
+) -> None:
+    """Финальная пометка обновления и снятие блока ``audit_op``.
+
+    Актор — из снимка, снятого при запуске: в этом процессе человека уже
+    нет (он тот же лишь формально — после перезапуска контекст пуст).
+    """
+    from core import audit
+    from core.audit_actions import AuditAction, AuditResult
+
+    block = state.get("audit_op") or {}
+    op_id = block.get("op_id")
+    action_code = block.get("action") or (
+        AuditAction.UPDATE_ROLLBACK.value
+        if (action or {}).get("type") == "rollback"
+        else AuditAction.UPDATE_INSTALL.value
+    )
+    if op_id and not _already_finalized(op_id):
+        audit.record(
+            action_code,
+            result=AuditResult.OK if ok else AuditResult.FAILED,
+            op_id=op_id,
+            error=error,
+            params={
+                "version": (action or {}).get("target") or block.get("target"),
+                "type": action_code.rsplit(".", 1)[-1],
+            },
+            actor=audit.from_snapshot(block.get("actor")),
+        )
+    write_state(audit_op=None)
 
 
 def read_state() -> dict:
@@ -497,6 +581,9 @@ async def start_install() -> dict:
     work_dir = Path(tempfile.mkdtemp(prefix="bot4vps_update_"))
     job = _build_job("update", available["version"], MAIN_TARBALL_URL, work_dir)
     pid = await asyncio.to_thread(_launch_runner, job)
+    from core.audit_actions import AuditAction
+
+    _audit_update_started(AuditAction.UPDATE_INSTALL, available["version"])
     write_state(
         status="downloading",
         action={
@@ -529,6 +616,9 @@ async def start_rollback(version: str) -> dict:
     job = _build_job("rollback", normalize_version(target),
                      release["asset_url"], work_dir)
     pid = await asyncio.to_thread(_launch_runner, job)
+    from core.audit_actions import AuditAction
+
+    _audit_update_started(AuditAction.UPDATE_ROLLBACK, normalize_version(target))
     write_state(
         status="downloading",
         action={
@@ -573,6 +663,11 @@ async def init_on_startup() -> None:
         state = read_state()
     action = state.get("action")
     if not action or state.get("status") not in _BUSY_STATUSES:
+        # Обновление могло закончиться раньше этого запуска: раннер дописал
+        # в state.json финал сам (status idle/failed, action=None). Пара
+        # аудита при этом обязана закрыться — иначе «начал обновление»
+        # осталось бы висеть без исхода.
+        _finalize_audit(state, action)
         # Обычный старт: синхронизировать current_version с кодом.
         if state.get("current_version") != APP_VERSION:
             write_state(current_version=APP_VERSION)
@@ -597,15 +692,46 @@ async def init_on_startup() -> None:
         _finalize_failure(state, action)
     else:
         # Неизвестная версия (ручная правка?) — сброс без события.
+        _audit_update_finished(
+            state,
+            action,
+            ok=False,
+            error="Неожиданная версия после перезапуска: %s" % APP_VERSION,
+        )
         write_state(status="failed", action=None, pid=None,
                     last_error="Неожиданная версия после перезапуска: %s"
                                % APP_VERSION)
+
+
+def _finalize_audit(state: dict, action: dict | None) -> None:
+    """Закрыть пару аудита по уже записанному исходу операции.
+
+    Исход берётся из достигнутой версии — то же правило, что у ветки
+    «старт после обновления»: код совпал с целью операции — успех, остался
+    прежним (или отличается) — провал. Кто именно увидел результат первым,
+    неважно: вторую пометку отсекает ``_already_finalized``.
+    """
+    if not (state.get("audit_op") or {}).get("op_id"):
+        return
+    try:
+        target = parse_version((state.get("audit_op") or {}).get("target") or "")
+    except (TypeError, ValueError):
+        write_state(audit_op=None)
+        return
+
+    _audit_update_finished(
+        state,
+        action,
+        ok=parse_version(APP_VERSION) == target,
+        error=state.get("last_error"),
+    )
 
 
 def _finalize_success(state: dict, action: dict) -> None:
     # changelog_new уже применён раннером в changelog; сбрасываем остатки
     if CHANGELOG_NEW_FILE.exists():
         CHANGELOG_NEW_FILE.unlink()
+    _audit_update_finished(state, action, ok=True)
     write_state(
         status="idle",
         current_version=APP_VERSION,
@@ -623,6 +749,7 @@ def _finalize_success(state: dict, action: dict) -> None:
 
 
 def _finalize_failure(state: dict, action: dict) -> None:
+    _audit_update_finished(state, action, ok=False, error=state.get("last_error"))
     write_state(
         status="failed",
         action=None,

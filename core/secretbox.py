@@ -114,12 +114,18 @@ def _read_key_bytes() -> bytes | None:
     return data
 
 
-def _create_key_exclusive() -> bytes:
+def _create_key_exclusive(via: str = "auto") -> bytes:
     """Сгенерировать ключ и создать файл атомарно (O_CREAT|O_EXCL).
 
     Если файл уже создан параллельным потоком/процессом — читаем его:
     два разных ключа появиться не могут, иначе половина ciphertext
     стала бы недешифруемой.
+
+    ``via`` — каким входом ключ появился: ``auto`` (первый секрет в чистой
+    системе), ``manual`` (кнопка/пункт «создать» там, где терять нечего),
+    ``replacement`` (осознанная замена: старые enc1: значения становятся
+    нечитаемыми). Значение уезжает в аудит — «ключ заменили» и «ключ
+    появился сам» это разные события для истории.
     """
     KEY_FILE.parent.mkdir(parents=True, exist_ok=True)
     key = Fernet.generate_key()
@@ -136,7 +142,33 @@ def _create_key_exclusive() -> bytes:
         f.write(key)
         f.flush()
         os.fsync(f.fileno())
+    _audit_key_created(via)
     return key
+
+
+def _audit_key_created(via: str) -> None:
+    """Пометка «мастер-ключ создан» — в точке появления файла ключа.
+
+    Здесь, а не у вызывающих: входов четыре (авто-создание при первом
+    секрете, кнопка в Web, пункт в консоли, замена ключа с потерей данных),
+    и все они — появление одного и того же файла. При замене в параметры
+    едет, что именно осиротело: этого не вывести из названия операции, а
+    в истории про «пропавший bot_token» спрашивают именно здесь.
+    """
+    try:
+        from core import audit
+        from core.audit_actions import AuditAction, AuditResult
+
+        params: dict = {"via": via}
+        if via == "replacement":
+            params["discarded"] = list(scan_encrypted().get("fields") or [])
+        audit.record(
+            AuditAction.SECRET_MASTERKEY_CREATE,
+            result=AuditResult.OK,
+            params=params,
+        )
+    except Exception as exc:  # аудит не имеет права сорвать создание ключа
+        print(f"[SECRETBOX] аудит: создание ключа не отмечено: {exc}", flush=True)
 
 
 def _load_fernet() -> Fernet:
@@ -381,7 +413,33 @@ def encrypt_all_plaintext_secrets() -> dict:
     if updates:
         _patch_config_keys(updates)
 
+    _audit_encrypt_all(encrypted)
     return {"encrypted": encrypted, "plaintext": scan_plaintext_secrets()}
+
+
+def _audit_encrypt_all(encrypted: dict) -> None:
+    """Пометка «секреты зашифрованы все скопом».
+
+    Действие усиливает защиту и значений не показывает, но в истории оно
+    нужно: после него пароли серверов на диске уже не лежат открытым
+    текстом, и вопрос «куда делся открытый bot_token» должен иметь ответ.
+    Пишем имена полей и сколько их зашифровано — сами значения остаются
+    в конфиге, а не в журнале.
+    """
+    try:
+        from core import audit
+        from core.audit_actions import AuditAction, AuditResult
+
+        audit.record(
+            AuditAction.SECRET_ENCRYPT_ALL,
+            result=AuditResult.OK,
+            params={
+                "fields": sorted(encrypted),
+                "encrypted": sum(encrypted.values()),
+            },
+        )
+    except Exception as exc:
+        print(f"[SECRETBOX] аудит: шифрование всех секретов не отмечено: {exc}", flush=True)
 
 
 def master_key_state() -> dict:
@@ -481,4 +539,26 @@ def restore_master_key(key_value: str) -> dict:
         f.write(encoded + b"\n")
         f.flush()
         os.fsync(f.fileno())
+    _audit_key_restored(len(scan["values"]))
     return master_key_state()
+
+
+def _audit_key_restored(verified: int) -> None:
+    """Пометка «мастер-ключ введён» — по факту проверки и записи.
+
+    Ключа в параметрах нет и быть не может (§13): сама запись о том, что
+    ключ вводили, важна, а его значение — секрет того же класса, что и
+    пароли, которые он защищает. ``verified`` — сколько enc1: значений он
+    подтвердил: «ввели ключ от этих данных», а не «нажали кнопку».
+    """
+    try:
+        from core import audit
+        from core.audit_actions import AuditAction, AuditResult
+
+        audit.record(
+            AuditAction.SECRET_MASTERKEY_UNLOCK,
+            result=AuditResult.OK,
+            params={"verified": verified},
+        )
+    except Exception as exc:
+        print(f"[SECRETBOX] аудит: ввод ключа не отмечен: {exc}", flush=True)

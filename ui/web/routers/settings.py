@@ -348,7 +348,9 @@ async def api_settings_backup_password_forgot_confirm(
     # Подтверждение пройдено — одноразовый pending, удаляем пароль
     _pending_bp_forgot = None
     try:
-        await asyncio.to_thread(set_stored_backup_password, None)
+        # via="recovery": в истории видно, что пароль снесён аварийным путём
+        # (2FA/TG-код), а не сменён в карточке настроек.
+        await asyncio.to_thread(set_stored_backup_password, None, via="recovery")
     except (MasterKeyMissingError, SecretBoxError):
         raise HTTPException(
             409,
@@ -536,7 +538,7 @@ async def api_settings_web_port_status():
 async def api_settings_web_port_set(body: WebPortBody):
     try:
         from core.web_port import (
-            busy, changeable, current_port_from_unit, launch, write_state,
+            audit_started, busy, changeable, current_port_from_unit, launch, write_state,
         )
 
         if isinstance(body.port, bool) or not 1 <= body.port <= 65535:
@@ -567,6 +569,10 @@ async def api_settings_web_port_set(body: WebPortBody):
         # Дальше работает detached-раннер: этот процесс будет убит restart'ом
         pid = await asyncio.to_thread(launch, body.port)
         write_state(pid=pid)
+        # Пара аудита заводится после запуска раннера: «начал» без
+        # запущенной операции был бы пометкой о намерении, которого не
+        # случилось (сам исход допишет вернувшийся процесс, core.web_port).
+        audit_started(current, body.port)
         return {
             "ok": True,
             "status": "pending",

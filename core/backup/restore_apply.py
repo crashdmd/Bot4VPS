@@ -1293,21 +1293,28 @@ def verify_applied_restore(
 # subprocess: SSH между машиной и самой собой не нужен. Классификация tar
 # и модель verification переиспользуются без изменений.
 
-# Живое координационное состояние текущей машины. Оба файла лежат в data/backup
-# и попадают в архив, но перезаписывать их локальным apply нельзя:
-# maintenance_state.json — признак активного обслуживания именно текущей
-# операции (удаляется при её завершении), inventory-index-jobs.json — реестр
-# живых задач индексатора. Лок-файлы живут вне дерева (/run/lock/bot4vps) и в
-# архив не входят; running/, disk_state, automatic_state архив тоже не содержит.
+# Живое координационное состояние текущей машины. Первые два файла лежат в
+# data/backup: maintenance_state.json — признак активного обслуживания именно
+# текущей операции, inventory-index-jobs.json — реестр живых задач индексатора.
+# Остальные лежат в data/ и отражают текущее состояние проверки ключей и
+# Telegram-бота. Лок-файлы живут вне дерева (/run/lock/bot4vps) и в архив не
+# входят; running/, disk_state, automatic_state архив тоже не содержит.
 SELF_RESTORE_LIVE_STATE_FILES = ("maintenance_state.json", "inventory-index-jobs.json")
+SELF_RESTORE_INSTALL_LIVE_STATE_FILES = ("key_integrity.json", "telegram_state.json")
 
 
 def self_restore_live_state_paths(data_root) -> set[str]:
     """Абсолютные пути live-состояния, исключаемого из локального apply."""
-    root = str(data_root).rstrip("/") + "/"
+    backup_root = Path(data_root)
     return {
-        posixpath.normpath(root + name)
-        for name in SELF_RESTORE_LIVE_STATE_FILES
+        *(
+            posixpath.normpath(str(backup_root / name))
+            for name in SELF_RESTORE_LIVE_STATE_FILES
+        ),
+        *(
+            posixpath.normpath(str(backup_root.parent / name))
+            for name in SELF_RESTORE_INSTALL_LIVE_STATE_FILES
+        ),
     }
 
 

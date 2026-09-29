@@ -201,13 +201,12 @@ def web_enable(port: int) -> dict:
     Тот же состав действий, что install.sh enable-web (reference), кроме
     pip install — зависимости ставятся при установке, CLI не установщик.
     """
-    from core.config import set_web_auth
-    from ui.web.security import ensure_web_secrets
+    from ui.web.security import ensure_web_secrets, set_web_auth
 
     if not 1 <= port <= 65535:
         raise ValueError("Порт — число от 1 до 65535")
 
-    set_web_auth(True)
+    set_web_auth(True, via="cli")
     # Печатает логин и, если пароль не задан, одноразовый пароль
     ensure_web_secrets()
 
@@ -413,7 +412,7 @@ def web_change_password(new_password: str) -> None:
 
     if len(new_password) < MIN_WEB_PASSWORD_LEN:
         raise ValueError(f"Пароль не короче {MIN_WEB_PASSWORD_LEN} символов")
-    set_web_password(new_password)
+    set_web_password(new_password, via="cli")
 
 
 def web_totp_enabled() -> bool:
@@ -427,7 +426,7 @@ def web_reset_totp() -> None:
     телефона (веб-отключение требует код из приложения)."""
     from ui.web.security import clear_totp_secret
 
-    clear_totp_secret()
+    clear_totp_secret(via="cli")
 
 
 # ==================================================================
@@ -448,7 +447,7 @@ def backup_password_clear() -> None:
     шифрования; старые остаются со своим (утерянным) паролем."""
     from core.config import set_stored_backup_password
 
-    set_stored_backup_password(None)
+    set_stored_backup_password(None, via="cli")
 
 
 # ==================================================================
@@ -512,7 +511,7 @@ def masterkey_create_new() -> dict:
         )
 
     cleared: list[str] = []
-    secretbox._create_key_exclusive()
+    secretbox._create_key_exclusive(via="replacement")
 
     # config.json: bot_token, web.totp_secret
     raw = _read_config_raw()

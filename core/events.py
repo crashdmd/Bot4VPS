@@ -8,8 +8,10 @@
 Журнал хранит состояние события (``read``); доставка уведомлений
 выполняется через ``event_service`` и ``notification_queue``.
 """
+import time
 import uuid
 from datetime import datetime
+from enum import Enum
 from pathlib import Path
 from typing import Dict, Any, List, Optional
 
@@ -50,22 +52,56 @@ def set_events_limit(limit: int) -> None:
     _store.prune()
 
 
+def _normalize_reason(value: Any) -> Optional[str]:
+    """Машинный код причины из свободного значения.
+
+    На сегодня причина живёт в ``details["reason"]`` (её читает политика
+    уведомлений, ``core/notification_policy.py``) и всегда содержит
+    ``EventReason``. Верхнеуровневое поле ``reason`` нужно как отдельное
+    измерение для фильтров аудита, поэтому берём значение только если оно
+    похоже на код; свободный текст остаётся в ``details`` и не засоряет
+    поле, по которому будут строиться выборки.
+    """
+    if value is None:
+        return None
+    if isinstance(value, Enum):
+        return value.value
+    if isinstance(value, str) and 0 < len(value) <= 64:
+        return value
+    return None
+
+
 def log_event(
     event_type: EventType,
     level: EventLevel,
     title: str,
     message: str,
-    details: Optional[Dict[str, Any]] = None
+    details: Optional[Dict[str, Any]] = None,
+    *,
+    reason: Any = None,
 ) -> str:
-    """Создаёт событие в журнале."""
+    """Создаёт событие в журнале.
+
+    ``reason`` — машинный код причины (см. ``EventReason``). Параметр
+    явный: собирать код из свободного ``details`` — источник опечаток,
+    которые невозможно отфильтровать. Если не передан, значение берётся
+    из ``details["reason"]`` — так все существующие вызовы продолжают
+    работать без правок.
+    """
+    details = details or {}
     event = {
         "id": uuid.uuid4().hex,
         "timestamp": datetime.now().isoformat(),
+        # Рядом со строкой, не вместо неё: строку читает UI, epoch нужен
+        # для сопоставления с метриками и аудитом (§3 плана). Обе метки —
+        # момент создания записи, локальная строка остаётся для совместимости.
+        "ts_epoch": int(time.time()),
         "type": event_type.value,
         "level": level.value,
         "title": title,
         "message": message,
-        "details": details or {},
+        "details": details,
+        "reason": _normalize_reason(reason if reason is not None else details.get("reason")),
         "read": False,
         "read_time": None
     }

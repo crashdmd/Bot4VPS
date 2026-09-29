@@ -11,8 +11,11 @@ from __future__ import annotations
 
 import hashlib
 import secrets
+from typing import Optional
 
 from fastapi import HTTPException, Request, status
+
+from core.actor import Actor, ActorRole, set_actor
 
 
 # ------------------------------------------------------------------
@@ -61,12 +64,60 @@ def verify_password(password: str, stored: str) -> bool:
 # Мутации config.json
 # ------------------------------------------------------------------
 
-def set_web_password(new_password: str) -> None:
+def _audit_web(action, **params) -> None:
+    """Пометка аудита о действии с учёткой панели (§8.2, коды ``web.*``).
+
+    Пишется здесь, в единственной точке смены пароля/2FA, а не в роутерах:
+    у пароля и у 2FA по несколько входов (карточка настроек, восстановление
+    через Telegram, консоль, аварийное создание нового мастер-ключа), и
+    «кто снял 2FA» обязано попадать в историю из любого.
+
+    Значения сюда не передаются вовсе — ни пароль, ни TOTP-секрет: в
+    ``params`` уходят только факты (``via`` — каким входом).
+
+    Актор — из контекста: Web-сессия или консоль.
+    """
+    try:
+        from core import audit
+
+        audit.record(action, result=audit.AuditResult.OK, params=params or None)
+    except Exception as exc:  # аудит не имеет права сломать действие
+        print(f"[AUDIT] учётка панели: пометка не удалась: {exc}", flush=True)
+
+
+def set_web_password(new_password: str, *, via: str = "settings") -> None:
+    """Сменить пароль панели.
+
+    ``via`` — каким входом: ``settings`` (карточка настроек), ``account``
+    (общая карточка учётки), ``setup`` (первичная настройка), ``recovery``
+    (восстановление через код в Telegram) или ``cli`` (консоль). Актор
+    отвечает «кто», ``via`` — «каким путём»: смена пароля
+    аварийным путём и смена из настроек — разные события для истории.
+    """
     from core.config import get_web_config, set_web_config
 
     web = get_web_config()
     web["password_hash"] = make_password(new_password)
     set_web_config(web)
+
+    from core.audit_actions import AuditAction
+
+    _audit_web(AuditAction.WEB_PASSWORD_CHANGE, via=via)
+
+
+def set_web_auth(enabled: bool, *, via: str = "settings") -> None:
+    """Включить или выключить защиту панели и записать успешную операцию."""
+    from core.config import get_web_config, set_web_config
+    from core.audit_actions import AuditAction
+
+    enabled = bool(enabled)
+    web = get_web_config()
+    web["auth_enabled"] = enabled
+    set_web_config(web)
+    _audit_web(
+        AuditAction.WEB_AUTH_ENABLE if enabled else AuditAction.WEB_AUTH_DISABLE,
+        via=via,
+    )
 
 
 # ------------------------------------------------------------------
@@ -131,14 +182,28 @@ def set_totp_secret(secret: str) -> None:
     web["totp_secret"] = encrypt(secret)
     set_web_config(web)
 
+    from core.audit_actions import AuditAction
 
-def clear_totp_secret() -> None:
-    """Выключить 2FA (консольный аварийный сброс или отключение по коду)."""
+    _audit_web(AuditAction.WEB_2FA_ENABLE)
+
+
+def clear_totp_secret(*, via: str = "settings") -> None:
+    """Выключить 2FA (консольный аварийный сброс или отключение по коду).
+
+    ``via`` — каким входом: ``settings`` (отключение по коду из приложения),
+    ``cli`` (аварийный сброс из консоли) или ``masterkey_new`` (создание
+    нового мастер-ключа: секрет становится нерасшифровываемым и снимается
+    вместе с остальными enc1-значениями).
+    """
     from core.config import get_web_config, set_web_config
 
     web = get_web_config()
     web.pop("totp_secret", None)
     set_web_config(web)
+
+    from core.audit_actions import AuditAction
+
+    _audit_web(AuditAction.WEB_2FA_DISABLE, via=via)
 
 
 # ------------------------------------------------------------------
@@ -294,8 +359,79 @@ def auth_enabled() -> bool:
     return bool(get_web_config().get("auth_enabled"))
 
 
+# ------------------------------------------------------------------
+# Актор web-запроса (аудит действий, см. core/actor.py)
+# ------------------------------------------------------------------
+
+# Ключ сессии со снимком роли. Роль попадает сюда при входе и живёт до
+# выхода/истечения сессии: запись аудита хранит снимок, а не ссылку на
+# текущую роль, иначе смена прав переписала бы историю задним числом.
+ROLE_SESSION_KEY = "role"
+
+
+def _client_ip(request: Request) -> Optional[str]:
+    client = getattr(request, "client", None)
+    return getattr(client, "host", None) or None
+
+
+def _session(request: Request) -> dict:
+    """Сессия запроса, если SessionMiddleware установлен.
+
+    Без middleware ``Request.session`` бросает AssertionError. В панели он
+    стоит всегда, но актор не должен быть точкой отказа: определённый без
+    сессии запрос — это web-действие без имени, а не 500.
+    """
+    try:
+        return request.session
+    except Exception:
+        return {}
+
+
+def actor_from_request(request: Request) -> Actor:
+    """Снимок действующего субъекта web-запроса.
+
+    Логин и роль — из сессии, IP — из соединения. Без логина (панель без
+    авторизации) остаётся ``type=web`` без имени: роль не выдумываем.
+    """
+    session = _session(request)
+    return Actor.web(
+        session.get("user"),
+        role=session.get(ROLE_SESSION_KEY),
+        ip=_client_ip(request),
+    )
+
+
+def set_request_actor(request: Request) -> Actor:
+    """Выставить актора запроса в контекст (и в ``request.state`` для хендлеров)."""
+    actor = actor_from_request(request)
+    request.state.actor = actor
+    set_actor(actor)
+    return actor
+
+
+def establish_web_session(request: Request, username: str) -> None:
+    """Открыть web-сессию: логин, снимок роли и актор — одним действием.
+
+    Единая точка входа вместо россыпи ``session["user"] = ...``: место,
+    где сессия появляется, обязано заодно зафиксировать роль, иначе
+    аудит останется без неё в одном из путей входа (их четыре: мастер
+    первичной настройки, вход, второй шаг 2FA, восстановление пароля).
+    """
+    request.session["user"] = username
+    request.session[ROLE_SESSION_KEY] = ActorRole.ADMIN.value
+    set_request_actor(request)
+
+    from core.audit_actions import AuditAction
+
+    _audit_web(AuditAction.WEB_LOGIN)
+
+
 async def require_auth(request: Request) -> None:
     """Пропускает запрос, если авторизация выключена; иначе требует сессию."""
+    # Актор выставляется до проверки: он нужен и в режиме без авторизации
+    # (тогда у актора нет имени), а отказанный запрос до хендлера не дойдёт
+    # и в аудит не попадёт.
+    set_request_actor(request)
     if not auth_enabled():
         return
     if request.session.get("user"):

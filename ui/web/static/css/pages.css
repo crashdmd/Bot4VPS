@@ -417,7 +417,8 @@ label{
    Высота фиксированная: при переключении вкладок блок стоит на месте и не
    прыгает по высоте, содержимое внутри прокручивается. */
 .task-history-wrap,
-.events-wrap{
+.events-wrap,
+.audit-wrap{
   max-width:100%;
   height:34rem;
   overflow-y:auto;
@@ -541,7 +542,8 @@ label{
     width:100%;
   }
   .task-history-wrap,
-  .events-wrap{
+  .events-wrap,
+  .audit-wrap{
     overflow-x:hidden;
     height:auto;
     max-height:60dvh;
@@ -1424,7 +1426,8 @@ label{
 /* События: список уведомлений — таблица в том же блоке с прокруткой, что и
    история задач, поэтому карточки со своим .barline больше не нужны.
    Цветная полоса осталась — это край первой ячейки, цвет по уровню события. */
-.events-wrap > .empty{
+.events-wrap > .empty,
+.audit-wrap > .empty{
   border:0;
 }
 .events-table th:nth-child(1){width:10.5rem}
@@ -5036,3 +5039,362 @@ button.server-host-copy:hover,button.server-host-copy:focus-visible{background:v
    (там h2 margin .25rem + gap .5rem; здесь был дефолт .75rem — кнопки
    начинались на 8px ниже) */
 .xui-srv-side .svc-side-actions h2{margin:0 0 .25rem}
+
+/* ── «Мониторинг серверов»: список и график истории (этап 7) ──────────────
+   Раздел исторический: список серверов сверху, график раскрытого сервера —
+   под ним, тем же экраном. Строка в списке читается слева направо как
+   «кто → состояние → числа → форма», поэтому у чисел моноширинные цифры:
+   столбец не дёргается, когда значение меняется с 9.9 на 10.2. */
+.metrics-lead{
+  margin:.25rem 0 0;
+  color:var(--text-dim);
+  font-size:.85rem;
+  max-width:78ch;
+}
+.metrics-range{margin:0}
+.metrics-range-row{display:flex;align-items:flex-end;gap:.7rem;flex-wrap:wrap;margin:0 0 .8rem}
+.metrics-custom-period{display:flex;align-items:flex-end;gap:.5rem;flex-basis:100%}
+.metrics-custom-period[hidden]{display:none}
+.metrics-date{display:flex;align-items:center;gap:.4rem;font-size:.8rem;color:var(--text-dim);padding-bottom:.1rem;margin:0}
+.metrics-date input{
+  background:var(--panel);color:var(--text);border:1px solid var(--border);
+  border-radius:6px;padding:.25rem .4rem;font:inherit;font-size:.8rem;
+}
+.metrics-date input:hover{border-color:var(--accent)}
+@media(max-width:620px){.metrics-custom-period{width:100%;flex-wrap:wrap}}
+.metrics-search{display:block;width:min(100%,26rem);margin:0 0 .8rem}
+.metrics-list{display:flex;flex-direction:column;gap:.4rem}
+.metrics-row{
+  scroll-margin-top:calc(var(--top-height) + 1rem);
+  display:grid;
+  grid-template-columns:minmax(0,1fr) auto auto 150px 1rem;
+  align-items:center;
+  gap:.8rem;
+  padding:.55rem .7rem;
+  background:var(--card);
+  border:1px solid var(--border);
+  border-radius:var(--radius-sm);
+  cursor:pointer;
+}
+.metrics-row:hover{background:var(--card-hover);border-color:var(--border-hover)}
+.metrics-row:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.metrics-row.is-open{
+  margin-bottom:-.4rem;
+  border-color:var(--border-hover);
+  border-bottom-color:transparent;
+  border-radius:var(--radius-md) var(--radius-md) 0 0;
+  background:var(--card-hover);
+}
+.metrics-name{display:flex;flex-direction:column;gap:.15rem;min-width:0}
+.metrics-title{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.metrics-age{font-size:.7rem;color:var(--text-dim)}
+.metrics-values{
+  display:flex;
+  gap:.8rem;
+  font-size:.8rem;
+  font-variant-numeric:tabular-nums;
+  color:var(--text-muted);
+}
+.metrics-values span{min-width:3.8rem;text-align:right;white-space:nowrap}
+.metrics-values .metrics-disk-value{min-width:13rem;text-align:left}
+.metrics-spark{height:32px;min-width:0}
+.metrics-chev{color:var(--text-dim);font-size:.9rem;text-align:right}
+.metrics-detail{
+  margin-top:.9rem;
+  padding:.9rem 1rem 1rem;
+  background:var(--card);
+  border:1px solid var(--border);
+  border-radius:var(--radius-md);
+}
+.metrics-list > .metrics-detail{
+  margin-top:0;
+  border-top-color:transparent;
+  border-radius:0 0 var(--radius-md) var(--radius-md);
+}
+.metrics-detail-head{
+  display:flex;
+  gap:1rem;
+  align-items:flex-start;
+  justify-content:space-between;
+  flex-wrap:wrap;
+  margin-bottom:.6rem;
+}
+.metrics-detail-head h2{margin:0;font-size:1rem}
+.metrics-detail-meta{margin-top:.15rem;font-size:.75rem;color:var(--text-dim)}
+/* График. Линия без сглаживания и без заливки: панель показывает замеры, а
+   не тренд, и скругление рисовало бы значения, которых не измеряли. */
+.chart-host{position:relative}
+.chart-svg{display:block;overflow:visible}
+.chart-grid{stroke:rgba(255,255,255,.07);stroke-width:1}
+.chart-grid-v{stroke:rgba(255,255,255,.04)}
+.chart-axis{fill:var(--text-dim);font-size:10px}
+.chart-axis-load{fill:var(--text-muted)}
+.chart-line{fill:none;stroke-width:1.6;stroke-linejoin:round;stroke-linecap:round}
+.chart-point{stroke:var(--panel);stroke-width:1.8}
+.chart-point-edge{stroke-width:2.2}
+.chart-point-isolated{stroke-width:2.6}
+.chart-gap{fill:rgba(255,255,255,.04)}
+/* Марка — точка события. Полос во всю высоту графика нет намеренно: они
+   читались как вертикальные линии и закрывали то, ради чего график открывают —
+   всплески нагрузки. Прямоугольник ниже ничего не рисует: он только цель клика
+   (у мгновенного действия ширина три пикселя, мышью в такую не попасть). */
+.chart-mark-hit{fill:none;stroke:none}
+/* Обводка цветом панели отделяет точку от линий ряда. Предупреждение означает
+   лишь отсутствие записи о завершении, а не текущую работу операции. */
+.chart-mark-dot{fill:var(--mark);stroke:var(--panel);stroke-width:1.2;fill-opacity:.9}
+.chart-mark-dot.is-selected{r:6.8px;fill:var(--accent);stroke:var(--panel);stroke-width:2.4;fill-opacity:1;stroke-dasharray:none}
+/* Марка на верхней шине — действие в период без регулярного load, не «ноль». */
+.chart-event-rail{stroke-dasharray:1 1;stroke-width:1.8;fill-opacity:1}
+.chart-mark-label{fill:var(--text);font-size:10px;pointer-events:none}
+.chart-overlay{fill:transparent}
+.chart-crosshair{display:none;pointer-events:none;stroke:var(--text-muted);stroke-width:.8;stroke-dasharray:3 3;opacity:.8}
+.chart-crosshair.is-on{display:inline}
+/* Рамка выделяемого участка: по ней видно, что именно уйдёт в приближение. */
+/* Рамка выделяемого участка. Скрыта классом, а не атрибутом `hidden`: на
+   SVG-элементе он ничего не скрывает — правило UA-таблицы рассчитано на
+   HTML, — и рамка оставалась висеть на графике после отпускания мыши. */
+.chart-select{display:none;fill:var(--accent);fill-opacity:.14;stroke:var(--accent);stroke-opacity:.8;stroke-width:1;pointer-events:none}
+.chart-select.is-on{display:inline}
+/* Жесты приближения — справка под графиком, а не орган управления. */
+.chart-hint{margin-top:.3rem;font-size:.72rem;color:var(--text-dim)}
+.chart-legend{
+  display:flex;
+  flex-wrap:wrap;
+  gap:.2rem .9rem;
+  margin-top:.35rem;
+  font-size:.75rem;
+  color:var(--text-muted);
+}
+.chart-legend-item{display:inline-flex;align-items:center;gap:.35rem}
+.chart-legend-chip{width:9px;height:9px;border-radius:2px;display:inline-block;flex:0 0 auto}
+.chart-note{margin-bottom:.4rem;font-size:.75rem;color:var(--warn)}
+.chart-empty{padding:1.6rem 0}
+.chart-empty-hint{margin-top:.3rem;font-size:.75rem;color:var(--text-dim)}
+.chart-tip{
+  position:absolute;
+  z-index:5;
+  max-width:min(23rem,calc(100% - .5rem));
+  padding:.4rem .55rem;
+  background:#141c2a;
+  border:1px solid rgba(255,255,255,.22);
+  border-radius:var(--radius-sm);
+  box-shadow:0 10px 30px rgba(0,0,0,.72),0 0 0 1px rgba(0,0,0,.3);
+  font-size:.72rem;
+  pointer-events:none;
+}
+:root[data-theme="light"] .chart-tip{background:#d5dde7;border-color:rgba(42,54,70,.28);box-shadow:0 10px 30px rgba(15,30,60,.28)}
+:root[data-theme="glass"] .chart-tip{background:#14304e;border-color:rgba(159,211,245,.36);box-shadow:0 12px 34px rgba(0,12,28,.78)}
+.chart-tip.is-pinned{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-soft),0 10px 30px rgba(0,0,0,.72)}
+:root[data-theme] .chart-tip.is-pinned{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-soft),0 10px 30px rgba(0,0,0,.72)}
+.chart-tip.is-selected-event{box-sizing:border-box;overflow-y:auto}
+.chart-sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+.chart-tip-time{margin-bottom:.2rem;color:var(--text-dim)}
+.chart-tip-context{margin-bottom:.15rem;color:var(--text-muted);font-size:.68rem}
+.chart-tip-row,.chart-tip-mark{display:flex;align-items:center;gap:.35rem}
+.chart-tip-row b{font-variant-numeric:tabular-nums}
+.chart-operation-observations{margin-top:.35rem;padding-top:.35rem;border-top:1px solid var(--border)}
+.chart-operation-title{margin-bottom:.25rem;font-weight:600}
+.chart-operation-meta,.chart-operation-status{color:var(--text-dim)}
+.chart-operation-value{overflow-wrap:anywhere}
+
+/* Спарклайн строки — форма, не масштаб. Пустой рисуется пунктирной линией
+   по низу: так видно, что точек нет, и не читается как «ровный ноль». */
+.spark-svg{display:block}
+.spark-empty{height:100%;min-height:20px;border-bottom:1px dashed var(--border)}
+
+/* Марки списком под графиком: та же информация, что полосы на графике, но
+   доступная кликом и сравнимая по времени словами. */
+.metrics-marks{display:flex;flex-direction:column;gap:.25rem;margin-top:.7rem}
+.metrics-marks-title{font-size:.75rem;color:var(--text-dim);margin-bottom:.15rem}
+/* Строка выбирает действие, переход в запись — отдельная кнопка рядом:
+   одно движение не должно и подсвечивать, и уводить со страницы. */
+.metrics-mark-row{
+  display:grid;
+  grid-template-columns:minmax(0,1fr) auto;
+  align-items:center;
+  gap:.3rem;
+  border:1px solid transparent;
+  border-radius:var(--radius-sm);
+}
+.metrics-mark-row:hover{border-color:var(--border-hover);background:var(--card-hover)}
+.metrics-mark-row.is-selected{border-color:var(--accent);background:var(--accent-soft)}
+.metrics-mark{
+  display:grid;
+  grid-template-columns:auto minmax(0,1fr) auto;
+  align-items:center;
+  gap:.6rem;
+  padding:.35rem .5rem;
+  background:transparent;
+  border:0;
+  border-radius:var(--radius-sm);
+  text-align:left;
+  font:inherit;
+  color:inherit;
+  cursor:pointer;
+}
+/* Переход в запись — только у выделенного действия: в списке действий нужен
+   выбор, а не меню переходов на каждой строке. Место под кнопку занято
+   всегда (visibility, а не display): иначе строки дёргались бы по высоте и
+   текст перескакивал при каждом выборе. */
+.metrics-mark-open{
+  padding:.25rem .5rem;
+  margin-right:.35rem;
+  background:transparent;
+  border:1px solid var(--border);
+  border-radius:var(--radius-sm);
+  color:var(--text-muted);
+  font-size:.72rem;
+  white-space:nowrap;
+  cursor:pointer;
+  visibility:hidden;
+  pointer-events:none;
+}
+.metrics-mark-row.is-selected .metrics-mark-open{visibility:visible;pointer-events:auto}
+.metrics-mark-open:hover{border-color:var(--accent);color:var(--text)}
+.metrics-mark-chip{width:9px;height:9px;border-radius:2px;display:inline-block;flex:0 0 auto}
+.metrics-mark-title{font-size:.8rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.metrics-mark-meta{font-size:.72rem;color:var(--text-dim);white-space:nowrap}
+.metrics-marks-empty{font-size:.75rem;color:var(--text-dim)}
+
+/* ── Вкладка «Действия пользователя» (аудит, этап 7) ───────────────────── */
+.audit-filters{
+  display:flex;
+  flex-wrap:wrap;
+  gap:.5rem .7rem;
+  align-items:flex-end;
+  margin:0 0 .7rem;
+}
+.audit-field{display:flex;flex-direction:column;gap:.2rem;font-size:.7rem;color:var(--text-dim)}
+.audit-field select,.audit-field input{
+  min-width:9rem;
+  padding:.3rem .4rem;
+  font-size:.8rem;
+}
+.audit-field-q{flex:1 1 14rem}
+.audit-field-q input{width:100%;min-width:12rem}
+.audit-custom-period{display:flex;align-items:flex-end;gap:.5rem}
+.audit-custom-period[hidden]{display:none}
+.audit-date{display:flex;align-items:center;gap:.4rem;font-size:.8rem;color:var(--text-dim);padding-bottom:.1rem;margin:0}
+.audit-date input{
+  min-width:0;
+  background:var(--panel);color:var(--text);border:1px solid var(--border);
+  border-radius:6px;padding:.25rem .4rem;font:inherit;font-size:.8rem;
+}
+.audit-date input:hover{border-color:var(--accent)}
+.audit-row{
+  display:grid;
+  grid-template-columns:minmax(0,1fr) minmax(15.5rem,.9fr) auto;
+  grid-template-areas:"operation interval result";
+  gap:.2rem 1rem;
+  align-items:start;
+  width:100%;
+  padding:.6rem .7rem;
+  border:0;
+  border-bottom:1px solid var(--border);
+  border-left:3px solid transparent;
+  background:transparent;
+  font:inherit;
+  color:inherit;
+  text-align:left;
+  cursor:pointer;
+}
+.audit-row:hover{background:var(--card-hover)}
+.audit-row.is-new{border-left-color:var(--accent)}
+.audit-row.is-open{background:var(--card-hover)}
+.audit-operation{grid-area:operation;display:grid;gap:.2rem;min-width:0}
+.audit-title{font-size:.85rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.audit-interval{grid-area:interval;display:grid;gap:.14rem;min-width:0;font-size:.75rem;color:var(--text-muted);font-variant-numeric:tabular-nums}
+.audit-time{display:grid;grid-template-columns:5rem minmax(0,1fr);gap:.35rem;min-width:0;white-space:nowrap}
+.audit-time>span{color:var(--text-dim);font-variant-numeric:normal}
+.audit-duration{padding-left:5.35rem;color:var(--text-dim);font-variant-numeric:normal}
+.audit-result{grid-area:result;padding-top:.05rem;font-size:.75rem;white-space:nowrap}
+.audit-meta{display:flex;flex-wrap:wrap;gap:.5rem;font-size:.72rem;color:var(--text-dim)}
+.audit-detail{
+  padding:.7rem .8rem .8rem 1rem;
+  border-bottom:1px solid var(--border);
+  background:rgba(255,255,255,.02);
+  font-size:.8rem;
+}
+.audit-detail dl{display:grid;grid-template-columns:auto minmax(0,1fr);gap:.25rem .7rem;margin:.4rem 0 0}
+.audit-detail dt{color:var(--text-dim);font-size:.75rem}
+.audit-detail dd{margin:0;word-break:break-word}
+.audit-detail .actions{margin:.6rem 0 0}
+.audit-attach{display:flex;gap:.5rem;flex-wrap:wrap;align-items:center;margin-top:.5rem;font-size:.75rem}
+.audit-foot{display:flex;gap:.6rem;align-items:center;margin-top:.6rem}
+.audit-count{margin-right:auto;font-size:.75rem;color:var(--text-dim)}
+/* [hidden] не работает у элемента во flex-контейнере, если правило выше
+   задало ему display: кнопки «Показать ещё» и «Сбросить» держим
+   скрытыми явно (тот же класс ошибки, что ловили в «Пакетах»). */
+.audit-foot button[hidden]{display:none}
+.audit-detail-head{margin-bottom:.3rem;font-size:.8rem;color:var(--text-muted)}
+.audit-block{margin-top:.5rem}
+.audit-block-title{margin-bottom:.15rem;font-size:.72rem;color:var(--text-dim);text-transform:uppercase;letter-spacing:.03em}
+.audit-action-code{
+  font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+  font-size:.72rem;
+  color:var(--text-muted);
+  background:var(--field);
+  border-radius:.25rem;
+  padding:.05rem .3rem;
+}
+.audit-error{color:var(--err)}
+.audit-event-message{margin-top:.15rem;color:var(--text-muted)}
+.audit-params dl{grid-template-columns:minmax(6rem,auto) minmax(0,1fr)}
+.audit-incomplete{margin:.45rem 0;padding:.45rem .55rem;border-left:3px solid var(--warn);background:rgba(221,167,42,.09);color:var(--text-muted)}
+.audit-technical{margin-top:.8rem}
+.audit-technical-record{margin:.4rem 0;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--card)}
+.audit-technical-record summary{position:relative;display:grid;grid-template-columns:11rem minmax(0,1fr) auto;gap:.5rem;padding:.45rem .55rem;cursor:pointer;list-style:none}
+.audit-technical-record summary::-webkit-details-marker{display:none}
+.audit-technical-record summary::before{content:'›';position:absolute;left:.55rem;top:50%;transform:translateY(-50%) rotate(0deg);color:var(--text-dim);line-height:1}
+.audit-technical-record[open] summary::before{transform:translateY(-50%) rotate(90deg)}
+.audit-technical-record summary span:first-child{padding-left:.8rem;font-variant-numeric:tabular-nums;color:var(--text-muted)}
+.audit-technical-record > dl,.audit-technical-record > .audit-params{margin-left:.55rem;margin-right:.55rem}
+.audit-technical-record > .audit-params{padding:.5rem 0;border-top:1px solid var(--border)}
+.audit-technical-empty{font-size:.75rem;color:var(--text-dim)}
+
+@media (max-width:760px){
+  .metrics-row{grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"name chev" "status status" "values values" "spark spark";row-gap:.35rem}
+  .metrics-name{grid-area:name}
+  .metrics-status{grid-area:status}
+  .metrics-values{grid-area:values;flex-wrap:wrap;gap:.35rem .8rem}
+  .metrics-values span{min-width:0;text-align:left;white-space:normal;overflow-wrap:anywhere}
+  .metrics-values .metrics-disk-value{flex:1 0 100%;min-width:0}
+  .metrics-spark{grid-area:spark}
+  .metrics-chev{grid-area:chev}
+  .audit-row{grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"operation result" "interval interval";gap:.45rem .7rem}
+  .audit-field,.audit-field select,.audit-field input{min-width:0;width:100%}
+  .audit-field-q,.audit-custom-period{flex:1 1 100%}
+  .audit-custom-period{flex-wrap:wrap}
+  .audit-date{flex:1 1 10rem}
+  .audit-technical-record summary{grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"time result" "title title"}
+  .audit-technical-record summary span:nth-child(1){grid-area:time}
+  .audit-technical-record summary span:nth-child(2){grid-area:title}
+  .audit-technical-record summary span:nth-child(3){grid-area:result}
+}
+
+/* Карточка сервера: «История за сутки» — вход в раздел метрик. Блок
+   нарочно выглядит скромнее живых виджетов: это историческая опора, и
+   путать её с SSH-метриками выше нельзя. */
+.srv-history{
+  margin:.5rem 0 .9rem;
+  padding:.6rem .75rem;
+  background:var(--card);
+  border:1px solid var(--border);
+  border-radius:var(--radius-sm);
+}
+.srv-history[role="button"]{cursor:pointer}
+.srv-history[role="button"]:hover{background:var(--card-hover);border-color:var(--border-hover)}
+.srv-history[role="button"]:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.srv-history[aria-disabled="true"]{pointer-events:none;opacity:.7}
+.srv-history-head{display:flex;flex-wrap:wrap;align-items:center;gap:.5rem}
+.srv-history-title{font-size:.85rem;font-weight:600}
+.srv-history-hint{font-size:.72rem;color:var(--text-dim)}
+.srv-history-age{margin-left:auto;font-size:.72rem;color:var(--text-dim)}
+.srv-history-body{margin-top:.4rem}
+.srv-history-spark{height:44px}
+.srv-history-legend{display:flex;gap:.9rem;margin-top:.25rem;font-size:.7rem;color:var(--text-dim)}
+.srv-history-legend i{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:.3rem}
+
+@media (max-width:640px){
+  .srv-history-age{margin-left:0;width:100%}
+}

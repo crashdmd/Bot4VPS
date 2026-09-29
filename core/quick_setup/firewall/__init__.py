@@ -367,21 +367,37 @@ def _nftables_chain_selection_result(
 def _nftables_provision_pending(ssh, server: dict) -> bool:
     """Будет ли ensure_installed nftables создавать базовую таблицу bot4vps.
 
-    Предусловие автопровижининга: сохранённой цепочки нет и в ruleset нет
-    ни одной standalone input chain (state «none») — типично для свежей
-    Ubuntu, где ufw работает через iptables-nft. Результат нужен ДО вызова
-    ensure_installed, чтобы rollback неудачной миграции знал, что таблица —
-    собственность панели и удаляется целиком.
+    Предусловие автопровижининга: в ruleset нет ни одной standalone input
+    chain (state «none»), таблицы inet bot4vps нет, а сохранённой цепочки
+    либо нет, либо она доказанно исчезла. Типично для свежей Ubuntu, где
+    ufw работает через iptables-nft.
+
+    Условия здесь — ровно те, при которых ``_provision_base_ruleset``
+    действительно создаст таблицу: предикат читается ДО вызова
+    ensure_installed, и по нему rollback неудачной миграции решает, что
+    таблица — собственность панели и удаляется целиком. Таблица без
+    standalone input chain (чей бы она ни была) заставляет провижининг
+    отказаться — значит, панели она не принадлежит и «pending» здесь
+    обязан быть False, иначе rollback снесёт чужую таблицу вместе с
+    persistence.
     """
     backend = _BY_NAME["nftables"]
-    configured, _ = backend._configured_chain_token(server)
-    if configured:
-        return False
+    configured, token = backend._configured_chain_token(server)
     try:
-        state, _, _ = backend._selection_state(backend._ruleset(ssh, server))
+        snapshot = backend._ruleset(ssh, server)
+        state, _, _ = backend._selection_state(snapshot)
     except Exception:
         return False
-    return state == "none"
+    if backend._owned_table_in_snapshot(snapshot):
+        return False
+    if not configured:
+        return state == "none"
+    if not backend._valid_chain_token(token):
+        return False
+    return (
+        backend._chain_from_snapshot(snapshot, token) is None
+        and state == "none"
+    )
 
 
 def _finalize_nftables_persistence(

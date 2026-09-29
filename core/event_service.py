@@ -1,8 +1,25 @@
 from typing import Dict, Any, Optional, Callable, Awaitable, List
 
-from .events import log_event
+from .events import log_event, _normalize_reason
 from .event_types import EventType, EventLevel
 from .notification_queue import add_to_queue
+
+
+def _details_with_reason(
+    details: Optional[Dict[str, Any]], reason: Any
+) -> Optional[Dict[str, Any]]:
+    """Положить машинный код причины в ``details``, если его там нет.
+
+    Причина нужна внутри ``details``: по ней схлопываются online/offline
+    (``core/notification_policy.py``) и она видна в карточке уведомления.
+    Вызывающий, передавший ``reason`` явным параметром, не должен думать
+    ещё и про ``details`` — но и переписывать чужой словарь нельзя
+    (он же уезжает в очередь уведомлений), поэтому копия.
+    """
+    code = _normalize_reason(reason)
+    if code is None or (details or {}).get("reason"):
+        return details
+    return {**(details or {}), "reason": code}
 
 
 def enqueue_event(
@@ -33,13 +50,20 @@ def create_event(
     notify: bool = False,
     *,
     enqueue: Optional[bool] = None,
+    reason: Any = None,
 ) -> str:
     """
     Создать journal event и, если выбрано, поставить его в очередь уведомлений.
 
     ``enqueue=None`` сохраняет прежнее поведение. ``enqueue=False`` позволяет
     сначала попробовать immediate delivery, оставляя queue только fallback-путём.
+
+    ``reason`` — машинный код причины (``EventReason``) явным параметром:
+    именно он попадает в отдельное поле записи журнала, а не собирается
+    разбором свободного текста.
     """
+
+    details = _details_with_reason(details, reason)
 
     event_id = log_event(
         event_type=event_type,
@@ -47,6 +71,7 @@ def create_event(
         title=title,
         message=message,
         details=details,
+        reason=reason,
     )
 
     # Выключенная категория означает «это не уведомление» — и в вебе, и в
@@ -175,6 +200,8 @@ async def notify_event(
     title: str,
     message: str,
     details: Optional[Dict[str, Any]] = None,
+    *,
+    reason: Any = None,
 ) -> str:
     """
     Лог + очередь + немедленная рассылка.
@@ -183,6 +210,7 @@ async def notify_event(
     в журнал, ставит в очередь (для досылки при /start) и сразу рассылает
     через зарегистрированные нотификаторы.
     """
+    details = _details_with_reason(details, reason)
     event_id = create_event(
         event_type=event_type,
         level=level,
@@ -190,6 +218,7 @@ async def notify_event(
         message=message,
         details=details,
         notify=True,
+        reason=reason,
     )
     # Категория выключена или канал Telegram выключен — рассылать нечего:
     # событие уже лежит в журнале (в первом случае — прочитанным).

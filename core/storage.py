@@ -95,6 +95,132 @@ def save_groups(groups):
         save_data(data)
 
 
+# ------------------------------------------------------------------
+# Мутации серверов с записью в аудит (§8.2)
+#
+# Кто именно меняет список серверов — решает не писатель (``save_servers``),
+# а смысл операции: добавление, правка, удаление. Ходить в ``save_servers``
+# напрямую отсюда вызывающему коду больше не нужно, и это важно: тот же
+# ``save_servers`` зовут мониторинг и SSL (снимки соединения, отпечатки
+# ключей) — это не действия человека, и в аудите им места нет.
+#
+# Пометка пишется **после** удачной записи файла: если сервер не сохранился,
+# в истории не должно остаться «удалил». Обратное (записали, но пометка не
+# легла) возможно — аудит не имеет права отменять действие (см. core/audit).
+# ------------------------------------------------------------------
+
+# Поля, которые попадают в params: по ним видно, о каком сервере речь и что
+# с ним сделали. Пароль/ключ сюда не перечисляем — маска всё равно затрёт
+# секрет, а вот путь к ключу (``key_path``) нужен как есть: им объясняется,
+# «чем ходили».
+_SERVER_PARAM_FIELDS = (
+    "name", "group", "host", "port", "user", "auth_type",
+    "certificate_check", "ssl_host", "key_path",
+)
+
+
+def _server_params(server: dict) -> dict:
+    return {k: server.get(k) for k in _SERVER_PARAM_FIELDS if k in server}
+
+
+def add_server(server: dict) -> dict:
+    """Добавить сервер в конфигурацию, оставив пометку аудита."""
+    from core import audit
+
+    with data_lock():
+        servers = load_servers()
+        servers.append(server)
+        save_servers(servers)
+
+    audit.record(
+        audit.AuditAction.SERVER_ADD,
+        result=audit.AuditResult.OK,
+        server_id=server.get("id"),
+        server_name=server.get("name"),
+        params=_server_params(server),
+    )
+    return server
+
+
+def commit_server(server: dict) -> dict | None:
+    """Сохранить изменённую запись сервера, записав в аудит, что изменилось.
+
+    Принимает **уже изменённый** словарь (так его собирает и карточка в
+    Web, и визард в Telegram) и заменяет им запись в конфигурации. Что
+    именно поменялось — считается сравнением с сохранённой записью здесь,
+    а не со слов вызывающего: params обязаны отражать факт, а не намерение.
+
+    ``None`` — сервера с таким id в конфигурации нет, и ничего не записано.
+    """
+    from core import audit
+
+    with data_lock():
+        servers = load_servers()
+        stored = None
+        for index, item in enumerate(servers):
+            if item.get("id") == server.get("id"):
+                stored = item
+                servers[index] = server
+                break
+        if stored is None:
+            return None
+        save_servers(servers)
+
+    changed = {}
+    cleared = []
+    for key, value in server.items():
+        if stored.get(key) != value:
+            changed[key] = value
+    for key in stored:
+        if key not in server:
+            cleared.append(key)
+    if not changed and not cleared:
+        # Сохранять нечего: запись в аудит «ничего не изменилось» была бы
+        # утверждением о действии, которого не было.
+        return server
+    params = {"changed": changed, "cleared": sorted(cleared)}
+    audit.record(
+        audit.AuditAction.SERVER_UPDATE,
+        result=audit.AuditResult.OK,
+        server_id=server.get("id"),
+        server_name=server.get("name"),
+        params=params,
+    )
+    return server
+
+
+def delete_server(server_id: str) -> dict | None:
+    """Удалить сервер. Возвращает снимок удалённой записи (None — нет такого).
+
+    Снимок нужен и аудиту (имя сервера переживает удаление), и вызывающему
+    коду: показывать после удаления «сервер X удалён» надо по имени, а
+    взять его будет уже негде.
+    """
+    from core import audit
+
+    with data_lock():
+        servers = load_servers()
+        removed = None
+        remaining = []
+        for item in servers:
+            if item.get("id") == server_id:
+                removed = item
+                continue
+            remaining.append(item)
+        if removed is None:
+            return None
+        save_servers(remaining)
+
+    audit.record(
+        audit.AuditAction.SERVER_DELETE,
+        result=audit.AuditResult.OK,
+        server_id=server_id,
+        server_name=removed.get("name"),
+        params=_server_params(removed),
+    )
+    return removed
+
+
 def _normalize_groups(groups):
     out = []
     for g in groups or []:
@@ -110,6 +236,8 @@ def _normalize_groups(groups):
 
 def create_group(name: str, ssl_monitor: bool = False) -> dict:
     """Создать группу. name — непустое, уникальное."""
+    from core import audit
+
     name = (name or "").strip()
     if not name:
         raise ValueError("Название группы не может быть пустым")
@@ -124,11 +252,19 @@ def create_group(name: str, ssl_monitor: bool = False) -> dict:
         groups.append(group)
         data["groups"] = groups
         save_data(data)
-        return group
+
+    audit.record(
+        audit.AuditAction.GROUP_ADD,
+        result=audit.AuditResult.OK,
+        params={"group": name, "ssl_monitor": bool(ssl_monitor)},
+    )
+    return group
 
 
 def rename_group(old_name: str, new_name: str) -> dict:
     """Переименовать группу и обновить group у всех серверов."""
+    from core import audit
+
     old_name = (old_name or "").strip()
     new_name = (new_name or "").strip()
     if not old_name or not new_name:
@@ -148,32 +284,51 @@ def rename_group(old_name: str, new_name: str) -> dict:
                 updated = g
                 break
         servers = data.get("servers", [])
+        moved = 0
         for s in servers:
             if s.get("group") == old_name:
                 s["group"] = new_name
+                moved += 1
         data["groups"] = groups
         data["servers"] = servers
         save_data(data)
-        return updated
+
+    audit.record(
+        audit.AuditAction.GROUP_RENAME,
+        result=audit.AuditResult.OK,
+        params={"from": old_name, "to": new_name, "servers": moved},
+    )
+    return updated
 
 
 def set_group_ssl(name: str, ssl_monitor: bool) -> dict:
-    """Изменить ssl_monitor у группы."""
+    """Изменить ssl_monitor у группы. Пометка — только при реальной смене."""
+    from core import audit
+
     name = (name or "").strip()
     with data_lock():
         data = load_data()
         groups = _normalize_groups(data.get("groups", []))
         for g in groups:
             if g["name"] == name:
+                changed = bool(g["ssl_monitor"]) != bool(ssl_monitor)
                 g["ssl_monitor"] = bool(ssl_monitor)
                 data["groups"] = groups
                 save_data(data)
+                if changed:
+                    audit.record(
+                        audit.AuditAction.GROUP_SSL_TOGGLE,
+                        result=audit.AuditResult.OK,
+                        params={"group": name, "ssl_monitor": bool(ssl_monitor)},
+                    )
                 return g
         raise ValueError(f"Группа «{name}» не найдена")
 
 
 def delete_group(name: str) -> None:
     """Удалить пустую группу. Если есть серверы — ValueError со списком."""
+    from core import audit
+
     name = (name or "").strip()
     with data_lock():
         data = load_data()
@@ -194,6 +349,12 @@ def delete_group(name: str) -> None:
             )
         data["groups"] = [g for g in groups if g["name"] != name]
         save_data(data)
+
+    audit.record(
+        audit.AuditAction.GROUP_DELETE,
+        result=audit.AuditResult.OK,
+        params={"group": name},
+    )
 
 
 def group_server_names(name: str) -> list:

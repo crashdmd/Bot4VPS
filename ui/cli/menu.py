@@ -14,6 +14,8 @@ import getpass
 import os
 import sys
 
+from core.actor import Actor, set_actor
+
 from . import ops, systemd_ops
 
 BOX_WIDTH = 38
@@ -646,7 +648,7 @@ def _masterkey_no_data_menu() -> None:
             return
         if choice == "1":
             from core import secretbox
-            if action("Не удалось создать ключ", secretbox._create_key_exclusive):
+            if action("Не удалось создать ключ", secretbox._create_key_exclusive, "manual"):
                 print("● Мастер-ключ создан (keys/secret.key)")
             pause()
             return
@@ -1508,6 +1510,10 @@ def main() -> int:
     if os.geteuid() != 0:
         print("Требуются права root. Запустите: sudo bot4vps")
         return 1
+    # Актор для аудита — один раз на сеанс меню: тип cli, роль NULL.
+    # Консоль на хосте не маппится в admin осознанно: это аварийный вход
+    # локального суперпользователя, а не вход в панель (см. core/actor.py).
+    set_actor(Actor.cli())
     try:
         main_menu()
         return 0

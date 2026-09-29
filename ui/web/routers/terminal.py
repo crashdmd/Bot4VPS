@@ -29,6 +29,20 @@ def _ws_authorized(websocket: WebSocket) -> bool:
     return bool(session.get("user"))
 
 
+def _ws_actor(websocket: WebSocket):
+    """Снимок актора для аудита: логин, роль и IP — из самого WS-соединения.
+
+    ``require_auth`` — зависимость HTTP-маршрутов, и для WebSocket она не
+    выполняется: контекст запроса в WS-scope никто не выставляет. Поэтому
+    ``audit.record`` без явного актора записал бы «system» — не того, кто
+    открыл терминал. ``actor_from_request`` с WebSocket работает: у него есть
+    и ``session`` (её кладёт SessionMiddleware), и ``client``.
+    """
+    from ui.web.security import actor_from_request
+
+    return actor_from_request(websocket)
+
+
 async def _notify(websocket: WebSocket, text: str) -> None:
     try:
         await websocket.send_text(text)
@@ -58,12 +72,42 @@ async def shell_ws(websocket: WebSocket, server_id: str):
 
     # 3) открываем собственную PTY-сессию
     session = ShellSession(server)
+    actor = _ws_actor(websocket)
+    from core import audit
+    from core.audit_actions import AuditAction, AuditResult
+
     try:
         await asyncio.to_thread(session.open)
     except Exception as e:
+        # Отказ подключения — одиночная запись: пары у неё нет (терминал не
+        # открылся), но «стучался и не пустило» — это то, что ищут в истории,
+        # когда разбираются, почему на сервер не зайти. Причина — в ``error``.
+        audit.record(
+            AuditAction.TERMINAL_OPEN,
+            result=AuditResult.FAILED,
+            server_id=server_id,
+            server_name=server.get("name"),
+            error=f"{type(e).__name__}: {e}",
+            actor=actor,
+        )
         await _notify(websocket, f"\r\n\x1b[31mНе удалось подключиться по SSH: {e}\x1b[0m\r\n")
         await websocket.close(code=4503)
         return
+
+    # Аудит сессии (§16.4): пишем факт открытия — начало пары ``started`` →
+    # финал, длительность таймлайн считает по ``op_id`` (§8.4). Команды,
+    # введённые в терминале, не записываются ни здесь, ни на закрытии: в них
+    # и секреты, и чужой вывод, и объём несопоставим с ценностью.
+    op_id = audit.new_op_id()
+    opened_at = time.monotonic()
+    audit.record(
+        AuditAction.TERMINAL_OPEN,
+        result=AuditResult.STARTED,
+        server_id=server_id,
+        server_name=server.get("name"),
+        op_id=op_id,
+        actor=actor,
+    )
 
     last_activity = time.monotonic()
     stop = asyncio.Event()
@@ -174,6 +218,19 @@ async def shell_ws(websocket: WebSocket, server_id: str):
                 pass
             except Exception:
                 pass
+        # Финал пары — закрытие сессии. Пишем до ``session.close()``: длительность
+        # это время, что терминал был в работе у человека, а не время, за которое
+        # успел закрыться SSH-канал (он может ждать сети). Команд здесь нет —
+        # только длительность (§8.4).
+        audit.record(
+            AuditAction.TERMINAL_CLOSE,
+            result=AuditResult.OK,
+            server_id=server_id,
+            server_name=server.get("name"),
+            op_id=op_id,
+            params={"duration_seconds": round(max(0.0, time.monotonic() - opened_at), 1)},
+            actor=actor,
+        )
         await asyncio.to_thread(session.close)
         try:
             await websocket.close()

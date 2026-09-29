@@ -6,8 +6,8 @@ import time
 from datetime import datetime, timezone
 from typing import Optional
 
-from core.ssh import create_ssh_client, exec_sudo, test_connection
-from core.servers import reboot_server
+from core.ssh import create_ssh_client, exec_sudo
+from core.servers import reboot_server_with_readiness
 
 from .models import OpResult, SystemStatus
 
@@ -128,36 +128,35 @@ def reboot_and_wait(
     poll_interval: float = 5.0,
     timeout: float = 180.0,
 ) -> OpResult:
-    """Перезагрузка + ожидание восстановления SSH (синхронно, без Task Manager)."""
-    if not reboot_server(server):
+    outcome = reboot_server_with_readiness(
+        server,
+        initial_delay=initial_delay,
+        poll_interval=poll_interval,
+        timeout=timeout,
+    )
+    if not outcome.accepted:
         return OpResult(
             ok=False,
             message="Не удалось отправить команду перезагрузки",
-            error="reboot_server returned False",
+            error=outcome.error,
         )
-
-    time.sleep(initial_delay)
-    deadline = time.monotonic() + timeout
-    attempts = 0
-    last_err: Optional[str] = None
-    while time.monotonic() < deadline:
-        attempts += 1
-        ok, err = test_connection(server)
-        if ok:
-            return OpResult(
-                ok=True,
-                message="Сервер перезагружен, SSH восстановлен",
-                data={
-                    "attempts": attempts,
-                    "waited_sec": round(initial_delay + attempts * poll_interval, 1),
-                },
-            )
-        last_err = err
-        time.sleep(poll_interval)
-
+    if outcome.ready:
+        return OpResult(
+            ok=True,
+            message="Сервер перезагружен, SSH восстановлен",
+            data={
+                "ready": True,
+                "attempts": outcome.attempts,
+                "waited_sec": outcome.waited_sec,
+            },
+        )
     return OpResult(
-        ok=False,
+        ok=True,
         message="Сервер перезагружен, но SSH не восстановился вовремя",
-        error=(last_err or "timeout")[:500],
-        data={"attempts": attempts, "timeout_sec": timeout},
+        data={
+            "ready": False,
+            "attempts": outcome.attempts,
+            "waited_sec": outcome.waited_sec,
+            "warning": "readiness_timeout",
+        },
     )

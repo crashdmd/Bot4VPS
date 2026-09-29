@@ -40,6 +40,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Dict, List, Optional
 
+from core.audit_actions import AuditAction, AuditResult
 from core.task_manager import (
     Task,
     TaskResult,
@@ -554,10 +555,28 @@ def emit_service_event(
 async def _svc_executor(
     payload: Dict[str, Any], task: Task, progress_cb: ProgressCb
 ) -> TaskResult:
+    """Участок очереди для действий сервиса: прогон + пометка аудита.
+
+    Обёртка нужна, чтобы пометка стояла на единственном пути исполнения
+    ``do_*`` — включая ранние отказы («действие не реализовано», «сервис не
+    найден»): неудачная попытка установки тоже обязана быть видна.
+    """
     service_id = payload.get("service")
     action = payload.get("action")
     params = payload.get("params") or {}
 
+    result = await _svc_run(service_id, action, params, task, progress_cb)
+    _audit_service_action(service_id, action, params, task, result)
+    return result
+
+
+async def _svc_run(
+    service_id: Optional[str],
+    action: Optional[str],
+    params: Dict[str, Any],
+    task: Task,
+    progress_cb: ProgressCb,
+) -> TaskResult:
     try:
         svc = _get_service(service_id)
     except Exception as e:
@@ -592,6 +611,119 @@ async def _svc_executor(
 
     return result
 
+
+# --------------------------------------------------
+# Аудит действий сервиса (§6, §8.2)
+# --------------------------------------------------
+
+# Что из действий сервиса попадает в историю аудита: жизненный цикл сервиса
+# (install/remove/update) и управление демоном. Содержимое (контейнеры и
+# стеки Docker, образы, профили WireGuard, сертификаты и SelfSNI 3x-ui) сюда
+# не входит намеренно: этих действий десятки в день, а «кто поставил и кто
+# снёс сервис» — единицы. Содержимое при этом не бесследно: у каждой такой
+# операции есть строка задачи 4a с актором, видом работы и ``op_id``.
+#
+# ``sync`` здесь нет по той же причине, по которой в 4a нет ``server.check``:
+# это проба — она читает состояние сервера и обновляет свой кэш, ничего не
+# меняя. Нажатие при этом видно: «Docker: синхронизация» — обычная задача с
+# актором и временем работы. Аудит, в который попадают пробы, перестаёт
+# отвечать на вопрос «что изменилось на машинах».
+_SERVICE_AUDIT_ACTIONS = {
+    "install": AuditAction.SERVICE_INSTALL,
+    "remove": AuditAction.SERVICE_REMOVE,
+    "update": AuditAction.SERVICE_UPDATE,
+    "daemon_start": AuditAction.SERVICE_START,
+    "daemon_stop": AuditAction.SERVICE_STOP,
+    "daemon_restart": AuditAction.SERVICE_RESTART,
+}
+
+# Данные действия — только по явному списку имён (§13).
+#
+# Список, а не фильтр «выкинуть похожее на пароль»: установка 3x-ui
+# принимает ``username``/``password`` панели, WireGuard — окружение
+# ``WG_SERVER_KEY__*`` с приватными ключами пиров, Docker — произвольный
+# ``env`` контейнера. Отбор по имени ключа оставляет смысл действия
+# (версия, порт, домен, имя образа) и физически не пропускает ни один из
+# этих ключей: их в списке нет, и добавить их случайно нельзя — только
+# осознанной правкой рядом с этим комментарием.
+_SERVICE_AUDIT_PARAMS = frozenset({
+    # версия и источник установки
+    "version", "tag", "arch", "source",
+    # сеть, порт и адресация
+    "port", "protocol", "endpoint", "interface", "domain", "subdomain",
+    "server_ip", "mode", "ssl_mode", "web_base_path",
+    # имена артефактов
+    "name", "container", "image", "stack", "target_name",
+    # переключатели, меняющие смысл операции
+    "remove_data", "keep_data", "overwrite",
+    # установка WireGuard: порт, адрес и DNS интерфейса
+    "WG_PORT", "WG_ADDR", "WG_DNS", "WG_ENDPOINT",
+})
+
+_SERVICE_AUDIT_PARAM_CHARS = 200
+
+
+def _service_audit_params(
+    service_id: Optional[str], action: Optional[str], params: Dict[str, Any]
+) -> Dict[str, Any]:
+    """Данные действия сервиса в пригодном для истории виде.
+
+    Значения только скалярные: списки и словари (порты контейнера, окружение)
+    не пишем — в них легко уезжает чужой секрет, а их текст в строке истории
+    всё равно не читается. Длинные строки обрезаются: history — не хранилище
+    конфигов.
+    """
+    values: Dict[str, Any] = {"service": service_id, "action": action}
+    for key in sorted(_SERVICE_AUDIT_PARAMS):
+        if key not in params:
+            continue
+        value = params[key]
+        if value is None or isinstance(value, (dict, list, tuple, set, bytes)):
+            continue
+        if isinstance(value, str):
+            values[key] = value[:_SERVICE_AUDIT_PARAM_CHARS]
+        elif isinstance(value, (bool, int, float)):
+            values[key] = value
+    return values
+
+
+def _audit_service_action(
+    service_id: Optional[str],
+    action: Optional[str],
+    params: Dict[str, Any],
+    task: Task,
+    result: TaskResult,
+) -> None:
+    """Пометка «кто что сделал с сервисом».
+
+    Одна строка на операцию, а не пара ``started`` → финал: пару уже пишет
+    сама задача (``task.start``/``task.finish`` через ``_audit_task_event``),
+    и общий ``op_id=task-<id>`` связывает смысл действия с её таймлайном.
+    Вторая пара на то же действие дублировала бы историю и разошлась бы с
+    ней при отмене задачи, когда ``do_*`` вообще не начинался.
+
+    Актор берётся снимком из задачи (§6): исполнитель идёт в собственной
+    asyncio-задаче и контекста нажавшего не видит.
+    """
+    try:
+        from core import audit
+
+        action_code = _SERVICE_AUDIT_ACTIONS.get(str(action))
+        if action_code is None:
+            return
+        audit.record(
+            action_code,
+            result=AuditResult.OK if result.success else AuditResult.FAILED,
+            server_id=task.server_id,
+            server_name=task.server_name,
+            op_id=f"task-{task.id}",
+            task_id=task.id,
+            error=result.error,
+            params=_service_audit_params(service_id, action, params),
+            actor=audit.from_snapshot(task.actor),
+        )
+    except Exception as e:  # аудит не ломает действие сервиса
+        print(f"[INTEGRATOR] audit error: {e}", flush=True)
 
 
 async def _svc_scan_executor(
@@ -718,9 +850,55 @@ async def call(service_id: str, server_id: str, method: str, *args: Any) -> Any:
     fn = getattr(svc, method, None)
     if not callable(fn):
         raise ValueError(f"Метод '{method}' не найден у сервиса '{service_id}'")
-    if asyncio.iscoroutinefunction(fn):
-        return await fn(server_id, *args)
-    return await asyncio.to_thread(fn, server_id, *args)
+
+    from core.operation_metrics import (
+        activate_direct_operation,
+        create_direct_operation,
+        direct_operation_spec,
+        reset_direct_operation,
+    )
+
+    operation = create_direct_operation(
+        direct_operation_spec(service_id, method, args),
+        server_id=server_id,
+    )
+    if operation is None:
+        if asyncio.iscoroutinefunction(fn):
+            return await fn(server_id, *args)
+        return await asyncio.to_thread(fn, server_id, *args)
+
+    async def invoke() -> Any:
+        if asyncio.iscoroutinefunction(fn):
+            return await fn(server_id, *args)
+        return await asyncio.to_thread(fn, server_id, *args)
+
+    def succeeded(result: Any) -> bool:
+        return not (
+            (isinstance(result, TaskResult) and not result.success)
+            or (isinstance(result, dict) and result.get("success") is False)
+        )
+
+    token = activate_direct_operation(operation)
+    work = asyncio.create_task(invoke())
+    try:
+        result = await asyncio.shield(work)
+    except asyncio.CancelledError:
+        try:
+            result = await work
+        except BaseException:
+            await asyncio.to_thread(operation.finish, False)
+        else:
+            await asyncio.to_thread(operation.finish, succeeded(result))
+        raise
+    except BaseException:
+        await asyncio.to_thread(operation.finish, False)
+        raise
+    else:
+        await asyncio.to_thread(operation.finish, succeeded(result))
+        return result
+    finally:
+        reset_direct_operation(token)
+        operation.close()
 
 
 def params_schema(service_id: str) -> List[Parameter]:

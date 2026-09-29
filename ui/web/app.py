@@ -37,17 +37,20 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from .deps import VERSION
 from .security import (
+    _client_ip,
     admin_exists,
     auth_enabled,
     clear_totp_secret,
     emergency_state,
     ensure_web_secrets,
+    establish_web_session,
     get_totp_secret,
     login_stub_active,
-    make_password,
     make_totp_secret,
     MIN_WEB_PASSWORD_LEN,
     require_auth,
+    set_request_actor,
+    set_web_auth,
     set_web_password,
     set_totp_secret,
     setup_expired_active,
@@ -59,6 +62,7 @@ from .security import (
 )
 
 STATIC = Path(__file__).resolve().parent / "static"
+_WEB_OPEN_SESSION_KEY = "_audit_web_open"
 
 
 class NoCacheStaticFiles(StaticFiles):
@@ -297,6 +301,17 @@ async def lifespan(_app: FastAPI):
     except Exception as e:
         print(f"[WEB] update init failed: {e}", flush=True)
 
+    # Смена порта Web UI: пара аудита «начал» → «чем кончилось» закрывается
+    # тем процессом, который вернулся после restart'а и увидел исход в
+    # data/web_port.json. Идёт до отдачи страниц — история согласована с
+    # первого запроса.
+    try:
+        from core.web_port import reconcile_audit
+
+        reconcile_audit()
+    except Exception as e:
+        print(f"[WEB] web port audit reconcile failed: {e}", flush=True)
+
     # Ядерная JobQueue: фоновые задачи мониторинга (system_sync,
     # availability, SSL, updates) принадлежат ядру и стартуют вместе
     # с процессом — независимо от Telegram и открытых вкладок Web.
@@ -499,7 +514,7 @@ app.add_middleware(EmergencyGateMiddleware)
 # (сначала сам проверяет emergency, не читая config).
 app.add_middleware(SetupGateMiddleware)
 
-from .routers import meta, summary, servers, tasks, scripts, files, monitor, stream, terminal, services, system, update, backups, settings, quick_setup, masterkey, tls  # noqa: E402
+from .routers import meta, summary, servers, tasks, scripts, files, monitor, stream, terminal, services, system, update, backups, settings, quick_setup, masterkey, tls, metrics, audit  # noqa: E402
 
 app.mount("/static", NoCacheStaticFiles(directory=STATIC), name="static")
 
@@ -517,6 +532,13 @@ app.include_router(backups.router, dependencies=_AUTH)
 app.include_router(monitor.router, dependencies=_AUTH)
 app.include_router(stream.router, dependencies=_AUTH)
 app.include_router(services.router, dependencies=_AUTH)
+# Метрики (§10.1): только чтение state.db, SSH не дёргает — историю можно
+# открывать на любом сервере, не создавая на нём нагрузку.
+app.include_router(metrics.router, dependencies=_AUTH)
+# Аудит и таймлайн (§10.2 и §10.3): один роутер, потому что это один
+# экран — история слева, график справа. Читает журнал и базу метрик,
+# SSH не дёргает (§10.4).
+app.include_router(audit.router, dependencies=_AUTH)
 app.include_router(update.router, dependencies=_AUTH)
 app.include_router(settings.router, dependencies=_AUTH)
 app.include_router(tls.router, dependencies=_AUTH)
@@ -535,7 +557,7 @@ app.include_router(terminal.router)
 
 
 @app.get("/")
-async def index():
+async def index(request: Request):
     # Аварийный режим: автономная страница без config/темы/шаблонов
     if emergency_state():
         return HTMLResponse(
@@ -550,6 +572,26 @@ async def index():
     index_file = STATIC / "index.html"
     if not index_file.exists():
         return HTMLResponse("<h1>Нет static/index.html</h1>", status_code=500)
+    if (
+        not auth_enabled()
+        and not setup_wizard_active()
+        and not setup_expired_active()
+        and not login_stub_active()
+        and not request.session.get(_WEB_OPEN_SESSION_KEY)
+    ):
+        request.session[_WEB_OPEN_SESSION_KEY] = True
+        try:
+            from core import audit
+            from core.actor import Actor
+            from core.audit_actions import AuditAction, AuditResult
+
+            audit.record(
+                AuditAction.WEB_OPEN,
+                result=AuditResult.OK,
+                actor=Actor.web(None, ip=_client_ip(request)),
+            )
+        except Exception as exc:
+            print(f"[AUDIT] открытие панели: пометка не удалась: {exc}", flush=True)
     return FileResponse(
         index_file,
         headers={
@@ -691,15 +733,16 @@ async def api_setup_complete(body: SetupCompleteBody, request: Request):
     if len(body.password or "") < MIN_WEB_PASSWORD_LEN:
         raise HTTPException(400, f"Пароль не короче {MIN_WEB_PASSWORD_LEN} символов")
 
-    # Атомарный патч секции web одной записью (внутри — ротация
-    # страховки config.json, Этап 1)
+    # Сохраняем имя и секреты через централизованные точки записи
+    # (внутри каждой — ротация страховки config.json, Этап 1).
     from core.config import get_web_config, set_web_config
 
     web = get_web_config()
     web["username"] = username
-    web["password_hash"] = make_password(body.password)
-    web["auth_enabled"] = True
     set_web_config(web)
+    set_request_actor(request)
+    set_web_password(body.password, via="setup")
+    set_web_auth(True, via="setup")
 
     # Код отработал: drop-in удалён, env процесса очищен. Если удаление
     # вдруг не удалось — админ УЖЕ создан и записан, мастер закрыт через
@@ -712,7 +755,7 @@ async def api_setup_complete(body: SetupCompleteBody, request: Request):
         print(f"[WEB] Администратор создан, но код установки не удалён: {e}", flush=True)
     _setup_failed_at = []
     # Создание админа = первый вход (2FA у свежего админа нет)
-    request.session["user"] = username
+    establish_web_session(request, username)
     print(f"[WEB] Создан администратор первичной настройки: {username}", flush=True)
     return {"ok": True}
 
@@ -789,7 +832,7 @@ async def api_login(request: Request, body: LoginBody):
                 "attempts": 0,
             }
             return {"ok": False, "otp_required": True}
-        request.session["user"] = body.username
+        establish_web_session(request, body.username)
         return {"ok": True, "user": body.username}
     _login_register_failure(ip)
     raise HTTPException(401, "Неверный логин или пароль")
@@ -834,7 +877,7 @@ async def api_login_otp(request: Request, body: OtpBody):
         raise HTTPException(400, f"Неверный код (осталось попыток: {remaining})")
 
     _pending_otp = None
-    request.session["user"] = pending["username"]
+    establish_web_session(request, pending["username"])
     return {"ok": True, "user": pending["username"]}
 
 
@@ -856,6 +899,7 @@ async def api_change_password(request: Request, body: PasswordBody):
         raise HTTPException(400, "Старый пароль неверен")
     if len(body.new) < MIN_WEB_PASSWORD_LEN:
         raise HTTPException(400, f"Пароль не короче {MIN_WEB_PASSWORD_LEN} символов")
+    set_request_actor(request)
     set_web_password(body.new)
     return {"ok": True}
 
@@ -1124,7 +1168,8 @@ async def api_recover_confirm(request: Request, body: RecoverConfirmBody):
 
     # Код подтверждён → одноразовый, меняем пароль и логиним
     _pending_recovery = None
-    set_web_password(body.new_password)
+    set_request_actor(request)
+    set_web_password(body.new_password, via="recovery")
     from core.config import get_web_config
     username = get_web_config().get("username", "admin")
 
@@ -1141,7 +1186,7 @@ async def api_recover_confirm(request: Request, body: RecoverConfirmBody):
             pass
         return {"ok": True, "user": username, "otp_required": True}
 
-    request.session["user"] = username
+    establish_web_session(request, username)
 
     # Уведомление best-effort: пароль уже сменён, сбой доставки TG
     # не должен ронять успешное восстановление
@@ -1195,13 +1240,12 @@ async def api_account_set(request: Request, body: AccountBody):
             raise HTTPException(400, "Старый пароль неверен")
         if len(body.new_password) < MIN_WEB_PASSWORD_LEN:
             raise HTTPException(400, f"Пароль не короче {MIN_WEB_PASSWORD_LEN} символов")
-        w["password_hash"] = make_password(body.new_password)
 
+    username = None
     if body.username is not None:
-        u = body.username.strip()
-        if not u:
+        username = body.username.strip()
+        if not username:
             raise HTTPException(400, "Логин не может быть пустым")
-        w["username"] = u
 
     if body.auth_enabled is not None:
         # Включить защиту можно здесь; выключение срезает всю защиту
@@ -1213,17 +1257,26 @@ async def api_account_set(request: Request, body: AccountBody):
                 "Выключение защиты входа требует подтверждения — "
                 "используйте флоу отключения защиты",
             )
-        if not w.get("password_hash"):
+        if not w.get("password_hash") and body.new_password is None:
             raise HTTPException(400, "Сначала задайте пароль")
-        w["auth_enabled"] = True
+
+    if username is not None:
+        w["username"] = username
+        set_web_config(w)
+
+    if body.new_password is not None or body.auth_enabled:
+        set_request_actor(request)
+    if body.new_password is not None:
+        set_web_password(body.new_password, via="account")
+    if body.auth_enabled:
+        set_web_auth(True, via="account")
         # Включили защиту — текущая сессия сгорает: она могла остаться с
         # периода «выключено» (или вообще с чужого входа). Вход заново,
         # с паролем (и 2FA, если включена) — независимо от куки.
         request.session.clear()
 
-    set_web_config(w)
+    w = get_web_config()
     return {"ok": True, "auth_enabled": bool(w.get("auth_enabled")), "username": w.get("username")}
-
 
 # ------------------------------------------------------------------
 # Отключение защиты входа (auth off) — подтверждённая операция.
@@ -1278,7 +1331,7 @@ async def api_auth_disable(request: Request, body: AuthDisableBody):
             headers={"Retry-After": str(wait)},
         )
 
-    from core.config import get_web_config, set_web_config
+    from core.config import get_web_config
     web = get_web_config()
     if not verify_password(body.old, web.get("password_hash", "")):
         _login_register_failure(ip)
@@ -1304,8 +1357,8 @@ async def api_auth_disable(request: Request, body: AuthDisableBody):
         return await _send_disable_code()
 
     # Второго фактора нет: проверенный пароль — подтверждение владельца.
-    web["auth_enabled"] = False
-    set_web_config(web)
+    set_request_actor(request)
+    set_web_auth(False, via="password")
     return {"ok": True, "disabled": True, "channel": "password"}
 
 
@@ -1405,11 +1458,10 @@ async def api_auth_disable_confirm(request: Request, body: AuthDisableConfirmBod
                 raise HTTPException(400, "Неверный код. Попытки исчерпаны — начните заново")
             raise HTTPException(400, f"Неверный код (осталось попыток: {remaining})")
 
+    channel = pending["channel"]
     _pending_disable = None
-    from core.config import get_web_config, set_web_config
-    web = get_web_config()
-    web["auth_enabled"] = False
-    set_web_config(web)
+    set_request_actor(request)
+    set_web_auth(False, via=channel)
     return {"ok": True, "disabled": True}
 
 

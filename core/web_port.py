@@ -58,6 +58,9 @@ def _default_state() -> dict:
         "pid": None,
         "error": None,
         "log": [],
+        # Незакрытая пара аудита (§16.3): снимок актора и op_id. Ключ знает
+        # только панель — раннер про аудит не знает и его не трогает.
+        "audit_op": None,
     }
 
 
@@ -95,6 +98,75 @@ def _log(message: str) -> None:
     entries = list(state.get("log") or [])
     entries.append("[%s] %s" % (datetime.now().strftime("%H:%M:%S"), message))
     write_state(log=entries[-LOG_LIMIT:])
+
+
+# ==================================================================
+# Аудит смены порта (§8.2 — код settings.update)
+# ==================================================================
+# Смена порта перезапускает панель, поэтому пара «начал» → «чем кончилось»
+# (§16.3) закрывается в двух процессах: начало пишет обработчик запроса,
+# финал — тот, кто вернулся на старте и увидел исход в этом же файле
+# состояния (вызов из lifespan, рядом с реконсиляцией обновления).
+#
+# Функции ниже — для слоя панели; раннер (``__main__``) их не зовёт, а
+# импорты внутри тел держат верхний уровень модуля stdlib-only.
+
+def audit_started(old_port: int, new_port: int) -> None:
+    """Пометить начало смены порта и запомнить актора для финала.
+
+    Актор снимается здесь, пока человек «рядом»: дальше сервис убьёт и
+    собственный процесс, и контекст запроса вместе с ним (§6).
+    """
+    from core import audit
+
+    op_id = audit.new_op_id()
+    audit.record(
+        audit.AuditAction.SETTINGS_UPDATE,
+        result=audit.AuditResult.STARTED,
+        op_id=op_id,
+        params={"setting": "web_port", "from": old_port, "to": new_port},
+    )
+    write_state(audit_op={
+        "op_id": op_id,
+        "actor": audit.snapshot(),
+        "from": old_port,
+        "to": new_port,
+        "started_at": datetime.now().isoformat(),
+    })
+
+
+def reconcile_audit() -> None:
+    """Закрыть пару аудита о смене порта по исходу операции.
+
+    Вызывается при старте панели: исход (``done``/``failed``) к этому
+    моменту уже лежит в ``data/web_port.json``. Пометка одна на пару —
+    повторный вход отсекает ``audit.has_final``.
+    """
+    state = read_state()
+    block = state.get("audit_op") or {}
+    op_id = block.get("op_id")
+    status = state.get("status")
+    if not op_id or status not in ("done", "failed"):
+        return
+
+    from core import audit
+    from core.audit_actions import AuditResult
+
+    if not audit.has_final(op_id):
+        ok = status == "done"
+        audit.record(
+            audit.AuditAction.SETTINGS_UPDATE,
+            result=AuditResult.OK if ok else AuditResult.FAILED,
+            op_id=op_id,
+            error=None if ok else state.get("error"),
+            params={
+                "setting": "web_port",
+                "from": block.get("from", state.get("old_port")),
+                "to": block.get("to", state.get("new_port")),
+            },
+            actor=audit.from_snapshot(block.get("actor")),
+        )
+    write_state(audit_op=None)
 
 
 # ==================================================================

@@ -88,7 +88,37 @@ def accept_new_host_key(server, timeout=15):
     old = host_keys.stored_record(server)
     record_server_host_key(str(server.get("id")), presented, overwrite=True)
     host_keys.report_accepted_new(server, old, presented)
+    _audit_host_key_accepted(server, old, presented)
     return presented
+
+
+def _audit_host_key_accepted(server, old, presented) -> None:
+    """Пометка «host key принят вручную».
+
+    Точка выбрана здесь, а не у вызывающих: принять ключ можно из Web,
+    Telegram и консоли, и это одно и то же административное решение —
+    снять пиннинг и довериться тому, что предъявил сервер сейчас.
+
+    В параметрах — только отпечатки: тело ключа в историю не нужно (оно
+    есть в servers.json), а замена отпечатка и есть содержание действия.
+    """
+    try:
+        from core import audit
+        from core.audit_actions import AuditAction, AuditResult
+
+        audit.record(
+            AuditAction.HOST_KEY_ACCEPT,
+            result=AuditResult.OK,
+            server_id=str(server.get("id")) if server.get("id") else None,
+            server_name=server.get("name"),
+            params={
+                "fingerprint": (presented or {}).get("fingerprint"),
+                "previous": (old or {}).get("fingerprint"),
+                "key_type": (presented or {}).get("type"),
+            },
+        )
+    except Exception as exc:  # аудит не ломает принятие ключа
+        print(f"[AUDIT] host key: пометка не удалась: {exc}", flush=True)
 
 
 def get_available_keys():

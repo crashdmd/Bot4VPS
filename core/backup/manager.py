@@ -135,6 +135,7 @@ from .source_selection import (
     build_privileged_source_probe,
     parse_privileged_source_probe,
 )
+from .state_snapshot import SNAPSHOT_FILENAME, snapshot_state_db
 from .storage import LEGACY_ARCHIVE_INVENTORY_SCHEMA_VERSION, LocalBackupStorage
 from .time_utils import (
     local_timezone,
@@ -1529,6 +1530,7 @@ class BackupManager:
         filename = None
         remote_archives: list[Path] = []
         source_is_directory: list[bool] = []
+        metric_session = None
         try:
             if not locks_held:
                 backup_permit = self.coordinator.begin_backup(
@@ -1647,6 +1649,17 @@ class BackupManager:
                             )
                             last_persisted_transfer = transfer_bytes
                     try:
+                        if metric_session is None:
+                            from core.operation_metrics import backup_identity, begin
+
+                            metric_session = begin(backup_identity(
+                                operation_id,
+                                server_id=server_id,
+                                server_name=server.get("name"),
+                                scope="backup.create",
+                            ))
+                            if metric_session is not None:
+                                metric_session.start()
                         exit_code, diagnostics = exec_binary_stream(
                             ssh, server, argv, receive, timeout=600,
                             is_cancelled=lambda: bool(self.operations.get(operation_id)["cancellation"]["requested"]),
@@ -2045,6 +2058,9 @@ class BackupManager:
                 )
             raise safe from exc
         finally:
+            if metric_session is not None:
+                metric_session.stop()
+                metric_session.close()
             if ssh is not None:
                 try: ssh.close()
                 except Exception: pass
@@ -2122,7 +2138,7 @@ class BackupManager:
                 backup_permit = self.coordinator.begin_backup(operation_id, "bot4vps")
             self.operations.transition(operation_id, OperationStatus.RUNNING.value, stage="preflight")
             self.disk.require_creation_allowed()
-            self.storage.create_staging(operation_id, "create")
+            staging_dir = self.storage.create_staging(operation_id, "create")
             staging_created = True
             backup_id = new_backup_id()
             artifact_ref = self._artifact_ref(kind="bot4vps", backup_id=backup_id)
@@ -2164,6 +2180,37 @@ class BackupManager:
                             "Special files запрещены в archive v1",
                         )
                     source_entries.append((source, path, relative, metadata))
+
+            # Слепок state.db — единственный член архива, которого нет в
+            # обходе источника: живая тройка ``.db``/``-wal``/``-shm``
+            # исключена (bot4vps_sources), а в архив едет консистентная копия,
+            # снятая прямо сейчас. Кладётся она по штатному для дерева пути —
+            # иначе restore не знал бы, куда её возвращать (§12.2).
+            snapshot = snapshot_state_db(
+                policy.install_path,
+                staging_dir / SNAPSHOT_FILENAME,
+            )
+            if snapshot.warning:
+                self.operations.add_warnings(
+                    operation_id,
+                    [{"code": "state_db_snapshot_skipped", "message": snapshot.warning}],
+                )
+            extra_entries: list[tuple[str, Path]] = []
+            if snapshot.snapshot is not None:
+                total_files += 1
+                total_source_bytes += snapshot.snapshot.size
+                extra_entries.append((
+                    "payload/"
+                    + policy.install_path.as_posix().lstrip("/")
+                    + "/"
+                    + snapshot.snapshot.relative,
+                    snapshot.snapshot.path,
+                ))
+                if max_source_bytes is not None and total_source_bytes > int(max_source_bytes):
+                    raise BackupError(
+                        ErrorCode.SOURCE_LIMIT_EXCEEDED,
+                        "Источник превышает допустимый размер",
+                    )
 
             archive_progress = _ArchiveProgress(
                 self.operations,
@@ -2275,6 +2322,26 @@ class BackupManager:
                             position = archive_path.stat().st_size if archive_path.exists() else 0
                         if position > int(max_archive_bytes):
                             raise BackupError(ErrorCode.ARCHIVE_LIMIT_EXCEEDED, "Итоговый archive превышает допустимый размер")
+
+                # Вне обхода источника: путь в архиве задан слепком (см. выше).
+                # Файл лежит в staging и во время сборки не меняется, поэтому
+                # проверка inode, как в цикле, здесь не нужна.
+                for arcname, extra_path in extra_entries:
+                    self.disk.require_creation_allowed()
+                    tar_info = archive.gettarinfo(str(extra_path), arcname=arcname)
+                    with open(extra_path, "rb") as extra_stream:
+                        archive.addfile(
+                            tar_info,
+                            archive_progress.reader(extra_stream),
+                        )
+                    archive_progress.finish_file()
+                if extra_entries and max_archive_bytes is not None:
+                    try:
+                        position = archive.fileobj.tell()
+                    except (AttributeError, OSError):
+                        position = archive_path.stat().st_size if archive_path.exists() else 0
+                    if position > int(max_archive_bytes):
+                        raise BackupError(ErrorCode.ARCHIVE_LIMIT_EXCEEDED, "Итоговый archive превышает допустимый размер")
 
             archive_size = archive_path.stat().st_size
             if max_archive_bytes is not None and archive_size > int(max_archive_bytes):
@@ -3135,6 +3202,7 @@ class BackupManager:
         preflight_conflicts = None
         extraction_result = None
         verification = None
+        metric_session = None
 
         def mutation_failure(exc: BackupError | None = None) -> BackupError:
             """Отказ после mutation boundary — никогда не precheck и не успех.
@@ -3576,6 +3644,16 @@ class BackupManager:
             # отменой» уже во время изменения target. Отсюда и до конца операции
             # отмена запрещена.
             self.operations.mark_restore_mutation_started(operation_id)
+            from core.operation_metrics import backup_identity, begin
+
+            metric_session = begin(backup_identity(
+                operation_id,
+                server_id=target_server_id,
+                server_name=target_server.get("name"),
+                scope="backup.restore",
+            ))
+            if metric_session is not None:
+                metric_session.start()
 
             try:
                 removed = 0
@@ -3795,6 +3873,9 @@ class BackupManager:
                     )
             raise safe from exc
         finally:
+            if metric_session is not None:
+                metric_session.stop()
+                metric_session.close()
             if (
                 ssh is not None
                 and target_server is not None

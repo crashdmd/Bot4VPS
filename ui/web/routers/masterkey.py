@@ -187,7 +187,7 @@ async def api_masterkey_new(body: MasterKeyNewBody):
 
     # Порядок: сначала ключ (расшифровка уже невозможна — старый ключ
     # не подходит по определению сценария), затем очистка полей.
-    key = await asyncio.to_thread(secretbox._create_key_exclusive)
+    key = await asyncio.to_thread(secretbox._create_key_exclusive, via="replacement")
     try:
         from cryptography.fernet import Fernet
 

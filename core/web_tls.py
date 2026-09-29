@@ -76,6 +76,106 @@ ACTIONS = ("enable", "disable", "renew")
 
 
 # ==================================================================
+# Аудит HTTPS (§16.3: пара started → финал через перезапуск панели)
+# ==================================================================
+
+# В историю едут метаданные операции, а не её носители: имена файлов и
+# пути — да (иначе не видно, каким сертификатом включили HTTPS), тело
+# сертификата и закрытого ключа — никогда.
+_TLS_AUDIT_PARAM_KEYS = (
+    "mode", "domain", "common_name", "cert_path", "key_path", "force",
+)
+_TLS_AUDIT_PROXY_LIMIT = 20
+
+
+def _audit_action_of(action):
+    """Код аудита по действию раннера (``enable``|``renew``|``disable``)."""
+    from core.audit_actions import AuditAction
+
+    return {
+        "enable": AuditAction.TLS_ENABLE,
+        "renew": AuditAction.TLS_RENEW,
+        "disable": AuditAction.TLS_DISABLE,
+    }.get(str(action))
+
+
+def _tls_audit_params(params: dict) -> dict:
+    """Безопасные метаданные операции HTTPS.
+
+    ``trusted_proxies`` — часть решения о доверии X-Forwarded-*: без них в
+    истории не видно, кому панель разрешила представляться клиентом.
+    """
+    source = params if isinstance(params, dict) else {}
+    values = {
+        key: source[key] for key in _TLS_AUDIT_PARAM_KEYS if source.get(key) is not None
+    }
+    proxies = source.get("trusted_proxies")
+    if isinstance(proxies, (list, tuple)) and proxies:
+        values["trusted_proxies"] = [str(item) for item in proxies[:_TLS_AUDIT_PROXY_LIMIT]]
+    return values
+
+
+def _audit_launch(action: str, params: dict) -> dict:
+    """Пометка «операция HTTPS запущена» + блок для финала в другом процессе.
+
+    Пара обязательна (§16.3): операция длинная и перезапускает саму панель,
+    поэтому финал пишет уже другой процесс — из снимка актора, как это
+    делает обновление панели (core/update/updater.py). Возвращает блок для
+    state; пустой словарь — если действие не из словаря (тогда и финала не
+    будет: писать половину пары хуже, чем не писать её вовсе).
+    """
+    from core import audit
+    from core.audit_actions import AuditResult
+
+    try:
+        code = _audit_action_of(action)
+        if code is None:
+            return {}
+        values = _tls_audit_params(params)
+        op_id = audit.new_op_id()
+        audit.record(
+            code, result=AuditResult.STARTED, op_id=op_id, params=values or None,
+        )
+        return {"op_id": op_id, "action": action, "actor": audit.snapshot()}
+    except Exception as exc:  # аудит не имеет права сорвать запуск HTTPS
+        print("[web_tls] аудит: пометка о запуске не удалась: %s" % exc, flush=True)
+        return {}
+
+
+def _audit_finish(state: dict) -> bool:
+    """Финальная пометка операции HTTPS; ``True`` — пару можно забыть."""
+    from core import audit
+    from core.audit_actions import AuditResult
+
+    try:
+        block = state.get("audit_op") or {}
+        op_id = block.get("op_id")
+        if not op_id:
+            return True
+        code = _audit_action_of(block.get("action") or state.get("action"))
+        if code is None or audit.has_final(op_id):
+            return True
+        status = state.get("status")
+        error = state.get("error")
+        if isinstance(error, dict):
+            error = ": ".join(
+                str(error.get(key)) for key in ("title", "hint") if error.get(key)
+            )
+        audit.record(
+            code,
+            result=AuditResult.OK if status == "done" else AuditResult.FAILED,
+            op_id=op_id,
+            error=error or (None if status == "done" else f"не завершено ({status})"),
+            params=_tls_audit_params(state.get("params") or {}) or None,
+            actor=audit.from_snapshot(block.get("actor")),
+        )
+        return audit.has_final(op_id)
+    except Exception as exc:  # аудит не имеет права сорвать применение config
+        print("[web_tls] аудит: финальная пометка не удалась: %s" % exc, flush=True)
+        return False
+
+
+# ==================================================================
 # Состояние (data/web_tls.json)
 # ==================================================================
 
@@ -93,6 +193,10 @@ def _default_state() -> dict:
         "pid": None,
         "error": None,     # {title, hint} — человекопонятный разбор
         "log": [],
+        # Открытая пара аудита (§16.3): {op_id, action, actor}. Заполняет
+        # launch(), закрывает finalize_config() — возможно, уже другой
+        # процесс панели.
+        "audit_op": None,
     }
 
 
@@ -355,6 +459,10 @@ def launch(params: dict, action: str = "enable", config: dict | None = None) -> 
         pid=None,
         error=None,
         log=[],
+        # Пара аудита открывается здесь и закрывается в finalize_config():
+        # процесс, который первым увидит итог, будет уже другим — панель
+        # перезапускается этой же операцией.
+        audit_op=_audit_launch(action, params),
     )
     cmd = [sys.executable, "-m", "core.web_tls"]
     ts = datetime.now().strftime("%Y%m%d%H%M%S")
@@ -380,29 +488,23 @@ def launch(params: dict, action: str = "enable", config: dict | None = None) -> 
 
 
 def finalize_config() -> None:
-    """Применить/выбросить отложенный config web.tls по итогам операции.
-
-    Вызывается web-слоем (поллинг статуса, reconcile на старте) и CLI
-    (ожидание раннера). При ``done`` provenance применяется целиком, при
-    ``failed`` — отбрасывается: юнит откачен к прежней схеме, config не
-    должен опережать реальность. Терминальность „done/failed“ плюс то, что
-    каждый вызывающий сначала видит свежий state.json, защищают от двойного
-    применения; повторный вызов — no-op (config уже очищен).
-    """
+    """Применить provenance и закрыть аудит терминальной HTTPS-операции."""
     state = read_state()
-    cfg = state.get("config")
-    if not cfg:
-        return
     status = state.get("status")
-    if status in ("pending", "restarting"):
-        # Операция ещё идёт — provenance ждёт итога.
+    if status not in ("done", "failed"):
         return
-    if status == "done":
+
+    cfg = state.get("config")
+    if status == "done" and cfg:
         from core.config import apply_tls_config
 
         apply_tls_config(cfg)
-    # failed (или неизвестный терминал) — юнит откачен, config выбрасываем.
-    write_state(config=None)
+    # ``config`` — provenance изменения режима, а не условие финала аудита:
+    # renew штатно запускается без него.
+    patches = {"config": None}
+    if _audit_finish(state):
+        patches["audit_op"] = None
+    write_state(**patches)
 
 
 # ==================================================================

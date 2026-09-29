@@ -3,7 +3,7 @@ import os
 
 from telegram import InlineKeyboardMarkup, InlineKeyboardButton
 
-from core.storage import load_servers, save_servers, load_groups, is_group_ssl_enabled, find_server
+from core.storage import commit_server, load_groups, is_group_ssl_enabled, find_server
 from core.ssh import get_available_keys, test_connection
 from core.server_wizard import (
     validate_port,
@@ -153,13 +153,7 @@ async def handle_edit_server(update):
         ok, error = await asyncio.to_thread(test_connection, current_server)
 
         if ok:
-            servers = load_servers()
-            for i, s in enumerate(servers):
-                if s["id"] == edit["server"]:
-                    servers[i] = current_server
-                    break
-
-            save_servers(servers)
+            commit_server(current_server)
 
             success = True
             message = "Параметр успешно обновлён."

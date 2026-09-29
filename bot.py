@@ -16,6 +16,7 @@ from telegram.ext import (
 
 # Core
 import core.scripts  # noqa: F401 — register_executor
+from core.actor import Actor, set_actor
 from core.storage import ensure_server_ids
 from core.auth import is_allowed
 from core.config import ConfigCorruptedError, load_config
@@ -78,6 +79,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_allowed(update.effective_user.id):
         await update.message.reply_text("⛔ Доступ запрещён.")
         return
+    # Актор для аудита: ставится сразу после проверки доступа (см. core/actor.py).
+    # Дальше он виден вниз по стеку, включая asyncio.to_thread.
+    set_actor(Actor.telegram(update.effective_user.id))
     await show_main_menu(update)
 
 # Единый экземпляр Application (TG + Web в одном процессе)
@@ -163,6 +167,7 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Единая точка входа для всех текстовых сообщений"""
     if not is_allowed(update.effective_user.id):
         return
+    set_actor(Actor.telegram(update.effective_user.id))
     if await process_key_message(update, context):
         return
     if await process_script_message(update, context):
@@ -182,6 +187,7 @@ async def document_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     if not is_allowed(update.effective_user.id):
         return
+    set_actor(Actor.telegram(update.effective_user.id))
     if await process_service_document(update, context):
         return
     if await process_upload_document(update, context):

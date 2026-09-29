@@ -15,6 +15,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Awaitable, Callable, Dict, List, Optional
 
+from core.actor import Actor, get_actor
 from core.task_history_store import TaskHistoryStore
 
 
@@ -109,6 +110,16 @@ class Task:
     # сериализуемое описание
     kind: str = "custom"
     payload: Dict[str, Any] = field(default_factory=dict)
+    # Снимок действующего субъекта на момент создания задачи (см. core/actor.py).
+    # default_factory, а не простановка в вызывающем коде: так актор берётся
+    # ровно один раз — при рождении задачи, в контексте того, кто её создал,
+    # и ни один путь создания (обычный, повтор упавшей) не может его забыть.
+    # Для повтора это правильно: повтор — новое действие того, кто нажал
+    # «повторить», а исходная задача в истории хранит своего актора.
+    # None — «неизвестно»: так выглядят записи, сделанные до появления поля.
+    actor: Optional[Dict[str, Any]] = field(
+        default_factory=lambda: get_actor().to_dict()
+    )
     # runtime
     started_at: Optional[datetime] = None
     finished_at: Optional[datetime] = None
@@ -182,6 +193,7 @@ class Task:
             "kind": self.kind,
             "payload": self.payload,
             "attempt": self.attempt,
+            "actor": self.actor,
             "created_at": self.created_at.isoformat(),
             "started_at": self.started_at.isoformat() if self.started_at else None,
             "finished_at": self.finished_at.isoformat() if self.finished_at else None,
@@ -237,7 +249,20 @@ class Task:
         if not isinstance(payload, dict):
             raise ValueError("поле payload должно быть объектом")
         if not isinstance(output_lines, list):
-            raise ValueError("поле output_lines должно быть массивом")
+            raise ValueError("поле output_lines должен быть массивом")
+
+        # Актор восстанавливается ровно тем, каким был записан. Без этого
+        # default_factory сработал бы при ЧТЕНИИ истории и подменил бы актора
+        # читателем — ровно тот молчаливый баг, ради которого модуль актора
+        # и заведён. Записи, сделанные до появления поля, актора не имеют:
+        # остаётся None («неизвестно»), а не system — «панель сама» и
+        # «неизвестно, кто» это разные утверждения (§3 плана).
+        raw_actor = data.get("actor")
+        actor = (
+            Actor.from_dict(raw_actor).to_dict()
+            if isinstance(raw_actor, dict) and raw_actor
+            else None
+        )
 
         task = cls(
             id=str(data["id"]),
@@ -248,6 +273,7 @@ class Task:
             created_at=parse_datetime(data.get("created_at"), "created_at", required=True),
             kind=str(data.get("kind") or "custom"),
             payload=dict(payload),
+            actor=actor,
             started_at=parse_datetime(data.get("started_at"), "started_at"),
             finished_at=parse_datetime(data.get("finished_at"), "finished_at"),
             output_lines=[str(line) for line in output_lines],
@@ -447,9 +473,10 @@ class TaskManager:
                         return True
             for t in list(self._running.values()):
                 if t.id == task_id:
-                    t._cancel_event.set()
-                    if t._asyncio_task and not t._asyncio_task.done():
-                        t._asyncio_task.cancel()
+                    if not t._cancel_event.is_set():
+                        t._cancel_event.set()
+                        if t._asyncio_task and not t._asyncio_task.done():
+                            t._asyncio_task.cancel()
                     return True
         return False
 
@@ -607,6 +634,7 @@ class TaskManager:
                     print(f"[TASK] live cb error: {e}", flush=True)
 
         async def runner():
+            metric_session = None
             try:
                 if task._cancel_event.is_set():
                     raise asyncio.CancelledError()
@@ -615,7 +643,22 @@ class TaskManager:
                 if not executor:
                     raise RuntimeError(f"Исполнитель '{task.kind}' не зарегистрирован")
 
-                result = await executor(task.payload, task, progress_cb)
+                from core.operation_metrics import begin, task_identity
+
+                metric_session = begin(task_identity(task))
+                if metric_session is not None:
+                    metric_session.start()
+                work = asyncio.create_task(executor(task.payload, task, progress_cb))
+                try:
+                    result = await asyncio.shield(work)
+                except asyncio.CancelledError:
+                    try:
+                        await work
+                    except BaseException:
+                        pass
+                    task.status = TaskStatus.CANCELLED
+                    task.error = "Отменено"
+                    return
                 task.result = result
 
                 if task._cancel_event.is_set():
@@ -644,6 +687,9 @@ class TaskManager:
                 task.error = str(e)
                 task.result = TaskResult(success=False, error=str(e))
             finally:
+                if metric_session is not None:
+                    metric_session.stop()
+                    metric_session.close()
                 task.finished_at = datetime.now()
                 # Терминальное событие — ДО побудки ожидателей: watcher'ы
                 # live-отчётов снимают метку live_reported сразу после
@@ -691,7 +737,51 @@ class TaskManager:
             self._history.append(task)
             self._history = self._history[-self._history_limit :]
 
+    def _audit_task_event(self, task: Task, kind: str):
+        """Пометка аудита о задаче (§8.2 — «единая точка»).
+
+        Актор берётся из снимка ``Task.actor``, а не из контекста: раннер
+        задачи выполняется в отдельной asyncio-задаче и контекста нажавшего
+        не видит — ровно ради этого снимок и лежит в самой задаче (§6).
+
+        ``op_id`` — производный от id задачи (``task-<id>``), а не
+        сгенерированный: пара «в очереди → финал» должна сойтись и после
+        перезапуска панели, когда никакого номера в памяти уже нет.
+        """
+        try:
+            from core import audit
+            from core.audit_actions import AuditAction, AuditResult
+
+            mapping = {
+                "queued": (AuditAction.TASK_START, AuditResult.STARTED),
+                "finished": (AuditAction.TASK_FINISH, AuditResult.OK),
+                "failed": (AuditAction.TASK_FAIL, AuditResult.FAILED),
+                "cancelled": (AuditAction.TASK_CANCEL, AuditResult.CANCELLED),
+            }
+            action, result = mapping[kind]
+
+            audit.record(
+                action,
+                result=result,
+                server_id=task.server_id,
+                server_name=task.server_name,
+                op_id=f"task-{task.id}",
+                task_id=task.id,
+                error=task.error,
+                params={
+                    "task_name": task.name,
+                    "kind": task.kind,
+                    "status": task.status.value,
+                    "attempt": task.attempt,
+                    "duration_seconds": task.duration_seconds,
+                },
+                actor=audit.from_snapshot(task.actor),
+            )
+        except Exception as e:
+            print(f"[TASK] audit error: {e}", flush=True)
+
     def _emit_task_event(self, task: Task, kind: str):
+        self._audit_task_event(task, kind)
         try:
             from core.event_service import create_event
             from core.event_types import EventType, EventLevel, EventReason

@@ -8,6 +8,7 @@ import { openEventDetail, applyEventsSnapshot } from './monitor.js?v=20260925-ch
 import { openTaskLog, cancelTaskAPI } from './tasks.js?v=20260816-task-history-v3';
 import { openBackupsForServer } from './backup.js?v=20260925-notify-gate-v2';
 import { toggleEmojiPop, bindEmojiPicker } from './emoji_picker.js?v=20260915-emojipick-v1';
+import { renderSpark } from './chart.js?v=20260929-line-context-v31';
 
 /** @deprecated use state.servers */
 export let lastServers = state.servers;
@@ -26,6 +27,7 @@ let lastRunningTaskId = null;
 let historyRenderRevision = 0;
 let quickActionsRevision = 0;
 let quickSetupOpener = null;
+let metricsOpener = null;
 
 // История метрик для графиков (последние 20 значений)
 const metricsHistory = {
@@ -735,6 +737,15 @@ async function openQuickSetupFromCard(id) {
   await quickSetupOpener(serverId);
 }
 
+async function openMetricsFromCard(id) {
+  const serverId = String(id ?? '').trim();
+  if (!serverId) throw new Error('Сервер для метрик не выбран');
+  if (typeof metricsOpener !== 'function') {
+    throw new Error('Раздел метрик недоступен');
+  }
+  await metricsOpener(serverId);
+}
+
 async function renderQuickActions(id) {
   const qa = document.getElementById('srv-quick-actions');
   if (!qa) return;
@@ -1175,6 +1186,7 @@ export async function openServer(id) {
     showPage('server');
     setPage('server');
     metricsNA('загрузка...');
+    loadServerHistory(id);
     startWatchers();
     if (keyMissing) return;
     // Точный SSH — существующий /probe (как в refreshMetrics)
@@ -1348,8 +1360,118 @@ function updateGraph(containerId, data, color) {
   `;
 }
 
+/**
+ * Блок «История за сутки» в карточке сервера — вход в раздел метрик.
+ *
+ * Это не те живые виджеты, что выше: те ходят по SSH каждые 5 секунд, а
+ * здесь — уже собранные пробы из `state.db` (§10.4: открытие истории не
+ * поднимает ни одного SSH-сеанса). Поэтому у блока своя подпись с
+ * возрастом последней точки: два графика рядом не должны читаться как одно
+ * и то же число. Тикает по тому же таймеру карточки, отдельного опроса нет.
+ */
+let historyLastTs = null;
+
+async function loadServerHistory(serverId) {
+  const host = document.getElementById('srv-history');
+  if (!host) return;
+  historyLastTs = null;
+  host.hidden = false;
+  host.removeAttribute('role');
+  host.removeAttribute('tabindex');
+  host.removeAttribute('aria-label');
+  host.removeAttribute('aria-disabled');
+  host.onclick = null;
+  host.onkeydown = null;
+  host.innerHTML = '<div class="srv-history-body"><span class="srv-history-hint">Загрузка…</span></div>';
+  const now = Math.floor(serverNow().getTime() / 1000);
+  let data;
+  try {
+    data = await j(`/api/metrics/servers/${encodeURIComponent(serverId)}?from=${now - 86400}&to=${now}&step=auto`);
+  } catch (e) {
+    if (openServerId === serverId) {
+      host.querySelector('.srv-history-body').innerHTML =
+        `<span class="srv-history-hint">История недоступна: ${esc(e.message)}</span>`;
+    }
+    return;
+  }
+  // Пока грузилось, открыли другой сервер — чужой ряд здесь был бы ошибкой.
+  if (openServerId !== serverId) return;
+  const series = data.series || {};
+  const points = name => (Array.isArray(series[name]) ? series[name] : []);
+  const empty = !points('load1').length && !points('ram_pct').length && !points('disk_max_pct').length;
+
+  host.innerHTML = `
+    <div class="srv-history-head">
+      <span class="srv-history-title">История за сутки</span>
+      <span class="srv-history-hint">пробы из журнала, не live-метрики</span>
+      <span class="srv-history-age" id="srv-history-age">${empty ? 'точек ещё нет' : ''}</span>
+    </div>
+    <div class="srv-history-body">
+      ${empty
+        ? '<span class="srv-history-hint">Данных за сутки нет. Первые точки появятся в течение часа после начала сбора.</span>'
+        : `<div class="srv-history-spark" id="srv-history-spark"></div>
+           <div class="srv-history-legend">
+             <span><i style="background:#60a5fa"></i>загрузка</span>
+             <span><i style="background:#f472b6"></i>память</span>
+             <span><i style="background:#fb923c"></i>диск</span>
+           </div>`}
+    </div>`;
+
+  if (!empty) {
+    renderSpark(document.getElementById('srv-history-spark'), [
+      { points: points('load1'), color: '#60a5fa' },
+      { points: points('ram_pct'), color: '#f472b6' },
+      { points: points('disk_max_pct'), color: '#fb923c' },
+    ], { stepSeconds: data.step === 'hour' ? 3600 : 900, span: 86400, gaps: data.gaps });
+    const last = ['load1', 'ram_pct', 'disk_max_pct']
+      .map(name => points(name).at(-1))
+      .filter(Boolean)
+      .sort((a, b) => Number(b[0]) - Number(a[0]))[0];
+    historyLastTs = last ? Number(last[0]) : null;
+    updateHistoryAge();
+  }
+  host.setAttribute('role', 'button');
+  host.tabIndex = 0;
+  host.setAttribute('aria-label', 'Открыть метрики сервера');
+  let opening = false;
+  const activate = async () => {
+    if (opening) return;
+    opening = true;
+    host.setAttribute('aria-disabled', 'true');
+    try {
+      await openMetricsFromCard(serverId);
+    } catch (error) {
+      toast(error?.message || 'Не удалось открыть метрики сервера', false);
+    } finally {
+      if (host.isConnected) host.removeAttribute('aria-disabled');
+      opening = false;
+    }
+  };
+  host.onclick = activate;
+  host.onkeydown = event => {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      activate();
+    }
+  };
+}
+
+/** Возраст последней точки: живёт по таймеру карточки, без новых запросов. */
+function updateHistoryAge() {
+  const el = document.getElementById('srv-history-age');
+  if (!el) return;
+  if (!historyLastTs) { el.textContent = 'точек ещё нет'; return; }
+  const age = Math.max(0, Math.floor(serverNow().getTime() / 1000) - historyLastTs);
+  const body = age < 90 ? 'меньше минуты назад'
+    : age < 3600 ? `${Math.round(age / 60)} мин назад`
+    : age < 86400 ? `${Math.round(age / 3600)} ч назад`
+    : `${Math.round(age / 86400)} дн назад`;
+  el.textContent = `последняя точка ${body}`;
+}
+
 export async function refreshMetrics() {
   if (!openServerId) return;
+  updateHistoryAge();
   const box = document.getElementById('srv-widgets');
   try {
     const m = await j('/api/servers/' + encodeURIComponent(openServerId) + '/metrics');
@@ -1841,6 +1963,9 @@ export async function submitAddServer() {
 export function bindServerUI(options = {}) {
   quickSetupOpener = typeof options.openQuickSetup === 'function'
     ? options.openQuickSetup
+    : null;
+  metricsOpener = typeof options.openMetrics === 'function'
+    ? options.openMetrics
     : null;
   bindServerListUI();
   document.getElementById('btn-add-server')?.addEventListener('click', openAddServerModal);

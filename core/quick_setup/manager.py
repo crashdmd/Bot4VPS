@@ -6,6 +6,8 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict
 from typing import Optional
 
+from core.actor import in_thread_context
+from core.audit_actions import AuditAction
 from core.storage import (
     ConnectionStateConflictError,
     clear_nftables_input_chain,
@@ -20,6 +22,7 @@ from . import firewall as firewall_mod
 from . import packages as packages_mod
 from . import ssh_access as ssh_access_mod
 from . import system as system_mod
+from .audit_hooks import audited
 from .models import (
     Fail2banStatus,
     LocalSettingsStatus,
@@ -85,13 +88,15 @@ def get_overview(server_id: str, *, check_updates: bool = True) -> QuickSetupOve
     overview.diagnostics = diag_mod.collect(server)
 
     if overview.diagnostics.ssh_ok:
+        # in_thread_context: модули уходят в пул из web-запроса (страница QS),
+        # без обёртки актор теряется молча — см. core/actor.py.
         with ThreadPoolExecutor(max_workers=5) as pool:
-            ssh_status = pool.submit(ssh_access_mod.get_status, server)
-            fw_info = pool.submit(firewall_mod.detect, server)
-            f2b_status = pool.submit(fail2ban_mod.get_status, server)
-            pkg_status = pool.submit(packages_mod.list_packages, server)
+            ssh_status = pool.submit(in_thread_context(ssh_access_mod.get_status), server)
+            fw_info = pool.submit(in_thread_context(firewall_mod.detect), server)
+            f2b_status = pool.submit(in_thread_context(fail2ban_mod.get_status), server)
+            pkg_status = pool.submit(in_thread_context(packages_mod.list_packages), server)
             sys_status = (
-                pool.submit(system_mod.check_updates, server)
+                pool.submit(in_thread_context(system_mod.check_updates), server)
                 if check_updates
                 else None
             )
@@ -148,6 +153,7 @@ def system_check_updates(server_id: str) -> SystemStatus:
     return system_mod.check_updates(_require_server(server_id))
 
 
+@audited(AuditAction.SYSTEM_UPGRADE, paired=True)
 def system_upgrade(server_id: str) -> OpResult:
     return system_mod.upgrade_system(_require_server(server_id))
 
@@ -166,6 +172,11 @@ def packages_list(server_id: str) -> PackagesStatus:
     return packages_mod.list_packages(_require_server(server_id))
 
 
+@audited(
+    AuditAction.PACKAGES_INSTALL,
+    paired=True,
+    params=lambda a: {"packages": list(a.get("names") or [])},
+)
 def packages_install(server_id: str, names: list[str]) -> OpResult:
     return packages_mod.install_packages(_require_server(server_id), names)
 
@@ -189,6 +200,14 @@ def firewall_status(server_id: str) -> dict:
     }
 
 
+@audited(
+    AuditAction.FIREWALL_BACKEND_INSTALL,
+    paired=True,
+    params=lambda a: {
+        "backend": a.get("backend"),
+        "confirm_switch": bool(a.get("confirm_switch")),
+    },
+)
 def firewall_install(
     server_id: str,
     backend: str,
@@ -204,6 +223,14 @@ def firewall_install(
     )
 
 
+@audited(
+    AuditAction.FIREWALL_CHAIN_SELECT,
+    params=lambda a: {
+        "family": a.get("family"),
+        "table": a.get("table"),
+        "chain": a.get("chain"),
+    },
+)
 def firewall_select_nftables_chain(
     server_id: str,
     family: str,
@@ -260,6 +287,15 @@ def firewall_select_nftables_chain(
     )
 
 
+@audited(
+    AuditAction.FIREWALL_BACKEND_SWITCH,
+    paired=True,
+    params=lambda a: {
+        "target": a.get("target"),
+        "confirm": bool(a.get("confirm")),
+        "rules": len(a.get("selected_rules") or []),
+    },
+)
 def firewall_switch(
     server_id: str,
     target: str,
@@ -277,6 +313,15 @@ def firewall_switch(
     )
 
 
+@audited(
+    AuditAction.FIREWALL_BACKEND_SWITCH,
+    paired=True,
+    params=lambda a: {
+        "target": a.get("target"),
+        "mode": "migrate",
+        "confirm": bool(a.get("confirm")),
+    },
+)
 def firewall_migrate(
     server_id: str,
     target: str,
@@ -292,6 +337,15 @@ def firewall_migrate(
     )
 
 
+@audited(
+    AuditAction.FIREWALL_PORT_OPEN,
+    params=lambda a: {
+        "port": a.get("port"),
+        "protocol": a.get("protocol"),
+        "source": a.get("source"),
+        "acknowledge_conflict": bool(a.get("acknowledge_firewall_conflict")),
+    },
+)
 def firewall_open_port(
     server_id: str,
     port: int,
@@ -309,6 +363,15 @@ def firewall_open_port(
     )
 
 
+@audited(
+    AuditAction.FIREWALL_PORT_CLOSE,
+    params=lambda a: {
+        "port": a.get("port"),
+        "protocol": a.get("protocol"),
+        "source": a.get("source"),
+        "acknowledge_conflict": bool(a.get("acknowledge_firewall_conflict")),
+    },
+)
 def firewall_close_port(
     server_id: str,
     port: int,
@@ -326,16 +389,27 @@ def firewall_close_port(
     )
 
 
+@audited(AuditAction.FIREWALL_DISABLE, paired=True)
 def firewall_disable(server_id: str) -> OpResult:
     """Отключить единственный активный firewall (правила сохраняются)."""
     return firewall_mod.disable(_require_server(server_id))
 
 
+@audited(
+    AuditAction.FIREWALL_ENABLE,
+    paired=True,
+    params=lambda a: {"backend": a.get("backend")},
+)
 def firewall_enable(server_id: str, backend: str) -> OpResult:
     """Включить установленный неактивный firewall (без миграции правил)."""
     return firewall_mod.enable(_require_server(server_id), backend)
 
 
+@audited(
+    AuditAction.FIREWALL_BACKEND_REMOVE,
+    paired=True,
+    params=lambda a: {"backend": a.get("backend")},
+)
 def firewall_remove(server_id: str, backend: str) -> OpResult:
     """Удалить firewall (пакет, без purge); для nftables сбросить выбор chain.
 
@@ -365,10 +439,21 @@ def fail2ban_status(server_id: str) -> Fail2banStatus:
     return fail2ban_mod.get_status(_require_server(server_id))
 
 
+@audited(AuditAction.FAIL2BAN_INSTALL, paired=True)
 def fail2ban_install(server_id: str) -> OpResult:
     return fail2ban_mod.install(_require_server(server_id))
 
 
+@audited(
+    AuditAction.FAIL2BAN_SETTINGS,
+    paired=True,
+    params=lambda a: {
+        "ssh_jail_enabled": a.get("ssh_jail_enabled"),
+        "ban_time": a.get("ban_time"),
+        "find_time": a.get("find_time"),
+        "max_retry": a.get("max_retry"),
+    },
+)
 def fail2ban_apply(
     server_id: str,
     *,
@@ -390,18 +475,35 @@ def fail2ban_banned(server_id: str) -> OpResult:
     return fail2ban_mod.list_banned(_require_server(server_id))
 
 
+@audited(
+    AuditAction.SERVICE_RESTART,
+    params=lambda a: {"service": "fail2ban"},
+)
 def fail2ban_restart(server_id: str) -> OpResult:
     return fail2ban_mod.restart(_require_server(server_id))
 
 
+@audited(
+    AuditAction.SERVICE_START,
+    params=lambda a: {"service": "fail2ban"},
+)
 def fail2ban_start(server_id: str) -> OpResult:
     return fail2ban_mod.start(_require_server(server_id))
 
 
+@audited(
+    AuditAction.SERVICE_STOP,
+    params=lambda a: {"service": "fail2ban"},
+)
 def fail2ban_stop(server_id: str) -> OpResult:
     return fail2ban_mod.stop(_require_server(server_id))
 
 
+@audited(
+    AuditAction.FAIL2BAN_UNINSTALL,
+    paired=True,
+    params=lambda a: {"remove_config": bool(a.get("remove_config"))},
+)
 def fail2ban_uninstall(server_id: str, *, remove_config: bool = False) -> OpResult:
     return fail2ban_mod.uninstall(_require_server(server_id), remove_config=remove_config)
 
@@ -410,10 +512,18 @@ def fail2ban_jails(server_id: str) -> OpResult:
     return fail2ban_mod.list_jails(_require_server(server_id))
 
 
+@audited(
+    AuditAction.FAIL2BAN_JAIL_TOGGLE,
+    params=lambda a: {"jail": a.get("jail"), "enabled": bool(a.get("enabled"))},
+)
 def fail2ban_set_jail_enabled(server_id: str, jail: str, *, enabled: bool) -> OpResult:
     return fail2ban_mod.set_jail_enabled(_require_server(server_id), jail, enabled=enabled)
 
 
+@audited(
+    AuditAction.FAIL2BAN_UNBAN,
+    params=lambda a: {"jail": a.get("jail"), "ip": a.get("ip")},
+)
 def fail2ban_unban(server_id: str, jail: str, ip: str) -> OpResult:
     return fail2ban_mod.unban(_require_server(server_id), jail, ip)
 
@@ -422,10 +532,18 @@ def fail2ban_whitelist(server_id: str) -> OpResult:
     return fail2ban_mod.list_whitelist(_require_server(server_id))
 
 
+@audited(
+    AuditAction.FAIL2BAN_WHITELIST_ADD,
+    params=lambda a: {"ip": a.get("ip")},
+)
 def fail2ban_add_whitelist(server_id: str, ip: str) -> OpResult:
     return fail2ban_mod.add_whitelist(_require_server(server_id), ip)
 
 
+@audited(
+    AuditAction.FAIL2BAN_WHITELIST_REMOVE,
+    params=lambda a: {"ip": a.get("ip")},
+)
 def fail2ban_remove_whitelist(server_id: str, ip: str) -> OpResult:
     return fail2ban_mod.remove_whitelist(_require_server(server_id), ip)
 
@@ -442,6 +560,16 @@ def fail2ban_read_configuration(server_id: str, kind: str, filename: str) -> OpR
     return fail2ban_mod.read_configuration(_require_server(server_id), kind, filename)
 
 
+@audited(
+    AuditAction.FAIL2BAN_CONFIG_WRITE,
+    paired=True,
+    params=lambda a: {
+        "kind": a.get("kind"),
+        "filename": a.get("filename"),
+        "create_only": bool(a.get("create_only")),
+        "bytes": len(a.get("content") or ""),
+    },
+)
 def fail2ban_write_configuration(
     server_id: str,
     kind: str,
@@ -459,6 +587,11 @@ def fail2ban_write_configuration(
     )
 
 
+@audited(
+    AuditAction.FAIL2BAN_CONFIG_DELETE,
+    paired=True,
+    params=lambda a: {"kind": a.get("kind"), "filename": a.get("filename")},
+)
 def fail2ban_delete_configuration(server_id: str, kind: str, filename: str) -> OpResult:
     return fail2ban_mod.delete_configuration(_require_server(server_id), kind, filename)
 
@@ -480,6 +613,14 @@ def ssh_accept_host_key(server_id: str) -> dict:
     return accept_new_host_key(_require_server(server_id))
 
 
+@audited(
+    AuditAction.SSH_ACCESS_PORT_CHANGE,
+    paired=True,
+    params=lambda a: {
+        "port": a.get("port"),
+        "acknowledge_conflict": bool(a.get("acknowledge_firewall_conflict")),
+    },
+)
 def ssh_change_port(
     server_id: str,
     port: int,
@@ -493,18 +634,36 @@ def ssh_change_port(
     )
 
 
+@audited(AuditAction.SSH_ACCESS_SERVER_PASSWORD, paired=True)
 def ssh_change_password(server_id: str, password: str) -> OpResult:
     return ssh_access_mod.change_password(_require_server(server_id), password)
 
 
+@audited(
+    AuditAction.SSH_ACCESS_ROOT_LOGIN,
+    paired=True,
+    params=lambda a: {"enabled": bool(a.get("enabled"))},
+)
 def ssh_set_root_login(server_id: str, enabled: bool) -> OpResult:
     return ssh_access_mod.set_root_login(_require_server(server_id), enabled)
 
 
+@audited(
+    AuditAction.SSH_ACCESS_PASSWORD_AUTH,
+    paired=True,
+    params=lambda a: {"enabled": bool(a.get("enabled"))},
+)
 def ssh_set_password_auth(server_id: str, enabled: bool) -> OpResult:
     return ssh_access_mod.set_password_auth(_require_server(server_id), enabled)
 
 
+@audited(
+    AuditAction.SSH_KEY_ADD,
+    params=lambda a: {
+        "key_path": a.get("key_path"),
+        "switch_to_key": bool(a.get("switch_to_key")),
+    },
+)
 def ssh_install_key(
     server_id: str,
     public_key: str,
@@ -520,6 +679,11 @@ def ssh_install_key(
     )
 
 
+@audited(
+    AuditAction.SSH_USER_CREATE,
+    paired=True,
+    params=lambda a: {"username": a.get("username"), "sudo": bool(a.get("sudo"))},
+)
 def ssh_create_user(
     server_id: str,
     username: str,
@@ -540,6 +704,15 @@ def ssh_list_users(server_id: str) -> OpResult:
     return ssh_access_mod.list_users(_require_server(server_id))
 
 
+@audited(
+    AuditAction.SSH_ACCESS_USER_SWITCH,
+    paired=True,
+    params=lambda a: {
+        "username": a.get("username"),
+        "key_path": a.get("key_path"),
+        "allow_without_sudo": bool(a.get("allow_without_sudo")),
+    },
+)
 def ssh_switch_user(
     server_id: str,
     username: str,
@@ -557,6 +730,14 @@ def ssh_switch_user(
     )
 
 
+@audited(
+    AuditAction.SSH_USER_DELETE,
+    paired=True,
+    params=lambda a: {
+        "username": a.get("username"),
+        "remove_home": bool(a.get("remove_home")),
+    },
+)
 def ssh_delete_user(
     server_id: str,
     username: str,
@@ -570,10 +751,18 @@ def ssh_delete_user(
     )
 
 
+@audited(
+    AuditAction.SSH_USER_GRANT_SUDO,
+    params=lambda a: {"username": a.get("username")},
+)
 def ssh_grant_sudo(server_id: str, username: str) -> OpResult:
     return ssh_access_mod.grant_sudo(_require_server(server_id), username)
 
 
+@audited(
+    AuditAction.SSH_USER_REVOKE_SUDO,
+    params=lambda a: {"username": a.get("username")},
+)
 def ssh_revoke_sudo(server_id: str, username: str) -> OpResult:
     return ssh_access_mod.revoke_sudo(_require_server(server_id), username)
 
@@ -609,6 +798,10 @@ def ssh_list_local_free_keys(server_id: str, *, scope: str = "free") -> OpResult
     )
 
 
+@audited(
+    AuditAction.SSH_KEY_ADD,
+    params=lambda a: {"username": a.get("username")},
+)
 def ssh_add_user_key(
     server_id: str,
     username: str,
@@ -622,6 +815,10 @@ def ssh_add_user_key(
     )
 
 
+@audited(
+    AuditAction.SSH_KEY_REMOVE,
+    params=lambda a: {"username": a.get("username"), "fingerprint": a.get("fingerprint")},
+)
 def ssh_remove_user_key(
     server_id: str,
     username: str,
@@ -637,6 +834,10 @@ def ssh_remove_user_key(
     )
 
 
+@audited(
+    AuditAction.SSH_KEY_SELECT,
+    params=lambda a: {"username": a.get("username"), "fingerprint": a.get("fingerprint")},
+)
 def ssh_select_user_key(server_id: str, username: str, fingerprint: str) -> OpResult:
     return ssh_access_mod.select_user_key(
         _require_server(server_id),
@@ -645,6 +846,11 @@ def ssh_select_user_key(server_id: str, username: str, fingerprint: str) -> OpRe
     )
 
 
+@audited(
+    AuditAction.SSH_ACCESS_USER_PASSWORD,
+    paired=True,
+    params=lambda a: {"username": a.get("username")},
+)
 def ssh_set_user_password(
     server_id: str,
     username: str,

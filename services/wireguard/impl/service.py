@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from typing import Any, Awaitable, Callable, Dict, List, Optional
 
+from core.operation_metrics import mark_direct_mutation_started
 from core.integrator import (
     Parameter,
     Service as BaseService,
@@ -169,6 +170,7 @@ class Service(BaseService):
             return TaskResult(success=False, error="Сервер не найден")
         name = validate_profile_name(params.get("name"))
         async with sync_progress(progress_cb) as emit:
+            await asyncio.to_thread(mark_direct_mutation_started)
             info = await asyncio.to_thread(
                 profiles.add_profile, self.manifest.id, server, name, params, emit
             )
@@ -186,6 +188,7 @@ class Service(BaseService):
             return TaskResult(success=False, error="Сервер не найден")
         name = validate_profile_name(params.get("name"))
         async with sync_progress(progress_cb) as emit:
+            await asyncio.to_thread(mark_direct_mutation_started)
             await asyncio.to_thread(profiles.remove_profile, server, name, emit)
         return TaskResult(success=True, output=f"Профиль «{name}» удалён")
 
@@ -198,6 +201,7 @@ class Service(BaseService):
         name = validate_profile_name(params.get("name"))
         enabled = coerce_bool(params.get("enabled"))
         async with sync_progress(progress_cb) as emit:
+            await asyncio.to_thread(mark_direct_mutation_started)
             await asyncio.to_thread(profiles.toggle_profile, server, name, enabled, emit)
         state = "включён" if enabled else "выключен"
         return TaskResult(success=True, output=f"Профиль «{name}» {state}")
@@ -211,6 +215,7 @@ class Service(BaseService):
         old_name = validate_profile_name(params.get("old_name"))
         new_name = validate_profile_name(params.get("new_name"))
         async with sync_progress(progress_cb) as emit:
+            await asyncio.to_thread(mark_direct_mutation_started)
             await asyncio.to_thread(profiles.rename_profile, server, old_name, new_name, emit)
         return TaskResult(success=True, output=f"Профиль «{old_name}» переименован в «{new_name}»")
 
@@ -223,6 +228,7 @@ class Service(BaseService):
             return TaskResult(success=False, error="Сервер не найден")
         name = validate_profile_name(params.get("name"))
         async with sync_progress(progress_cb) as emit:
+            await asyncio.to_thread(mark_direct_mutation_started)
             await asyncio.to_thread(
                 profiles.reissue_profile, self.manifest.id, server, name, params, emit
             )
@@ -239,6 +245,7 @@ class Service(BaseService):
             return TaskResult(success=False, error="Сервер не найден")
         reissue = bool(params.get("reissue"))
         async with sync_progress(progress_cb) as emit:
+            await asyncio.to_thread(mark_direct_mutation_started)
             count = await asyncio.to_thread(migration.migrate, server, emit)
             if reissue:
                 # Перевыпуск без Endpoint бесполезен (свежие clients/*.conf некому
@@ -285,6 +292,7 @@ class Service(BaseService):
         if not server:
             return TaskResult(success=False, error="Сервер не найден")
         async with sync_progress(progress_cb) as emit:
+            await asyncio.to_thread(mark_direct_mutation_started)
             count = await asyncio.to_thread(
                 profiles.reissue_all, self.manifest.id, server, params, emit
             )
@@ -489,6 +497,7 @@ class Service(BaseService):
         server = find_server(server_id)
         if not server:
             return 0
+        mark_direct_mutation_started()
         return profiles.rewrite_client_endpoints(server, endpoint)
 
     def set_endpoint(self, server_id: str, endpoint: Optional[str]) -> Optional[int]:
@@ -547,6 +556,7 @@ class Service(BaseService):
                     new_wg0 = _set_conf_line(new_wg0, "Address", v_addr)
                 if v_port is not None:
                     new_wg0 = _set_conf_line(new_wg0, "ListenPort", v_port)
+                mark_direct_mutation_started()
                 # бэкап с серверным ts; echo пути — для точного отката при провале apply
                 _, bak_out, _ = exec_sudo(
                     ssh, server,
@@ -577,6 +587,7 @@ class Service(BaseService):
             #    иначе без профилей значение теряется, и меню показывает «—»).
             if dns_change:
                 update_cache(self.manifest.id, server_id, dns=v_dns)
+                mark_direct_mutation_started()
                 profiles.rewrite_client_dns(server, v_dns)
 
             # 3b) ListenPort → Endpoint в clients/*.conf

@@ -7,6 +7,13 @@ let taskHistoryRevision = null;
 let securityRevision = null;
 let xuiCacheRevision = null;
 let onlineById = null;   // id -> true/false (до первого снапшота — null)
+let connectedOnce = false;
+
+// Версии модулей — те же, что в app.js: одинаковый адрес импорта означает
+// один экземпляр модуля, то есть общее состояние страницы (импорт «заново»
+// с другим ?v= создал бы вторую копию со своим lastOverview).
+const METRICS_MODULE = './metrics.js?v=20260929-metrics-history-card-v2';
+const AUDIT_MODULE = './audit.js?v=20260929-audit-failure-detail-v24';
 
 export function registerNotificationsRefresh(handler) {
   notificationsRefresh = typeof handler === 'function' ? handler : null;
@@ -22,9 +29,40 @@ export function startSSE() {
   }
 
   es.addEventListener('hello', () => {
+    const reconnected = connectedOnce;
+    connectedOnce = true;
     state.sseConnected = true;
     const core = document.getElementById('core-status');
     if (core) core.innerHTML = '<span class="dot"></span>Core · SSE';
+    // Поток отдаёт свежее, но пропущенное за время разрыва не досылает:
+    // страницы, которые живут историей, перечитывают данные запросом —
+    // иначе вкладка застыла бы на числах до переподключения. На первый
+    // `hello` делать нечего: страница ещё грузит свои данные сама.
+    if (!reconnected) return;
+    import(METRICS_MODULE).then(m => m.reloadMetricsAfterReconnect()).catch(() => {});
+    import(AUDIT_MODULE).then(m => m.reloadAuditAfterReconnect()).catch(() => {});
+  });
+
+  // `event: metrics` — одна проба одного сервера (§11). Открытая страница
+  // метрик дописывает точку; сама страница решает, что с ней делать.
+  es.addEventListener('metrics', (ev) => {
+    if (state.page !== 'metrics') return;
+    let frame;
+    try { frame = JSON.parse(ev.data); } catch (_) { return; }
+    import(METRICS_MODULE).then(m => m.applyMetricsFrame(frame)).catch(() => {});
+  });
+
+  // `event: audit` — сырая append-only запись. Для UI это только сигнал
+  // инвалидации: один frame может создать операцию или изменить её итог.
+  es.addEventListener('audit', (ev) => {
+    let frame;
+    try { frame = JSON.parse(ev.data); } catch (_) { return; }
+    if (state.page === 'history' && state.historyTab === 'actions') {
+      import(AUDIT_MODULE).then(m => m.applyAuditFrame(frame)).catch(() => {});
+    }
+    if (state.page === 'metrics') {
+      import(METRICS_MODULE).then(m => m.applyAuditFrame(frame)).catch(() => {});
+    }
   });
 
   es.addEventListener('snapshot', (ev) => {
@@ -74,7 +112,7 @@ function applySnapshot(data) {
         has_running: !!s.has_running,
       };
     }));
-    import('./servers.js?v=20260924-task-history-head-v1').then(m => {
+    import('./servers.js?v=20260929-metrics-history-card-v2').then(m => {
       if (state.page === 'servers' && m.renderServersFromState) m.renderServersFromState();
     }).catch(() => {});
   }
@@ -86,7 +124,7 @@ function applySnapshot(data) {
       && data.task_history_revision !== taskHistoryRevision) {
     taskHistoryRevision = data.task_history_revision;
     if (state.page === 'history' && state.historyTab === 'queues') {
-      import('./servers.js?v=20260924-task-history-head-v1').then(m => {
+      import('./servers.js?v=20260929-metrics-history-card-v2').then(m => {
         m.loadHistory?.();
       }).catch(() => {});
     }
@@ -114,7 +152,7 @@ function applySnapshot(data) {
     }
     // Открытая карточка сервера — обновить блок «Недавние события»
     if (state.page === 'server') {
-      import('./servers.js?v=20260924-task-history-head-v1').then(m => {
+      import('./servers.js?v=20260929-metrics-history-card-v2').then(m => {
         if (m.refreshOpenServerEvents) m.refreshOpenServerEvents();
         else if (m.openServerId) {
           // fallback: модуль мог ещё не экспортировать helper

@@ -16,10 +16,13 @@ from telegram import InlineKeyboardMarkup, InlineKeyboardButton
 import ipaddress
 
 from core.storage import (
+    commit_server,
+    create_group,
     load_servers,
     save_servers,
     load_groups,
     save_groups,
+    set_group_ssl,
     find_server,
     is_group_ssl_enabled,
 )
@@ -71,12 +74,13 @@ async def _handle_group_ssl(query, data):
         if user_id not in ADD_GROUP_STATE:
             return
         state = ADD_GROUP_STATE[user_id]
-        groups = load_groups()
-        groups.append({
-            "name": state["name"],
-            "ssl_monitor": ssl_monitor
-        })
-        save_groups(groups)
+        # storage.create_group, а не собственный save_groups: там же проверка
+        # уникальности имени и пометка аудита (§8.2) — как при создании из Web.
+        try:
+            create_group(state["name"], ssl_monitor)
+        except ValueError as e:
+            await query.edit_message_text(f"❌ {e}")
+            return
         del ADD_GROUP_STATE[user_id]
         await show_servers(query, "✅ Группа добавлена.")
         return
@@ -84,18 +88,16 @@ async def _handle_group_ssl(query, data):
     # Изменение существующей группы
     group_name = parts[2]
     groups = load_groups()
-    changed = False
-    for group in groups:
-        if group["name"] == group_name:
-            group["ssl_monitor"] = ssl_monitor
-            changed = True
-            break
-
-    if not changed:
+    known = any(group["name"] == group_name for group in groups)
+    if not known:
         await query.edit_message_text("❌ Группа не найдена.")
         return
 
-    save_groups(groups)
+    try:
+        set_group_ssl(group_name, ssl_monitor)
+    except ValueError as e:
+        await query.edit_message_text(f"❌ {e}")
+        return
 
     servers = load_servers()
     changed_servers = False
@@ -126,6 +128,10 @@ async def _handle_group_ssl(query, data):
         changed_servers = True
 
     if changed_servers:
+        # Правка серверов — следствие переключателя группы, а не отдельные
+        # действия: в аудит уже легла одна пометка ``group.ssl_toggle``
+        # (set_group_ssl выше), и 28 записей ``server.update`` на один клик
+        # были бы шумом, скрывающим сам клик.
         save_servers(servers)
 
     if ssl_setup:
@@ -196,7 +202,10 @@ async def _handle_set_edit_group(query, data):
             if server.get("ssl_host"):
                 server["certificate_check"] = True
             else:
-                save_servers(servers)
+                # commit_server — запись файла и пометка аудита одним
+                # действием: смена группы сервера видна в истории так же,
+                # как правка любого другого поля.
+                commit_server(server)
                 await start_ssl_setup(
                     query, [server_id], "group_change",
                     {"type": "server", "value": server_id}
@@ -208,7 +217,7 @@ async def _handle_set_edit_group(query, data):
     else:
         server["certificate_check"] = False
 
-    save_servers(servers)
+    commit_server(server)
     # Если новая группа требует SSL — запускаем проверку
     if ssl_enabled:
         try:

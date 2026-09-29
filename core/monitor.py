@@ -5,6 +5,7 @@ import socket
 import threading
 import time
 from datetime import datetime
+from core.actor import in_thread_context
 from core.storage import (
     load_servers,
     find_server,
@@ -80,6 +81,19 @@ STATUS_EXPIRED = "expired"
 STATUS_ERROR = "error"
 
 
+def _now_stamps() -> tuple[str, int]:
+    """Один момент времени в двух формах: строка для UI и epoch для шкалы.
+
+    Строка ``%Y-%m-%d %H:%M`` — локальная и без секунд, её читает карточка
+    сервера, менять формат нельзя. ``ts_epoch`` (UTC-секунды) пишется
+    рядом и нужен, чтобы метрики, события и аудит ложились на одну шкалу
+    (``plans/AUDIT_AND_METRICS_PLAN.md``, §3): по строке сопоставить
+    нагрузку с действием пользователя нельзя — до 60 секунд сдвига.
+    """
+    now = datetime.now()
+    return now.strftime("%Y-%m-%d %H:%M"), int(now.timestamp())
+
+
 def check_certificate(host):
     context = ssl.create_default_context()
     try:
@@ -87,14 +101,18 @@ def check_certificate(host):
             with context.wrap_socket(sock, server_hostname=host) as ssock:
                 cert = ssock.getpeercert()
     except Exception as e:
+        checked, ts_epoch = _now_stamps()
         return {
             "status": STATUS_ERROR,
             "error": str(e),
-            "checked": datetime.now().strftime("%Y-%m-%d %H:%M")
+            "checked": checked,
+            "ts_epoch": ts_epoch
         }
 
     expires = datetime.strptime(cert["notAfter"], "%b %d %H:%M:%S %Y %Z")
     days_left = (expires - datetime.now()).days
+
+    checked, ts_epoch = _now_stamps()
 
     if days_left < 0:
         status = STATUS_EXPIRED
@@ -107,7 +125,8 @@ def check_certificate(host):
         "status": status,
         "days_left": days_left,
         "expires": expires.strftime("%Y-%m-%d"),
-        "checked": datetime.now().strftime("%Y-%m-%d %H:%M")
+        "checked": checked,
+        "ts_epoch": ts_epoch
     }
 
 
@@ -252,7 +271,7 @@ def refresh_domain_ips(servers) -> None:
 
     try:
         with ThreadPoolExecutor(max_workers=min(8, len(todo))) as ex:
-            list(ex.map(_one, todo))
+            list(ex.map(in_thread_context(_one), todo))
     except Exception as e:
         print(f"[DNS] refresh_domain_ips: {e}", flush=True)
 
@@ -358,9 +377,9 @@ def _probe_light(server: dict) -> tuple[bool, bool]:
 
     ex = ThreadPoolExecutor(max_workers=1 + len(ports))
     try:
-        icmp_f = ex.submit(_icmp)
-        port_f = ex.submit(_tcp, port)
-        fallback_fs = [ex.submit(_tcp, p) for p in ports[1:]]
+        icmp_f = ex.submit(in_thread_context(_icmp))
+        port_f = ex.submit(in_thread_context(_tcp), port)
+        fallback_fs = [ex.submit(in_thread_context(_tcp), p) for p in ports[1:]]
         # SSH-порт — главный критерий: открыт → сервер доступен для работы,
         # остальные зонды не ждём (иначе ICMP-таймаут тянул бы пробу до 2 с
         # даже на живом сервере).
@@ -608,7 +627,7 @@ def ssh_probe_servers(servers):
 
     from concurrent.futures import ThreadPoolExecutor
     with ThreadPoolExecutor(max_workers=min(16, len(todo))) as ex:
-        list(ex.map(_run, todo))
+        list(ex.map(in_thread_context(_run), todo))
 
 
 def update_server_availability(
@@ -654,7 +673,9 @@ def update_server_availability(
 
         availability = entry.get("availability")
 
-        now = datetime.now().strftime("%Y-%m-%d %H:%M")
+        # Строка — для карточки/UI (формат не меняем), epoch — для общей
+        # шкалы с метриками и аудитом. Обе метки ставятся в один момент.
+        now, ts_epoch = _now_stamps()
 
         # system-блок: пишем при ЛЮБОЙ передаче, не под гейтом экономии
         # записи availability. Лёгкие пробы обновляют checked каждую минуту,
@@ -664,14 +685,18 @@ def update_server_availability(
         if system is not None:
             entry["system"] = system
 
-        # Первый запуск / новый сервер
+        # Первый запуск / новый сервер: сравнивать не с чем, первый замер —
+        # не переход. Иначе чистая установка и restore без monitor.json
+        # встречали бы пользователя пачкой CRITICAL «сервер недоступен»
+        # про состояние, которое существовало до панели.
         if availability is None:
             entry["availability"] = {
                 "online": online,
                 "last_error": error,
                 "ssh_error": ssh_error or "",
                 "port_ok": port_ok,
-                "checked": now
+                "checked": now,
+                "ts_epoch": ts_epoch
             }
 
             save_monitor(monitor)
@@ -691,6 +716,10 @@ def update_server_availability(
         if port_ok is not None:
             availability["port_ok"] = port_ok
         availability["checked"] = now
+        # epoch обновляется вместе со строкой и пишется тем же save_monitor:
+        # гейт записи (previous_checked != now) срабатывает ровно тогда,
+        # когда меняется string-метка, поэтому пара всегда согласована.
+        availability["ts_epoch"] = ts_epoch
 
         # Лёгкие пробы идут каждые несколько секунд (SSE-петля): файл пишем
         # только при реальном изменении статуса либо раз в минуту (гранулярность
@@ -701,25 +730,29 @@ def update_server_availability(
             or (ssh_error is not None and previous_ssh_error != ssh_error)
             or (port_ok is not None and previous_port_ok != port_ok)
         )
+        transitioned = previous_online != online
+        transition = None
+        if transitioned:
+            from core import state_db
+            transition = state_db.insert_availability_transition(
+                server["id"], server.get("name"), online, error=error, ts=ts_epoch
+            )
         if changed or system_changed or previous_checked != now:
             save_monitor(monitor)
 
-    if previous_online == online:
+    if not transitioned:
         return None
 
-    if online:
-        return {
-            "server_id": server["id"],
-            "server_name": server["name"],
-            "event": "online"
-        }
-
-    return {
+    result = {
         "server_id": server["id"],
         "server_name": server["name"],
-        "event": "offline",
-        "error": error
+        "event": "online" if online else "offline",
+        "transition_id": transition.get("id") if transition else None,
+        "transition_ts": transition.get("ts", ts_epoch) if transition else ts_epoch,
     }
+    if not online:
+        result["error"] = error
+    return result
 
 def check_server_availability(server):
     """
@@ -792,7 +825,7 @@ async def availability_monitor_job(context):
     events: list[dict] = []
     if servers:
         with ThreadPoolExecutor(max_workers=min(16, len(servers))) as ex:
-            for event in ex.map(_probe, servers):
+            for event in ex.map(in_thread_context(_probe), servers):
                 if event:
                     events.append(event)
 
@@ -831,23 +864,40 @@ async def online_monitor_job(context):
     список «Серверы» и карточка видят актуальный IP всегда.
     """
     from concurrent.futures import ThreadPoolExecutor
+    from core import metrics
     from core.storage import load_servers
 
     servers = load_servers()
 
     def _collect(server: dict) -> None:
         try:
-            check_server_availability(server)
+            # Возврат принимается осознанно: в нём уже лежат load/ram/disk,
+            # собранные тем же SSH-раундом, — до этапа 2 они молча
+            # выбрасывались.
+            info, event = check_server_availability(server)
+            # Запись метрик — здесь, и только здесь (§7.1): проба уже
+            # сделана, чисел в info достаточно, новых SSH-подключений
+            # ноль. Живую карточку (/probe) не пишем намеренно — она
+            # опрашивается раз в 5 секунд и смещала бы ряд (§7.5).
+            #
+            # Условие записи — metrics_ok (есть load И общий объём памяти),
+            # а не info["ssh"]: SSH может подключиться, а команда сбора не
+            # уложиться в потолок — и точка из одних NULL соврала бы
+            # «тишиной» вместо честной дыры (§7.4). Частичный сбор виден в
+            # stdout строками «Info timeout/partial» внутри _probe_ssh.
+            metrics.record_sample(server, info)
         except Exception as e:
             print(
                 f"[SYSTEM SYNC] Ошибка для {server.get('name', '?')}: {e}",
                 flush=True,
             )
 
-    # Параллельно: серверы собираются за ~max(SSH), а не за сумму
+    # Параллельно: серверы собираются за ~max(SSH), а не за сумму.
+    # in_thread_context — иначе актор (кто инициировал сбор) молча потеряется
+    # в пуле и запись аудита получит system (core/actor.py).
     if servers:
         with ThreadPoolExecutor(max_workers=min(8, len(servers))) as ex:
-            list(ex.map(_collect, servers))
+            list(ex.map(in_thread_context(_collect), servers))
 
     refresh_domain_ips(servers)
 

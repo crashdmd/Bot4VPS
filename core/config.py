@@ -121,9 +121,9 @@ def load_config():
 
     if not CONFIG_FILE.exists():
 
-        save_config(DEFAULT_CONFIG)
+        save_config(copy.deepcopy(DEFAULT_CONFIG))
 
-        return DEFAULT_CONFIG.copy()
+        return copy.deepcopy(DEFAULT_CONFIG)
 
     try:
 
@@ -154,12 +154,17 @@ def load_config():
     changed = False
     for key, value in DEFAULT_CONFIG.items():
         if key not in config:
-            config[key] = value
+            # Копия, а не общий объект: вызывающий код правит полученный
+            # конфиг на месте (``web["totp_secret"] = …``), и без копии
+            # секрет осел бы в самом DEFAULT_CONFIG — то есть утёк бы в
+            # следующий файл, созданный из дефолтов (там уже нет ключа, и
+            # гейт мастер-ключа справедливо отказывается писать).
+            config[key] = copy.deepcopy(value)
             changed = True
     monitor = config.setdefault("monitor", {})
     for name, settings in DEFAULT_CONFIG["monitor"].items():
         if name not in monitor:
-            monitor[name] = settings
+            monitor[name] = copy.deepcopy(settings)
             changed = True
     logs = config.setdefault("logs", {})
     for name, default in DEFAULT_CONFIG["logs"].items():
@@ -610,6 +615,38 @@ def set_logs_limits(tasks=None, events=None):
     if events is not None:
         merged["events"] = int(events)
     _patch_config_keys({"logs": merged})
+    _audit_setting("history_limits", value=merged)
+
+
+# ==========================================================
+# Аудит изменений настроек (§8.2, код settings.update)
+# ==========================================================
+
+def _audit_setting(setting: str, **params) -> None:
+    """Пометка «настройка изменена» — там же, где меняется config.json.
+
+    Один код на все настройки: словарь действий отвечает на вопрос «что за
+    операция» (``settings.update``), а какая именно настройка — это деталь,
+    она идёт в ``params`` вместе со значением. Заводить ``theme.update`` и
+    ``timezone.update`` значило бы плодить коды под каждый переключатель.
+
+    Секретов здесь быть не должно (§13): для пароля резервных копий
+    пишется только флаг ``configured``, само значение не попадает в
+    историю ни в каком виде.
+
+    Актор — из контекста: сюда приходят Web-роутер и консоль, и оба входа
+    обязаны попадать в историю одинаково.
+    """
+    try:
+        from core import audit
+
+        audit.record(
+            audit.AuditAction.SETTINGS_UPDATE,
+            result=audit.AuditResult.OK,
+            params={"setting": setting, **params},
+        )
+    except Exception as exc:  # аудит не имеет права сломать настройку
+        print(f"[AUDIT] настройка {setting}: пометка не удалась: {exc}", flush=True)
 
 
 # ==========================================================
@@ -826,6 +863,7 @@ def set_ui_theme(theme: str) -> str:
     if theme not in UI_THEMES:
         raise ValueError("ui_theme: неизвестная тема «%s»" % theme)
     _patch_config_keys({"ui_theme": theme})
+    _audit_setting("theme", value=theme)
     return theme
 
 
@@ -945,16 +983,26 @@ def get_stored_backup_password() -> str:
     return decrypt(str(_read_config_raw().get(BACKUP_PASSWORD_KEY) or "").strip())
 
 
-def set_stored_backup_password(password: str | None) -> None:
-    """Сохранить пароль бэкапов (enc1:) или убрать его (None/'')."""
+def set_stored_backup_password(password: str | None, *, via: str = "settings") -> None:
+    """Сохранить пароль бэкапов (enc1:) или убрать его (None/'').
+
+    ``via`` — через какой вход: ``settings`` (карточка настроек),
+    ``recovery`` (аварийное удаление забытого пароля через 2FA/TG-код) или
+    ``cli`` (консоль). Актор отвечает «кто», ``via`` — «откуда»: у обоих
+    web-путей актор один и тот же, а разница между «сменил пароль» и «снёс
+    забытый аварийным путём» для истории существенная.
+    """
     from core.secretbox import encrypt
 
     if password is None or password == "":
         _patch_config_keys({BACKUP_PASSWORD_KEY: ""})
+        _audit_setting("backup_password", via=via, configured=False)
         return
     if not isinstance(password, str) or len(password) > BACKUP_PASSWORD_MAX_LEN:
         raise ValueError(f"Пароль бэкапов — непустая строка до {BACKUP_PASSWORD_MAX_LEN} символов")
     _patch_config_keys({BACKUP_PASSWORD_KEY: encrypt(password)})
+    # Только факт «пароль задан»: значение обязано остаться вне истории (§13).
+    _audit_setting("backup_password", via=via, configured=True)
 
 
 def get_telegram_config():
@@ -1058,6 +1106,7 @@ def set_host_timezone_config(timezone_name: str) -> str:
     except (ZoneInfoNotFoundError, ValueError) as exc:
         raise ValueError("host_timezone должен быть IANA ID") from exc
     _patch_config_keys({"host_timezone": timezone_name})
+    _audit_setting("timezone", value=timezone_name)
     return timezone_name
 
 

@@ -2,9 +2,14 @@ import os
 import secrets
 from typing import Optional, Tuple
 
-from core.storage import load_servers, save_servers, is_group_ssl_enabled
+from core.storage import (
+    add_server,
+    commit_server,
+    find_server,
+    is_group_ssl_enabled,
+    load_servers,
+)
 from core.ssh import test_connection
-from core.storage import find_server, load_servers, save_servers
 
 
 def validate_port(port_str: str) -> Tuple[bool, Optional[int], str]:
@@ -78,9 +83,9 @@ def save_new_server(
     """Сохраняет новый сервер и возвращает его id."""
     server = build_server_dict(state, auth_type, password, key_path)
 
-    servers = load_servers()
-    servers.append(server)
-    save_servers(servers)
+    # Пометка аудита — в storage.add_server: и Web, и визард Telegram
+    # приходят сюда, и «кто завёл сервер» должно записываться в одном месте.
+    add_server(server)
 
     # Доменный адрес: сразу резолвим host_ip в monitor.json — IP в списке
     # «Серверы» не должен ждать тика system_sync. Best-effort: сбой DNS
@@ -131,7 +136,9 @@ def update_server_field(server_id: str, field: str, value: any) -> Tuple[bool, s
             else:
                 server[field] = value
 
-            save_servers(servers)
+            # Пометка аудита — там же, где запись файла (core/storage):
+            # в params попадёт только то, что действительно изменилось.
+            commit_server(server)
             return True, "Параметр успешно обновлён."
 
     return False, "Сервер не найден."
@@ -146,13 +153,7 @@ def update_ssl_host(server_id: str, ssl_host: str) -> bool:
     server["ssl_host"] = ssl_host.strip()
     server["certificate_check"] = True
 
-    servers = load_servers()
-    for i, item in enumerate(servers):
-        if item["id"] == server_id:
-            servers[i] = server
-            break
-
-    save_servers(servers)
+    commit_server(server)
 
     from core.monitor import update_server_certificate
     update_server_certificate(server)

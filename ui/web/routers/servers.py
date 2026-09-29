@@ -367,11 +367,24 @@ async def api_exec(server_id: str, body: ExecBody):
 async def api_reboot(server_id: str):
     try:
         from core.storage import find_server
-        from core.servers import reboot_server
+        from core.servers import reboot_server_with_readiness
         server = find_server(server_id)
         if not server:
             raise HTTPException(404, "Сервер не найден")
-        return {"ok": await asyncio.to_thread(reboot_server, server)}
+        # Без ожидания readiness: ответ приходит за секунды после dispatch,
+        # а возвращение сервера показывает карточка собственным поллингом
+        # (watchers уже опрашивают её каждые 3-5 с). Ожидание до двух минут
+        # внутри запроса — 5xx от любого прокси с коротким read-timeout
+        # при фактически принятой перезагрузке.
+        outcome = await asyncio.to_thread(
+            reboot_server_with_readiness, server, wait_readiness=False
+        )
+        return {
+            "ok": outcome.accepted,
+            "ready": outcome.ready,
+            "attempts": outcome.attempts,
+            "waited_sec": outcome.waited_sec,
+        }
     except HTTPException:
         raise
     except Exception as e:
@@ -635,7 +648,9 @@ async def api_keys_list():
 @router.patch("/api/servers/{server_id}")
 async def api_server_update(server_id: str, body: ServerUpdate):
     try:
-        from core.storage import find_server, load_servers, save_servers, is_group_ssl_enabled
+        from core.storage import (
+            commit_server, find_server, load_servers, is_group_ssl_enabled,
+        )
 
         server = find_server(server_id)
         if not server:
@@ -705,7 +720,10 @@ async def api_server_update(server_id: str, body: ServerUpdate):
         if target.get("auth_type") == "password":
             target.pop("key_path", None)
 
-        save_servers(servers)
+        # commit_server — тоже и запись в файл, и пометка аудита: params
+        # соберутся по сравнению с сохранённой записью, а не по телу
+        # запроса, поэтому в историю попадёт то, что реально изменилось.
+        commit_server(target)
 
         # Домен сервера мог измениться — освежим host_ip сразу (для IP-хостов
         # refresh_domain_ips ничего не делает, лишнего DNS-трафика нет).
@@ -741,7 +759,7 @@ async def api_server_update(server_id: str, body: ServerUpdate):
 @router.post("/api/servers")
 async def api_server_create(body: ServerCreate):
     try:
-        from core.storage import load_servers, save_servers, is_group_ssl_enabled
+        from core.storage import add_server, is_group_ssl_enabled
         import secrets
 
         if body.auth_type not in ("password", "key"):
@@ -809,12 +827,11 @@ async def api_server_create(body: ServerCreate):
             except ValueError:
                 server["ssl_host"] = body.host.strip()
 
-        servers = load_servers()
-        servers.append(server)
-        save_servers(servers)
+        # Запись в конфигурацию идёт через storage.add_server: пометка
+        # аудита живёт там, где меняется файл, а не в роутере (§8.2).
+        add_server(server)
 
-        # IP доменного сервера — сразу, не ждать тика system_sync:
-        # список «Серверы» показывает host_ip с первого появления строки.
+        # IP доменного сервера — сразу, не ждать тика system_sync:        # список «Серверы» показывает host_ip с первого появления строки.
         try:
             from core.monitor import refresh_domain_ips
             await asyncio.to_thread(refresh_domain_ips, [server])
@@ -874,12 +891,10 @@ async def api_server_create(body: ServerCreate):
 @router.delete("/api/servers/{server_id}")
 async def api_server_delete(server_id: str):
     try:
-        from core.storage import load_servers, save_servers
-        servers = load_servers()
-        new = [s for s in servers if s.get("id") != server_id]
-        if len(new) == len(servers):
+        from core.storage import delete_server
+        removed = delete_server(server_id)
+        if removed is None:
             raise HTTPException(404, "Сервер не найден")
-        save_servers(new)
         # Реестр ключей: секция удалённого сервера больше не нужна.
         try:
             from core.quick_setup import key_registry

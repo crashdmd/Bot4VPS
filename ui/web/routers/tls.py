@@ -67,6 +67,28 @@ async def _start(params: dict, action: str, config: dict | None) -> dict:
     return {"ok": True, "status": "pending", "action": action, "pid": pid}
 
 
+def _audit_cert_upload(cert_bytes: int, key_bytes: int) -> None:
+    """Пометка «рабочая пара сертификат+ключ панели подменена».
+
+    Пишется здесь, а не в web_tls: загрузка — шаг до «Применить», юнит и
+    config ещё не тронуты, поэтому пары ``started`` → финал у неё нет. В
+    параметрах — размеры принятых файлов, без имён: имя файла с компьютера
+    администратора в журнал панели не нужно, а сам факт подмены ключа —
+    нужно.
+    """
+    try:
+        from core import audit
+        from core.audit_actions import AuditAction, AuditResult
+
+        audit.record(
+            AuditAction.TLS_CERT_UPLOAD,
+            result=AuditResult.OK,
+            params={"cert_bytes": cert_bytes, "key_bytes": key_bytes},
+        )
+    except Exception as exc:  # аудит не имеет права сорвать загрузку
+        print(f"[AUDIT] TLS: загрузка пары не отмечена: {exc}", flush=True)
+
+
 # ==================================================================
 # Состояние
 # ==================================================================
@@ -270,6 +292,7 @@ async def api_tls_upload(
                     path.unlink()
                 except OSError:
                     pass
+        _audit_cert_upload(len(blobs["cert"]), len(blobs["key"]))
         return {
             "ok": True,
             "cert_path": str(CERT_FILE),
