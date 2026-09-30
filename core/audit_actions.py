@@ -226,6 +226,7 @@ class AuditResult(str, Enum):
     """
 
     STARTED = "started"
+    AWAITING_RULE_SELECTION = "awaiting_rule_selection"
     OK = "ok"
     FAILED = "failed"
     CANCELLED = "cancelled"
@@ -361,6 +362,7 @@ def codes_matching_title(query: str) -> list[str]:
 # актора есть подпись.
 RESULT_TITLES: dict[str, str] = {
     AuditResult.STARTED.value: "Начато",
+    AuditResult.AWAITING_RULE_SELECTION.value: "Ожидается выбор правил",
     AuditResult.OK.value: "Успешно",
     AuditResult.FAILED.value: "Ошибка",
     AuditResult.CANCELLED.value: "Отменено",
@@ -383,3 +385,4 @@ def actor_label(actor_type: Any, actor_id: Any) -> str:
     """
     kind = ACTOR_TYPE_TITLES.get(str(actor_type), str(actor_type or ""))
     return f"{actor_id} · {kind}" if actor_id else kind
+

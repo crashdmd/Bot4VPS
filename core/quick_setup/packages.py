@@ -142,6 +142,9 @@ def install_packages(server: dict, names: list[str]) -> OpResult:
     messages: list[str] = []
     try:
         ssh = create_ssh_client(server, timeout=20)
+        from core.operation_metrics import measure
+
+        measure(ssh)
         package_manager = detect(ssh, server)
         resolved = package_manager.aliases_for(pkg_names)
         if not resolved:

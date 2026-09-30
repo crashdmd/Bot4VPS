@@ -26,7 +26,7 @@ import { state, setPage, setMetricsRange } from './state.js';
 // `chart.js` дважды (с `?v=` и без) и держит **два** экземпляра модуля, а
 // незаверсионированный ещё и кэширует навсегда — правка рисунка не доехала бы
 // до пользователя.
-import { renderTimeline, renderSpark, destroyChart, resultColor, normalizeGaps, selectMark } from './chart.js?v=20260929-line-context-v31';
+import { renderTimeline, renderSpark, destroyChart, resultColor, normalizeGaps, selectMark } from './chart.js?v=20260930-availability-event-metrics-v2';
 
 const RANGE_KEY = 'bot4vps_metrics_range';
 const REFRESH_MS = 60000;
@@ -66,6 +66,8 @@ let visibleMarksById = new Map();
 let zoomWindow = null;
 let timer = null;
 let auditRefreshTimer = null;
+let availabilityRefreshTimer = null;
+let availabilityListenerBound = false;
 // Значения раскрытой строки берём у самой легенды: overview и timeline могут
 // агрегировать разные наборы точек, а пользователю важны числа на одном экране.
 let openChartLegendValues = null;
@@ -76,6 +78,22 @@ let openedBy = { openServer: null, openAuditRecord: null };
 
 export function bindMetricsUI(handlers = {}) {
   openedBy = { ...openedBy, ...handlers };
+  if (!availabilityListenerBound) {
+    availabilityListenerBound = true;
+    window.addEventListener('bot4vps:availability-changed', event => {
+      const serverIds = event.detail?.serverIds;
+      const serverId = state.metricsOpenServerId;
+      if (state.page !== 'metrics' || !serverId || !Array.isArray(serverIds)
+          || !serverIds.some(id => String(id) === serverId)) return;
+      if (availabilityRefreshTimer) clearTimeout(availabilityRefreshTimer);
+      availabilityRefreshTimer = setTimeout(() => {
+        availabilityRefreshTimer = null;
+        if (state.page === 'metrics' && state.metricsOpenServerId === serverId) {
+          loadMetrics({ keepWindow: true }).catch(() => {});
+        }
+      }, AUDIT_REFRESH_MS);
+    });
+  }
   document.querySelectorAll('[data-metrics-range]').forEach(button => {
     button.addEventListener('click', () => {
       const range = button.dataset.metricsRange;
@@ -667,7 +685,13 @@ function drawChart(data, win) {
             <span class="metrics-mark-meta">
               ${esc(mark.actor?.id ? `${mark.actor.type}: ${mark.actor.id}` : (mark.actor?.type || 'система'))}
               · ${esc(formatServerDateTime(mark.ts))}${mark.ts_end && mark.ts_end !== mark.ts ? `–${esc(formatServerDateTime(mark.ts_end))}` : ''}
-              · ${esc(mark.availability ? (mark.availability.online ? 'онлайн' : 'недоступен') : (mark.result === 'incomplete' ? 'Нет записи о завершении' : mark.result))}
+              · ${esc(mark.availability
+                ? (mark.availability.online ? 'онлайн' : 'недоступен')
+                : (mark.result === 'incomplete'
+                  ? 'Нет записи о завершении'
+                  : (mark.result === 'awaiting_rule_selection'
+                    ? 'Ожидается выбор правил'
+                    : mark.result)))}
             </span>
           </button>
           ${mark.availability ? '' : `<button type="button" class="metrics-mark-open" data-mark-open="${esc(mark.audit_id)}"
@@ -903,6 +927,10 @@ export function closeMetricsView() {
   if (auditRefreshTimer) {
     clearTimeout(auditRefreshTimer);
     auditRefreshTimer = null;
+  }
+  if (availabilityRefreshTimer) {
+    clearTimeout(availabilityRefreshTimer);
+    availabilityRefreshTimer = null;
   }
   windowAround = null;
   state.metricsAt = null;

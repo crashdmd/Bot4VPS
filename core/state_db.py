@@ -612,6 +612,44 @@ def insert_sample(sample: dict, *, disks: Optional[Sequence[dict]] = None) -> bo
     return bool(_write(work, False))
 
 
+def insert_offline_anchor(sample: dict, *, disks: Optional[Sequence[dict]] = None) -> bool:
+    """Write an offline anchor without replacing a factual same-second sample."""
+    server_id = sample.get("server_id")
+    timestamp = sample.get("ts")
+    if not server_id or not isinstance(timestamp, int):
+        return False
+
+    def work(conn: sqlite3.Connection) -> bool:
+        existing = conn.execute(
+            "SELECT source FROM metric_samples WHERE server_id = ? AND ts = ?",
+            (server_id, timestamp),
+        ).fetchone()
+        if existing is not None and existing["source"] == "offline":
+            return True
+        if existing is not None:
+            predecessor_ts = timestamp - 1
+            while conn.execute(
+                "SELECT 1 FROM metric_samples WHERE server_id = ? AND ts = ? "
+                "UNION SELECT 1 FROM metric_disks WHERE server_id = ? AND ts = ?",
+                (server_id, predecessor_ts, server_id, predecessor_ts),
+            ).fetchone() is not None:
+                predecessor_ts -= 1
+            conn.execute(
+                "UPDATE metric_disks SET ts = ? WHERE server_id = ? AND ts = ?",
+                (predecessor_ts, server_id, timestamp),
+            )
+            conn.execute(
+                "UPDATE metric_samples SET ts = ? WHERE server_id = ? AND ts = ?",
+                (predecessor_ts, server_id, timestamp),
+            )
+        conn.execute(_insert_sql("metric_samples", SAMPLE_COLUMNS, replace=True), _row(sample, SAMPLE_COLUMNS))
+        for disk in disks or ():
+            conn.execute(_insert_sql("metric_disks", DISK_COLUMNS, replace=True), _row(disk, DISK_COLUMNS))
+        return True
+
+    return bool(_write(work, False))
+
+
 def insert_operation_metric_peak(
     peak: dict,
     *,
@@ -904,6 +942,22 @@ def hourly_successor(
         "WHERE server_id = ? AND hour_ts > ? AND hour_ts <= ? "
         "ORDER BY hour_ts ASC LIMIT 1",
         (server_id, int(after), int(upper)),
+        path,
+    )
+
+
+def availability_predecessor(
+    server_id: str,
+    *,
+    before: int,
+    path: Optional[Path] = None,
+) -> Optional[dict]:
+    """Последний известный переход доступности до начала окна."""
+    return _one(
+        "SELECT id, server_id, server_name, ts, online, error "
+        "FROM availability_transitions WHERE server_id = ? AND ts < ? "
+        "ORDER BY ts DESC, id DESC LIMIT 1",
+        (server_id, int(before)),
         path,
     )
 

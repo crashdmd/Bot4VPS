@@ -10,6 +10,7 @@ import re
 import shlex
 from typing import Any, Callable, Optional
 
+from core.operation_metrics import measure
 from core.ssh import create_ssh_client, exec_sudo
 
 from .models import Fail2banStatus, OpResult
@@ -717,6 +718,7 @@ def install(server: dict) -> OpResult:
     ssh = None
     try:
         ssh = create_ssh_client(server, timeout=20)
+        measure(ssh)
         installed, package_manager, package_error = _package_state(ssh, server)
         if not package_manager:
             try:
@@ -797,6 +799,7 @@ def _service_action(server: dict, action: str) -> OpResult:
     ssh = None
     try:
         ssh = create_ssh_client(server, timeout=15)
+        measure(ssh)
         installed, _, _ = _package_state(ssh, server)
         if not installed:
             return OpResult(ok=False, message="Fail2ban не установлен", error="not_installed")
@@ -840,6 +843,7 @@ def uninstall(server: dict, *, remove_config: bool = False) -> OpResult:
     ssh = None
     try:
         ssh = create_ssh_client(server, timeout=20)
+        measure(ssh)
         installed, package_manager, _ = _package_state(ssh, server)
         if not installed:
             return OpResult(
@@ -979,6 +983,7 @@ def apply_settings(
     ssh = None
     try:
         ssh = create_ssh_client(server, timeout=15)
+        measure(ssh)
         installed, _, _ = _package_state(ssh, server)
         if not installed:
             return OpResult(False, "Fail2ban не установлен", error="not_installed")
@@ -1153,6 +1158,7 @@ def set_jail_enabled(server: dict, jail: str, *, enabled: bool) -> OpResult:
     ssh = None
     try:
         ssh = create_ssh_client(server, timeout=15)
+        measure(ssh)
         installed, _, _ = _package_state(ssh, server)
         if not installed:
             return OpResult(False, "Fail2ban не установлен", error="not_installed")
@@ -1289,6 +1295,7 @@ def unban(server: dict, jail: str, ip: str) -> OpResult:
     ssh = None
     try:
         ssh = create_ssh_client(server, timeout=15)
+        measure(ssh)
         if jail not in _active_jails(ssh, server):
             return OpResult(False, "Jail не обнаружен среди активных", error="jail_not_discovered")
         code, out, err = _exec(ssh, server, f"fail2ban-client set {shlex.quote(jail)} unbanip {shlex.quote(ip)}", 30)
@@ -1376,6 +1383,7 @@ def _mutate_whitelist(server: dict, ip: str, remove: bool) -> OpResult:
     ssh = None
     try:
         ssh = create_ssh_client(server, timeout=15)
+        measure(ssh)
         running, _, service_error = _service_state(ssh, server)
         if not running:
             return OpResult(
@@ -1537,6 +1545,7 @@ def write_configuration(
     ssh = None
     try:
         ssh = create_ssh_client(server, timeout=15)
+        measure(ssh)
         running, _, service_error = _service_state(ssh, server)
         if not running:
             return OpResult(
@@ -1630,6 +1639,7 @@ def delete_configuration(server: dict, kind: str, filename: str) -> OpResult:
     ssh = None
     try:
         ssh = create_ssh_client(server, timeout=15)
+        measure(ssh)
         running, _, service_error = _service_state(ssh, server)
         if not running:
             return OpResult(

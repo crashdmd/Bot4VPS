@@ -1,10 +1,10 @@
 import { tickClock, syncServerClock, showPage, toast, parseEmoji, initEmojiObserver, confirmAction, bindTelegramHealthDialog } from './ui.js';
 import { loadDashboard, loadSummary, bindDashboard, stopDashMetrics, updateDashboardData, updateDashboardState } from './dashboard.js?v=20260924-history-v1';
-import { loadEvents, EVENTS_LIMIT, openEventDetail, applyEventsSnapshot, initSystemMonitor, stopSystemMonitor } from './monitor.js?v=20260925-changelog-md-v2';
+import { loadEvents, EVENTS_LIMIT, openEventDetail, applyEventsSnapshot, initSystemMonitor, stopSystemMonitor } from './monitor.js?v=20260930-about-history-modal-v1';
 import { loadServers, loadQueues, loadHistory, loadGroupsAndKeys,
   bindServerUI, stopWatchers, openServer, closeGroupsPanel, lastServerTab,
   startSshProbeLoop, stopSshProbeLoop,
-} from './servers.js?v=20260929-metrics-history-card-v2';
+} from './servers.js?v=20260930-availability-event-metrics-v2';
 import { loadScripts, bindScriptsUI } from './scripts.js?v=20260913-hostkey-v2';
 import { loadWireguard, bindWireguardUI, stopWgTimers, openWgServerById } from './wireguard.js?v=20260914-wgsrv-icon-v7';
 import { loadDocker, bindDockerUI, stopDockerTimers, openDockerServerById } from './docker.js?v=20260915-dksrv-v21';
@@ -13,7 +13,7 @@ import { bindTasksUI } from './tasks.js?v=20260914-autoupdate-v2';
 import { loadFiles, bindFilesUI } from './files.js?v=20260913-hostkey-v2';
 import { bindEditorUI } from './editor.js?v=20260815-scripts-table-v1';
 import { bindTerminalUI, closeTerminal } from './terminal.js?v=20260905-glassblue-v2';
-import { startSSE, registerNotificationsRefresh } from './sse.js?v=20260929-line-context-v32';
+import { startSSE, registerNotificationsRefresh } from './sse.js?v=20260930-availability-event-metrics-v2';
 import { state, setPage, clearQuickSetupServer } from './state.js';
 import { j, esc } from './api.js';
 import { resumeBackgroundTasks } from './taskmodal.js?v=20260914-v3';
@@ -23,10 +23,10 @@ import { bindGlobalSearch } from './search.js?v=20260927-audit-ui-v15';
 import { bindBackupUI, loadBackups, stopBackupTimers } from './backup.js?v=20260925-notify-gate-v2';
 import {
   openMetricsPage, closeMetricsView, bindMetricsUI, metricsFromUrl,
-} from './metrics.js?v=20260929-metrics-history-card-v2';
+} from './metrics.js?v=20260930-availability-event-metrics-v2';
 import {
   loadAudit, resetAuditPage, auditFromUrl, openAuditRecord, bindAuditUI, refreshAudit,
-} from './audit.js?v=20260929-audit-failure-detail-v24';
+} from './audit.js?v=20260930-firewall-rule-selection-v1';
 
 const QUICK_SETUP_MODULE_URL = './quick_setup.js?v=20260915-sysfix-v1';
 const quickSetupModule = import(QUICK_SETUP_MODULE_URL).catch(error => {

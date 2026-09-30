@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any, Callable, Optional
 
 from core.host_keys import HostKeyMismatchError, stored_record
+from core.operation_metrics import measure
 from core.ssh import create_ssh_client, exec_plain, exec_sudo
 from core.storage import (
     ConnectionStateConflictError,
@@ -583,6 +584,7 @@ def change_port(
     try:
         # Управляющая сессия на старом порту живёт до финальной проверки.
         control_ssh = create_ssh_client(working_server, timeout=15)
+        measure(control_ssh)
 
         stage = "firewall_preflight"
         try:
@@ -1455,6 +1457,7 @@ def change_password(server: dict, new_password: str) -> OpResult:
         username = _valid_username(working.get("user") or "")
         old_password = expected.get("password")
         ssh = create_ssh_client(working, timeout=15)
+        measure(ssh)
         exec_fn, sudo_ok = _resolve_exec(ssh, working)
         if sudo_ok:
             changed, detail = _set_remote_password(ssh, working, username, new_password)
@@ -1609,6 +1612,7 @@ def _mutate_sshd_setting(
     try:
         working, _ = _fresh_server(server)
         ssh = create_ssh_client(working, timeout=15)
+        measure(ssh)
         code, out, err = exec_sudo(
             ssh,
             working,
@@ -1919,6 +1923,7 @@ def install_pubkey(
         working, expected = _fresh_server(server)
         username = _valid_username(working.get("user") or "")
         ssh = create_ssh_client(working, timeout=15)
+        measure(ssh)
         # Ключ пишется в собственный ~/.ssh текущего пользователя: если sudo
         # не подтверждён — работаем без него (без chown, файлы и так его).
         exec_fn, sudo_ok = _resolve_exec(ssh, working)
@@ -2104,6 +2109,7 @@ def create_user(
     try:
         working, _ = _fresh_server(server)
         ssh = create_ssh_client(working, timeout=15)
+        measure(ssh)
         if _account(ssh, working, username):
             return OpResult(ok=False, message="Пользователь уже существует", error="user_exists")
         code, out, err = exec_sudo(
@@ -2197,6 +2203,7 @@ def grant_sudo(server: dict, username: str) -> OpResult:
     try:
         working, _ = _fresh_server(server)
         ssh = create_ssh_client(working, timeout=15)
+        measure(ssh)
         account = _account(ssh, working, username)
         if not account:
             return OpResult(ok=False, message="Пользователь не существует", error="user_not_found")
@@ -2287,6 +2294,7 @@ def revoke_sudo(server: dict, username: str) -> OpResult:
                 error="self_revoke_forbidden",
             )
         ssh = create_ssh_client(working, timeout=15)
+        measure(ssh)
         account = _account(ssh, working, username)
         if not account:
             return OpResult(ok=False, message="Пользователь не существует", error="user_not_found")
@@ -3056,6 +3064,7 @@ def add_key_to_user(
     try:
         working, expected = _fresh_server(server)
         ssh = create_ssh_client(working, timeout=15)
+        measure(ssh)
         exec_fn, sudo_ok = _resolve_exec(ssh, working)
         # Реестр ключей: сверка с сервером при операции с ключами
         # (активный сервер, тот же сеанс).
@@ -3238,6 +3247,7 @@ def select_user_key(server: dict, username: str, fingerprint: str) -> OpResult:
                 error="local_key_not_found",
             )
         ssh = create_ssh_client(working, timeout=15)
+        measure(ssh)
         exec_fn, _sudo_ok = _resolve_exec(ssh, working)
         # Реестр ключей: сверка с сервером при операции с ключами.
         _sync_key_registry(ssh, working, exec_fn, _sudo_ok)
@@ -3331,6 +3341,7 @@ def remove_key_from_user(
     try:
         working, expected = _fresh_server(server)
         ssh = create_ssh_client(working, timeout=15)
+        measure(ssh)
         exec_fn, sudo_ok = _resolve_exec(ssh, working)
         # Реестр ключей: сверка с сервером при операции с ключами
         # (активный сервер, тот же сеанс).
@@ -3557,6 +3568,7 @@ def set_user_password(
             return change_password(server, new_password)
         working, _ = _fresh_server(server)
         ssh = create_ssh_client(working, timeout=15)
+        measure(ssh)
         rights_ok, rights_error = _manager_rights_ok(ssh, working)
         if not rights_ok:
             return OpResult(ok=False, message=rights_error, error="no_rights")
@@ -3981,6 +3993,7 @@ def delete_user(server: dict, username: str, *, remove_home: bool = False) -> Op
                 error=current_error,
             )
         ssh = create_ssh_client(working, timeout=15)
+        measure(ssh)
         account = _account(ssh, working, username)
         if not account:
             return OpResult(ok=False, message="Пользователь не существует", error="user_not_found")

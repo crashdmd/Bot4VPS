@@ -77,7 +77,7 @@ function scheduleUpdatePolling() {
  *  width — CSS-ширина карточки (по умолчанию 640px; changelog-модалки
  *  передают шире — переносам строк нужен простор).
  *  cancelText = null — модалка с единственной кнопкой (просмотр). */
-function openActionModal({ title, bodyHtml, okText, cancelText = 'Отмена', danger = false, onOk, width = 'min(640px,100%)' }) {
+function openActionModal({ title, bodyHtml, okText, cancelText = 'Отмена', danger = false, onOk, width = 'min(640px,100%)', closeOnBackdrop = true }) {
   const modal = document.createElement('div');
   modal.className = 'modal-bg';
   modal.innerHTML = `<div class="modal" style="width:${width}">
@@ -96,7 +96,7 @@ function openActionModal({ title, bodyHtml, okText, cancelText = 'Отмена',
   // Выше контента страницы (максимум ~81 у выпадающих меню).
   modal.style.zIndex = '90';
   const close = () => modal.remove();
-  modal.addEventListener('click', ev => { if (ev.target === modal) close(); });
+  modal.addEventListener('click', ev => { if (closeOnBackdrop && ev.target === modal) close(); });
   modal.querySelector('[data-act="cancel"]')?.addEventListener('click', close);
   modal.querySelector('[data-act="ok"]').onclick = async () => {
     const okBtn = modal.querySelector('[data-act="ok"]');
@@ -147,6 +147,7 @@ export async function showHistoryModal() {
     cancelText: 'Закрыть',
     danger: true,
     width: 'min(760px,100%)',
+    closeOnBackdrop: false,
     onOk: async () => showRollbackConfirm(data.version),
   });
 }

@@ -398,6 +398,9 @@ class Service(BaseService):
 
     def _card_check_installed(self, ssh, server) -> None:
         from core.integrator import StepError
+        from core.operation_metrics import measure
+
+        measure(ssh)
         installed = ssh_probe(ssh, server,
             f"test -x {templates.XUI_FOLDER}/x-ui && echo yes || echo no") == "yes"
         if not installed:

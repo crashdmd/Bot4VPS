@@ -4,11 +4,11 @@ import { toast, showPage, bindPasswordToggles, parseEmoji, confirmAction, format
 import { state, setServers, setGroups, setKeys, setOpenServer, setPage, setServerGroupTab, setServerSort, setServerQuery as updateServerQuery } from './state.js';
 import { WIREGUARD_ICON, DOCKER_ICON, XUI_ICON } from './icons.js?v=20260905-brandicons-v3';
 import { openTerminal, closeTerminal } from './terminal.js?v=20260904-termfit-v1';
-import { openEventDetail, applyEventsSnapshot } from './monitor.js?v=20260925-changelog-md-v2';
+import { openEventDetail, applyEventsSnapshot } from './monitor.js?v=20260930-about-history-modal-v1';
 import { openTaskLog, cancelTaskAPI } from './tasks.js?v=20260816-task-history-v3';
 import { openBackupsForServer } from './backup.js?v=20260925-notify-gate-v2';
 import { toggleEmojiPop, bindEmojiPicker } from './emoji_picker.js?v=20260915-emojipick-v1';
-import { renderSpark } from './chart.js?v=20260929-line-context-v31';
+import { renderSpark } from './chart.js?v=20260930-availability-event-metrics-v2';
 
 /** @deprecated use state.servers */
 export let lastServers = state.servers;

@@ -462,6 +462,10 @@ def light_check_servers(servers: list[dict]) -> list[dict]:
                 )
                 if event:
                     events.append(event)
+                    if event["event"] == "online":
+                        record_online_anchor(server, event)
+                    else:
+                        record_offline_anchor(server, event)
             except Exception as e:
                 print(f"[LIGHT CHECK] Ошибка для {server.get('name', '?')}: {e}", flush=True)
             finally:
@@ -754,6 +758,34 @@ def update_server_availability(
         result["error"] = error
     return result
 
+def record_online_anchor(server: dict, event: dict | None) -> None:
+    """Записать метрику в момент подтверждённого возврата сервера online."""
+    if not event or event.get("event") != "online":
+        return
+    try:
+        from core import metrics
+
+        info, _ = check_server_availability(server)
+        metrics.record_sample(server, info, source=metrics.SOURCE_ONLINE)
+    except Exception as e:
+        print(f"[METRICS] online anchor for {server.get('name', '?')}: {e}", flush=True)
+
+
+def record_offline_anchor(server: dict, event: dict | None) -> None:
+    """Записать нулевую метрику в фактический момент перехода offline."""
+    if not event or event.get("event") != "offline":
+        return
+    transition_ts = event.get("transition_ts")
+    if not isinstance(transition_ts, int):
+        return
+    try:
+        from core import metrics
+
+        metrics.record_offline_anchor(server, now=transition_ts)
+    except Exception as e:
+        print(f"[METRICS] offline anchor for {server.get('name', '?')}: {e}", flush=True)
+
+
 def check_server_availability(server):
     """
     Проверяет доступность сервера и обновляет состояние мониторинга.
@@ -817,7 +849,13 @@ async def availability_monitor_job(context):
         """Лёгкая проба одного сервера: возвращает событие смены или None."""
         try:
             online, port_ok = _probe_light(server)
-            return update_server_availability(server, online=online, error="", port_ok=port_ok)
+            event = update_server_availability(server, online=online, error="", port_ok=port_ok)
+            if event:
+                if event["event"] == "online":
+                    record_online_anchor(server, event)
+                else:
+                    record_offline_anchor(server, event)
+            return event
         except Exception as e:
             print(f"[AVAILABILITY] {server.get('name', '?')}: {e}", flush=True)
             return None

@@ -234,7 +234,7 @@ async def execute_script_ex(
             pass
 
     if error == "Отменено":
-        return TaskResult(success=False, output=output, error="Отменено")
+        return TaskResult(success=False, output=output, error="Отменено", cancelled=True)
     if error and exit_code is None and not warnings:
         return TaskResult(success=False, output=output, error=error)
     if exit_code == 0:

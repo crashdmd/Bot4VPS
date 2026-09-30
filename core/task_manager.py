@@ -9,6 +9,7 @@ Task хранит сериализуемое описание (kind + payload);
 from __future__ import annotations
 
 import asyncio
+import threading
 import uuid
 from dataclasses import dataclass, field, asdict
 from datetime import datetime
@@ -475,8 +476,6 @@ class TaskManager:
                 if t.id == task_id:
                     if not t._cancel_event.is_set():
                         t._cancel_event.set()
-                        if t._asyncio_task and not t._asyncio_task.done():
-                            t._asyncio_task.cancel()
                     return True
         return False
 
@@ -635,58 +634,75 @@ class TaskManager:
 
         async def runner():
             metric_session = None
-            try:
-                if task._cancel_event.is_set():
-                    raise asyncio.CancelledError()
+            cancel_token = None
+            cancel_watcher = None
+            work = None
 
-                executor = get_executor(task.kind)
-                if not executor:
-                    raise RuntimeError(f"Исполнитель '{task.kind}' не зарегистрирован")
-
-                from core.operation_metrics import begin, task_identity
-
-                metric_session = begin(task_identity(task))
-                if metric_session is not None:
-                    metric_session.start()
-                work = asyncio.create_task(executor(task.payload, task, progress_cb))
-                try:
-                    result = await asyncio.shield(work)
-                except asyncio.CancelledError:
-                    try:
-                        await work
-                    except BaseException:
-                        pass
-                    task.status = TaskStatus.CANCELLED
-                    task.error = "Отменено"
-                    return
+            def apply_result(result: TaskResult) -> None:
                 task.result = result
-
-                if task._cancel_event.is_set():
-                    task.status = TaskStatus.CANCELLED
-                    task.error = "Отменено"
-                elif result.success:
+                if result.success:
                     task.status = (
                         TaskStatus.SUCCESS_WITH_WARNINGS
                         if (result.warnings or result.exit_code == 30)
                         else TaskStatus.SUCCESS
                     )
+                    task.error = None
                 elif result.cancelled:
-                    # Отмена исполнителем (например, кнопка «✕» на загрузке
-                    # образа): это решение пользователя, а не сбой — без
-                    # CRITICAL-события и без записи в failure-стрик очереди.
                     task.status = TaskStatus.CANCELLED
                     task.error = result.error or "Отменено пользователем"
                 else:
                     task.status = TaskStatus.FAILED
                     task.error = result.error or f"exit {result.exit_code}"
+
+            async def watch_cancel(flag: threading.Event) -> None:
+                while not flag.is_set():
+                    if task._cancel_event.is_set():
+                        flag.set()
+                        return
+                    await asyncio.sleep(0.2)
+
+            try:
+                if task._cancel_event.is_set():
+                    apply_result(TaskResult(success=False, error="Отменено", cancelled=True))
+                    return
+
+                executor = get_executor(task.kind)
+                if not executor:
+                    raise RuntimeError(f"Исполнитель '{task.kind}' не зарегистрирован")
+
+                from core import cancel_flags
+                from core.operation_metrics import begin, task_identity
+
+                metric_session = begin(task_identity(task))
+                if metric_session is not None:
+                    metric_session.start()
+                thread_cancel_flag = threading.Event()
+                cancel_token = cancel_flags.set_flag(thread_cancel_flag)
+                cancel_watcher = asyncio.create_task(watch_cancel(thread_cancel_flag))
+                work = asyncio.create_task(executor(task.payload, task, progress_cb))
+                try:
+                    result = await asyncio.shield(work)
+                except asyncio.CancelledError:
+                    try:
+                        result = await work
+                    except asyncio.CancelledError:
+                        result = TaskResult(success=False, error="Отменено", cancelled=True)
+                    except Exception as exc:
+                        result = TaskResult(success=False, error=str(exc))
+                apply_result(result)
             except asyncio.CancelledError:
-                task.status = TaskStatus.CANCELLED
-                task.error = "Отменено"
+                apply_result(TaskResult(success=False, error="Отменено", cancelled=True))
             except Exception as e:
-                task.status = TaskStatus.FAILED
-                task.error = str(e)
-                task.result = TaskResult(success=False, error=str(e))
+                apply_result(TaskResult(success=False, error=str(e)))
             finally:
+                if cancel_watcher is not None:
+                    cancel_watcher.cancel()
+                    try:
+                        await cancel_watcher
+                    except asyncio.CancelledError:
+                        pass
+                if cancel_token is not None:
+                    cancel_flags.reset(cancel_token)
                 if metric_session is not None:
                     metric_session.stop()
                     metric_session.close()
@@ -774,6 +790,7 @@ class TaskManager:
                     "status": task.status.value,
                     "attempt": task.attempt,
                     "duration_seconds": task.duration_seconds,
+                    "cancel_requested": task._cancel_event.is_set(),
                 },
                 actor=audit.from_snapshot(task.actor),
             )
@@ -865,6 +882,7 @@ class TaskManager:
                     "status": task.status.value,
                     "attempt": task.attempt,
                     "duration_seconds": task.duration_seconds,
+                    "cancel_requested": task._cancel_event.is_set(),
                     "reason": reason_map[kind].value,
                     "error": (task.error or "")[:500] or None,
                     "output": (

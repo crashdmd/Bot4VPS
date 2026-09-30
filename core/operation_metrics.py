@@ -1,6 +1,7 @@
 """Фактический пик метрик во время разрешённых операций."""
 from __future__ import annotations
 
+import contextlib
 import contextvars
 import math
 import threading
@@ -13,7 +14,7 @@ from core import state_db
 from core.audit_actions import AuditAction, AuditResult
 
 
-OPERATION_METRIC_INTERVAL_SECONDS = 10.0
+MEASURE_MIN_INTERVAL_SECONDS = 60.0
 
 
 @dataclass(frozen=True)
@@ -143,6 +144,9 @@ _UNIT_ACTION_SPECS = {
 
 _active_operation_ids: contextvars.ContextVar[frozenset[str]] = contextvars.ContextVar(
     "operation_metric_ids", default=frozenset()
+)
+_current_metric_session: contextvars.ContextVar[Optional["OperationMetricSession"]] = (
+    contextvars.ContextVar("operation_metric_session", default=None)
 )
 _active_direct_operation: contextvars.ContextVar[Any] = contextvars.ContextVar(
     "direct_operation", default=None
@@ -289,109 +293,156 @@ def _peak_score(metrics: dict) -> float | None:
 
 
 class OperationMetricSession:
-    """Sampler одного operation id; сохраняет новый реальный максимум сразу."""
+    """Собирает метрики только через SSH-клиент текущей операции."""
 
     def __init__(
         self,
         identity: OperationIdentity,
         *,
         active: bool,
-        token: contextvars.Token[frozenset[str]] | None,
+        ids_token: contextvars.Token[frozenset[str]] | None,
+        session_token: contextvars.Token[Optional["OperationMetricSession"]] | None,
     ) -> None:
         self.identity = identity
         self._active = active
-        self._token = token
-        self._stop = threading.Event()
+        self._ids_token = ids_token
+        self._session_token = session_token
         self._state_lock = threading.Lock()
-        self._thread: threading.Thread | None = None
-        self._started = False
+        self._last_attempt_mono: float | None = None
+        self._measured = False
+        self._peak: tuple[dict, tuple[dict, ...]] | None = None
+        self._finalized = False
 
     @property
     def active(self) -> bool:
         return self._active
 
     def start(self) -> None:
+        """Совместимый lifecycle-хук: фонового сборщика больше нет."""
+
+    def measure(self, ssh) -> bool:
         if not self._active:
-            return
+            return False
         with self._state_lock:
-            if self._started or self._stop.is_set():
-                return
-            self._started = True
-            self._thread = threading.Thread(
-                target=self._sample_until_stopped,
-                name=f"operation-metrics-{self.identity.operation_id[:24]}",
-                daemon=True,
-            )
-            self._thread.start()
+            if self._finalized:
+                return False
+            now_mono = time.monotonic()
+            if (
+                self._last_attempt_mono is not None
+                and now_mono - self._last_attempt_mono < MEASURE_MIN_INTERVAL_SECONDS
+            ):
+                return False
+            self._last_attempt_mono = now_mono
 
-    def stop(self) -> None:
-        if not self._active:
-            return
-        with self._state_lock:
-            self._stop.set()
-
-    def close(self) -> None:
-        self.stop()
-        if self._token is not None:
-            _active_operation_ids.reset(self._token)
-            self._token = None
-
-    def _sample_until_stopped(self) -> None:
-        while not self._stop.is_set():
-            self._capture()
-            if self._stop.wait(OPERATION_METRIC_INTERVAL_SECONDS):
-                return
-
-    def _capture(self) -> None:
         try:
-            from core.servers import collect_server_metrics
+            from core import metrics
+            from core.servers import collect_info_on_client
             from core.storage import find_server
 
             server = find_server(self.identity.server_id)
             if not server:
-                return
-            outcome = collect_server_metrics(server)
-            if str(outcome.get("status") or "") != "captured":
-                return
-            metrics = outcome.get("metrics") or {}
-            severity = _peak_score(metrics)
-            if severity is None:
-                return
+                return False
+            info = collect_info_on_client(ssh)
+            if not info or not info.get("metrics_ok"):
+                return False
             captured_ts = int(time.time())
-            peak = {
-                "operation_id": self.identity.operation_id,
-                "server_id": self.identity.server_id,
-                "server_name": self.identity.server_name,
-                "scope": self.identity.scope,
-                "captured_ts": captured_ts,
-                "severity": severity,
-                "load1": metrics.get("load1"),
-                "load5": metrics.get("load5"),
-                "load15": metrics.get("load15"),
-                "cpu_count": metrics.get("cpu_count"),
-                "ram_used_kb": metrics.get("ram_used_kb"),
-                "ram_total_kb": metrics.get("ram_total_kb"),
-                "swap_used_kb": metrics.get("swap_used_kb"),
-                "swap_total_kb": metrics.get("swap_total_kb"),
-                "uptime_sec": metrics.get("uptime_sec"),
-            }
+            values = info.get("metrics") or {}
+            severity = _peak_score(values)
+            peak = None
+            if severity is not None:
+                try:
+                    uptime_sec = int(float(info.get("uptime_seconds")))
+                except (TypeError, ValueError):
+                    uptime_sec = None
+                peak = {
+                    "operation_id": self.identity.operation_id,
+                    "server_id": self.identity.server_id,
+                    "server_name": self.identity.server_name,
+                    "scope": self.identity.scope,
+                    "captured_ts": captured_ts,
+                    "severity": severity,
+                    "load1": values.get("load1"),
+                    "load5": values.get("load5"),
+                    "load15": values.get("load15"),
+                    "cpu_count": values.get("cpu_count"),
+                    "ram_used_kb": values.get("ram_used_kb"),
+                    "ram_total_kb": values.get("ram_total_kb"),
+                    "swap_used_kb": values.get("swap_used_kb"),
+                    "swap_total_kb": values.get("swap_total_kb"),
+                    "uptime_sec": uptime_sec,
+                }
             with self._state_lock:
-                if self._stop.is_set():
-                    return
-                state_db.insert_operation_metric_peak(peak, disks=metrics.get("mounts") or ())
+                if self._finalized:
+                    return False
+                self._measured = True
+                if peak is not None and (
+                    self._peak is None or peak["severity"] > self._peak[0]["severity"]
+                ):
+                    self._peak = (peak, tuple(values.get("mounts") or ()))
+            metrics.record_sample(server, info, now=captured_ts, source=metrics.SOURCE_OPERATION)
+            return True
         except Exception:
-            print("[OPERATION METRICS] peak collection failed", flush=True)
+            return False
+
+    def finalize(self) -> None:
+        if not self._active:
+            return
+        with self._state_lock:
+            if self._finalized:
+                return
+            self._finalized = True
+            peak = self._peak
+        if peak is None:
+            return
+        try:
+            state_db.insert_operation_metric_peak(peak[0], disks=peak[1])
+        except Exception:
+            print("[OPERATION METRICS] peak persistence failed", flush=True)
+
+    def stop(self) -> None:
+        self.finalize()
+
+    def close(self) -> None:
+        self.finalize()
+        if self._session_token is not None:
+            _current_metric_session.reset(self._session_token)
+            self._session_token = None
+        if self._ids_token is not None:
+            _active_operation_ids.reset(self._ids_token)
+            self._ids_token = None
 
 
 def begin(identity: OperationIdentity | None) -> OperationMetricSession | None:
-    """Начать ownership; вложенный владелец того же op_id ничего не собирает."""
+    """Начать ownership; вложенный владелец того же op_id остаётся пассивным."""
     if identity is None:
         return None
     active_ids = _active_operation_ids.get()
     if identity.operation_id in active_ids:
-        return OperationMetricSession(identity, active=False, token=None)
-    token = _active_operation_ids.set(active_ids | {identity.operation_id})
-    return OperationMetricSession(identity, active=True, token=token)
+        return OperationMetricSession(
+            identity, active=False, ids_token=None, session_token=None
+        )
+    ids_token = _active_operation_ids.set(active_ids | {identity.operation_id})
+    session = OperationMetricSession(
+        identity, active=True, ids_token=ids_token, session_token=None
+    )
+    session._session_token = _current_metric_session.set(session)
+    return session
+
+
+def measure(ssh) -> bool:
+    """Снять метрики через уже открытый SSH-клиент текущей операции."""
+    session = _current_metric_session.get()
+    return session.measure(ssh) if session is not None else False
+
+
+@contextlib.contextmanager
+def paused():
+    """Временно исключить неоперационный SSH из metric lifecycle."""
+    token = _current_metric_session.set(None)
+    try:
+        yield
+    finally:
+        _current_metric_session.reset(token)
 
 
 class DirectOperationSession:

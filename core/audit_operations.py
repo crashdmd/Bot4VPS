@@ -15,11 +15,11 @@ from core.audit_actions import AuditResult, title_of
 
 TASK_PREFIX = "task."
 INCOMPLETE = "incomplete"
+WAITING_RULE_SELECTION = "waiting_rule_selection"
 COMPLETED = "completed"
 
 _RESULT_RANK = {
     AuditResult.OK.value: 0,
-    AuditResult.STARTED.value: 0,
     AuditResult.CANCELLED.value: 1,
     AuditResult.FAILED.value: 2,
 }
@@ -100,12 +100,25 @@ def anchor_of(group: Iterable[dict]) -> dict:
 
 
 def final_of(group: Iterable[dict]) -> Optional[dict]:
-    finals = [row for row in group if row.get("result") != AuditResult.STARTED.value]
+    terminals = {
+        AuditResult.OK.value,
+        AuditResult.FAILED.value,
+        AuditResult.CANCELLED.value,
+    }
+    finals = [row for row in group if row.get("result") in terminals]
     if not finals:
         return None
     last_ts = max(int(row["ts"]) for row in finals)
     same_time = [row for row in finals if int(row["ts"]) == last_ts]
     return max(same_time, key=lambda row: _RESULT_RANK.get(str(row.get("result")), 0))
+
+
+def waiting_of(group: Iterable[dict]) -> Optional[dict]:
+    waiting = [
+        row for row in group
+        if row.get("result") == AuditResult.AWAITING_RULE_SELECTION.value
+    ]
+    return _ordered(waiting)[-1] if waiting else None
 
 
 def operation_title(group: Iterable[dict], action: str) -> str:
@@ -127,6 +140,8 @@ def operation_error(group: Iterable[dict], anchor: dict, final: Optional[dict]) 
         return "Не выбран ни один пакет"
     if final and final.get("error"):
         return str(final["error"])
+    if waiting_of(group) is not None:
+        return None
     for row in reversed(_ordered(group)):
         if row.get("error"):
             return str(row["error"])
@@ -139,8 +154,9 @@ def summary(group: Iterable[dict], operation_id: str) -> dict:
     head = rows[0]
     anchor = anchor_of(rows)
     final = final_of(rows)
+    waiting = waiting_of(rows) if final is None else None
     action = str(anchor.get("action") or "")
-    ended_at = int(final["ts"]) if final is not None else None
+    ended_at = int((final or waiting)["ts"]) if final is not None or waiting is not None else None
     return {
         "operation_id": str(operation_id),
         "started_ts": int(head["ts"]),
@@ -150,8 +166,12 @@ def summary(group: Iterable[dict], operation_id: str) -> dict:
         "ended_ts": ended_at,
         "action": action,
         "title": operation_title(rows, action),
-        "result": str((final or head).get("result") or ""),
-        "status": COMPLETED if final is not None else INCOMPLETE,
+        "result": str((final or waiting or head).get("result") or ""),
+        "status": (
+            COMPLETED if final is not None
+            else WAITING_RULE_SELECTION if waiting is not None
+            else INCOMPLETE
+        ),
         "error": operation_error(rows, anchor, final),
         "actor_type": anchor.get("actor_type"),
         "actor_id": anchor.get("actor_id"),
@@ -193,7 +213,8 @@ def _members(conn: sqlite3.Connection, operation_id: str) -> list[dict]:
     return [dict(row) for row in conn.execute(
         f"SELECT {columns} FROM audit_records r "
         "JOIN audit_operation_members m ON m.record_id = r.id "
-        "WHERE m.operation_id = ? ORDER BY r.ts, r.id",
+        "WHERE m.operation_id = ? "
+        "ORDER BY r.ts, CASE WHEN r.result = 'started' THEN 0 ELSE 1 END, r.id",
         (operation_id,),
     ).fetchall()]
 
@@ -259,6 +280,6 @@ def rebuild(conn: sqlite3.Connection) -> None:
 
 
 __all__ = [
-    "COMPLETED", "INCOMPLETE", "anchor_of", "collapse", "final_of", "incorporate",
-    "is_task", "operation_title", "params_of", "rebuild", "summary",
+    "COMPLETED", "INCOMPLETE", "WAITING_RULE_SELECTION", "anchor_of", "collapse", "final_of",
+    "incorporate", "is_task", "operation_title", "params_of", "rebuild", "summary", "waiting_of",
 ]

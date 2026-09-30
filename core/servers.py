@@ -218,9 +218,8 @@ def _parse_mounts(text):
     return mounts
 
 
-def _probe_ssh(server):
-    """SSH-подключение и сбор метрик одной командой."""
-    out = {
+def _empty_info_result() -> dict:
+    return {
         "ssh": False,
         "ssh_error": None,
         "host_key_mismatch": False,
@@ -237,114 +236,106 @@ def _probe_ssh(server):
         "metrics_ok": False,
         "metrics": None,
     }
+
+
+def _run_info_command(ssh) -> dict:
+    """Собрать и разобрать info через переданный открытый SSH-клиент."""
+    out = _empty_info_result()
+    out["ssh"] = True
+    _, stdout, _ = ssh.exec_command(
+        _TIMED_INFO_CMD, timeout=_INFO_TIMEOUT + _INFO_READ_GRACE
+    )
+    channel = stdout.channel
+    chunks = []
+    timed_out = False
+    while True:
+        try:
+            data = channel.recv(65536)
+        except socket.timeout:
+            timed_out = True
+            break
+        if not data:
+            break
+        chunks.append(data)
+    exit_status = None if timed_out else channel.recv_exit_status()
+    if timed_out:
+        channel.close()
+
+    raw = b"".join(chunks).decode("utf-8", errors="ignore")
+    parts = [part.strip() for part in raw.split(_INFO_SEP)]
+
+    def _part(index):
+        return parts[index] if index < len(parts) and parts[index] else "N/A"
+
+    out["uptime"] = _part(0)
+    try:
+        out["uptime_seconds"] = float(_part(9))
+    except (TypeError, ValueError):
+        out["uptime_seconds"] = None
+    out["load"] = _part(1)
+    out["ram"] = _part(2)
+    out["disk"] = _part(3)
+    out["hostname"] = _part(4)
+    out["os"] = _part(5)
+    out["os_version"] = _part(6)
+    out["kernel"] = _part(7)
+    out["arch"] = _part(8)
+
+    mem, swap = _parse_memory(_part(10))
+    load1, load5, load15 = _parse_load(_part(1))
+    metrics = {
+        "load1": load1,
+        "load5": load5,
+        "load15": load15,
+        "cpu_count": _int_or_none(_part(11)),
+        "ram_used_kb": None if mem[0] is None else mem[0] * 1024,
+        "ram_total_kb": None if mem[1] is None else mem[1] * 1024,
+        "swap_used_kb": None if swap[0] is None else swap[0] * 1024,
+        "swap_total_kb": None if swap[1] is None else swap[1] * 1024,
+        "mounts": _parse_mounts(_part(12)),
+    }
+    out["metrics"] = metrics
+    out["metrics_ok"] = bool(load1 is not None and metrics["ram_total_kb"])
+
+    if timed_out:
+        print(
+            f"Info timeout: сбор не уложился в {_INFO_TIMEOUT + _INFO_READ_GRACE}s",
+            flush=True,
+        )
+    elif exit_status:
+        print(f"Info partial: команда сбора прервана (exit={exit_status})", flush=True)
+    return out
+
+
+def collect_info_on_client(ssh) -> dict | None:
+    """Собрать info на уже открытом клиенте, не меняя его lifecycle."""
+    try:
+        return _run_info_command(ssh)
+    except Exception:
+        return None
+
+
+def _probe_ssh(server):
+    """SSH-подключение и сбор метрик одной командой."""
+    out = _empty_info_result()
+    ssh = None
     try:
         ssh = create_ssh_client(server, timeout=5)
         out["ssh"] = True
-        try:
-            # timeout= ограничивает блокирующие чтения канала, а не только
-            # установку соединения: сюда упирается чтение, если удалённый
-            # `timeout` не установлен или не сработал.
-            _, stdout, _ = ssh.exec_command(
-                _TIMED_INFO_CMD, timeout=_INFO_TIMEOUT + _INFO_READ_GRACE
-            )
-            channel = stdout.channel
-            chunks = []
-            timed_out = False
-            while True:
-                try:
-                    data = channel.recv(65536)
-                except socket.timeout:
-                    timed_out = True
-                    break
-                if not data:  # EOF — команда закрыла канал
-                    break
-                chunks.append(data)
-            # recv_exit_status() дожидается закрытия канала и на зависшем
-            # канале съел бы весь потолок — поэтому только после EOF.
-            exit_status = None if timed_out else channel.recv_exit_status()
-            if timed_out:
-                channel.close()
-
-            raw = b"".join(chunks).decode("utf-8", errors="ignore")
-            parts = [p.strip() for p in raw.split(_INFO_SEP)]
-
-            def _part(i):
-                return parts[i] if i < len(parts) and parts[i] else "N/A"
-
-            # 0..3 — прежние метрики; 4..8 — system; 9 — точный uptime.
-            out["uptime"] = _part(0)
-            try:
-                out["uptime_seconds"] = float(_part(9))
-            except (TypeError, ValueError):
-                out["uptime_seconds"] = None
-            out["load"] = _part(1)
-            out["ram"] = _part(2)
-            out["disk"] = _part(3)
-            out["hostname"] = _part(4)
-            out["os"] = _part(5)
-            out["os_version"] = _part(6)
-            out["kernel"] = _part(7)
-            out["arch"] = _part(8)
-
-            # Числовые метрики (секции 1, 10, 11, 12) — отдельно от
-            # человекочитаемых строк: карточка читает строки, БД числа.
-            mem, swap = _parse_memory(_part(10))
-            load1, load5, load15 = _parse_load(_part(1))
-            metrics = {
-                "load1": load1,
-                "load5": load5,
-                "load15": load15,
-                "cpu_count": _int_or_none(_part(11)),
-                # free -m отдаёт мегабайты, а колонки БД — килобайты
-                # (как /proc/meminfo): переводим здесь, у источника строки,
-                # чтобы дальше шёл простой перенос в колонки.
-                "ram_used_kb": None if mem[0] is None else mem[0] * 1024,
-                "ram_total_kb": None if mem[1] is None else mem[1] * 1024,
-                "swap_used_kb": None if swap[0] is None else swap[0] * 1024,
-                "swap_total_kb": None if swap[1] is None else swap[1] * 1024,
-                "mounts": _parse_mounts(_part(12)),
-            }
-            out["metrics"] = metrics
-            # Признак «пробу можно записывать»: есть load и общий объём
-            # памяти. Без них точка была бы набором дыр на графике —
-            # недоступный сервер выглядел бы простаивающим (§7.4).
-            out["metrics_ok"] = bool(
-                load1 is not None and metrics["ram_total_kb"]
-            )
-
-            # Диагностика частичного сбора. ssh_error при этом НЕ ставим:
-            # SSH работает, сломан сбор — карточка не должна говорить
-            # «сервер не отвечает». В stdout, потому что сценарий (мёртвый
-            # NFS в df) иначе не виден вообще.
-            if timed_out:
-                print(
-                    f"Info timeout {server.get('name')}: сбор не уложился "
-                    f"в {_INFO_TIMEOUT + _INFO_READ_GRACE}s",
-                    flush=True,
-                )
-            elif exit_status:
-                print(
-                    f"Info partial {server.get('name')}: команда сбора "
-                    f"прервана (exit={exit_status})",
-                    flush=True,
-                )
-        finally:
-            ssh.close()
+        out = _run_info_command(ssh)
     except HostKeyMismatchError as e:
-        # Верификация host key заблокировала подключение ДО пароля:
-        # карточке сервера нужен явный флаг — баннер предложит принять ключ
         out["ssh_error"] = str(e)
         out["host_key_mismatch"] = True
-        print(
-            f"Info error {server.get('name')}: host key mismatch",
-            flush=True
-        )
+        print(f"Info error {server.get('name')}: host key mismatch", flush=True)
     except Exception as e:
         out["ssh_error"] = str(e)
-        print(
-            f"Info error {server.get('name')}: {e}",
-            flush=True
-        )
+        print(f"Info error {server.get('name')}: {e}", flush=True)
+    finally:
+        if ssh is not None:
+            try:
+                ssh.close()
+            except Exception:
+                pass
     return out
 
 
@@ -578,6 +569,9 @@ def _dispatch_reboot(server: dict) -> tuple[bool, str | None]:
     ssh = None
     try:
         ssh = create_ssh_client(server)
+        from core.operation_metrics import measure
+
+        measure(ssh)
         print(f"→ Executing reboot on {server['name']}", flush=True)
         status, out, err = exec_sudo(ssh, server, "/sbin/reboot", timeout=30)
         print(

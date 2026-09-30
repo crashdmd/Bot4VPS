@@ -1660,6 +1660,9 @@ class BackupManager:
                             ))
                             if metric_session is not None:
                                 metric_session.start()
+                        from core.operation_metrics import measure
+
+                        measure(ssh)
                         exit_code, diagnostics = exec_binary_stream(
                             ssh, server, argv, receive, timeout=600,
                             is_cancelled=lambda: bool(self.operations.get(operation_id)["cancellation"]["requested"]),
@@ -3654,7 +3657,9 @@ class BackupManager:
             ))
             if metric_session is not None:
                 metric_session.start()
+            from core.operation_metrics import measure
 
+            measure(ssh)
             try:
                 removed = 0
                 if removals is not None:
@@ -3681,6 +3686,7 @@ class BackupManager:
                     plan=plan,
                     exec_sudo=exec_sudo,
                 )
+                measure(ssh)
                 skipped_members = list(extraction_result.get("skipped") or [])
                 verification_plan = filtered_restore_verification_plan(
                     plan,

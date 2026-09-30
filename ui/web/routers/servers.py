@@ -853,6 +853,9 @@ async def api_server_create(body: ServerCreate):
         try:
             from core.monitor import check_server_availability
             info, event = await asyncio.to_thread(check_server_availability, server)
+            if info.get("metrics_ok"):
+                from core import metrics
+                metrics.record_sample(server, info, source=metrics.SOURCE_DISCOVERY)
             if event:
                 from core.event_service import notify_event
                 from core.event_types import EventType, EventLevel, EventReason

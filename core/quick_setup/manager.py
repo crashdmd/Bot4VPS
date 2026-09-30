@@ -22,7 +22,7 @@ from . import firewall as firewall_mod
 from . import packages as packages_mod
 from . import ssh_access as ssh_access_mod
 from . import system as system_mod
-from .audit_hooks import audited
+from .audit_hooks import audited, awaiting_rule_selection
 from .models import (
     Fail2banStatus,
     LocalSettingsStatus,
@@ -183,6 +183,21 @@ def packages_install(server_id: str, names: list[str]) -> OpResult:
 
 # ---- Firewall ----
 
+
+def _firewall_continuation_op_id(arguments: dict) -> Optional[str]:
+    continuation = arguments.get("continuation")
+    target = arguments.get("target") or arguments.get("backend")
+    server_id = arguments.get("server_id")
+    if continuation is None or not isinstance(target, str) or not isinstance(server_id, str):
+        return None
+    candidate = firewall_mod.continuation_audit_op_id(
+        continuation,
+        server=_require_server(server_id),
+        target=target,
+    )
+    return candidate if isinstance(candidate, str) else None
+
+
 def firewall_status(server_id: str) -> dict:
     info = firewall_mod.detect(_require_server(server_id))
     st = firewall_mod.to_status(info)
@@ -207,6 +222,9 @@ def firewall_status(server_id: str) -> dict:
         "backend": a.get("backend"),
         "confirm_switch": bool(a.get("confirm_switch")),
     },
+    awaiting=awaiting_rule_selection,
+    resume_op_id=_firewall_continuation_op_id,
+    operation_scope=firewall_mod.audit_operation_scope,
 )
 def firewall_install(
     server_id: str,
@@ -295,6 +313,9 @@ def firewall_select_nftables_chain(
         "confirm": bool(a.get("confirm")),
         "rules": len(a.get("selected_rules") or []),
     },
+    awaiting=awaiting_rule_selection,
+    resume_op_id=_firewall_continuation_op_id,
+    operation_scope=firewall_mod.audit_operation_scope,
 )
 def firewall_switch(
     server_id: str,
@@ -321,6 +342,9 @@ def firewall_switch(
         "mode": "migrate",
         "confirm": bool(a.get("confirm")),
     },
+    awaiting=awaiting_rule_selection,
+    resume_op_id=_firewall_continuation_op_id,
+    operation_scope=firewall_mod.audit_operation_scope,
 )
 def firewall_migrate(
     server_id: str,

@@ -59,8 +59,15 @@ const RESULT_COLORS = {
   ok: 'var(--ok)',
   failed: 'var(--err)',
   cancelled: 'var(--text-dim)',
+  awaiting_rule_selection: 'var(--warn)',
   incomplete: 'var(--warn)',
 };
+
+function resultLabel(result) {
+  if (result === 'incomplete') return 'Нет записи о завершении';
+  if (result === 'awaiting_rule_selection') return 'Ожидается выбор правил';
+  return result;
+}
 
 export function resultColor(result) {
   return RESULT_COLORS[String(result || '')] || 'var(--text-dim)';
@@ -121,8 +128,9 @@ function gapCovers(gaps, t1, t2) {
  *
  * `points` — пары `[ts, value]` из ответа API. Отрезок обрывается, если
  * между соседними точками прошло больше полутора шагов или если промежуток
- * накрыт разрывом из ответа. Возвращает массив массивов: каждый — свой
- * `path`, между ними линия не рисуется.
+ * накрыт разрывом из ответа. `intentionalConnection` разрешает только явно
+ * назначенную связь. Возвращает массив массивов: каждый — свой `path`, между
+ * ними линия не рисуется.
  *
  * Шаг берётся как максимум из объявленного и фактического (медиана разниц):
  * у спарклайна overview корзина шире шага сбора (1800 против 900), а у
@@ -158,7 +166,7 @@ function finite(value) {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-export function splitSegments(points, stepSeconds, gaps) {
+export function splitSegments(points, stepSeconds, gaps, intentionalConnection) {
   const clean = cleanPoints(points);
   if (!clean.length) return [];
 
@@ -169,8 +177,12 @@ export function splitSegments(points, stepSeconds, gaps) {
   for (let i = 1; i < clean.length; i++) {
     const [prevTs] = clean[i - 1];
     const [ts] = clean[i];
-    const broken = (step > 0 && ts - prevTs > step * GAP_FACTOR)
-      || (list.length > 0 && gapCovers(list, prevTs, ts));
+    const intentional = typeof intentionalConnection === 'function'
+      && intentionalConnection(prevTs, ts);
+    const broken = !intentional && (
+      (step > 0 && ts - prevTs > step * GAP_FACTOR)
+      || (list.length > 0 && gapCovers(list, prevTs, ts))
+    );
     if (broken) segments.push([clean[i]]);
     else segments[segments.length - 1].push(clean[i]);
   }
@@ -268,6 +280,29 @@ function snapshotAt(rawValues, ts) {
   return Number(snapshot?.sample_ts) === sampleTs ? snapshot : null;
 }
 
+function onlineSnapshotAt(rawValues, ts) {
+  const eventTs = finite(ts);
+  if (eventTs === null || !rawValues) return null;
+  let closest = null;
+  let distance = Infinity;
+  for (const snapshot of Object.values(rawValues)) {
+    if (snapshot?.source !== 'online') continue;
+    const sampleTs = finite(snapshot.sample_ts);
+    if (sampleTs === null) continue;
+    const delta = Math.abs(sampleTs - eventTs);
+    if (delta < distance) {
+      closest = snapshot;
+      distance = delta;
+    }
+  }
+  return distance <= 60 ? closest : null;
+}
+
+function availabilitySnapshot(data, mark) {
+  if (!mark.availability?.online) return null;
+  return onlineSnapshotAt(data.raw_values, mark.ts);
+}
+
 function peakMetricRows(metrics) {
   const rows = [];
   const load = finite(metrics?.load1);
@@ -298,8 +333,30 @@ function peakMetricRows(metrics) {
   return rows.length ? rows.join('') : '<div class="chart-operation-value">Нет числовых значений.</div>';
 }
 
-function operationPeakTip(mark, opts) {
-  if (mark.availability) return '';
+function availabilityTip(mark, opts, snapshot = null) {
+  const time = opts.formatDateTime || opts.formatTime || (value => String(value));
+  const online = Boolean(mark.availability?.online);
+  const rows = [
+    '<section class="chart-operation-observations chart-availability-observation">',
+    `<div class="chart-operation-title">${esc(online ? 'Сервер снова доступен' : 'Сервер недоступен')}</div>`,
+    `<div class="chart-operation-meta">${online ? 'Возврат онлайн' : 'Недоступен с'}: ${esc(time(Math.round(Number(mark.ts))))}</div>`,
+  ];
+  const error = String(mark.availability?.error || '').trim();
+  if (error) rows.push(`<div class="chart-operation-status">Причина: ${esc(error)}</div>`);
+  if (online) {
+    if (!snapshot) {
+      rows.push('<div class="chart-operation-status">Метрики в момент возврата не получены.</div>');
+    } else {
+      rows.push('<div class="chart-operation-meta">Метрики в момент возврата:</div>');
+      rows.push(peakMetricRows({ ...snapshot, disks: Object.values(snapshot.disks || {}) }));
+    }
+  }
+  rows.push('</section>');
+  return rows.join('');
+}
+
+function operationPeakTip(mark, opts, availabilitySnapshot = null) {
+  if (mark.availability) return availabilityTip(mark, opts, availabilitySnapshot);
   const time = opts.formatDateTime || opts.formatTime || (value => String(value));
   const rows = [
     '<section class="chart-operation-observations">',
@@ -312,6 +369,8 @@ function operationPeakTip(mark, opts) {
   }
   if (mark.result === 'incomplete') {
     rows.push('<div class="chart-operation-status">Нет записи о завершении.</div>');
+  } else if (mark.result === 'awaiting_rule_selection') {
+    rows.push('<div class="chart-operation-status">Ожидается выбор правил.</div>');
   }
   const peak = mark.peak;
   const capturedAt = finite(peak?.captured_at);
@@ -448,7 +507,11 @@ function markTooltip(mark, opts) {
   const time = opts.formatDateTime || opts.formatTime || (ts => String(ts));
   const actor = mark.actor?.id ? `${mark.actor.type}: ${mark.actor.id}` : (mark.actor?.type || 'система');
   const end = mark.ts_end && mark.ts_end !== mark.ts ? ` — ${time(mark.ts_end)}` : '';
-  const state = mark.result === 'incomplete' ? '\nНет записи о завершении' : '';
+  const state = mark.result === 'incomplete'
+    ? '\nНет записи о завершении'
+    : mark.result === 'awaiting_rule_selection'
+      ? '\nОжидается выбор правил'
+      : '';
   return `${mark.title || mark.action} (${actor})\n${time(mark.ts)}${end}${state}`;
 }
 
@@ -511,11 +574,12 @@ export function renderTimeline(host, data, opts = {}) {
   }
   const allMarks = Array.isArray(data.marks) ? data.marks : [];
   const marks = allMarks.filter(mark => inWindow(mark.ts));
+  const offlineConnection = (_prevTs, ts) => snapshotAt(data.raw_values, ts)?.source === 'offline';
   opts.onVisibleMarks?.(marks);
   const hasVisibleGeometry = SERIES_ORDER.some(name => {
     if (available[name] === false) return false;
     const gapList = name === 'disk_max_pct' ? diskGaps : gaps;
-    return splitSegments(points[name], step, gapList).some(segment =>
+    return splitSegments(points[name], step, gapList, offlineConnection).some(segment =>
       segment.length > 1
       && Number(segment[0][0]) <= to
       && Number(segment[segment.length - 1][0]) >= from,
@@ -594,7 +658,7 @@ export function renderTimeline(host, data, opts = {}) {
     if (available[name] === false) continue;
     const gapList = name === 'disk_max_pct' ? diskGaps : gaps;
     const visible = visiblePoints[name];
-    const segments = splitSegments(points[name], step, gapList);
+    const segments = splitSegments(points[name], step, gapList, offlineConnection);
     const y = name === 'load1' ? yLoad : yPct;
     const color = SERIES_COLORS[name];
     const edgeTimestamps = new Set();
@@ -856,7 +920,13 @@ export function renderTimeline(host, data, opts = {}) {
     const reading = regularReading(data, visiblePoints, ts, step, gaps, from, to);
     const readingTs = reading?.ts ?? ts;
     rows.push(`<div class="chart-tip-time">${esc(time(Math.round(readingTs)))}</div>`);
-    const source = reading?.snapshot?.source === 'operation_peak' ? 'Пик операции' : 'Регулярный мониторинг';
+    const source = {
+      operation_peak: 'Пик операции',
+      operation: 'Замер операции',
+      discovery: 'Первичная проверка',
+      online: 'Возврат онлайн',
+      offline: 'Сервер недоступен',
+    }[reading?.snapshot?.source] || 'Регулярный мониторинг';
     rows.push(`<div class="chart-tip-context">${source} · ${reading ? esc(reading.kind) : 'нет измерения в выбранной точке'}</div>`);
     for (const name of SERIES_ORDER) {
       const list = visiblePoints[name];
@@ -872,8 +942,8 @@ export function renderTimeline(host, data, opts = {}) {
     }
     for (const item of markBoxes) {
       if (ts < Number(item.mark.ts) || ts > Math.max(Number(item.mark.ts), Number(item.mark.ts_end) || 0)) continue;
-      rows.push(`<div class="chart-tip-mark"><span class="chart-legend-chip" style="background:${resultColor(item.mark.result)}"></span>${esc(item.mark.title || item.mark.action)} · ${esc(item.mark.result === 'incomplete' ? 'Нет записи о завершении' : item.mark.result)}</div>`);
-      rows.push(operationPeakTip(item.mark, opts));
+      rows.push(`<div class="chart-tip-mark"><span class="chart-legend-chip" style="background:${resultColor(item.mark.result)}"></span>${esc(item.mark.title || item.mark.action)} · ${esc(resultLabel(item.mark.result))}</div>`);
+      rows.push(operationPeakTip(item.mark, opts, availabilitySnapshot(data, item.mark)));
     }
     showTip(rows.join(''), anchor);
   };
@@ -888,7 +958,9 @@ export function renderTimeline(host, data, opts = {}) {
     if (!selected) return false;
     const ts = Number(selected.mark.ts);
     setCrosshair(ts);
-    showTip(operationPeakTip(selected.mark, opts), {
+    showTip(operationPeakTip(
+      selected.mark, opts, availabilitySnapshot(data, selected.mark),
+    ), {
       x: selected.left,
       y: selected.markY,
       placement: 'selected-event',

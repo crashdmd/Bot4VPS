@@ -12,8 +12,11 @@ import hmac
 import json
 import secrets
 import time
-from typing import Any, Optional
+from contextlib import contextmanager
+from contextvars import ContextVar
+from typing import Any, Iterator, Optional
 
+from core.operation_metrics import measure
 from core.ssh import create_ssh_client
 
 from ..models import FirewallStatus, OpResult
@@ -38,9 +41,12 @@ _BACKENDS: list[FirewallBackend] = [
 ]
 _BY_NAME = {backend.name: backend for backend in _BACKENDS}
 _PROTOCOLS = {"tcp", "udp", "any"}
-_CONTINUATION_VERSION = 2
+_CONTINUATION_VERSION = 3
 _CONTINUATION_TTL_SECONDS = 15 * 60
 _CONTINUATION_KEY = secrets.token_bytes(32)
+_audit_operation_id: ContextVar[Optional[str]] = ContextVar(
+    "firewall_audit_operation_id", default=None,
+)
 _CONTINUATION_DECISIONS = {
     "continue_without_rule_migration",
     "skip_ambiguous_rules",
@@ -1058,6 +1064,7 @@ def switch_backend(
     try:
         target_backend = _BY_NAME[target]
         ssh = create_ssh_client(server, timeout=20)
+        measure(ssh)
 
         detected, errors = _logical_scan_on_ssh(ssh, server)
         if errors:
@@ -1912,6 +1919,24 @@ def _continuation_signature(payload: dict) -> str:
     ).hexdigest()
 
 
+def _valid_audit_op_id(value: Any) -> bool:
+    return (
+        isinstance(value, str)
+        and len(value) == 35
+        and value.startswith("op-")
+        and all(character in "0123456789abcdef" for character in value[3:])
+    )
+
+
+@contextmanager
+def audit_operation_scope(op_id: Optional[str]) -> Iterator[None]:
+    token = _audit_operation_id.set(op_id if _valid_audit_op_id(op_id) else None)
+    try:
+        yield
+    finally:
+        _audit_operation_id.reset(token)
+
+
 def _issue_continuation(
     server: dict,
     target: str,
@@ -1926,6 +1951,7 @@ def _issue_continuation(
         "expires_at": now + _CONTINUATION_TTL_SECONDS,
         "nonce": secrets.token_hex(12),
         "accepted": accepted,
+        "audit_op_id": _audit_operation_id.get(),
     }
     return {**payload, "signature": _continuation_signature(payload)}
 
@@ -2028,6 +2054,7 @@ def _validated_continuation(
         "expires_at",
         "nonce",
         "accepted",
+        "audit_op_id",
         "signature",
     }
     if set(continuation) != expected_keys:
@@ -2045,6 +2072,9 @@ def _validated_continuation(
 
     if continuation.get("version") != _CONTINUATION_VERSION:
         raise ValueError("Версия продолжения firewall-транзакции не поддерживается")
+    audit_op_id = continuation.get("audit_op_id")
+    if audit_op_id is not None and not _valid_audit_op_id(audit_op_id):
+        raise ValueError("Идентификатор аудита продолжения firewall-транзакции некорректен")
     if continuation.get("target") != target:
         raise ValueError("Продолжение выдано для другого target firewall")
     if continuation.get("server") != _server_continuation_fingerprint(server):
@@ -2114,6 +2144,25 @@ def _validated_continuation(
     if tuple(decisions) not in allowed_sequences:
         raise ValueError("Порядок решений firewall-транзакции некорректен")
     return normalized
+
+
+def continuation_audit_op_id(
+    continuation: Any,
+    *,
+    server: dict,
+    target: str,
+) -> Optional[str]:
+    try:
+        normalized_target = _backend_name(target)
+        _validated_continuation(
+            continuation,
+            server=server,
+            target=normalized_target,
+        )
+    except Exception:
+        return None
+    audit_op_id = continuation.get("audit_op_id") if isinstance(continuation, dict) else None
+    return audit_op_id if _valid_audit_op_id(audit_op_id) else None
 
 
 def _source_context_fingerprint(target: str, sources: list[str]) -> str:
@@ -2636,6 +2685,7 @@ def migrate(
     phase = "initial_scan"
     try:
         ssh = create_ssh_client(server, timeout=20)
+        measure(ssh)
         initial = _verified_logical_scan_on_ssh(ssh, server)
         target_found = next(
             ((backend, info) for backend, info in initial if backend.name == target),
@@ -3310,6 +3360,7 @@ def install_backend(
     ssh = None
     try:
         ssh = create_ssh_client(server, timeout=20)
+        measure(ssh)
         try:
             active, _ = active_backends_on_ssh(ssh, server)
         except FirewallDetectionError as exc:
@@ -3932,6 +3983,7 @@ def open_port(
     ssh = None
     try:
         ssh = create_ssh_client(server, timeout=12)
+        measure(ssh)
         return _mutation_result(
             ssh,
             server,
@@ -3971,6 +4023,7 @@ def close_port(
     ssh = None
     try:
         ssh = create_ssh_client(server, timeout=12)
+        measure(ssh)
         mutation = close_port_on_ssh(
             ssh,
             server,
@@ -4000,6 +4053,7 @@ def disable(server: dict) -> OpResult:
     ssh = None
     try:
         ssh = create_ssh_client(server, timeout=12)
+        measure(ssh)
         try:
             active, candidates = active_backends_on_ssh(ssh, server)
         except FirewallDetectionError as exc:
@@ -4150,6 +4204,7 @@ def enable(server: dict, name: str) -> OpResult:
     ssh = None
     try:
         ssh = create_ssh_client(server, timeout=12)
+        measure(ssh)
         try:
             active, candidates = active_backends_on_ssh(ssh, server)
         except FirewallDetectionError as exc:
@@ -4326,6 +4381,7 @@ def remove(server: dict, name: str) -> OpResult:
     ssh = None
     try:
         ssh = create_ssh_client(server, timeout=20)
+        measure(ssh)
         try:
             active, candidates = active_backends_on_ssh(ssh, server)
         except FirewallDetectionError as exc:

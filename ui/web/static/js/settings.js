@@ -1,6 +1,6 @@
 import { j, esc } from './api.js?v=20260821-telegram-health-v1';
 import { toast, bindPasswordToggles, confirmAction, infoModal, syncServerClock, parseEmoji } from './ui.js';
-import { loadUpdateState, showUpdateModal, showHistoryModal } from './monitor.js?v=20260925-changelog-md-v2';
+import { loadUpdateState, showUpdateModal, showHistoryModal } from './monitor.js?v=20260930-about-history-modal-v1';
 import { openBackupPasswordModal } from './backup-password.js?v=20260911-bpw-v16';
 import { NOTIFY_ICON } from './icons.js?v=20260924-notify-icon-v1';
 

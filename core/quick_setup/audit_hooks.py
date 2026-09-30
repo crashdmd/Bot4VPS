@@ -18,12 +18,16 @@ from __future__ import annotations
 
 import functools
 import inspect
-from typing import Any, Callable, Mapping, Optional
+from contextlib import nullcontext
+from typing import Any, Callable, ContextManager, Mapping, Optional
 
 from core import audit
 from core.audit_actions import AuditAction, AuditResult
 
 ParamsBuilder = Callable[[dict], dict]
+OutcomeClassifier = Callable[[Any], bool]
+ResumeOpIdResolver = Callable[[dict], Optional[str]]
+OperationScope = Callable[[Optional[str]], ContextManager]
 
 
 def _bound(func: Callable, args: tuple, kwargs: dict) -> dict:
@@ -75,7 +79,24 @@ def _error_text(result: Any, error: Any) -> Optional[str]:
     return None
 
 
-def _outcome(result: Any) -> tuple[AuditResult, Optional[str], Optional[str]]:
+def awaiting_rule_selection(result: Any) -> bool:
+    """Распознать единственный безопасный checkpoint выбора правил firewall."""
+    if getattr(result, "ok", None) is not False:
+        return False
+    if getattr(result, "error", None) != "ambiguous_firewall_rules":
+        return False
+    data = getattr(result, "data", None)
+    return (
+        isinstance(data, Mapping)
+        and data.get("decision_required") == "skip_ambiguous_rules"
+        and data.get("changed") is False
+    )
+
+
+def _outcome(
+    result: Any,
+    awaiting: Optional[OutcomeClassifier] = None,
+) -> tuple[AuditResult, Optional[str], Optional[str]]:
     """Итог по возвращённому значению и безопасная причина отказа.
 
     Quick Setup отдаёт ``OpResult``, часть входов — dict с ``ok`` (принятие
@@ -94,6 +115,8 @@ def _outcome(result: Any) -> tuple[AuditResult, Optional[str], Optional[str]]:
         ok = True
     if ok:
         return AuditResult.OK, None, None
+    if awaiting is not None and awaiting(result):
+        return AuditResult.AWAITING_RULE_SELECTION, None, None
     detail = getattr(result, "details", None)
     reason = detail.get("reason") if isinstance(detail, Mapping) else None
     failure_detail = reason if isinstance(reason, str) and reason.strip() else None
@@ -109,6 +132,9 @@ def audited(
     *,
     params: Optional[ParamsBuilder] = None,
     paired: bool = False,
+    awaiting: Optional[OutcomeClassifier] = None,
+    resume_op_id: Optional[ResumeOpIdResolver] = None,
+    operation_scope: Optional[OperationScope] = None,
 ):
     """Обернуть операцию QS записью аудита.
 
@@ -135,7 +161,13 @@ def audited(
                     values = params(arguments)
                 except Exception as exc:  # сбор параметров не ломает операцию
                     print(f"[AUDIT] параметры операции не собраны: {exc}", flush=True)
-            op_id = audit.new_op_id() if paired else None
+            resumed_op_id = None
+            if paired and resume_op_id is not None:
+                try:
+                    resumed_op_id = resume_op_id(arguments)
+                except Exception:
+                    resumed_op_id = None
+            op_id = resumed_op_id or (audit.new_op_id() if paired else None)
             metric_session = None
             try:
                 from core.operation_metrics import begin, new_operation_id, quick_setup_identity
@@ -153,7 +185,7 @@ def audited(
             except Exception:
                 print("[OPERATION METRICS] Quick Setup session unavailable", flush=True)
             try:
-                if paired:
+                if paired and resumed_op_id is None:
                     audit.record(
                         action,
                         result=AuditResult.STARTED,
@@ -164,7 +196,9 @@ def audited(
                     )
                 if metric_session is not None:
                     metric_session.start()
-                result = func(*args, **kwargs)
+                scope = operation_scope(op_id) if operation_scope is not None else nullcontext()
+                with scope:
+                    result = func(*args, **kwargs)
             except BaseException as exc:
                 audit.record(
                     action,
@@ -177,7 +211,7 @@ def audited(
                 )
                 raise
             else:
-                outcome, error, failure_detail = _outcome(result)
+                outcome, error, failure_detail = _outcome(result, awaiting)
                 audit.record(
                     action,
                     result=outcome,

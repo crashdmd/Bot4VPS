@@ -69,6 +69,9 @@ def upgrade_system(server: dict) -> OpResult:
     lines: list[str] = []
     try:
         ssh = create_ssh_client(server, timeout=20)
+        from core.operation_metrics import measure
+
+        measure(ssh)
 
         def emit(line: str) -> None:
             if line:
@@ -85,6 +88,7 @@ def upgrade_system(server: dict) -> OpResult:
                 error=(err1 or out1 or f"exit {code1}")[:1000],
             )
 
+        measure(ssh)
         code2, out2, err2 = exec_sudo(
             ssh,
             server,

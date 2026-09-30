@@ -6,7 +6,12 @@ from typing import Any, Optional, Sequence
 
 from core import state_db
 from core.audit_actions import RESULT_TITLES, actor_label, codes_matching_title, title_of
-from core.audit_operations import COMPLETED, INCOMPLETE, params_of
+from core.audit_operations import (
+    COMPLETED,
+    INCOMPLETE,
+    WAITING_RULE_SELECTION,
+    params_of,
+)
 from core.actor import ActorType
 
 DEFAULT_LIMIT = 50
@@ -18,7 +23,13 @@ HISTORY_INDEX_LIMIT = 500
 EVENT_INDEX_LIMIT = 1000
 
 ACTOR_TYPES: tuple[str, ...] = tuple(kind.value for kind in ActorType)
-RESULTS: tuple[str, ...] = ("ok", "failed", "cancelled", INCOMPLETE)
+RESULTS: tuple[str, ...] = (
+    "ok",
+    "failed",
+    "cancelled",
+    "awaiting_rule_selection",
+    INCOMPLETE,
+)
 LOG_IN_TASK = "in_task"
 LOG_NONE = "none"
 NO_SERVER_TITLE = "Не о сервере"
@@ -83,7 +94,11 @@ def _operation_window(since: Optional[int], until: Optional[int]) -> tuple[str, 
 
 
 def _operation_result(row: dict) -> str:
-    return INCOMPLETE if row.get("status") == INCOMPLETE else str(row.get("result") or "")
+    if row.get("status") == INCOMPLETE:
+        return INCOMPLETE
+    if row.get("status") == WAITING_RULE_SELECTION:
+        return "awaiting_rule_selection"
+    return str(row.get("result") or "")
 
 
 def _actor(row: dict) -> dict:
@@ -338,6 +353,9 @@ def list_records(
         if result == INCOMPLETE:
             sql += " AND o.status = ?"
             params.append(INCOMPLETE)
+        elif result == "awaiting_rule_selection":
+            sql += " AND o.status = ?"
+            params.append(WAITING_RULE_SELECTION)
         else:
             sql += " AND o.status = ? AND o.result = ?"
             params.extend((COMPLETED, result))
@@ -459,7 +477,10 @@ def facets(path=None) -> dict:
         {"value": row["result"], "title": "Нет записи о завершении" if row["result"] == INCOMPLETE
          else RESULT_TITLES.get(row["result"], row["result"]), "count": int(row["n"])}
         for row in state_db.query(
-            "SELECT CASE WHEN o.status = 'incomplete' THEN 'incomplete' ELSE o.result END AS result, "
+            "SELECT CASE "
+            "WHEN o.status = 'incomplete' THEN 'incomplete' "
+            "WHEN o.status = 'waiting_rule_selection' THEN 'awaiting_rule_selection' "
+            "ELSE o.result END AS result, "
             "COUNT(*) AS n FROM (" + _operation_sql() + ") o GROUP BY result ORDER BY n DESC, result", (), path)
     ]
     return {"actors": actors, "actions": actions, "servers": servers, "results": results}

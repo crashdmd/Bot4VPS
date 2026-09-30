@@ -4,16 +4,24 @@ import {
   serverNow,
 } from './ui.js';
 import { openTaskLog } from './tasks.js?v=20260914-autoupdate-v2';
-import { openEventDetail } from './monitor.js?v=20260925-changelog-md-v2';
+import { openEventDetail } from './monitor.js?v=20260930-about-history-modal-v1';
 import { state } from './state.js';
 
 const PAGE_LIMIT = 50;
 const RANGES = { '24h': 86400, '7d': 7 * 86400, '30d': 30 * 86400, '90d': 90 * 86400 };
-const RESULT_CLASS = { ok: 'on', failed: 'off', cancelled: 'unk', incomplete: 'warn', started: 'unk' };
+const RESULT_CLASS = {
+  ok: 'on',
+  failed: 'off',
+  cancelled: 'unk',
+  awaiting_rule_selection: 'warn',
+  incomplete: 'warn',
+  started: 'unk',
+};
 const RESULT_TEXT = {
   ok: 'успешно',
   failed: 'ошибка',
   cancelled: 'отменено',
+  awaiting_rule_selection: 'Ожидается выбор правил',
   incomplete: 'Нет записи о завершении',
   started: 'начато',
 };
@@ -339,7 +347,21 @@ function durationText(seconds) {
 }
 
 function operationResult(item) {
-  return item?.status === 'incomplete' ? 'incomplete' : item?.result;
+  if (item?.status === 'incomplete') return 'incomplete';
+  if (item?.status === 'waiting_rule_selection') return 'awaiting_rule_selection';
+  return item?.result;
+}
+
+function endState(item) {
+  if (item?.status === 'waiting_rule_selection') {
+    return { label: 'Состояние', value: 'Ожидается выбор правил' };
+  }
+  return {
+    label: 'Завершение',
+    value: item?.ended_at == null
+      ? 'Нет записи о завершении'
+      : esc(formatServerDateTime(item.ended_at)),
+  };
 }
 
 function resultText(result) {
@@ -355,7 +377,7 @@ function renderRecord(item) {
   if (attach.event) badges.push('событие');
   if (attach.task) badges.push('задача');
   const started = Number(item.started_at ?? item.ts);
-  const ended = item.ended_at == null ? null : Number(item.ended_at);
+  const end = endState(item);
   const duration = durationText(item.duration_seconds);
   const meta = [
     `<span>${esc(actorText)}${actor.role ? ` · ${esc(actor.role)}` : ''}</span>`,
@@ -370,7 +392,7 @@ function renderRecord(item) {
       </span>
       <span class="audit-interval">
         <span class="audit-time"><span>Начало</span>${esc(formatServerDateTime(started))}</span>
-        <span class="audit-time"><span>Завершение</span>${ended == null ? 'Нет записи о завершении' : esc(formatServerDateTime(ended))}</span>
+        <span class="audit-time"><span>${end.label}</span>${end.value}</span>
         ${duration ? `<span class="audit-duration">Длительность ${esc(duration)}</span>` : ''}
       </span>
       <span class="audit-result"><span class="badge ${RESULT_CLASS[result] || 'unk'}"><span class="dot"></span>${esc(resultText(result))}</span></span>
@@ -438,10 +460,11 @@ function renderDetail(data) {
   const record = data.record || {};
   const actor = record.actor || {};
   const result = operationResult(record);
+  const end = endState(record);
   const rows = [
     ['Операция', esc(record.title || record.action || '—')],
     ['Начало', esc(formatServerDateTime(record.started_at ?? record.ts))],
-    ['Завершение', record.ended_at == null ? 'Нет записи о завершении' : esc(formatServerDateTime(record.ended_at))],
+    [end.label, end.value],
   ];
   if (record.duration_seconds != null) rows.push(['Длительность', esc(durationText(record.duration_seconds))]);
   rows.push(['Итог', esc(resultText(result))]);

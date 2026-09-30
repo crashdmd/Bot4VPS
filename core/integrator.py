@@ -431,6 +431,10 @@ class StepError(Exception):
         super().__init__(f"{self.title} завершилась с ошибкой (код {exit_code})")
 
 
+class OperationCancelled(Exception):
+    """Операция остановлена на безопасной границе шага."""
+
+
 class StepRunner:
     """Контекст выполнения именованных шагов на сервере.
 
@@ -456,6 +460,13 @@ class StepRunner:
 
     def run(self, name: str, command: str, title: Optional[str] = None) -> str:
         """Именованный шаг: стримит заголовок + вывод, падает в StepError при exit!=0."""
+        from core.cancel_flags import current
+        from core.operation_metrics import measure
+
+        cancel_flag = current()
+        if cancel_flag is not None and cancel_flag.is_set():
+            raise OperationCancelled()
+        measure(self.ssh)
         title = title or name
         self.emit(f"• {title}")
         exit_code, out, err = exec_sudo(
@@ -577,6 +588,12 @@ async def _svc_run(
     task: Task,
     progress_cb: ProgressCb,
 ) -> TaskResult:
+    from core.cancel_flags import current
+
+    cancel_flag = current()
+    if cancel_flag is not None and cancel_flag.is_set():
+        return TaskResult(success=False, cancelled=True, error="Отменено")
+
     try:
         svc = _get_service(service_id)
     except Exception as e:
@@ -590,8 +607,13 @@ async def _svc_run(
             success=False, error=f"Действие '{action}' не реализовано для '{service_id}'"
         )
 
+    if cancel_flag is not None and cancel_flag.is_set():
+        return TaskResult(success=False, cancelled=True, error="Отменено")
+
     try:
         result = await method(task.server_id, params, progress_cb)
+    except OperationCancelled:
+        return TaskResult(success=False, cancelled=True, error="Отменено")
     except StepError as e:
         return TaskResult(success=False, error=str(e), output=e.detail)
     except Exception as e:
@@ -605,7 +627,10 @@ async def _svc_run(
     # После действия — обновить кэш (мост между TG- и веб-процессами).
     # Не роняем задачу из-за ошибки синхронизации.
     try:
-        await sync(service_id, task.server_id)
+        from core import operation_metrics
+
+        with operation_metrics.paused():
+            await sync(service_id, task.server_id)
     except Exception as e:
         print(f"[INTEGRATOR] post-action sync error: {e}", flush=True)
 
@@ -743,6 +768,8 @@ async def _svc_scan_executor(
     lines: List[str] = []
     ok = warn = fail = 0
     for s in servers:
+        if task._cancel_event.is_set():
+            return TaskResult(success=False, output="\n".join(lines), error="Отменено", cancelled=True)
         sid = s["id"]
         sname = s.get("name", sid)
         try:

@@ -43,6 +43,10 @@ HOUR = 3600
 # джобы, а по ``source`` потом видно, откуда взялись точки (этап 2 пишет
 # только из system_sync; другие источники — это уже другой ряд).
 SOURCE_SYSTEM_SYNC = "system_sync"
+SOURCE_OPERATION = "operation"
+SOURCE_DISCOVERY = "discovery"
+SOURCE_ONLINE = "online"
+SOURCE_OFFLINE = "offline"
 
 # Верхняя граница на один проход свёртки. Нужна не для скорости, а для
 # памяти: после долгого простоя (панель не работала 100 дней) свёртка
@@ -63,7 +67,13 @@ def _round(value, digits: int):
     return None if value is None else round(float(value), digits)
 
 
-def record_sample(server: dict, info: dict, *, now: Optional[int] = None) -> bool:
+def record_sample(
+    server: dict,
+    info: dict,
+    *,
+    now: Optional[int] = None,
+    source: str = SOURCE_SYSTEM_SYNC,
+) -> bool:
     """Записать одну пробу сервера в ``metric_samples`` (+монтирования).
 
     ``info`` — возврат ``core.servers.get_server_info``: тот же словарь,
@@ -90,7 +100,7 @@ def record_sample(server: dict, info: dict, *, now: Optional[int] = None) -> boo
     sample = {
         "server_id": server_id,
         "ts": ts,
-        "source": SOURCE_SYSTEM_SYNC,
+        "source": source,
         "load1": metrics.get("load1"),
         "load5": metrics.get("load5"),
         "load15": metrics.get("load15"),
@@ -116,6 +126,42 @@ def record_sample(server: dict, info: dict, *, now: Optional[int] = None) -> boo
         for mount in metrics.get("mounts") or ()
     ]
     return state_db.insert_sample(sample, disks=disks)
+
+
+def record_offline_anchor(server: dict, *, now: int) -> bool:
+    """Записать синтетический ноль строго в момент перехода offline."""
+    server_id = server.get("id")
+    if not server_id:
+        return False
+    ts = int(now)
+    previous = last_sample(server_id, before=ts, factual_only=True)
+    if previous is None:
+        return False
+
+    sample = {
+        "server_id": server_id,
+        "ts": ts,
+        "source": SOURCE_OFFLINE,
+        "load1": 0.0,
+        "load5": 0.0,
+        "load15": 0.0,
+        "cpu_count": previous.get("cpu_count"),
+        "ram_used_kb": 0,
+        "ram_total_kb": previous.get("ram_total_kb"),
+        "swap_used_kb": 0,
+        "swap_total_kb": previous.get("swap_total_kb"),
+        "uptime_sec": 0,
+    }
+    disks = [{
+        "server_id": server_id,
+        "ts": ts,
+        "mount": disk.get("mount"),
+        "fs": disk.get("fs"),
+        "used_kb": 0,
+        "total_kb": disk.get("total_kb"),
+        "used_pct": 0.0,
+    } for disk in previous.get("disks") or () if disk.get("mount")]
+    return state_db.insert_offline_anchor(sample, disks=disks)
 
 
 # Агрегаты часа. AVG/MAX по load1 и процент памяти считает sqlite, «худший
@@ -352,6 +398,31 @@ def _gaps(stamps, nominal: int, since=None, until=None, now=None) -> list:
     return gaps
 
 
+def _availability_gaps(server_id: str, *, since: int, until: int, now: int) -> list[dict]:
+    """Отразить offline-интервалы независимо от плотности metric samples."""
+    edge_to = min(int(until), int(now))
+    if int(since) >= edge_to:
+        return []
+
+    predecessor = state_db.availability_predecessor(server_id, before=since)
+    offline_from = int(since) if predecessor is not None and not bool(predecessor["online"]) else None
+    gaps: list[dict] = []
+    for transition in state_db.iter_availability_transitions(
+        server_id, since=since, until=edge_to,
+    ):
+        ts = int(transition["ts"])
+        if not bool(transition["online"]):
+            if offline_from is None:
+                offline_from = ts
+        elif offline_from is not None:
+            if offline_from < ts:
+                gaps.append({"from": offline_from, "to": ts, "reason": GAP_REASON})
+            offline_from = None
+    if offline_from is not None and offline_from < edge_to:
+        gaps.append({"from": offline_from, "to": edge_to, "reason": GAP_REASON})
+    return gaps
+
+
 def _triples(gaps: list) -> list:
     """Разрывы списком троек — форма, которую задаёт §10.1 для overview."""
     return [[gap["from"], gap["to"], gap["reason"]] for gap in gaps]
@@ -390,18 +461,31 @@ def _status(last_ts, online, now: int, interval: int) -> str:
     return "ok"
 
 
-def last_sample(server_id: str) -> Optional[dict]:
+def last_sample(
+    server_id: str,
+    *,
+    before: Optional[int] = None,
+    factual_only: bool = False,
+) -> Optional[dict]:
     """Последняя проба сервера из БД, вместе с монтированиями.
 
     Историческая опора для карточки (§10.1): живые числа даёт
     существующий ``/api/servers/{id}/metrics``, а этот — что успело
     лечь в базу. SSH здесь не нужен и не делается.
     """
-    rows = state_db.query(
+    sql = (
         f"SELECT {', '.join(state_db.SAMPLE_COLUMNS)} FROM metric_samples "
-        "WHERE server_id = ? ORDER BY ts DESC LIMIT 1",
-        (server_id,),
+        "WHERE server_id = ?"
     )
+    params: list[object] = [server_id]
+    if before is not None:
+        sql += " AND ts <= ?"
+        params.append(int(before))
+    if factual_only:
+        sql += " AND source <> ?"
+        params.append(SOURCE_OFFLINE)
+    sql += " ORDER BY ts DESC LIMIT 1"
+    rows = state_db.query(sql, params)
     if not rows:
         return None
     sample = dict(rows[0])
@@ -594,8 +678,10 @@ def overview(servers, availability=None, *, range_key: str = DEFAULT_RANGE,
                 "disk_max_pct": spark["disk_max_pct"],
             },
             "status": _status(sample["ts"] if sample else None, online, until, interval),
-            "gaps": _triples(_gaps(spark["buckets"], bucket, since=since,
-                                   until=until, now=until)),
+            "gaps": _triples(
+                _gaps(spark["buckets"], bucket, since=since, until=until, now=until)
+                + _availability_gaps(server_id, since=since, until=until, now=until)
+            ),
         })
     return {
         "range": str(range_key),
@@ -681,9 +767,10 @@ def _raw_values(rows: list[dict], disk_rows: list[dict]) -> dict:
 
 
 def _regular_reading(row: dict) -> dict:
+    source = row.get("source") or SOURCE_SYSTEM_SYNC
     return {
-        "row": {**row, "source": "system_sync"},
-        "source": "system_sync",
+        "row": {**row, "source": source},
+        "source": source,
         "operation_id": None,
     }
 
@@ -737,7 +824,7 @@ def _raw_context_reading(
     if reading is None:
         return None, []
     ts = int(reading["row"]["ts"])
-    if reading["source"] == "system_sync":
+    if reading["source"] != "operation_peak":
         return reading, state_db.iter_disks(server_id, since=ts, until=ts)
     disks = state_db.operation_metric_peak_disks(str(reading["operation_id"]))
     return reading, [{**disk, "ts": ts} for disk in disks]
@@ -776,7 +863,7 @@ def _raw_readings(server_id: str, *, since: int, until: int) -> tuple[list[dict]
     disk_rows: list[dict] = []
     for ts, reading in sorted(selected.items()):
         rows.append(reading["row"])
-        if reading["source"] == "system_sync":
+        if reading["source"] != "operation_peak":
             disk_rows.extend(disks_by_ts.get(ts, ()))
             continue
         for disk in reading["row"].get("disks") or ():
@@ -913,6 +1000,9 @@ def series(server_id: str, *, since=None, until=None, step: str = "auto",
         available = {"load1": True, "ram_pct": True, "uptime_sec": False,
                      "disks": False, "disk_max_pct": True}
 
+    availability_gaps = _availability_gaps(
+        server_id, since=effective_from, until=until, now=moment,
+    )
     return {
         "server_id": server_id,
         "step": step,
@@ -929,13 +1019,13 @@ def series(server_id: str, *, since=None, until=None, step: str = "auto",
         },
         "disks": disks,
         "gaps": _gaps(stamps, HOUR if step == "hour" else interval,
-                      since=effective_from, until=until, now=moment),
+                      since=effective_from, until=until, now=moment) + availability_gaps,
         # Дыры дискового ряда отдельным списком: монтирования приходят
         # одним `df`, поэтому дыра у них общая — когда `df` не успел,
         # точки по дискам нет, а проба (load, память) на месте. Без этого
         # списка линия диска соединила бы края такой дыры насквозь.
         "disk_gaps": _gaps(disk_stamps, HOUR if step == "hour" else interval,
-                           since=effective_from, until=until, now=moment),
+                           since=effective_from, until=until, now=moment) + availability_gaps,
         # Имя монтирования к каждому числу в series.disk_max_pct: на
         # часовом шаге монтирование между точками может меняться, и без
         # подписи «78%» осталось бы без ответа «чего».
