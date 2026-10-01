@@ -62,6 +62,7 @@ from .security import (
 )
 
 STATIC = Path(__file__).resolve().parent / "static"
+FAQ = Path(__file__).resolve().parent / "faq.html"
 _WEB_OPEN_SESSION_KEY = "_audit_web_open"
 
 
@@ -594,6 +595,19 @@ async def index(request: Request):
             print(f"[AUDIT] открытие панели: пометка не удалась: {exc}", flush=True)
     return FileResponse(
         index_file,
+        headers={
+            "Cache-Control": "no-store, no-cache, must-revalidate",
+            "Pragma": "no-cache",
+            "Expires": "0",
+        },
+    )
+
+
+@app.get("/faq", dependencies=_AUTH)
+async def faq():
+    return FileResponse(
+        FAQ,
+        media_type="text/html",
         headers={
             "Cache-Control": "no-store, no-cache, must-revalidate",
             "Pragma": "no-cache",

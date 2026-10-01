@@ -9,7 +9,7 @@
 import { j, esc } from './api.js';
 import { openTaskModal } from './taskmodal.js?v=20260914-v3';
 import { statusFilterBtn, statusFilterHidden, bindStatusFilter } from './statusfilter.js?v=20260915-v1';
-import { toast, showPage, serverDateTimeParts, serverDayDifference } from './ui.js';
+import { toast, showPage, serverDateTimeParts, serverDayDifference, infoModal } from './ui.js';
 import { ansiToHtml } from './ansi.js';
 
 const SID = 'docker';
@@ -480,7 +480,7 @@ async function leaveUninstalledPage(id) {
   try { localStorage.removeItem('bot4vps_docker_server_id'); } catch (_) {}
   if (returnToServer) {
     try {
-      const { openServer } = await import('./servers.js?v=20260930-availability-event-metrics-v2');
+      const { openServer } = await import('./servers.js?v=20261001-mobile-charts-v1');
       await openServer(id);
       return;
     } catch (_) { /* модуль не загрузился — fallback в список ниже */ }
@@ -1214,6 +1214,7 @@ function renderStacks(data) {
       <div class="info-block docker-ct-card docker-stack-card">
         <div class="svc-card-head svc-card-head-one-line">
           <h2>Compose проекты <span class="hint" data-stack-count>(${rows.length})</span></h2>
+          <button type="button" class="faq-help-link" data-docker-help="compose" aria-label="Подробнее о Compose-проектах">ⓘ Подробнее</button>
           <div class="svc-card-actions">
             <input type="search" id="docker-stack-search" placeholder="🔍 Поиск проекта…" autocomplete="off"/>
             <button type="button" class="secondary" id="docker-stack-ignored-btn" title="Игнорируемые проекты">🚫 Игнорируемые</button>
@@ -1232,6 +1233,13 @@ function renderStacks(data) {
         fillStackList();
       });
     }
+    body.querySelector('[data-docker-help="compose"]')?.addEventListener('click', () => {
+      infoModal({
+        title: 'Compose-проекты',
+        message: 'Compose-проект хранит описание нескольких связанных контейнеров и их настроек. Локальная библиотека Bot4VPS может отличаться от версии на сервере. Перед заменой или импортом проверьте, какую копию хотите сохранить.',
+        handbookAnchor: 'docker-compose',
+      });
+    });
     body.querySelector('#docker-stack-ignored-btn')?.addEventListener('click', openIgnoredModal);
     body.querySelector('#docker-stack-new')?.addEventListener('click', openStackNewModal);
   } else {
@@ -2222,7 +2230,7 @@ export function bindDockerUI() {
   document.getElementById('btn-back-docker-server')?.addEventListener('click', async () => {
     if (!dockerServerId) return;
     try {
-      const { openServer } = await import('./servers.js?v=20260930-availability-event-metrics-v2');
+      const { openServer } = await import('./servers.js?v=20261001-mobile-charts-v1');
       await openServer(dockerServerId);
     } catch (e) {
       console.error(e);

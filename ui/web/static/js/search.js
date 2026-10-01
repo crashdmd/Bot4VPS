@@ -3,7 +3,7 @@ import { esc } from './api.js';
 import { state, setPage } from './state.js';
 import { showPage } from './ui.js';
 import { WIREGUARD_ICON, DOCKER_ICON, NOTIFY_ICON } from './icons.js?v=20260924-notify-icon-v1';
-import { setServerQuery as setServerListQuery } from './servers.js?v=20260930-availability-event-metrics-v2';
+import { setServerQuery as setServerListQuery } from './servers.js?v=20261001-mobile-charts-v1';
 
 let searchResults = [];
 
@@ -179,7 +179,7 @@ function renderResults(box, results) {
       const id = item.dataset.id;
 
       if (type === 'server') {
-        import('./servers.js?v=20260930-availability-event-metrics-v2').then(m => {
+        import('./servers.js?v=20261001-mobile-charts-v1').then(m => {
           setPage('servers');
           showPage('servers');
           m.openServer(id);
@@ -195,7 +195,7 @@ function renderResults(box, results) {
         const cat = searchResults.find(r => r.type === 'settings' && r.data.id === id);
         setPage('settings');
         showPage('settings');
-        import('./settings.js?v=20260925-notify-blocks-v17').then(m => {
+        import('./settings.js?v=20261001-mobile-charts-v1').then(m => {
           m.selectSettingsCategory?.(id);
         });
       }

@@ -2,13 +2,22 @@
 // Используются страницей «Очереди» (servers.js) и страницами сервисов.
 // Модалка #task-log-modal общая: задача любого сервиса выглядит одинаково.
 import { j, esc } from './api.js';
-import { toast } from './ui.js';
+import { toast, infoModal } from './ui.js';
 import { ansiToHtml } from './ansi.js';
 
 let taskLogCtx = null;   // id задачи в открытой модалке
 let taskLogTimer = null; // интервал автодобновления живой задачи
 
 const LOG_POLL_MS = 1500;
+
+function openTaskHelp() {
+  if (document.getElementById('confirm-modal')?.classList.contains('open')) return;
+  void infoModal({
+    title: 'Задачи и журнал',
+    message: 'Журнал выполняющейся задачи обновляется автоматически. Закрытие окна не останавливает задачу: не запускайте ту же операцию повторно, пока она активна. Отмена прекращает ожидание, но удалённая команда может завершиться сама; уже сделанные изменения не откатываются.',
+    handbookAnchor: 'tasks',
+  });
+}
 
 export function openTaskLog(taskId) {
   taskLogCtx = taskId;
@@ -103,6 +112,12 @@ export async function cancelTaskAPI(taskId) {
 }
 
 export function bindTasksUI() {
+  const actions = document.querySelector('#task-log-modal .task-log-modal-actions');
+  if (actions && !actions.querySelector('[data-task-help]')) {
+    actions.insertAdjacentHTML('afterbegin', `
+      <button type="button" class="secondary faq-help-link" data-task-help="tasks">ⓘ О задачах</button>`);
+  }
+  document.querySelector('[data-task-help="tasks"]')?.addEventListener('click', openTaskHelp);
   document.getElementById('task-log-close')?.addEventListener('click', closeTaskLog);
   document.getElementById('task-log-x')?.addEventListener('click', closeTaskLog);
   // Пользователь уехал вверх — не дёргать прокрутку под ним; вернулся к

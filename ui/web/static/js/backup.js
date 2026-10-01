@@ -60,6 +60,47 @@ const RESTORE_TREE_SEARCH_DELAY_MS = 250;
 const PREVIEW_TREE_PAGE_LIMIT = 100;
 const PREVIEW_MAX_RENDERED_ROWS = 5000;
 
+const BACKUP_HELP = {
+  profiles: {
+    title: 'Профиль резервного копирования',
+    message: 'Профиль определяет, какие каталоги войдут в backup выбранного VPS. Добавляйте только нужные источники; исключения действуют внутри соответствующего источника. Изменения профиля сохраняются сразу.',
+    handbookAnchor: 'backup-profiles',
+  },
+  'bot-profiles': {
+    title: 'Профиль копии Bot4VPS',
+    message: 'Источники резервной копии Bot4VPS определены самой панелью и не редактируются как список произвольных каталогов. Обычная копия Bot4VPS не включает мастер-ключ: сохраните его отдельно безопасным способом.',
+    handbookAnchor: 'backup-profiles',
+  },
+  exclusions: {
+    title: 'Исключения источника',
+    message: 'Исключения задаются относительно выбранного источника, по одному шаблону в строке. Совпавшие файлы и каталоги не попадут в новые backup. Проверьте шаблоны перед сохранением: исключённые данные не получится вернуть из такой копии.',
+    handbookAnchor: 'backup-exclusions',
+  },
+  restore: {
+    title: 'Режим и объём восстановления',
+    message: 'Полное восстановление применяет весь разрешённый объём архива, выборочное — только отмеченные данные. Обычный режим заменяет совпадающие пути, но оставляет на месте данные, отсутствующие в архиве; «чистый» удаляет лишнее только внутри выбранных каталогов. Отдельно выбранные файлы не расширяют область удаления.',
+    handbookAnchor: 'backup-restore',
+  },
+  protective: {
+    title: 'Защитная копия перед восстановлением',
+    message: 'Защитная копия содержит только данные, которые затронет выбранное восстановление. Она позволяет вернуть текущее состояние, если результат потребуется отменить. Если backup с тем же автоматически сформированным именем уже существует, он будет заменён.',
+    handbookAnchor: 'backup-protective',
+  },
+};
+
+function backupHelpButton(key, label = 'Подробнее') {
+  const help = BACKUP_HELP[key];
+  return help
+    ? `<button type="button" class="faq-help-link" data-backup-help="${esc(key)}" aria-label="Подробнее: ${esc(help.title)}">${esc(label)}</button>`
+    : '';
+}
+
+function showBackupHelp(key) {
+  const help = BACKUP_HELP[key];
+  if (help) return infoModal(help);
+  return Promise.resolve();
+}
+
 const restoreTimingEnabled = typeof window !== 'undefined'
   && new URLSearchParams(window.location.search).get('backup_restore_timing') === '1';
 const restoreTimingTrace = restoreTimingEnabled ? {
@@ -1413,7 +1454,7 @@ function handleHistoryClick(event) {
 function renderProfileTab() {
   const host = document.getElementById('backup-tab-body');
   if (selectedTarget === BOT_TARGET) {
-    paint(host, `<div class="backup-profile"><h3>Профиль резервного копирования</h3>
+    paint(host, `<div class="backup-profile"><h3>Профиль резервного копирования ${backupHelpButton('bot-profiles')}</h3>
       <p class="hint">Источники Bot4VPS определены централизованно существующей политикой Backup core и недоступны для изменения.</p>
       <div class="backup-fixed-sources"><span>Текущая установка Bot4VPS</span><span>Текущий systemd unit Bot4VPS</span></div>
     </div>`);
@@ -1424,7 +1465,7 @@ function renderProfileTab() {
     return;
   }
   const sourceControlsDisabled = profileSourceMutationPending ? 'disabled' : '';
-  paint(host, `<div class="backup-profile"><h3>Профиль резервного копирования</h3>
+  paint(host, `<div class="backup-profile"><h3>Профиль резервного копирования ${backupHelpButton('profiles')}</h3>
     <div class="backup-profile-label">Источники</div>
     <div class="backup-source-list">${draftSources.length ? draftSources.map(source => `<div class="backup-source-row">
       <div><code>${esc(source.path)}</code><small>Исключений: ${source.exclusions?.length || 0}</small></div>
@@ -2379,18 +2420,18 @@ function restoreModeView() {
   const loading = restoreState.planLoading
     ? '<p class="backup-restore-step-loading" role="status">Проверяем выбранный объём восстановления…</p>'
     : '';
-  return `<div class="backup-restore-step-options">${options}</div>${loading}`;
+  return `<div class="backup-restore-step-options"><div class="backup-restore-help">${backupHelpButton('restore')}</div>${options}</div>${loading}`;
 }
 
 function restoreProtectiveView() {
-  return `<label class="backup-restore-option">
+  return `<div class="backup-restore-step-options"><div class="backup-restore-help">${backupHelpButton('protective')}</div><label class="backup-restore-option">
       <input type="radio" name="restore-protective" value="yes" ${restoreState.protective ? 'checked' : ''}>
       <span><strong>Да</strong><small>Будет создан обычный backup с именем ${esc(restoreProtectiveName(restoreState.targetName))}. В него попадут только данные, которые затронет это восстановление. Прежняя копия с таким именем заменяется.</small></span>
     </label>
     <label class="backup-restore-option">
       <input type="radio" name="restore-protective" value="no" ${restoreState.protective ? '' : 'checked'}>
       <span><strong>Нет</strong><small>Восстановление начнётся сразу.</small></span>
-    </label>`;
+    </label></div>`;
 }
 
 function restoreFullUnavailableView() {
@@ -3297,6 +3338,11 @@ function clearRestorePathSelection() {
 }
 
 function handleRestoreModalClick(event) {
+  const help = event.target.closest('[data-backup-help]');
+  if (help) {
+    showBackupHelp(help.dataset.backupHelp);
+    return;
+  }
   const toggle = event.target.closest('[data-restore-tree-toggle]');
   if (toggle) {
     toggleRestoreDirectory(toggle.dataset.restoreTreeToggle);
@@ -5365,7 +5411,7 @@ function openExclusions(path, scope = 'profile') {
   if (!source || (scope === 'profile' && profileSourceMutationPending)) return;
   exclusionSourcePath = path;
   exclusionScope = scope;
-  document.getElementById('backup-exclusions-source').textContent = source.path;
+  document.getElementById('backup-exclusions-source').innerHTML = `${esc(source.path)} ${backupHelpButton('exclusions')}`;
   document.getElementById('backup-exclusions-input').value = (source.exclusions || []).join('\n');
   document.getElementById('backup-exclusions-apply').disabled = false;
   document.getElementById('backup-exclusions-modal').classList.add('open');
@@ -5430,6 +5476,11 @@ async function removeProfileSource(path) {
 }
 
 async function handleTabBodyClick(event) {
+  const help = event.target.closest('[data-backup-help]');
+  if (help) {
+    showBackupHelp(help.dataset.backupHelp);
+    return;
+  }
   const create = event.target.closest('[data-create-backup]');
   if (create) { createBackup(); return; }
   if (event.target.closest('[data-import-backup]')) {
@@ -5574,6 +5625,10 @@ export function bindBackupUI() {
   document.getElementById('backup-source-picker-cancel')?.addEventListener('click', closeSourcePicker);
   document.getElementById('backup-exclusions-apply')?.addEventListener('click', applyExclusions);
   document.getElementById('backup-exclusions-cancel')?.addEventListener('click', closeExclusions);
+  document.getElementById('backup-exclusions-source')?.addEventListener('click', event => {
+    const help = event.target.closest('[data-backup-help]');
+    if (help) showBackupHelp(help.dataset.backupHelp);
+  });
   document.getElementById('backup-preview-close')?.addEventListener('click', closePreviewModal);
   document.getElementById('backup-preview-refresh')?.addEventListener('click', refreshPreviewModal);
   document.getElementById('backup-preview-inventory-action')?.addEventListener(

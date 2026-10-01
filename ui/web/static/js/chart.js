@@ -54,6 +54,8 @@ const SELECTED_EVENT_TIP_OFFSET = 48;
  *  ходил бы в базу за новым рядом. */
 const MIN_ZOOM_SECONDS = 300;
 let timelineClipSequence = 0;
+const MOBILE_CHART_QUERY = '(max-width:760px) and (pointer:coarse), (max-height:500px) and (orientation:landscape) and (pointer:coarse)';
+const TOUCH_MOVE_PX = 8;
 
 const RESULT_COLORS = {
   ok: 'var(--ok)',
@@ -430,8 +432,176 @@ export function destroyChart(host) {
   if (state?.gesture?.timer) clearTimeout(state.gesture.timer);
   if (state?.gesture?.loadTimer) clearTimeout(state.gesture.loadTimer);
   if (state?.observer) state.observer.disconnect();
+  state?.touch?.cleanup();
   host.__chartState = null;
   host.innerHTML = '';
+}
+
+/** Touch слушает контейнер: preview и ответы API заменяют SVG прямо под пальцами. */
+function bindTimelineTouch(host) {
+  const media = window.matchMedia(MOBILE_CHART_QUERY);
+  const touch = {
+    media, pointers: new Map(), mode: null, base: null,
+    noTap: false, changed: false, ignoreMouseUntil: 0,
+  };
+  const actions = () => host.__chartState?.touchActions;
+  const release = id => {
+    if (host.hasPointerCapture(id)) host.releasePointerCapture(id);
+  };
+  const suppressMouse = () => { touch.ignoreMouseUntil = Date.now() + 1000; };
+  const rebase = () => {
+    const current = actions();
+    if (!current) return;
+    const pointers = [...touch.pointers.values()];
+    const geometry = current.geometry();
+    const win = host.__chartState.window;
+    const midpoint = pointers.length > 1
+      ? (pointers[0].x + pointers[1].x) / 2 : pointers[0].x;
+    touch.base = {
+      ...win, ...geometry, x: midpoint,
+      distance: pointers.length > 1
+        ? Math.hypot(pointers[1].x - pointers[0].x, pointers[1].y - pointers[0].y) : 0,
+    };
+  };
+  const finish = (notify = true) => {
+    if (touch.changed) actions()?.finish();
+    touch.changed = false;
+    const ids = [...touch.pointers.keys()];
+    touch.pointers.clear();
+    for (const id of ids) release(id);
+    touch.mode = null;
+    touch.base = null;
+    touch.noTap = false;
+    suppressMouse();
+    if (notify) actions()?.end();
+  };
+  const down = event => {
+    if (!media.matches || event.pointerType !== 'touch') return;
+    if (!event.target.closest('.chart-overlay')) return;
+    if (touch.pointers.size >= 2 || touch.mode === 'scroll') return;
+    suppressMouse();
+    touch.pointers.set(event.pointerId, {
+      x: event.clientX, y: event.clientY, startX: event.clientX, startY: event.clientY,
+    });
+    host.setPointerCapture(event.pointerId);
+    if (touch.pointers.size === 1) {
+      touch.mode = 'pending';
+      touch.noTap = false;
+      touch.changed = false;
+    } else {
+      touch.mode = 'pinch';
+      touch.noTap = true;
+    }
+    rebase();
+  };
+  const move = event => {
+    const pointer = touch.pointers.get(event.pointerId);
+    if (!pointer) return;
+    pointer.x = event.clientX;
+    pointer.y = event.clientY;
+    suppressMouse();
+    const dx = pointer.x - pointer.startX;
+    const dy = pointer.y - pointer.startY;
+    if (Math.hypot(dx, dy) >= TOUCH_MOVE_PX) touch.noTap = true;
+    if (touch.mode === 'pending') {
+      if (!touch.noTap) return;
+      touch.mode = Math.abs(dx) > Math.abs(dy) ? 'pan' : 'scroll';
+    }
+    if (touch.mode === 'scroll') return; // pan-y: браузер скроллит и пришлёт cancel
+    const base = touch.base;
+    if (!base || !actions()) return;
+    event.preventDefault();
+    let length = base.to - base.from;
+    let lo;
+    if (touch.mode === 'pinch') {
+      const [a, b] = touch.pointers.values();
+      const distance = Math.hypot(b.x - a.x, b.y - a.y);
+      if (!(base.distance > 0 && distance > 0)) return;
+      length = Math.max(MIN_ZOOM_SECONDS, length * base.distance / distance);
+      const ratio = Math.min(1, Math.max(0, (base.x - base.left) / base.width));
+      const anchor = base.from + (base.to - base.from) * ratio;
+      lo = anchor - length * (((a.x + b.x) / 2 - base.left) / base.width);
+    } else if (touch.mode === 'pan') {
+      lo = base.from + (base.x - pointer.x) / base.width * length;
+    } else {
+      return;
+    }
+    const win = host.__chartState.window;
+    if (Math.round(lo) === win.from && Math.round(lo + length) === win.to) return;
+    touch.changed = true;
+    actions().preview(lo, lo + length);
+  };
+  const up = event => {
+    const pointer = touch.pointers.get(event.pointerId);
+    if (!pointer) return;
+    if (Math.hypot(event.clientX - pointer.startX, event.clientY - pointer.startY) >= TOUCH_MOVE_PX) {
+      touch.noTap = true;
+    }
+    const tap = touch.mode === 'pending' && !touch.noTap && touch.pointers.size === 1;
+    release(event.pointerId);
+    touch.pointers.delete(event.pointerId);
+    if (tap) actions()?.tap(event.clientX);
+    if (!touch.pointers.size) {
+      finish();
+    } else {
+      // Оставшийся палец продолжает pan от текущего окна, но уже не станет tap.
+      touch.mode = 'pan';
+      touch.noTap = true;
+      rebase();
+    }
+  };
+  const cancel = event => {
+    if (touch.pointers.has(event.pointerId)) finish();
+  };
+  const blockMouse = event => {
+    if (!event.target.closest('.chart-svg') || Date.now() >= touch.ignoreMouseUntil) return;
+    if (event.cancelable) event.preventDefault();
+    event.stopImmediatePropagation();
+  };
+  const control = event => {
+    const button = event.target.closest('[data-chart-touch]');
+    if (!button || !media.matches) return;
+    const current = actions();
+    if (!current) return;
+    if (button.dataset.chartTouch === 'clear') current.clear();
+    else if (button.dataset.chartTouch === 'reset') current.reset();
+    else {
+      const win = host.__chartState.window;
+      const factor = button.dataset.chartTouch === 'in' ? 0.5 : 2;
+      const length = Math.max(MIN_ZOOM_SECONDS, (win.to - win.from) * factor);
+      const center = (win.from + win.to) / 2;
+      current.preview(center - length / 2, center + length / 2);
+      actions()?.finish();
+    }
+  };
+  const onMedia = () => {
+    finish();
+    const state = host.__chartState;
+    if (state?.window) state.paint(state.window.from, state.window.to);
+  };
+  host.addEventListener('pointerdown', down);
+  host.addEventListener('pointermove', move, { passive: false });
+  host.addEventListener('pointerup', up);
+  host.addEventListener('pointercancel', cancel);
+  host.addEventListener('lostpointercapture', cancel);
+  const mouseEvents = ['mousedown', 'mousemove', 'mouseleave', 'click'];
+  for (const type of mouseEvents) host.addEventListener(type, blockMouse, true);
+  host.addEventListener('click', control);
+  media.addEventListener('change', onMedia);
+  touch.cleanup = () => {
+    // Удаление рисунка не должно отправлять новый запрос за уходящим окном.
+    touch.changed = false;
+    finish(false);
+    host.removeEventListener('pointerdown', down);
+    host.removeEventListener('pointermove', move);
+    host.removeEventListener('pointerup', up);
+    host.removeEventListener('pointercancel', cancel);
+    host.removeEventListener('lostpointercapture', cancel);
+    for (const type of mouseEvents) host.removeEventListener(type, blockMouse, true);
+    host.removeEventListener('click', control);
+    media.removeEventListener('change', onMedia);
+  };
+  return touch;
 }
 
 function watchSize(host, redraw) {
@@ -587,6 +757,8 @@ export function renderTimeline(host, data, opts = {}) {
   });
 
   host.classList.add('chart-host');
+  const mobile = host.__chartState.touch.media.matches;
+  host.classList.toggle('chart-mobile', mobile);
   const empty = !total && !marks.length && !hasVisibleGeometry;
 
   const width = Math.max(320, host.clientWidth || 900);
@@ -767,6 +939,15 @@ export function renderTimeline(host, data, opts = {}) {
       <div>Данных за это окно нет.</div>
       <div class="chart-empty-hint">Первые точки появятся в течение часа после начала сбора.</div>
     </div>` : ''}
+    ${mobile ? `<div class="chart-mobile-panel">
+      <div class="chart-mobile-controls" role="group" aria-label="Управление графиком">
+        <button type="button" class="secondary" data-chart-touch="out" aria-label="Отдалить график">−</button>
+        <button type="button" class="secondary" data-chart-touch="in" aria-label="Приблизить график">+</button>
+        <button type="button" class="secondary" data-chart-touch="reset">Сбросить</button>
+        <button type="button" class="secondary" data-chart-touch="clear" aria-label="Снять выбор точки или события">Снять</button>
+      </div>
+      <div class="chart-mobile-values" aria-live="polite"><span class="chart-mobile-placeholder">Коснитесь графика, чтобы посмотреть значения.</span></div>
+    </div>` : ''}
     <svg class="chart-svg" viewBox="0 0 ${width} ${height}" width="100%" height="${height}" role="img" tabindex="0" aria-describedby="chart-interaction-hint" aria-label="История метрик сервера">${parts.join('')}</svg>
     <div id="chart-interaction-hint" class="chart-sr-only">Клик закрепляет карточку измерения. Escape снимает закрепление и выбор события.</div>
     <div class="chart-legend">${legend}</div>
@@ -843,6 +1024,11 @@ export function renderTimeline(host, data, opts = {}) {
 
   /** Подсказка живёт в разметке, которую предпросмотр перерисовывает: берём её заново. */
   const showTip = (html, anchor) => {
+    if (mobile) {
+      const readout = host.querySelector('.chart-mobile-values');
+      if (readout) readout.innerHTML = html;
+      return;
+    }
     const currentTip = host.querySelector('.chart-tip');
     if (!currentTip) return;
     currentTip.innerHTML = html;
@@ -946,9 +1132,12 @@ export function renderTimeline(host, data, opts = {}) {
       rows.push(operationPeakTip(item.mark, opts, availabilitySnapshot(data, item.mark)));
     }
     showTip(rows.join(''), anchor);
+    return readingTs;
   };
 
   const hideTip = () => {
+    const readout = host.querySelector('.chart-mobile-values');
+    if (readout) readout.innerHTML = '<span class="chart-mobile-placeholder">Коснитесь графика, чтобы посмотреть значения.</span>';
     const currentTip = host.querySelector('.chart-tip');
     if (currentTip) currentTip.hidden = true;
   };
@@ -1025,6 +1214,44 @@ export function renderTimeline(host, data, opts = {}) {
     } else if (!gesture.loadTimer) {
       gesture.loadTimer = setTimeout(fire, wait);
     }
+  };
+
+  // Перерисовка меняет замыкания геометрии и данных, но touch-контроллер один.
+  host.__chartState.touchActions = {
+    geometry: () => {
+      const box = svg.getBoundingClientRect();
+      return { left: box.left + pad.left / width * box.width, width: plotW / width * box.width };
+    },
+    preview: (lo, hi) => {
+      const length = hi - lo;
+      if (hi > panLimits().max) { hi = panLimits().max; lo = hi - length; }
+      gesture.dragging = true;
+      gesture.lo = Math.round(lo);
+      gesture.hi = Math.round(hi);
+      host.__chartState.paint(gesture.lo, gesture.hi);
+      queueWindowFetch(gesture.lo, gesture.hi);
+    },
+    finish: () => {
+      if (gesture.loadTimer) clearTimeout(gesture.loadTimer);
+      gesture.loadTimer = null;
+      gesture.loadPending = null;
+      gesture.dragging = false;
+      zoomTo(gesture.lo, gesture.hi);
+    },
+    tap: clientX => {
+      const ts = tsAt(clientX);
+      const readingTs = renderMetricTip(ts, { x: x(ts), y: pad.top + 12 });
+      host.__chartState.pinnedCursor = { kind: 'metric', ts: readingTs };
+      setCrosshair(readingTs);
+      opts.onMark?.(null);
+    },
+    clear: () => {
+      host.__chartState.pinnedCursor = null;
+      selectMark(host, null);
+      opts.onMark?.(null);
+    },
+    reset: () => opts.onResetZoom?.(),
+    end: () => opts.onTouchEnd?.(),
   };
 
   /**
@@ -1226,6 +1453,7 @@ export function renderTimeline(host, data, opts = {}) {
     window: null,
     gesture,
     paint,
+    touch: kept.touch || bindTimelineTouch(host),
   };
   host.__chartState = state;
   // Ответ может описывать окно, которое уже осталось за курсором: во время

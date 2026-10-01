@@ -3,7 +3,7 @@
  * Без Task Manager — операции идут синхронно через API ядра.
  */
 import { j, esc } from './api.js';
-import { showPage, toast, confirmAction, formatServerDateTime, parseEmoji } from './ui.js';
+import { showPage, toast, confirmAction, infoModal, formatServerDateTime, parseEmoji } from './ui.js';
 import { bindEmojiPicker } from './emoji_picker.js?v=20260915-emojipick-v1';
 import {
   state,
@@ -26,6 +26,24 @@ let navigation = {
   openServer: null,
   openServers: null,
 };
+
+const QUICK_SETUP_HELP = {
+  firewall: {
+    title: 'Выбор правил firewall',
+    message: 'При переносе между firewall отмечайте только понятные правила, которые действительно нужны сервисам. SSH-порт сохраняется и проверяется отдельно; неоднозначные правила не переносятся автоматически. Если ничего не выбрать, переносится только SSH-порт.',
+    handbookAnchor: 'firewall',
+  },
+  'quick-setup-access': {
+    title: 'Запасной SSH-доступ',
+    message: 'Перед опасными изменениями панель проверяет запасной SSH/sudo-доступ, чтобы не оставить сервер недоступным. При входе по паролю нужен пароль целевого пользователя, а при входе по ключу — выбранный локальный приватный ключ; пароль может потребоваться только для sudo. Host key сверяется до отправки пароля, поэтому после переустановки сервера сначала подтвердите новый ключ.',
+    handbookAnchor: 'quick-setup-access',
+  },
+};
+
+function showQuickSetupHelp(key) {
+  const help = QUICK_SETUP_HELP[key];
+  if (help) infoModal(help);
+}
 
 function captureContext() {
   const serverId = String(state.quickSetupServerId || '').trim();
@@ -725,7 +743,7 @@ function renderSshAccess(s) {
     <div class="qs-ssh-forms">
       ${isAdmin ? createUserBlock : ownPasswordBlock}
       <div class="qs-ssh-block">
-        <div class="qs-ssh-block-title">↪ Переключить пользователя</div>
+        <div class="qs-ssh-block-title">↪ Переключить пользователя <button type="button" class="faq-help-link" data-quick-help="quick-setup-access" aria-label="Подробнее: доступ по SSH">Подробнее</button></div>
         ${!pwdAuthOff ? `
         <div class="qs-port-form qs-ssh-auth-row">
           <label for="qs-ssh-switch-auth">Авторизоваться по:</label>
@@ -1065,6 +1083,14 @@ function bindActions() {
   document.getElementById('qs-f2b-filters')?.addEventListener('click', onF2bFilters);
   document.getElementById('qs-f2b-whitelist')?.addEventListener('click', onF2bWhitelist);
   document.getElementById('qs-f2b-configuration')?.addEventListener('click', onF2bConfiguration);
+  const quickSetupBody = document.getElementById('qs-body');
+  if (quickSetupBody && !quickSetupBody.dataset.quickHelpBound) {
+    quickSetupBody.dataset.quickHelpBound = '1';
+    quickSetupBody.addEventListener('click', event => {
+      const help = event.target.closest('[data-quick-help]');
+      if (help) showQuickSetupHelp(help.dataset.quickHelp);
+    });
+  }
   document.getElementById('qs-ssh-create-user')?.addEventListener('click', onSshCreateUser);
   document.getElementById('qs-ssh-switch-user-btn')?.addEventListener('click', onSshSwitchUser);
   // Enter в поле пароля = «Переключить»; Enter в поле пользователя —
@@ -3556,6 +3582,10 @@ function bindQsListModal() {
   const dialog = bg.querySelector('.modal');
   if (dialog && !dialog.hasAttribute('tabindex')) dialog.setAttribute('tabindex', '-1');
   document.getElementById('qs-list-modal-close')?.addEventListener('click', closeQsListModal);
+  bg.addEventListener('click', event => {
+    const help = event.target.closest('[data-quick-help]');
+    if (help) showQuickSetupHelp(help.dataset.quickHelp);
+  });
   // Модалки закрываются только явными действиями (крестик/Esc/кнопки):
   // случайный клик мимо окна больше не закрывает их.
   document.addEventListener('keydown', (e) => {
@@ -3754,6 +3784,7 @@ function _fwRecoverableModal(result) {
     title,
     `<div class="qs-fw-plan">
       <p>${esc(message)}</p>
+      <p><button type="button" class="faq-help-link" data-quick-help="firewall" aria-label="Подробнее: выбор правил firewall">Подробнее</button></p>
       ${list}
       ${checkboxes}
       ${ambiguousList}

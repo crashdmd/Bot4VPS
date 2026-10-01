@@ -1,10 +1,10 @@
 import { j, esc, errorHtml } from './api.js';
 import {
   toast, formatServerDateTime, formatServerTime, panelCalendarToday, panelDateRangeWindow,
-  serverNow,
+  serverNow, infoModal,
 } from './ui.js';
-import { openTaskLog } from './tasks.js?v=20260914-autoupdate-v2';
-import { openEventDetail } from './monitor.js?v=20260930-about-history-modal-v1';
+import { openTaskLog } from './tasks.js?v=20261001-handbook-v3';
+import { openEventDetail } from './monitor.js?v=20261001-mobile-charts-v1';
 import { state } from './state.js';
 
 const PAGE_LIMIT = 50;
@@ -505,7 +505,7 @@ function renderDetail(data) {
   }
   const actionsHtml = actions.length ? `<div class="actions" style="margin:.6rem 0 0">${actions.join('')}</div>` : '';
   const incomplete = record.status === 'incomplete'
-    ? '<div class="audit-incomplete">Нет записи о завершении. Это не означает, что операция всё ещё выполняется.</div>'
+    ? '<div class="audit-incomplete">Нет записи о завершении. Это не означает, что операция всё ещё выполняется. <button type="button" class="faq-help-link" data-audit-help="incomplete">ⓘ Подробнее</button></div>'
     : '';
 
   return `<div class="audit-detail-head">${record.server ? `${esc(record.server.name || record.server.id)} · ` : ''}${esc(formatServerTime(record.started_at ?? record.ts))}</div>
@@ -514,6 +514,14 @@ function renderDetail(data) {
 }
 
 function bindDetail(holder, data) {
+  holder.querySelector('[data-audit-help="incomplete"]')?.addEventListener('click', () => {
+    if (document.getElementById('confirm-modal')?.classList.contains('open')) return;
+    void infoModal({
+      title: 'Незавершённая запись аудита',
+      message: 'Такая запись означает, что аудит увидел начало операции, но не получил её финальный результат. Она не показывает, выполняется ли операция сейчас: та могла завершиться, быть прервана или не записать итог. Сопоставьте запись с задачей, логом и событиями.',
+      handbookAnchor: 'audit',
+    });
+  });
   holder.querySelector('[data-audit-task]')?.addEventListener('click', event => {
     openTaskLog(event.currentTarget.dataset.auditTask);
   });

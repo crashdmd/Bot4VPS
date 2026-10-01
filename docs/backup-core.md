@@ -1,8 +1,10 @@
 # Bot4VPS Backup Core — архитектура и модель безопасности
 
-Документ описывает работу `core/backup/` в v4.5: модули, потоки данных, границы доверия и защитные механизмы. Предназначен для разработчиков и для сопровождения (в том числе «через полгода»).
+Документ описывает работу `core/backup/` в v6.2: модули, потоки данных, границы доверия и защитные механизмы. Предназначен для разработчиков и для сопровождения (в том числе «через полгода»).
 
-Схема версии данных: **schema_version = 1**.
+Общая карта проекта — [architecture.md](architecture.md); здесь — глубокое погружение в backup.
+
+Записи Operation/Catalog: **schema_version = 1** (`models.py`); manifest архивов и inventory — **v2** (`manifest.py`, `inventory.py`).
 
 ---
 
@@ -26,6 +28,7 @@ Backup Manager — единый core для:
 |--------|------|
 | `manager.py` | Оркестрация: create / import / verify / delete / retention / restore |
 | `models.py` | Operation, Catalog, DiskState, контракты selection/summary |
+| `archive_crypto.py` | Шифрование B4VE (AES-256-GCM поверх tar.gz), scrypt-ключ, `verify_password` |
 | `errors.py` | `ErrorCode`, `BackupError`, `SafeError` (безопасное сообщение наружу) |
 | `validation.py` | Профили, schedule, limits, safety thresholds, имена/ключи |
 | `source_selection.py` | Нормализация путей sources, SFTP-browse, probe |
@@ -39,7 +42,10 @@ Backup Manager — единый core для:
 | `operations.py` | Журнал операций, статусы, mutation boundary |
 | `locks.py` | flock-координатор (targets, artifacts, retention, imports, …) |
 | `restore_plan.py` | **Чистое** планирование Restore (без SSH и мутаций) |
-| `restore_apply.py` | Target: inventory, free space, symlink guards, upload, tar, verify |
+| `restore_apply.py` | Target: inventory, free space, symlink guards, upload, tar, verify; локальный apply |
+| `state_snapshot.py` | Консистентный слепок state.db (VACUUM INTO) для self-backup; расчёт stale `-wal/-shm` sidecars |
+| `self_restore.py` | Оркестратор self-restore установки (единый путь Web/CLI), reconcile на старте |
+| `self_restore_runner.py` | Standalone-исполнитель self-restore на чистом stdlib, живёт вне процесса панели |
 | `scheduler.py` | Расписание automatic backup |
 | `disk.py` | Admission по свободному месту (warning/critical/emergency) |
 | `record_store.py` | Общий atomic JSON-store для служебных записей |
@@ -81,6 +87,13 @@ Inventory и import bundles привязаны к identity архива:
 
 Отдельный import bundle + publication metadata. Read-lock на bundle на время restore, чтобы bytes не заменили между precheck и apply.
 
+### 3.5 Шифрование архивов (B4VE)
+
+- Потоковое **AES-256-GCM поверх готового tar.gz** (`archive_crypto.py`): ключ выводится **scrypt** (N=2¹⁴, r=8, p=1, соль 16 байт), архив режется на чанки по 4 МиБ, nonce = случайный 8-байтовый префикс + счётчик, **AAD = заголовок + номер чанка + флаг «последний»** → защита от перестановки чанков, подмены из другого архива и обрезки хвоста. Магия заголовка — `B4VE`, версия формата 1.
+- Пароль (приоритет): явный одноразовый → сохранённый (`enc1:` в config.json, расшифровывается мастер-ключом) → `None`. Автоматика без пароля (расписание) — plain-архив + warning-событие: отсутствующий бэкап хуже нешифрованного. Недоступность мастер-ключа при create — тоже plain + warning; при restore — отказ.
+- **Ранняя проверка пароля**: `verify_password` расшифровывает только первый кусок и вызывается до регистрации Operation — неверный пароль даёт чистый отказ без записи в истории. В Telegram пароль не вводится: зашифрованные архивы в TG недоступны by design.
+- Коды ошибок: `ENCRYPTION_PASSWORD_INVALID`, `ENCRYPTION_PASSWORD_REQUIRED`, `ENCRYPTION_UNSUPPORTED`, `ENCRYPTION_FAILED`.
+
 ---
 
 ## 4. Catalog, Operations, Locks
@@ -121,19 +134,23 @@ Maintenance state — чтобы не пересечься с update/migration B
 
 1. Валидация profile/sources (`validation` + `source_selection`).
 2. Disk admission (`disk` safety thresholds).
-3. Locks + Operation.
-4. Сбор на target (SSH) или локально (bot4vps sources) → staging tar.gz.
-5. Manifest + member validation.
+3. Locks + Operation; разрешение пароля (`_resolve_encryption_password`).
+4. Сбор на target (SSH) или локально (bot4vps sources) → staging tar.gz. Для bot4vps — консистентный слепок state.db (`state_snapshot`), см. §5.1.
+5. Manifest (v2) + member validation; шифрование B4VE при заданном пароле (`encrypt_in_place`, до публикации).
 6. Checksum, inventory staging, `publish_pair`, catalog.
 7. Retention (если automatic / policy).
 
 Full-root критерий: top-level каталоги `/` минус `/proc`, `/sys`, `/dev`, `/run` — тот же критерий, что SFTP-браузер профиля (только real dirs, не symlinks).
 
+### 5.1 Self-backup: что входит и что нет
+
+В архив установки входят каталог установки и живой systemd-юнит. Исключаются: `venv/`, `.git`, кэши, живая sqlite-тройка `state.db`/`-wal`/`-shm` (в архив кладётся слепок `snapshot_state_db`, а не живые файлы), mutable-runtime файлы самого бэкап-контура — и принципиально **мастер-ключ `keys/secret.key`**: ключ внутри архива размыкал бы все `enc1:`-секреты этого же архива, включая сохранённый пароль бэкапов из config.json. После restore панель поднимает баннер мастер-ключа и ждёт ручного ввода.
+
 ---
 
 ## 6. Restore — модель «не доверяй предыдущему слою»
 
-Принцип: каждый этап заново проверяет входы предыдущего. UI selection никогда не становится аргументом tar напрямую.
+Принцип: каждый этап заново проверяет входы предыдущего. UI selection никогда не становится аргументом tar напрямую. Зашифрованный источник расшифровывается рано — до регистрации Operation и до любых мутаций (см. §3.5).
 
 ### 6.1 Высокоуровневый pipeline
 
@@ -274,13 +291,14 @@ Diagnostics tar: известный controlled skip (например ETXTBSY) v
 
 ---
 
-## 12. Что сознательно не делает v1
+## 12. Чего сознательно нет (v6.2)
 
 - Remote storage backends (только local).
 - Инкрементальные/дельта-архивы.
-- Шифрование архивов на стороне core.
 - Online restore в blocked trees (даже «очень надо») — только смена selection / offline-сценарий вне этого API.
 - Windows / не-GNU tar на target для restore.
+
+Шифрование архивов, отсутствовавшее на момент первой версии документа, реализовано в `archive_crypto.py` (§3.5).
 
 ---
 
@@ -294,4 +312,4 @@ Diagnostics tar: известный controlled skip (например ETXTBSY) v
 
 ---
 
-*Документ соответствует коду `core/backup/` в дереве v4.5 (архив bot4vps). При изменении контрактов обновляйте schema_version и этот файл.*
+*Документ соответствует коду `core/backup/` в v6.2.1 (сверено 2026-10-01). При изменении контрактов обновляйте schema_version и этот файл.*

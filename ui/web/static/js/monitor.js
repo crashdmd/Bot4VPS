@@ -57,7 +57,7 @@ function scheduleUpdatePolling() {
       if (prev && prev.status !== updateState.status) {
         if (updateState.status === 'idle' && prev.status !== 'idle') {
           toast('Обновление установлено', true);
-          const { loadSummary } = await import('./dashboard.js?v=20260913-hostkey-v2');
+          const { loadSummary } = await import('./dashboard.js?v=20261001-mobile-charts-v1');
           loadSummary();
         } else if (updateState.status === 'failed') {
           toast('Ошибка обновления: ' + (updateState.last_error || 'неизвестная ошибка'), false);
@@ -543,7 +543,7 @@ export async function openEventDetail(eventId) {
             throw new Error('Лог этой задачи больше недоступен: запись удалена из истории или лог пуст.');
           }
           closeEventDetail();
-          const { openTaskLog } = await import('./tasks.js?v=20260816-task-history-v3');
+          const { openTaskLog } = await import('./tasks.js?v=20261001-handbook-v3');
           await openTaskLog(taskId);
         } catch (err) {
           logBtn.hidden = true;

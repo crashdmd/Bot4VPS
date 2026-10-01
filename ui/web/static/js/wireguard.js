@@ -13,7 +13,7 @@
 import { j, esc } from './api.js';
 import { openTaskModal } from './taskmodal.js?v=20260914-v3';
 import { statusFilterBtn, statusFilterHidden, bindStatusFilter } from './statusfilter.js?v=20260915-v1';
-import { toast, showPage, serverDateTimeParts, serverDayDifference } from './ui.js';
+import { toast, showPage, serverDateTimeParts, serverDayDifference, infoModal } from './ui.js';
 
 const SID = 'wireguard';
 const timers = {};                  // taskId -> polling-интервал
@@ -354,7 +354,8 @@ function wgRowCells(s) {
   // Не установлен / классический конфиг: вместо Версии/Endpoint/Профилей —
   // объединённая область с центрированным действием.
   const action = stateKey === 'classic'
-    ? `<button type="button" class="wg-row-action" data-migrate="${esc(s.id)}"><span class="svc-btn-emoji">♻️ </span>Миграция</button>`
+    ? `<button type="button" class="wg-row-action" data-migrate="${esc(s.id)}"><span class="svc-btn-emoji">♻️ </span>Миграция</button>
+       <button type="button" class="faq-help-link" data-wg-help="import" aria-label="Подробнее о миграции конфигурации WireGuard">ⓘ Подробнее</button>`
     : `<button type="button" class="wg-row-action" data-install="${esc(s.id)}"><span class="svc-btn-emoji">🟢 </span>Установить</button>`;
   return `${name}${status}
     <td colspan="3" class="wg-row-action-cell">${action}</td>`;
@@ -524,6 +525,18 @@ function bindWgServersList() {
       return;
     }
 
+    const helpBtn = event.target.closest('[data-wg-help="import"]');
+    if (helpBtn) {
+      event.preventDefault();
+      event.stopPropagation();
+      infoModal({
+        title: 'Миграция конфигурации WireGuard',
+        message: 'Миграция переносит существующий классический конфиг WireGuard в формат Bot4VPS. Профили могут продолжить работать без перевыпуска ключей. Перед началом укажите Endpoint, если клиенты подключаются извне.',
+        handbookAnchor: 'wireguard-import',
+      });
+      return;
+    }
+
     // Действия в объединённой области — исключение из клика по строке
     const installBtn = event.target.closest('[data-install]');
     if (installBtn) {
@@ -558,6 +571,7 @@ function bindWgServersList() {
   // Enter/Space на строке — как клик
   el.addEventListener('keydown', event => {
     if (event.key !== 'Enter' && event.key !== ' ') return;
+    if (event.target.closest('button, a, input, select, textarea')) return;
     const row = event.target.closest('tr[data-sid]');
     if (!row) return;
     event.preventDefault();
@@ -1306,7 +1320,7 @@ function watchTask(taskId, serverId, action) {
 
             if (returnToServer) {
               try {
-                const { openServer } = await import('./servers.js?v=20260930-availability-event-metrics-v2');
+                const { openServer } = await import('./servers.js?v=20261001-mobile-charts-v1');
                 await openServer(serverId);
               } catch (_) {
                 backToWgList();
@@ -1460,7 +1474,7 @@ export function bindWireguardUI() {
     if (!wgServerId) return;
 
     try {
-      const { openServer } = await import('./servers.js?v=20260930-availability-event-metrics-v2');
+      const { openServer } = await import('./servers.js?v=20261001-mobile-charts-v1');
       await openServer(wgServerId);
     } catch (e) {
       console.error('Не удалось открыть карточку сервера:', e);

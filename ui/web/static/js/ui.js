@@ -11,6 +11,7 @@ let telegramHealthSettingsAction = null;
 function closeConfirmDialog(result) {
   const modal = document.getElementById('confirm-modal');
   modal?.classList.remove('open');
+  modal?.classList.remove('faq-help-modal');
   const resolve = confirmResolve;
   confirmResolve = null;
   if (resolve) resolve(result);
@@ -34,6 +35,7 @@ export function confirmAction({
   if (confirmResolve) closeConfirmDialog(false);
 
   confirmReturnFocus = document.activeElement;
+  modal.classList.remove('faq-help-modal');
   document.getElementById('confirm-modal-title').textContent = title || 'Подтвердите действие';
   const messageEl = document.getElementById('confirm-modal-message');
   messageEl.textContent = message;
@@ -83,15 +85,29 @@ export function confirmAction({
 /** Информационная модалка: единственная кнопка «Ок», без отмены.
     Переиспользует разметку confirm-modal (confirmAction снимает
     hidden с «Отмены» при следующем открытии). */
-export function infoModal({ title, message = '', okText = 'Ок' } = {}) {
+export function infoModal({ title, message = '', okText = 'Ок', handbookAnchor = '' } = {}) {
   const modal = document.getElementById('confirm-modal');
   if (!modal) return Promise.resolve(true);
+  const hasHandbook = /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(handbookAnchor);
+  // Подсказка не должна отменять уже ожидающее подтверждение.
+  if (hasHandbook && modal.classList.contains('open')) return Promise.resolve(false);
   if (confirmResolve) closeConfirmDialog(false);
   confirmReturnFocus = document.activeElement;
   document.getElementById('confirm-modal-title').textContent = title || 'Внимание';
   const messageEl = document.getElementById('confirm-modal-message');
   messageEl.textContent = message;
-  messageEl.classList.toggle('hidden', !message);
+  modal.classList.toggle('faq-help-modal', hasHandbook);
+  if (hasHandbook) {
+    const details = document.createElement('p');
+    details.className = 'faq-help-details';
+    details.append('Для более подробной информации изучите соответствующий раздел ');
+    const link = document.createElement('a');
+    link.href = `/faq#${handbookAnchor}`;
+    link.textContent = 'Справочника пользователя →';
+    details.append(link);
+    messageEl.append(details);
+  }
+  messageEl.classList.toggle('hidden', !message && !hasHandbook);
   const ok = document.getElementById('confirm-modal-ok');
   const cancel = document.getElementById('confirm-modal-cancel');
   ok.textContent = okText;
@@ -101,6 +117,7 @@ export function infoModal({ title, message = '', okText = 'Ок' } = {}) {
   modal.onkeydown = e => {
     if (e.key === 'Escape') {
       e.preventDefault();
+      if (hasHandbook) e.stopPropagation();
       closeConfirmDialog(true);
     }
   };

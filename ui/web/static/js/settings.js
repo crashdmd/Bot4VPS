@@ -1,6 +1,6 @@
 import { j, esc } from './api.js?v=20260821-telegram-health-v1';
 import { toast, bindPasswordToggles, confirmAction, infoModal, syncServerClock, parseEmoji } from './ui.js';
-import { loadUpdateState, showUpdateModal, showHistoryModal } from './monitor.js?v=20260930-about-history-modal-v1';
+import { loadUpdateState, showUpdateModal, showHistoryModal } from './monitor.js?v=20261001-mobile-charts-v1';
 import { openBackupPasswordModal } from './backup-password.js?v=20260911-bpw-v16';
 import { NOTIFY_ICON } from './icons.js?v=20260924-notify-icon-v1';
 
@@ -113,10 +113,13 @@ function settingRow(spec) {
     : '';
   const descriptionId = spec.descId ? ` id="${esc(spec.descId)}"` : '';
   const helpId = `${spec.id}-help`;
-  const helpButton = spec.help
+  const handbookButton = spec.handbookAnchor
+    ? `<button type="button" class="faq-help-link" id="${helpId}" aria-label="Подробнее: ${esc(spec.title)}">Подробнее</button>`
+    : '';
+  const helpButton = !spec.handbookAnchor && spec.help
     ? `<button type="button" class="set-help" id="${helpId}" aria-expanded="false" aria-controls="${helpId}-text" title="Подсказка">?</button>`
     : '';
-  const helpBlock = spec.help
+  const helpBlock = !spec.handbookAnchor && spec.help
     // Текст и крестик — две колонки сетки: строки длинные, и крестик поверх
     // текста залезал бы на них. white-space:pre-line остаётся у текста.
     ? `<div class="set-help-text" id="${helpId}-text" hidden><span class="set-help-body">${esc(spec.help)}</span><button type="button" class="set-help-close" id="${helpId}-close" aria-label="Закрыть подсказку" title="Закрыть">✕</button></div>`
@@ -136,7 +139,7 @@ function settingRow(spec) {
   const sub = spec.sub
     ? `<span class="set-sub" data-setting="${esc(spec.sub.id)}"${subDependency}${subHint ? ` title="${esc(subHint)}"` : ''}><span class="set-sub-caption">${esc(spec.sub.title)}</span>${rowControl(spec.sub)}</span>`
     : '';
-  return `<div class="set-row" data-setting="${esc(spec.id)}"${dependency}><div class="set-copy"><div class="set-name">${esc(spec.title)}${helpButton}</div><div class="set-desc"${descriptionId}>${esc(spec.desc || '')}</div></div><div class="set-ctrl">${sub}${rowControl(spec)}</div></div>${helpBlock}`;
+  return `<div class="set-row" data-setting="${esc(spec.id)}"${dependency}><div class="set-copy"><div class="set-name">${esc(spec.title)}${handbookButton}${helpButton}</div><div class="set-desc"${descriptionId}>${esc(spec.desc || '')}</div></div><div class="set-ctrl">${sub}${rowControl(spec)}</div></div>${helpBlock}`;
 }
 
 function rowControl(spec) {
@@ -289,11 +292,17 @@ function bindSelect(id, apply) {
   });
 }
 
-// Кнопка «?» у строки настройки: раскрывает пояснение под строкой.
-function bindHelp(id) {
+// Кнопка «?» у строки настройки раскрывает пояснение; ссылка справочника
+// открывает короткое объяснение в общей информационной модалке.
+function bindHelp(id, { title, message, handbookAnchor } = {}) {
   const button = document.getElementById(`${id}-help`);
+  if (!button) return;
+  if (handbookAnchor) {
+    button.addEventListener('click', () => infoModal({ title, message, handbookAnchor }));
+    return;
+  }
   const text = document.getElementById(`${id}-help-text`);
-  if (!button || !text) return;
+  if (!text) return;
   const setOpen = open => {
     text.hidden = !open;
     button.setAttribute('aria-expanded', String(open));
@@ -415,16 +424,7 @@ const NOTIFY_CATEGORIES = [
   { name: 'system', title: 'Системные и аварии панели', desc: 'Служебные события: база данных, конфиг, SSH-ключи, скрипты.' },
 ];
 
-// Подсказка к «Интервал оповещений, мин»: одно число на три роли. Каждый
-// пункт — с новой строки (текст вставляется как есть, переносы держит
-// white-space:pre-line у .set-help-text).
-const NOTIFY_INTERVAL_HELP = [
-  'Одно число на три роли:',
-  '1) Как часто проверять серверы, пока панель закрыта: с этой периодичностью панель сама опрашивает серверы в фоне.',
-  '2) Как часто Telegram может присылать уведомления: чаще интервала уведомления не уходят, они ждут своей очереди.',
-  '3) Какой перерыв считается случайным сбоем: если сервер пропал и вернулся внутри этого интервала, панель считает это коротким сбоем и отдельно о нём не сообщает (например: перезагрузка сервера).',
-  'При открытой панели её собственная проверка доступности работает независимо от этого интервала; интервал в этот момент определяет только частоту сводок уведомлений в Telegram.',
-].join('\n');
+const NOTIFY_INTERVAL_HELP = 'Один интервал задаёт фоновую проверку серверов, частоту отправки уведомлений в Telegram и порог короткого офлайн-сбоя. Если сервер пропал и вернулся раньше этого срока, отдельное уведомление об офлайне не создаётся. При открытой панели проверка доступности продолжается независимо, а интервал ограничивает только Telegram-сводки.';
 
 // Интервалы проверки SSL выбираются из списка: руками такое не набирают, а
 // «раз в неделю» в минутах вообще не читается.
@@ -607,7 +607,7 @@ async function renderNotifications() {
   // Telegram он подсвечен целиком, вместе с подсказкой сверху.
   const channelRows = [
     settingRow({ id: 'set-telegram-channel', type: 'toggle', title: 'Оповещать в Telegram', desc: 'Присылать уведомления в Telegram. Выключение касается только Telegram: уведомления в панели остаются на месте. Бот продолжает работать — команды, коды восстановления и проверка связи отвечают всегда.', value: channelOn }),
-    settingRow({ id: 'set-notify-interval', type: 'number', title: 'Интервал оповещений, мин', desc: 'Как часто проверять серверы в фоне и как часто Telegram может присылать уведомления.', value: cfg.online?.interval ?? 5, min: 1, max: 10080, help: NOTIFY_INTERVAL_HELP, dependsOn: { id: 'set-telegram-channel', value: true } }),
+    settingRow({ id: 'set-notify-interval', type: 'number', title: 'Интервал оповещений, мин', desc: 'Как часто проверять серверы в фоне и как часто Telegram может присылать уведомления.', value: cfg.online?.interval ?? 5, min: 1, max: 10080, handbookAnchor: 'telegram-interval', dependsOn: { id: 'set-telegram-channel', value: true } }),
   ];
   const rows = [];
   // Место под подсказку. Когда канал выключен, она пустая и ждёт попытки
@@ -654,7 +654,11 @@ async function renderNotifications() {
       : enabled => patchNotificationCategory(name, enabled));
   });
   bindSelect('set-ssl-interval', value => patchMonitor('ssl', { interval: Number(value) }));
-  bindHelp('set-notify-interval');
+  bindHelp('set-notify-interval', {
+    title: 'Интервал уведомлений',
+    message: NOTIFY_INTERVAL_HELP,
+    handbookAnchor: 'telegram-interval',
+  });
   initializeSettingDependencies(content);
 }
 
@@ -2125,7 +2129,7 @@ async function renderTelegram() {
   const data = await j('/api/telegram/status');
   const status = formatTgStatus(data);
   document.getElementById('settings-content').innerHTML = section('Telegram', 'Управление ботом и данными получателя.', [], `
-    <div class="set-form-card"><div class="set-form-title"><div><h3>Telegram-бот</h3><p>Сервис работает в одном процессе с Web UI.</p></div><span id="tg-status-line" class="set-badge ${status.tone}">${esc(status.text)}</span></div>
+    <div class="set-form-card"><div class="set-form-title"><div><h3>Telegram-бот <button type="button" class="faq-help-link" id="tg-bot-help" aria-label="Подробнее: Telegram-бот">Подробнее</button></h3><p>Сервис работает в одном процессе с Web UI.</p></div><span id="tg-status-line" class="set-badge ${status.tone}">${esc(status.text)}</span></div>
       <div class="set-tls-toggle-row tg-toggle-row">
         <span class="tg-toggle-left">
           <label class="set-switch" id="tg-toggle-wrap" title="${esc('Работа Telegram-бота')}"><input type="checkbox" id="tg-toggle"><span class="set-switch-track"><span></span></span></label>
@@ -2141,6 +2145,11 @@ async function renderTelegram() {
   applyTelegramUi(data);
   bindPasswordToggles();
   document.getElementById('tg-toggle')?.addEventListener('change', tgToggleFlow);
+  bindHelp('tg-bot', {
+    title: 'Telegram-бот и доставка уведомлений',
+    message: 'Тумблер в этом разделе запускает или останавливает самого Telegram-бота. Выключенный бот не принимает команды, не отправляет коды восстановления и уведомления. Тумблер «Оповещать в Telegram» в разделе «Уведомления» управляет только доставкой событий, когда бот уже работает.',
+    handbookAnchor: 'telegram-bot',
+  });
   document.getElementById('tg-restart')?.addEventListener('click', () => tgAction('/api/telegram/restart'));
   document.getElementById('tg-save')?.addEventListener('click', tgSave);
   document.getElementById('tg-health')?.addEventListener('click', tgCheckHealth);

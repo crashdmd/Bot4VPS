@@ -1,5 +1,5 @@
 import { state, setServers } from './state.js';
-import { applyEventsSnapshot } from './monitor.js?v=20260930-about-history-modal-v1';
+import { applyEventsSnapshot } from './monitor.js?v=20261001-mobile-charts-v1';
 
 let es = null;
 let notificationsRefresh = null;
@@ -12,8 +12,8 @@ let connectedOnce = false;
 // Версии модулей — те же, что в app.js: одинаковый адрес импорта означает
 // один экземпляр модуля, то есть общее состояние страницы (импорт «заново»
 // с другим ?v= создал бы вторую копию со своим lastOverview).
-const METRICS_MODULE = './metrics.js?v=20260930-availability-event-metrics-v2';
-const AUDIT_MODULE = './audit.js?v=20260930-firewall-rule-selection-v1';
+const METRICS_MODULE = './metrics.js?v=20261001-mobile-charts-v1';
+const AUDIT_MODULE = './audit.js?v=20261001-mobile-charts-v1';
 
 export function registerNotificationsRefresh(handler) {
   notificationsRefresh = typeof handler === 'function' ? handler : null;
@@ -119,7 +119,7 @@ function applySnapshot(data) {
         has_running: !!s.has_running,
       };
     }));
-    import('./servers.js?v=20260930-availability-event-metrics-v2').then(m => {
+    import('./servers.js?v=20261001-mobile-charts-v1').then(m => {
       if (state.page === 'servers' && m.renderServersFromState) m.renderServersFromState();
     }).catch(() => {});
   }
@@ -131,7 +131,7 @@ function applySnapshot(data) {
       && data.task_history_revision !== taskHistoryRevision) {
     taskHistoryRevision = data.task_history_revision;
     if (state.page === 'history' && state.historyTab === 'queues') {
-      import('./servers.js?v=20260930-availability-event-metrics-v2').then(m => {
+      import('./servers.js?v=20261001-mobile-charts-v1').then(m => {
         m.loadHistory?.();
       }).catch(() => {});
     }
@@ -159,7 +159,7 @@ function applySnapshot(data) {
     }
     // Открытая карточка сервера — обновить блок «Недавние события»
     if (state.page === 'server') {
-      import('./servers.js?v=20260930-availability-event-metrics-v2').then(m => {
+      import('./servers.js?v=20261001-mobile-charts-v1').then(m => {
         if (m.refreshOpenServerEvents) m.refreshOpenServerEvents();
         else if (m.openServerId) {
           // fallback: модуль мог ещё не экспортировать helper

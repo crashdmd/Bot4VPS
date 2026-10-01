@@ -11,7 +11,7 @@
 // Клиентская валидация — ТОЛЬКО мгновенная подсказка (как docker.js §25):
 // авторитет — impl/validation.py, бэкенд проверяет всё повторно.
 import { j, esc } from './api.js';
-import { toast, showPage, confirmAction } from './ui.js';
+import { toast, showPage, confirmAction, infoModal } from './ui.js';
 import { ansiToHtml } from './ansi.js';
 import { statusFilterBtn, statusFilterHidden, bindStatusFilter } from './statusfilter.js?v=20260915-v1';
 
@@ -1141,6 +1141,7 @@ function renderXuiServerDetail(st) {
         <b>⬆ Импорт базы данных</b><span>загрузить резервную копию .db или миграционный дамп (.dump)</span></button>
       <button type="button" class="svc-action" data-xui-fakesite>
         <b>🌐 Сайт-заглушка (SelfSNI)</b><span>HTTPS-сайт для Reality Dest на 127.0.0.1:9000</span></button>
+      <button type="button" class="faq-help-link" data-xui-help="selfsni" aria-label="Подробнее о SelfSNI">ⓘ Подробнее о SelfSNI</button>
       <button type="button" class="svc-action svc-action-danger" data-xui-remove>
         <b>🗑 Удалить 3x-ui</b><span>бинарник, CLI и юнит</span></button>
     </div>`;
@@ -1166,7 +1167,7 @@ function bindXuiCardUI() {
   document.getElementById('btn-back-xui-server')?.addEventListener('click', async () => {
     if (!xuiServerId) return;
     try {
-      const { openServer } = await import('./servers.js?v=20260930-availability-event-metrics-v2');
+      const { openServer } = await import('./servers.js?v=20261001-mobile-charts-v1');
       await openServer(xuiServerId);
     } catch (e) {
       console.error('Не удалось открыть карточку сервера:', e);
@@ -1186,6 +1187,16 @@ function bindXuiCardUI() {
       event.preventDefault();
       const u = String(go.dataset.xuiGo || '').trim();
       if (u) window.open(u, '_blank', 'noopener');
+      return;
+    }
+    const help = event.target.closest('[data-xui-help]');
+    if (help) {
+      event.preventDefault();
+      infoModal({
+        title: 'Сайт-заглушка SelfSNI',
+        message: 'SelfSNI создаёт отдельный HTTPS-сайт для Reality Dest. Настройки существующих inbound’ов не меняются автоматически. После установки значения Dest, SNI и Xver нужно указать в Reality вручную.',
+        handbookAnchor: 'xui-selfsni',
+      });
       return;
     }
     const unit = event.target.closest('[data-xui-unit]');
@@ -2083,7 +2094,7 @@ function watchXuiTask(taskId, action) {
         try { localStorage.removeItem('bot4vps_xui_server_id'); } catch (_) {}
         if (returnToServer) {
           try {
-            const { openServer } = await import('./servers.js?v=20260930-availability-event-metrics-v2');
+            const { openServer } = await import('./servers.js?v=20261001-mobile-charts-v1');
             await openServer(sid);
           } catch (_) { backToXuiList(); }
         } else {

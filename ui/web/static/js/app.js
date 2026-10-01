@@ -1,34 +1,34 @@
 import { tickClock, syncServerClock, showPage, toast, parseEmoji, initEmojiObserver, confirmAction, bindTelegramHealthDialog } from './ui.js';
-import { loadDashboard, loadSummary, bindDashboard, stopDashMetrics, updateDashboardData, updateDashboardState } from './dashboard.js?v=20260924-history-v1';
-import { loadEvents, EVENTS_LIMIT, openEventDetail, applyEventsSnapshot, initSystemMonitor, stopSystemMonitor } from './monitor.js?v=20260930-about-history-modal-v1';
+import { loadDashboard, loadSummary, bindDashboard, stopDashMetrics, updateDashboardData, updateDashboardState } from './dashboard.js?v=20261001-mobile-charts-v1';
+import { loadEvents, EVENTS_LIMIT, openEventDetail, applyEventsSnapshot, initSystemMonitor, stopSystemMonitor } from './monitor.js?v=20261001-mobile-charts-v1';
 import { loadServers, loadQueues, loadHistory, loadGroupsAndKeys,
   bindServerUI, stopWatchers, openServer, closeGroupsPanel, lastServerTab,
   startSshProbeLoop, stopSshProbeLoop,
-} from './servers.js?v=20260930-availability-event-metrics-v2';
-import { loadScripts, bindScriptsUI } from './scripts.js?v=20260913-hostkey-v2';
-import { loadWireguard, bindWireguardUI, stopWgTimers, openWgServerById } from './wireguard.js?v=20260914-wgsrv-icon-v7';
-import { loadDocker, bindDockerUI, stopDockerTimers, openDockerServerById } from './docker.js?v=20260915-dksrv-v21';
-import { loadXui, stopXuiTimers, stopXuiCardPoll, openXuiServerById } from './3xui.js?v=20260917-selfsni-url-v4';
-import { bindTasksUI } from './tasks.js?v=20260914-autoupdate-v2';
-import { loadFiles, bindFilesUI } from './files.js?v=20260913-hostkey-v2';
+} from './servers.js?v=20261001-mobile-charts-v1';
+import { loadScripts, bindScriptsUI } from './scripts.js?v=20261001-mobile-charts-v1';
+import { loadWireguard, bindWireguardUI, stopWgTimers, openWgServerById } from './wireguard.js?v=20261001-mobile-charts-v1';
+import { loadDocker, bindDockerUI, stopDockerTimers, openDockerServerById } from './docker.js?v=20261001-mobile-charts-v1';
+import { loadXui, stopXuiTimers, stopXuiCardPoll, openXuiServerById } from './3xui.js?v=20261001-mobile-charts-v1';
+import { bindTasksUI } from './tasks.js?v=20261001-handbook-v3';
+import { loadFiles, bindFilesUI } from './files.js?v=20261001-mobile-charts-v1';
 import { bindEditorUI } from './editor.js?v=20260815-scripts-table-v1';
 import { bindTerminalUI, closeTerminal } from './terminal.js?v=20260905-glassblue-v2';
-import { startSSE, registerNotificationsRefresh } from './sse.js?v=20260930-availability-event-metrics-v2';
+import { startSSE, registerNotificationsRefresh } from './sse.js?v=20261001-mobile-charts-v1';
 import { state, setPage, clearQuickSetupServer } from './state.js';
 import { j, esc } from './api.js';
 import { resumeBackgroundTasks } from './taskmodal.js?v=20260914-v3';
 import { initAuth, bindAuthUI } from './auth.js';
 import { initSetup, bindSetupUI } from './setup.js?v=20260910-setup-v4';
-import { bindGlobalSearch } from './search.js?v=20260927-audit-ui-v15';
-import { bindBackupUI, loadBackups, stopBackupTimers } from './backup.js?v=20260925-notify-gate-v2';
+import { bindGlobalSearch } from './search.js?v=20261001-mobile-charts-v1';
+import { bindBackupUI, loadBackups, stopBackupTimers } from './backup.js?v=20261001-handbook-v3';
 import {
   openMetricsPage, closeMetricsView, bindMetricsUI, metricsFromUrl,
-} from './metrics.js?v=20260930-availability-event-metrics-v2';
+} from './metrics.js?v=20261001-mobile-charts-v1';
 import {
   loadAudit, resetAuditPage, auditFromUrl, openAuditRecord, bindAuditUI, refreshAudit,
-} from './audit.js?v=20260930-firewall-rule-selection-v1';
+} from './audit.js?v=20261001-mobile-charts-v1';
 
-const QUICK_SETUP_MODULE_URL = './quick_setup.js?v=20260915-sysfix-v1';
+const QUICK_SETUP_MODULE_URL = './quick_setup.js?v=20261001-handbook-v3';
 const quickSetupModule = import(QUICK_SETUP_MODULE_URL).catch(error => {
   console.error('[quick-setup] module unavailable:', error);
   return null;
@@ -52,7 +52,7 @@ async function openQuickSetupFromCard(serverId) {
 
 // Settings — отдельная подсистема. Загружаем её лениво, чтобы ошибка нового
 // модуля не останавливала Dashboard, Servers и остальные страницы.
-const settingsModule = import('./settings.js?v=20260925-notify-blocks-v17')
+const settingsModule = import('./settings.js?v=20261001-mobile-charts-v1')
   .catch(error => {
     console.error('[settings] module unavailable:', error);
     return null;
@@ -267,6 +267,26 @@ window.b4vNav = onNav;  // навигация из других модулей (
   b.addEventListener('click', () => { onNav(b.dataset.page); closeDrawer(); });
 });
 
+document.getElementById('nav-faq')?.addEventListener('click', closeDrawer);
+
+document.addEventListener('click', event => {
+  const link = event.target.closest('a[href]');
+  if (!link || event.defaultPrevented) return;
+  const url = new URL(link.href, window.location.href);
+  if (url.origin !== window.location.origin || url.pathname !== '/faq') return;
+  const returnUrl = new URL(window.location.href);
+  if (returnUrl.searchParams.has('page') && returnUrl.searchParams.get('page') !== state.page) {
+    ['page', 'tab', 'record', 'server_id', 'at', 'from', 'to', 'audit_id'].forEach(key => returnUrl.searchParams.delete(key));
+  }
+  if (state.page === 'history') {
+    returnUrl.searchParams.set('tab', historyTab());
+    if (historyTab() !== 'actions') returnUrl.searchParams.delete('record');
+  }
+  returnUrl.searchParams.set('panel_page', state.page);
+  url.searchParams.set('returnTo', `${returnUrl.pathname}${returnUrl.search}${returnUrl.hash}`);
+  link.href = `${url.pathname}${url.search}${url.hash}`;
+});
+
 document.querySelectorAll('.side .nav-group-head').forEach(b => {
   b.addEventListener('click', () => b.closest('.nav-group')?.classList.toggle('open'));
 });
@@ -317,7 +337,7 @@ settingsModule.then(module => {
 }).catch(() => {});
 // Групповая панель подключается лениво: ошибка её отдельного модуля
 // не должна останавливать загрузку всей панели управления.
-import('./groups_panel.js?v=20260913-hostkey-v2')
+import('./groups_panel.js?v=20261001-mobile-charts-v1')
   .then(m => m.bindGroupsPanelUI())
   .catch(error => console.warn('[groups] module unavailable:', error));
 bindAuthUI();
@@ -358,6 +378,13 @@ async function restoreSession() {
   } catch (_) {}
 
   const query = new URLSearchParams(window.location.search);
+  if (query.has('panel_page')) {
+    const returnPage = query.get('panel_page');
+    if (document.getElementById(`page-${returnPage}`)) page = returnPage;
+    const url = new URL(window.location.href);
+    url.searchParams.delete('panel_page');
+    history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
+  }
   let quickSetupServerId = null;
   if (query.get('page') === 'quick-setup') {
     quickSetupServerId = (query.get('server_id') || '').trim() || null;
@@ -462,7 +489,12 @@ async function restoreSession() {
     return;
   }
 
-  if (page && page !== 'servers' && page !== 'server'
+  if (page === 'servers') {
+    onNav('servers');
+    return;
+  }
+
+  if (page && page !== 'server'
       && page !== 'wireguard-server' && page !== 'docker-server'
       && page !== 'xui-server') {
     onNav(page);

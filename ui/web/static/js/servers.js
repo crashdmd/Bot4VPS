@@ -1,14 +1,14 @@
 import { j, esc } from './api.js';
 import { ansiToHtml } from './ansi.js';
-import { toast, showPage, bindPasswordToggles, parseEmoji, confirmAction, formatServerDateTime, serverDateTimeParts, serverDayDifference, serverNow } from './ui.js';
+import { toast, showPage, bindPasswordToggles, parseEmoji, confirmAction, formatServerDateTime, serverDateTimeParts, serverDayDifference, serverNow, infoModal } from './ui.js';
 import { state, setServers, setGroups, setKeys, setOpenServer, setPage, setServerGroupTab, setServerSort, setServerQuery as updateServerQuery } from './state.js';
 import { WIREGUARD_ICON, DOCKER_ICON, XUI_ICON } from './icons.js?v=20260905-brandicons-v3';
 import { openTerminal, closeTerminal } from './terminal.js?v=20260904-termfit-v1';
-import { openEventDetail, applyEventsSnapshot } from './monitor.js?v=20260930-about-history-modal-v1';
-import { openTaskLog, cancelTaskAPI } from './tasks.js?v=20260816-task-history-v3';
-import { openBackupsForServer } from './backup.js?v=20260925-notify-gate-v2';
+import { openEventDetail, applyEventsSnapshot } from './monitor.js?v=20261001-mobile-charts-v1';
+import { openTaskLog, cancelTaskAPI } from './tasks.js?v=20261001-handbook-v3';
+import { openBackupsForServer } from './backup.js?v=20261001-handbook-v3';
 import { toggleEmojiPop, bindEmojiPicker } from './emoji_picker.js?v=20260915-emojipick-v1';
-import { renderSpark } from './chart.js?v=20260930-availability-event-metrics-v2';
+import { renderSpark } from './chart.js?v=20261001-mobile-charts-v1';
 
 /** @deprecated use state.servers */
 export let lastServers = state.servers;
@@ -488,7 +488,8 @@ function renderServersTable(list) {
   const rows = list.map(server =>
     `<tr class="server-table-row" data-sid="${esc(server.id)}" tabindex="0" role="button">${serverRowCells(server)}</tr>`).join('');
 
-  return `<div class="server-table-wrap">
+  return `<div style="margin-bottom:.5rem"><button type="button" class="faq-help-link" data-server-help="states">ⓘ Подробнее о статусах</button></div>
+    <div class="server-table-wrap">
     <table class="server-table">
       <thead><tr>
         ${sortableServerHeader('name', 'Имя сервера')}
@@ -604,6 +605,20 @@ function bindServerListUI() {
         event.preventDefault();
         event.stopPropagation();
         toggleServerSort(sortButton.dataset.sortKey);
+        return;
+      }
+
+      const helpButton = event.target.closest('[data-server-help="states"]');
+      if (helpButton) {
+        event.preventDefault();
+        event.stopPropagation();
+        if (!document.getElementById('confirm-modal')?.classList.contains('open')) {
+          void infoModal({
+            title: 'Статусы серверов',
+            message: 'Статус «онлайн» означает, что последняя проверка доступности прошла успешно. «Не отвечает» и «данных нет» отражают результат и свежесть последних проверок, а не обязательно состояние всех сервисов сервера. Подробные причины описаны в справочнике.',
+            handbookAnchor: 'server-states',
+          });
+        }
         return;
       }
 
@@ -820,7 +835,7 @@ async function renderQuickActions(id) {
 
   // 5. Запустить скрипт
   addAction('Запустить скрипт', '▶', 'secondary',
-    () => import('./scripts.js?v=20260913-hostkey-v2').then(m => m.openRunModal(id, null)));
+    () => import('./scripts.js?v=20261001-mobile-charts-v1').then(m => m.openRunModal(id, null)));
 
   // 6. Удалить сервер
   addAction('Удалить сервер', '🗑', '', deleteServer,
@@ -1231,36 +1246,36 @@ const checkXuiStatus = id => checkServiceInstalled('3x-ui', id);
 
 // Открыть панель WireGuard для сервера
 function openWireGuardServer(serverId) {
-  import('./wireguard.js?v=20260914-wgsrv-icon-v7').then(m => m.openWgServerById(serverId));
+  import('./wireguard.js?v=20261001-mobile-charts-v1').then(m => m.openWgServerById(serverId));
 }
 
 // Открыть модальное окно установки WireGuard
 function confirmInstallWireGuard(serverId) {
-  import('./wireguard.js?v=20260914-wgsrv-icon-v7')
+  import('./wireguard.js?v=20261001-mobile-charts-v1')
     .then(m => m.openInstall(serverId))
     .catch(err => console.error('Ошибка загрузки модуля WireGuard:', err));
 }
 
 // Открыть панель Docker для сервера
 function openDockerServer(serverId) {
-  import('./docker.js?v=20260915-dksrv-v21').then(m => m.openDockerServerById(serverId));
+  import('./docker.js?v=20261001-mobile-charts-v1').then(m => m.openDockerServerById(serverId));
 }
 
 // Открыть модальное окно установки Docker
 function confirmInstallDocker(serverId) {
-  import('./docker.js?v=20260915-dksrv-v21')
+  import('./docker.js?v=20261001-mobile-charts-v1')
     .then(m => m.openInstall(serverId))
     .catch(err => console.error('Ошибка загрузки модуля Docker:', err));
 }
 
 // Открыть карточку 3x-ui для сервера
 function openXuiServer(serverId) {
-  import('./3xui.js?v=20260917-selfsni-url-v4').then(m => m.openXuiServerById(serverId));
+  import('./3xui.js?v=20261001-mobile-charts-v1').then(m => m.openXuiServerById(serverId));
 }
 
 // Открыть визард установки 3x-ui
 function confirmInstallXui(serverId) {
-  import('./3xui.js?v=20260917-selfsni-url-v4')
+  import('./3xui.js?v=20261001-mobile-charts-v1')
     .then(m => m.openInstallWizard(serverId))
     .catch(err => console.error('Ошибка загрузки модуля 3x-ui:', err));
 }
@@ -2029,7 +2044,7 @@ function openGroupsPanel() {
     panel.classList.add('open');
     // Загружаем списки групп при открытии панели.
     // Спецификатор тот же, что в app.js — единый инстанс модуля.
-    import('./groups_panel.js?v=20260913-hostkey-v2').then(m => {
+    import('./groups_panel.js?v=20261001-mobile-charts-v1').then(m => {
       m.loadGroupsAdmin();
       m.loadGroupsDisplayOrder();
     });

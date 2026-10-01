@@ -20,13 +20,13 @@
  *   застывает на старых числах.
  */
 import { j, esc, errorHtml } from './api.js';
-import { toast, showPage, serverNow, formatServerTime, formatServerDateTime, panelCalendarToday, panelDateRangeWindow, serverDateTimeParts } from './ui.js';
+import { toast, showPage, serverNow, formatServerTime, formatServerDateTime, panelCalendarToday, panelDateRangeWindow, serverDateTimeParts, infoModal } from './ui.js';
 import { state, setPage, setMetricsRange } from './state.js';
 // Версия в спецификаторе — та же, что у `servers.js`: иначе браузер грузит
 // `chart.js` дважды (с `?v=` и без) и держит **два** экземпляра модуля, а
 // незаверсионированный ещё и кэширует навсегда — правка рисунка не доехала бы
 // до пользователя.
-import { renderTimeline, renderSpark, destroyChart, resultColor, normalizeGaps, selectMark } from './chart.js?v=20260930-availability-event-metrics-v2';
+import { renderTimeline, renderSpark, destroyChart, resultColor, normalizeGaps, selectMark } from './chart.js?v=20261001-mobile-charts-v1';
 
 const RANGE_KEY = 'bot4vps_metrics_range';
 const REFRESH_MS = 60000;
@@ -71,13 +71,37 @@ let availabilityListenerBound = false;
 // Значения раскрытой строки берём у самой легенды: overview и timeline могут
 // агрегировать разные наборы точек, а пользователю важны числа на одном экране.
 let openChartLegendValues = null;
+// Пересборка списка вынимает detail из DOM и сбрасывает pointer capture.
+let touchListRefreshPending = false;
 // Ответы таймлайна могут прийти не по порядку, пока окно тащат мышью.
 // Только самый свежий имеет право заменить нарисованный ряд.
 let chartRequest = 0;
 let openedBy = { openServer: null, openAuditRecord: null };
 
+function openMetricsHelp() {
+  if (document.getElementById('confirm-modal')?.classList.contains('open')) return;
+  void infoModal({
+    title: 'Мониторинг серверов',
+    message: 'Период выбирает сохранённую историю и не запускает новые проверки. Отсутствие точек или разрыв линии означает отсутствие измерений, а не нулевую нагрузку. Метки показывают события рядом по времени, но не доказывают причину изменения показателей.',
+    handbookAnchor: 'monitoring',
+  });
+}
+
+function installMetricsHelp() {
+  const row = document.querySelector('.metrics-range-row');
+  if (!row || row.querySelector('[data-metrics-help]')) return;
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'faq-help-link';
+  button.dataset.metricsHelp = 'monitoring';
+  button.textContent = 'ⓘ О мониторинге';
+  button.addEventListener('click', openMetricsHelp);
+  row.append(button);
+}
+
 export function bindMetricsUI(handlers = {}) {
   openedBy = { ...openedBy, ...handlers };
+  installMetricsHelp();
   if (!availabilityListenerBound) {
     availabilityListenerBound = true;
     window.addEventListener('bot4vps:availability-changed', event => {
@@ -423,6 +447,12 @@ function ageLabel(ts) {
 function renderList() {
   const box = document.getElementById('metrics-list');
   if (!box) return;
+  const touch = document.getElementById('metrics-chart')?.__chartState?.touch;
+  if (touch?.media.matches && touch.pointers.size) {
+    touchListRefreshPending = true;
+    return;
+  }
+  touchListRefreshPending = false;
   const detail = takeDetail();
   const allServers = lastOverview?.servers || [];
   const servers = filteredServers(allServers);
@@ -592,7 +622,8 @@ async function openServerChart(serverId) {
       <div class="actions" style="margin:0">${headActions(win)}</div>
     </div>
     <div id="metrics-chart"></div>
-    <div class="chart-hint">Приблизить: покрутите колесо над графиком или протяните с Ctrl · без Ctrl протяжка двигает окно · даты задают только начальный участок</div>
+    <div class="chart-hint chart-hint-desktop">Приблизить: покрутите колесо над графиком или протяните с Ctrl · без Ctrl протяжка двигает окно · даты задают только начальный участок</div>
+    <div class="chart-hint chart-hint-touch">Касание — значения · щипок — масштаб · влево/вправо — сдвиг времени · вверх/вниз — прокрутка страницы</div>
     <div class="metrics-marks" id="metrics-marks"></div>`;
 
   bindDetail(detail, serverId);
@@ -667,6 +698,10 @@ function drawChart(data, win) {
     // окно всё равно приходит через onZoom после отпускания/паузы колеса.
     onWindowChange: applyZoom,
     onZoom: applyZoom,
+    onResetZoom: () => resetZoom(),
+    onTouchEnd: () => {
+      if (touchListRefreshPending) refreshOpenRow();
+    },
   });
   selectMark(host, selectedMarkId);
 

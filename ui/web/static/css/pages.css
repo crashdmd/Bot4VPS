@@ -5053,7 +5053,8 @@ button.server-host-copy:hover,button.server-host-copy:focus-visible{background:v
 }
 .metrics-range{margin:0}
 .metrics-range-row{display:flex;align-items:flex-end;gap:.7rem;flex-wrap:wrap;margin:0 0 .8rem}
-.metrics-custom-period{display:flex;align-items:flex-end;gap:.5rem;flex-basis:100%}
+.metrics-range-row > [data-metrics-help]{margin-left:auto}
+.metrics-custom-period{display:flex;align-items:flex-end;gap:.5rem;flex-basis:100%;order:1}
 .metrics-custom-period[hidden]{display:none}
 .metrics-date{display:flex;align-items:center;gap:.4rem;font-size:.8rem;color:var(--text-dim);padding-bottom:.1rem;margin:0}
 .metrics-date input{
@@ -5125,6 +5126,19 @@ button.server-host-copy:hover,button.server-host-copy:focus-visible{background:v
    не тренд, и скругление рисовало бы значения, которых не измеряли. */
 .chart-host{position:relative}
 .chart-svg{display:block;overflow:visible}
+.chart-hint-touch{display:none}
+@media (max-width:760px) and (pointer:coarse), (max-height:500px) and (orientation:landscape) and (pointer:coarse){
+  .chart-mobile .chart-svg{touch-action:pan-y}
+  .chart-hint-desktop{display:none}
+  .chart-hint-touch{display:block}
+  .chart-mobile-panel{margin-bottom:.45rem}
+  .chart-mobile-controls{display:flex;flex-wrap:wrap;gap:.3rem;margin-bottom:.3rem}
+  .chart-mobile-controls button{min-width:44px;min-height:44px;padding:.35rem .55rem;font-size:.75rem}
+  .chart-mobile-values{box-sizing:border-box;height:8rem;overflow-y:auto;padding:.45rem .55rem;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--panel);color:var(--text);font-size:.72rem;overflow-wrap:anywhere}
+  .chart-mobile-placeholder{color:var(--text-dim)}
+  .chart-mobile-values .chart-tip-row,.chart-mobile-values .chart-tip-mark{flex-wrap:wrap;gap:.15rem .3rem}
+  .chart-mobile-values .chart-tip-row b{min-width:0}
+}
 .chart-grid{stroke:rgba(255,255,255,.07);stroke-width:1}
 .chart-grid-v{stroke:rgba(255,255,255,.04)}
 .chart-axis{fill:var(--text-dim);font-size:10px}
@@ -5397,4 +5411,84 @@ button.server-host-copy:hover,button.server-host-copy:focus-visible{background:v
 
 @media (max-width:640px){
   .srv-history-age{margin-left:0;width:100%}
+}
+
+/* Самостоятельный справочник: общие карточки и темы, без SPA-оболочки. */
+.faq-shell{max-width:1120px;margin:0 auto;padding:2rem 1.5rem 3rem}
+.faq-header{display:flex;align-items:center;justify-content:space-between;gap:1rem;margin-bottom:1.5rem}
+.faq-brand{display:flex;align-items:center;gap:.75rem;font-size:1.15rem;font-weight:700;color:var(--text)}
+.faq-brand img{width:48px;height:48px;object-fit:contain}
+.faq-back{display:inline-flex;align-items:center;justify-content:center;padding:.55rem .8rem;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--card);color:var(--text);font-weight:500}
+.faq-back:hover{background:var(--card-hover);color:var(--text)}
+.faq-intro{margin-bottom:1.5rem}
+.faq-intro h1{font-size:clamp(1.6rem,4vw,2.25rem);line-height:1.25;margin-bottom:.6rem}
+.faq-subtitle{font-size:1.05rem;color:var(--text-muted)}
+.faq-intro p + p{margin-top:.65rem}
+.faq-grid{display:grid;grid-template-columns:250px minmax(0,1fr);align-items:start;gap:1.5rem}
+.faq-toc{position:sticky;top:1.5rem;padding:1rem;max-height:calc(100dvh - 3rem);overflow-y:auto;overscroll-behavior:contain}
+.faq-toc h2{font-size:.95rem;margin-bottom:.65rem}
+.faq-toc-head{display:flex;align-items:center;justify-content:space-between;gap:.75rem}
+.faq-menu-toggle,.faq-menu-close,.faq-toc .faq-mobile-back,.faq-menu-backdrop{display:none}
+.faq-menu-toggle,.faq-menu-close{align-items:center;justify-content:center;min-width:44px;min-height:44px;padding:.5rem;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--card);color:var(--text);cursor:pointer}
+.faq-menu-toggle,.faq-menu-close{transition:background var(--transition-fast),box-shadow var(--transition-fast),transform var(--transition-fast)}
+.faq-shell .faq-menu-toggle:hover,.faq-shell .faq-menu-close:hover{background:var(--card-hover);box-shadow:none;transform:none}
+.faq-menu-toggle:focus-visible,.faq-menu-close:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+.faq-toc ol{list-style:none;display:flex;flex-direction:column;gap:.2rem}
+.faq-toc a{display:block;padding:.4rem .5rem;border-radius:var(--radius-sm);font-size:.85rem;color:var(--text-muted)}
+.faq-toc a:hover{background:var(--card-hover);color:var(--text)}
+.faq-toc ol ol{padding-left:.75rem;margin:.1rem 0 .4rem;border-left:1px solid var(--border)}
+.faq-toc ol ol a{font-size:.78rem}
+.faq-toc a[aria-current="location"]{background:var(--card-hover);color:var(--accent);box-shadow:inset 3px 0 var(--accent);font-weight:600}
+.faq-articles{display:flex;flex-direction:column;gap:1rem;min-width:0}
+.faq-article{padding:1.5rem;scroll-margin-top:1.5rem;overflow-wrap:anywhere}
+.faq-article h2{font-size:1.2rem;line-height:1.4;margin-bottom:.85rem}
+.faq-article p + p,.faq-article ul,.faq-article ol{margin-top:.75rem}
+.faq-article ul,.faq-article ol{padding-left:1.3rem}
+.faq-article li + li{margin-top:.4rem}
+.faq-next{padding-top:.85rem;margin-top:1rem!important;border-top:1px solid var(--border);color:var(--text-muted)}
+.faq-article h3{font-size:1.05rem;line-height:1.4;margin:1.4rem 0 .65rem}
+.faq-article h4{font-size:.95rem;line-height:1.4;margin:1.1rem 0 .5rem}
+.faq-article [id]{scroll-margin-top:1.5rem}
+.faq-article-footer{display:flex;justify-content:flex-end;margin-top:1.25rem;padding-top:1rem;border-top:1px solid var(--border)}
+.faq-desktop-back{display:inline-flex;font-size:.8rem}
+.faq-top{display:none;padding:.55rem .8rem;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--card);color:var(--text);font:inherit;font-size:.8rem;cursor:pointer}
+button.faq-top:hover{background:var(--card-hover);box-shadow:none;transform:none}
+.faq-top:focus-visible,.faq-article [tabindex="-1"]:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+.faq-table-wrap{overflow-x:auto;margin-top:1rem}
+.faq-table{width:100%;border-collapse:collapse;font-size:.85rem}
+.faq-table th,.faq-table td{padding:.7rem;text-align:left;vertical-align:top;border-bottom:1px solid var(--border)}
+.faq-table th{color:var(--text-muted);font-weight:600}
+.faq-table td:first-child{width:32%;font-weight:500}
+.faq-help-modal{z-index:110}
+.faq-help-details{margin-top:.85rem;font-size:.85rem}
+.faq-shell a:focus-visible,.faq-article:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+button.faq-help-link{padding:.25rem .35rem;border:0;background:transparent;box-shadow:none;color:var(--accent);font-size:.8rem;font-weight:500;white-space:normal;text-align:left}
+button.faq-help-link:hover{background:transparent;box-shadow:none;color:var(--accent-hover);text-decoration:underline;transform:none}
+button.faq-help-link:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+@media (max-width:768px){
+  .faq-shell{padding:0 .8rem 2rem}
+  .faq-header{position:sticky;top:0;z-index:30;justify-content:flex-start;margin:0 -.8rem 1rem;padding:.65rem .8rem;background:var(--panel);backdrop-filter:blur(12px);border-bottom:1px solid var(--border)}
+  .faq-header{flex-wrap:wrap;gap:.65rem}
+  .faq-header > .faq-back{display:inline-flex;margin-left:auto;font-size:.75rem;padding:.5rem .6rem}
+  .faq-brand{font-size:.95rem;gap:.4rem}
+  .faq-brand img{width:32px;height:32px}
+  .faq-menu-toggle{min-width:40px;min-height:40px}
+  .faq-desktop-back{display:none}
+  .faq-top{display:inline-flex}
+  .faq-menu-toggle,.faq-menu-close{display:inline-flex}
+  .faq-grid{grid-template-columns:minmax(0,1fr);gap:1rem}
+  .faq-toc{position:fixed;top:0;bottom:0;left:0;z-index:101;width:min(320px,85vw);max-height:100dvh;overflow-y:auto;overscroll-behavior:contain;border-radius:0;background:var(--panel);box-shadow:var(--shadow-side);transform:translateX(-105%);visibility:hidden;transition:transform var(--transition-base)}
+  .faq-toc.open{transform:none;visibility:visible}
+  .faq-toc h2{margin-bottom:0}
+  .faq-toc-head{margin-bottom:.75rem}
+  .faq-toc .faq-mobile-back{display:flex;margin-bottom:.75rem;padding:.65rem;color:var(--text);border-bottom:1px solid var(--border)}
+  .faq-toc ol a{padding:.6rem .5rem}
+  .faq-menu-backdrop{display:block;position:fixed;inset:0;z-index:100;background:rgba(0,0,0,.5);visibility:hidden;opacity:0;transition:opacity var(--transition-base),visibility var(--transition-base)}
+  .faq-menu-backdrop.open{visibility:visible;opacity:1}
+  body.faq-menu-open,html:has(body.faq-menu-open){overflow:hidden}
+  .faq-article{padding:1rem;scroll-margin-top:7rem}
+  .faq-article [id]{scroll-margin-top:7rem}
+}
+@media (prefers-reduced-motion:reduce){
+  .faq-toc,.faq-menu-backdrop{transition:none}
 }
