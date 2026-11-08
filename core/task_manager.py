@@ -17,7 +17,7 @@ from enum import Enum
 from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 from core.actor import Actor, get_actor
-from core.task_history_store import TaskHistoryStore
+from core.task_history_store import TaskHistoryStore, mask_task_text
 
 
 # --------------------------------------------------
@@ -111,6 +111,7 @@ class Task:
     # сериализуемое описание
     kind: str = "custom"
     payload: Dict[str, Any] = field(default_factory=dict)
+    payload_available: bool = True
     # Снимок действующего субъекта на момент создания задачи (см. core/actor.py).
     # default_factory, а не простановка в вызывающем коде: так актор берётся
     # ровно один раз — при рождении задачи, в контексте того, кто её создал,
@@ -131,13 +132,16 @@ class Task:
     _cancel_event: asyncio.Event = field(default_factory=asyncio.Event, repr=False)
     _done_event: asyncio.Event = field(default_factory=asyncio.Event, repr=False)
     _asyncio_task: Optional[asyncio.Task] = field(default=None, repr=False)
+    _output_line_count: int = field(default=0, repr=False)
 
     def append_output(self, line: str):
         if not line:
             return
         line = str(line).rstrip("\n\r")
         if line:
-            self.output_lines.append(line)
+            self._output_line_count = max(self._output_line_count, len(self.output_lines)) + 1
+            self.output_lines.append(mask_task_text(line, self.payload)[-16000:])
+            del self.output_lines[:-1000]
 
     def output_text(self, limit: int = 80) -> str:
         lines = self.output_lines
@@ -183,8 +187,10 @@ class Task:
             pass
         return self
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self, *, private: bool = False) -> Dict[str, Any]:
         """Сериализуемое представление (без runtime-объектов)."""
+        from core.audit import mask_params
+        clean = lambda text: mask_task_text(text, self.payload)
         return {
             "id": self.id,
             "name": self.name,
@@ -192,20 +198,22 @@ class Task:
             "server_name": self.server_name,
             "status": self.status.value,
             "kind": self.kind,
-            "payload": self.payload,
+            "payload": self.payload if private else mask_params(self.payload),
+            "payload_available": self.payload_available,
             "attempt": self.attempt,
             "actor": self.actor,
             "created_at": self.created_at.isoformat(),
             "started_at": self.started_at.isoformat() if self.started_at else None,
             "finished_at": self.finished_at.isoformat() if self.finished_at else None,
-            "error": self.error,
-            "output_lines": self.output_lines[-200:],
+            "error": clean(self.error) if self.error else None,
+            "output_lines": [clean(line) for line in self.output_lines[-(1000 if private else 200):]],
+            "output_line_start": max(0, self._output_line_count - min(len(self.output_lines), 1000 if private else 200)),
             "duration_seconds": self.duration_seconds,
             "result": {
                 "success": self.result.success,
                 "exit_code": self.result.exit_code,
-                "output": (self.result.output or "")[-4000:],
-                "error": self.result.error,
+                "output": clean(self.result.output)[-4000:],
+                "error": clean(self.result.error) if self.result.error else None,
                 "warnings": self.result.warnings,
                 "cancelled": self.result.cancelled,
             } if self.result else None,
@@ -274,6 +282,7 @@ class Task:
             created_at=parse_datetime(data.get("created_at"), "created_at", required=True),
             kind=str(data.get("kind") or "custom"),
             payload=dict(payload),
+            payload_available=bool(data.get("payload_available", True)),
             actor=actor,
             started_at=parse_datetime(data.get("started_at"), "started_at"),
             finished_at=parse_datetime(data.get("finished_at"), "finished_at"),
@@ -283,6 +292,7 @@ class Task:
             attempt=max(1, int(data.get("attempt") or 1)),
         )
         task._done_event.set()
+        task._output_line_count = max(0, int(data.get("output_line_start") or 0)) + len(output_lines)
         return task
 
 
@@ -340,7 +350,10 @@ def _task_output_for_event(task: "Task") -> Optional[str]:
     text = "\n".join(lines[-120:])
     if task.error and task.error not in text:
         text = (text + "\n" if text else "") + f"ERROR: {task.error}"
-    return (text[:8000] if text else None)
+    return (mask_task_text(text, task.payload)[:8000] if text else None)
+
+
+SHUTDOWN_GRACE_SECONDS = 20
 
 
 class TaskManager:
@@ -361,6 +374,8 @@ class TaskManager:
         self._history_store.set_validator(Task.from_dict)
         self._history: List[Task] = []
         self._lock = asyncio.Lock()
+        self._closing = False
+        self._maintenance_token: Optional[str] = None
         self._live_subscribers: Dict[str, List[Callable[[str], Awaitable[None]]]] = {}
         # Задачи, чей результат пользователю уже отчитывает live-наблюдатель
         # (TG Live Output / фоновое ожидание полной проверки): события таких
@@ -371,6 +386,63 @@ class TaskManager:
     def mark_live_reported(self, task_id: str) -> None:
         """Задачу отчитывает live-наблюдатель — не дублировать уведомления."""
         self._live_reported.add(task_id)
+
+    def start(self) -> None:
+        self._closing = False
+        self._maintenance_token = None
+
+    async def hold_for_maintenance(self, token: str) -> None:
+        """Придержать очередь до решения об остановке; активные продолжают работу."""
+        async with self._lock:
+            if self._closing or (self._maintenance_token and self._maintenance_token != token):
+                raise RuntimeError("Подготовка остановки панели уже выполняется")
+            self._maintenance_token = token
+
+    async def release_maintenance(self, token: str) -> None:
+        """Отменить подготовку либо снять блокировку после отказа в операции."""
+        async with self._lock:
+            if self._maintenance_token != token:
+                return
+            self._maintenance_token = None
+            self._closing = False
+            servers = list(self._queues)
+        for server_id in servers:
+            asyncio.create_task(self._pump(server_id))
+
+    def shutdown_preview(self) -> dict:
+        """Снимок для предупреждения в UI; параметры и вывод задач не раскрываются."""
+        return {
+            "running": [
+                {"name": task.name, "server_name": task.server_name}
+                for task in self._running.values() if not task.is_done
+            ],
+            "queued": sum(
+                not task.is_done for queue in self._queues.values() for task in queue
+            ),
+            "grace_seconds": SHUTDOWN_GRACE_SECONDS,
+        }
+
+    async def shutdown(self, timeout: float = SHUTDOWN_GRACE_SECONDS) -> None:
+        """Закрыть приём, отменить ожидающие, дать активным время завершиться."""
+        async with self._lock:
+            already_closing = self._closing
+            self._closing = True
+            queued = [task.id for tasks in self._queues.values() for task in tasks]
+            running = list(self._running.values())
+        for task_id in queued:
+            await self.cancel(task_id)
+        workers = [task._asyncio_task for task in running if task._asyncio_task is not None]
+        if workers:
+            # Подготовка из Web UI уже израсходовала льготное ожидание.
+            # Последующий shutdown процесса не начинает ещё один отсчёт.
+            _, pending = await asyncio.wait(workers, timeout=0 if already_closing else timeout)
+            if pending:
+                for task in running:
+                    if task._asyncio_task in pending:
+                        task._cancel_event.set()
+                _, pending = await asyncio.wait(pending, timeout=2)
+                if pending:
+                    print(f"[TASK] Остановка: {len(pending)} задач не подтвердили отмену", flush=True)
 
     def unmark_live_reported(self, task_id: str) -> None:
         """Live-наблюдение завершено; дальнейшие события задачи (retry,
@@ -433,6 +505,8 @@ class TaskManager:
         )
 
         async with self._lock:
+            if self._closing or self._maintenance_token:
+                raise RuntimeError("Панель останавливается — новые задачи не принимаются")
             queue = self._queues.setdefault(server_id, [])
             st = self._state(server_id)
             will_wait = server_id in self._running or bool(queue) or st.paused
@@ -490,6 +564,8 @@ class TaskManager:
 
     async def retry_last_failed(self, server_id: str) -> Optional[Task]:
         async with self._lock:
+            if self._closing or self._maintenance_token:
+                raise RuntimeError("Панель останавливается — новые задачи не принимаются")
             self._refresh_history()
             st = self._state(server_id)
             failed = None
@@ -505,6 +581,8 @@ class TaskManager:
                         break
             if not failed or failed.kind not in _EXECUTORS:
                 return None
+            if not failed.payload_available:
+                raise ValueError("Повтор невозможен: параметры задачи зашифрованы другим мастер-ключом")
 
             st.note_retry()
             retry = Task(
@@ -613,6 +691,8 @@ class TaskManager:
 
     async def _pump(self, server_id: str):
         async with self._lock:
+            if self._closing or self._maintenance_token:
+                return
             st = self._state(server_id)
             if st.paused or server_id in self._running:
                 return
@@ -639,6 +719,9 @@ class TaskManager:
             work = None
 
             def apply_result(result: TaskResult) -> None:
+                result.output = mask_task_text(result.output, task.payload)[-64000:]
+                if result.error:
+                    result.error = mask_task_text(result.error, task.payload)[-4000:]
                 task.result = result
                 if result.success:
                     task.status = (
@@ -744,7 +827,7 @@ class TaskManager:
         if not task.is_done:
             return
         try:
-            records = self._history_store.append(task.to_dict())
+            records = self._history_store.append(task.to_dict(private=True))
             self._history = self._tasks_from_records(records)
         except Exception as exc:
             # Ошибка диска не должна менять результат уже выполненной SSH-задачи.

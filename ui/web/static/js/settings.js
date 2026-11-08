@@ -8,6 +8,7 @@ let account = { auth_enabled: false, username: 'admin' };
 let selectedCategory = 'common';
 let updateState = null;
 let portPollTimer = null;
+let mobileSettingsModule = null;
 const numberTimers = new Map();
 
 const THEME_KEY = 'bot4vps_theme';
@@ -107,6 +108,17 @@ const categories = [
   { id: 'about', icon: 'i', title: 'О программе', subtitle: 'Версия и проект', render: renderAbout },
 ];
 
+if (document.documentElement.dataset.mobilePairing === '1') {
+  categories.splice(categories.findIndex(item => item.id === 'web') + 1, 0, {
+    id: 'mobile', icon: '▣', title: 'Мобильное приложение', subtitle: 'Подключение и телефоны',
+    render: async () => {
+      const mobile = await import('./_internal/device_access/panel.js?v=20261108-package-v1');
+      mobileSettingsModule = mobile;
+      await mobile.renderMobileAccess(document.getElementById('settings-content'));
+    },
+  });
+}
+
 function settingRow(spec) {
   const dependency = spec.dependsOn
     ? ` data-depends-on="${esc(spec.dependsOn.id)}" data-depends-value="${esc(String(spec.dependsOn.value))}"`
@@ -190,6 +202,8 @@ function clearNumberTimers() {
 }
 
 async function openCategory(id) {
+  mobileSettingsModule?.stopMobileAccess();
+  mobileSettingsModule?.closeMobilePairCode();
   clearNumberTimers();
   const category = categories.find(item => item.id === id) || categories[0];
   selectedCategory = category.id;
@@ -966,7 +980,7 @@ async function masterKeyRestore() {
 async function masterKeyNewConfirm() {
   const fields = mkFieldList(mkState?.encrypted_fields);
   const ok = await confirmAction({
-    message: `⚠️ ВНИМАНИЕ!\n\nОбнаружены зашифрованные данные (${fields}), для которых отсутствует подходящий мастер-ключ.\n\nСоздание нового мастер-ключа приведёт к потере доступа к ним. После создания может потребоваться заново указать:\n• пароли доступа к серверам;\n• Telegram Bot Token;\n• настройки двухфакторной аутентификации.\n\nЭто действие нельзя отменить без восстановления старого мастер-ключа.\n\nПродолжить?`,
+    message: `⚠️ ВНИМАНИЕ!\n\nОбнаружены зашифрованные данные (${fields}), для которых отсутствует подходящий мастер-ключ.\n\nСоздание нового мастер-ключа приведёт к потере доступа к ним. После создания может потребоваться заново указать:\n• пароли доступа к серверам;\n• Telegram Bot Token;\n• настройки двухфакторной аутентификации.\n\nПеред очисткой исходные файлы сохранятся в отдельном архиве. Если старый ключ найдётся, с ним можно будет прочитать этот архив.\n\nПродолжить?`,
     confirmFirst: true,
     confirmLabel: 'Создать новый мастер-ключ',
     danger: true,
@@ -977,6 +991,9 @@ async function masterKeyNewConfirm() {
     const res = await j('/api/masterkey/new', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ confirm: true }) });
     toast(`Создан новый мастер-ключ${res.cleared?.length ? ' — очищено: ' + res.cleared.join(', ') : ''}`, true);
     await loadMasterKey();
+    if (res.recovery_archive) {
+      await infoModal({ title: 'Исходные данные сохранены', message: `Архив: ${res.recovery_archive}\n\nЕсли старый ключ найдётся, он сможет прочитать сохранённые данные. Обычная ротация этот архив не удаляет.` });
+    }
     window.dispatchEvent(new CustomEvent('bot4vps:masterkey-changed'));
   } catch (error) {
     if (err) err.textContent = error.message || 'Не удалось создать ключ';
@@ -2290,6 +2307,8 @@ export function stopSettingsTimers() {
   portPollTimer = null;
   clearNumberTimers();
   document.getElementById('settings-port-progress')?.remove();
+  mobileSettingsModule?.stopMobileAccess();
+  mobileSettingsModule?.closeMobilePairCode();
 }
 
 export function bindSettingsUI() {

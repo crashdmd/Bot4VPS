@@ -25,7 +25,7 @@ from ui.telegram.keyboards import build_group_buttons
 
 def format_certificate(server_id):
     monitor = get_server_monitor(server_id)
-    if not monitor:
+    if not monitor or not monitor.get("certificate"):
         return (
             "🔒 Сертификат\n"
             "⚪ Нет данных\n"

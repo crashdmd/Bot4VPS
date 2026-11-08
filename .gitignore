@@ -53,3 +53,5 @@ logs/
 .vscode/
 *.swp
 *.code-workspace
+# Runtime lock files
+*.json.lock

@@ -35,6 +35,7 @@ class ActorType(str, Enum):
     """Интерфейс, через который пришло действие."""
 
     WEB = "web"
+    PHONE = "phone"
     TG = "tg"
     CLI = "cli"
     SYSTEM = "system"
@@ -107,6 +108,17 @@ class Actor:
             id=str(user_id),
             role=ActorRole.ADMIN.value,
         )
+
+    @classmethod
+    def phone(cls, user: Optional[str] = None, *, device_id: Optional[str] = None,
+              role: Optional[str] = None, ip: Optional[str] = None) -> "Actor":
+        """Mobile client label; a paired API can also identify its device.
+
+        The ordinary Web client's marker only labels audit provenance and
+        never grants authentication, a role or API access.
+        """
+        return cls(type=ActorType.PHONE.value, id=str(user or device_id) if user or device_id else None,
+                   role=(role or ActorRole.ADMIN.value) if user else None, ip=ip)
 
     @classmethod
     def cli(cls) -> "Actor":

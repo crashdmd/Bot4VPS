@@ -398,6 +398,8 @@ if __name__ == "__main__":
 
     async def _post_shutdown(app: Application) -> None:
         del app
+        from core.task_manager import task_manager
+        await task_manager.shutdown()
         from core.telegram_state import write_state
 
         write_state("stopped")

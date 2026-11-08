@@ -1,3 +1,4 @@
+import asyncio
 from core.storage import find_server
 from core.ssl import is_ip_address, enable_ssl_check, disable_ssl_check
 from state import SSL_SETUP_STATE
@@ -54,7 +55,7 @@ async def process_ssl_setup(target):
 
     if not is_ip_address(server["host"]):
         # Не IP — можно сразу включить
-        enable_ssl_check(server_id)
+        await asyncio.to_thread(enable_ssl_check, server_id)
         state["index"] += 1
         await process_ssl_setup(target)
         return
@@ -95,7 +96,7 @@ async def skip_ssl_host(target):
     state = SSL_SETUP_STATE[user_id]
     server_id = state["servers"][state["index"]]
 
-    disable_ssl_check(server_id)
+    await asyncio.to_thread(disable_ssl_check, server_id)
 
     state["index"] += 1
     await process_ssl_setup(target)

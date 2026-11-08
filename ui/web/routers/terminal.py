@@ -21,12 +21,26 @@ _IDLE_TIMEOUT = 15 * 60
 
 def _ws_authorized(websocket: WebSocket) -> bool:
     """Та же проверка, что require_auth, но для WS: сессия приходит в scope."""
-    from ui.web.security import auth_enabled
+    from ui.web.security import (auth_enabled, session_valid, emergency_state,
+                                 setup_wizard_active, setup_expired_active, login_stub_active)
+    if emergency_state() or setup_wizard_active() or setup_expired_active() or login_stub_active():
+        return False
+    origin = websocket.headers.get("origin")
+    if origin:
+        from urllib.parse import urlsplit
+        try:
+            parsed = urlsplit(origin)
+            if parsed.scheme not in ("http", "https") or parsed.netloc.lower() != websocket.headers.get("host", "").lower():
+                return False
+            if {"http": "ws", "https": "wss"}[parsed.scheme] != websocket.url.scheme:
+                return False
+        except ValueError:
+            return False
 
     if not auth_enabled():
         return True
     session = websocket.scope.get("session") or {}
-    return bool(session.get("user"))
+    return session_valid(session)
 
 
 def _ws_actor(websocket: WebSocket):
@@ -120,7 +134,13 @@ async def shell_ws(websocket: WebSocket, server_id: str):
     # PTY → браузер
     async def reader():
         nonlocal last_activity
+        last_auth_check = time.monotonic()
         while not stop.is_set() and not session.closed:
+            if time.monotonic() - last_auth_check >= 1:
+                last_auth_check = time.monotonic()
+                if not _ws_authorized(websocket):
+                    await websocket.close(code=4401)
+                    break
             try:
                 data = await asyncio.to_thread(session.recv)
             except Exception:
@@ -152,6 +172,9 @@ async def shell_ws(websocket: WebSocket, server_id: str):
                 msg = await websocket.receive_text()
             except (WebSocketDisconnect, Exception):
                 break  # клиент закрыл соединение
+            if not _ws_authorized(websocket):
+                await websocket.close(code=4401)
+                break
             last_activity = time.monotonic()
             try:
                 payload = json.loads(msg)

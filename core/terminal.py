@@ -20,6 +20,7 @@ from __future__ import annotations
 import os
 import socket
 import time
+import shlex
 
 # Штатное ожидание баннера оболочки после invoke_shell (сбрасываем ниже).
 BANNER_WAIT = 0.35
@@ -147,6 +148,8 @@ class ShellSession:
         """
         if not self._ssh:
             raise RuntimeError("session not open")
+        from core.script_utils import validate_script_path
+        local = str(validate_script_path(script_name))
         # повторный run_script: убрать прежний staged-файл, иначе он утёчёт
         if self._staged:
             self.cleanup_script()
@@ -156,16 +159,15 @@ class ShellSession:
         if not remote:
             raise RuntimeError("mktemp вернул пустой путь")
         try:
-            local = os.path.join("scripts", script_name)
             with self._ssh.open_sftp() as sftp:
                 sftp.put(local, remote)
-            _, chmod_out, _ = self._ssh.exec_command(f"chmod +x {remote}")
+            _, chmod_out, _ = self._ssh.exec_command(f"chmod +x -- {shlex.quote(remote)}", timeout=15)
             if chmod_out.channel.recv_exit_status() != 0:
                 raise RuntimeError("chmod +x завершился с ошибкой")
         except Exception:
             # staging не удался — не оставляем temp-файл
             try:
-                self._ssh.exec_command(f"rm -f {remote}")
+                self._ssh.exec_command(f"rm -f -- {shlex.quote(remote)}", timeout=5)
             except Exception:
                 pass
             raise
@@ -183,7 +185,7 @@ class ShellSession:
         path = remote or self._staged
         if path and self._ssh:
             try:
-                self._ssh.exec_command(f"rm -f {path}")
+                self._ssh.exec_command(f"rm -f -- {shlex.quote(path)}", timeout=5)
             except Exception:
                 pass
         self._staged = None

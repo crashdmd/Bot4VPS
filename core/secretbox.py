@@ -1,7 +1,7 @@
 """Симметричное шифрование секретов конфигурации (Bot4VPS).
 
-Шифруются только пароли управляемых серверов (servers.json) и Telegram
-Bot Token (config.json). Прочие поля (host, user, port, key_path и т.д.)
+Шифруются пароли серверов, Telegram Bot Token, секрет 2FA, сохранённый
+пароль бэкапов и приватная часть истории задач. Метаданные (host, user, port и т.д.)
 остаются plaintext — по ТЗ.
 
 Формат хранения: ``enc1:<fernet-token>`` (AES-128-CBC + HMAC-SHA256,
@@ -22,7 +22,7 @@ Bot Token (config.json). Прочие поля (host, user, port, key_path и т
     ошибку SSH где-то в другом месте.
 
 Потеря keys/secret.key делает зашифрованные секреты невосстановимыми —
-файл необходимо включать в резервную копию Bot4VPS (см. README).
+файл необходимо сохранить отдельно от архивов Bot4VPS (см. README).
 
 Инвариант мастер-ключа (см. _load_fernet): если secret.key отсутствует
 и на диске есть хотя бы одно значение enc1: — НИ ОДИН вызов
@@ -129,6 +129,11 @@ def _create_key_exclusive(via: str = "auto") -> bytes:
     """
     KEY_FILE.parent.mkdir(parents=True, exist_ok=True)
     key = Fernet.generate_key()
+    if via == "replacement":
+        from core.config import _atomic_write_bytes
+        _atomic_write_bytes(KEY_FILE, key)
+        _audit_key_created(via)
+        return key
     try:
         fd = os.open(KEY_FILE, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     except FileExistsError:
@@ -204,6 +209,7 @@ def _load_fernet() -> Fernet:
 SCAN_CONFIG_FILE = Path("config.json")
 SCAN_SERVERS_FILE = Path("servers.json")
 SCAN_BACKUP_DIR = Path("backup")
+SCAN_TASKS_DIR = Path("logs/tasks")
 
 # Где искать enc1: (файл → путь к значению внутри JSON). Совпадает с
 # реестром фактических полей: servers[].password, bot_token,
@@ -214,6 +220,7 @@ _ENC_FIELD_LABELS = {
     "bot_token": "Telegram Bot Token",
     "totp_secret": "секрет 2FA",
     "backup_password": "пароль резервных копий",
+    "task_history": "приватная история задач",
 }
 
 
@@ -233,8 +240,12 @@ def _iter_encrypted_values() -> list[tuple[str, str]]:
             cfg = json.load(f)
     except (FileNotFoundError, json.JSONDecodeError, OSError):
         cfg = {}
+    if not isinstance(cfg, dict):
+        cfg = {}
     if is_encrypted(cfg.get("bot_token")):
         found.append(("bot_token", cfg["bot_token"]))
+    if is_encrypted(cfg.get("backup_encryption_password")):
+        found.append(("backup_password", cfg["backup_encryption_password"]))
     web = cfg.get("web")
     if isinstance(web, dict) and is_encrypted(web.get("totp_secret")):
         found.append(("totp_secret", web["totp_secret"]))
@@ -244,6 +255,8 @@ def _iter_encrypted_values() -> list[tuple[str, str]]:
         with open(SCAN_SERVERS_FILE, "r", encoding="utf-8") as f:
             data = json.load(f)
     except (FileNotFoundError, json.JSONDecodeError, OSError):
+        data = {}
+    if not isinstance(data, dict):
         data = {}
     servers = data.get("servers")
     if isinstance(servers, list):
@@ -260,13 +273,106 @@ def _iter_encrypted_values() -> list[tuple[str, str]]:
                 rot = json.load(f)
         except (FileNotFoundError, json.JSONDecodeError, OSError):
             continue
+        if not isinstance(rot, dict) or rot.get("secret_key_retired"):
+            continue
         rot_servers = rot.get("servers")
         if not isinstance(rot_servers, list):
             continue
         for server in rot_servers:
             if isinstance(server, dict) and is_encrypted(server.get("password")):
                 found.append(("server_passwords", server["password"]))
+    # История задач тоже использует мастер-ключ. Её нельзя осиротить,
+    # создав новый ключ при отсутствии секретов в config/servers.
+    for path in SCAN_TASKS_DIR.glob("*.json"):
+        try:
+            record = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if isinstance(record, dict) and not record.get("private_key_retired") and is_encrypted(record.get("private_enc")):
+            found.append(("task_history", record["private_enc"]))
     return found
+
+
+def retire_old_encrypted_copies() -> int:
+    """При явной замене ключа сохранить старый ciphertext вне recovery-гейта."""
+    from core.json_store import JsonItemStore, atomic_write_json, locked
+    from core.storage import data_lock
+    with data_lock():
+        for path in _backup_rotation_paths():
+            try:
+                raw = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                continue
+            if isinstance(raw, dict) and any(isinstance(s, dict) and is_encrypted(s.get("password")) for s in raw.get("servers", [])):
+                raw["secret_key_retired"] = True
+                atomic_write_json(path, raw)
+    store = JsonItemStore(SCAN_TASKS_DIR)
+    count = 0
+    with locked(store.lock_path, store._thread_lock):
+        for record in store.load():
+            value = record.get("private_enc")
+            if not is_encrypted(value):
+                continue
+            try:
+                decrypt(value)
+            except MasterKeyMissingError:
+                raise
+            except SecretBoxError:
+                store.update(record["id"], private_key_retired=True)
+                count += 1
+    return count
+
+
+def archive_before_key_replacement() -> Path:
+    """Сохранить исходные данные ДО замены ключа; обычная ротация их не трогает."""
+    import shutil
+    import uuid
+    from datetime import datetime
+    from core import config, storage
+    from core.json_store import JsonItemStore, atomic_write_json, locked
+    archive_root = SCAN_BACKUP_DIR / "key-recovery"
+    archive_root.mkdir(parents=True, exist_ok=True, mode=0o700)
+    archive_root.chmod(0o700)
+    name = datetime.now().strftime("%Y%m%d-%H%M%S") + "-" + uuid.uuid4().hex[:12]
+    pending = archive_root / (".pending-" + name)
+    pending.mkdir(mode=0o700)
+    manifest = []
+
+    def copy(source: Path, relative: Path):
+        if source.is_file():
+            target = pending / relative
+            target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+            config._atomic_write_bytes(target, source.read_bytes())
+            manifest.append(str(relative))
+
+    try:
+        # Не держим config-lock при захвате task-store: писатель истории
+        # может обращаться к config при создании первого мастер-ключа.
+        with storage.data_lock():
+            config_path = config.CONFIG_FILE
+            with locked(config_path.with_name(config_path.name + ".lock"), config._CONFIG_LOCK):
+                copy(config_path, Path("config.json"))
+                copy(storage.DATA_FILE, Path("servers.json"))
+                for source in _backup_rotation_paths():
+                    copy(source, Path("backup") / source.name)
+                for source in SCAN_BACKUP_DIR.glob("config*.json"):
+                    copy(source, Path("backup") / source.name)
+        store = JsonItemStore(SCAN_TASKS_DIR)
+        with locked(store.lock_path, store._thread_lock):
+            for source in SCAN_TASKS_DIR.glob("*.json"):
+                copy(source, Path("logs/tasks") / source.name)
+        atomic_write_json(pending / "manifest.json", {"schema_version": 1, "files": manifest, "master_key_included": False})
+        target = archive_root / name
+        os.replace(pending, target)
+        fd = os.open(archive_root, os.O_RDONLY)
+        try:
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+        return target
+    except Exception:
+        shutil.rmtree(pending, ignore_errors=True)
+        raise
 
 
 def _backup_rotation_paths() -> list[Path]:
@@ -394,24 +500,28 @@ def encrypt_all_plaintext_secrets() -> dict:
     # чтобы перезаписать ровно то, что на диске.
     from core.config import BACKUP_PASSWORD_KEY, _patch_config_keys, _read_config_raw
 
-    raw = _read_config_raw()
-    updates: dict = {}
-    if "bot_token" in found_keys and _is_plaintext_secret(raw.get("bot_token")):
-        updates["bot_token"] = encrypt(raw["bot_token"])
-        encrypted["bot_token"] = 1
-    web = raw.get("web")
-    if "totp_secret" in found_keys and isinstance(web, dict) \
-            and _is_plaintext_secret(web.get("totp_secret")):
-        web = dict(web)
-        web["totp_secret"] = encrypt(web["totp_secret"])
-        updates["web"] = web
-        encrypted["totp_secret"] = 1
-    if "backup_password" in found_keys \
-            and _is_plaintext_secret(raw.get(BACKUP_PASSWORD_KEY)):
-        updates[BACKUP_PASSWORD_KEY] = encrypt(raw[BACKUP_PASSWORD_KEY])
-        encrypted["backup_password"] = 1
-    if updates:
-        _patch_config_keys(updates)
+    from core import config as config_module
+    from core.json_store import locked
+    config_path = config_module.CONFIG_FILE
+    with locked(config_path.with_name(config_path.name + ".lock"), config_module._CONFIG_LOCK):
+        raw = _read_config_raw()
+        updates: dict = {}
+        if "bot_token" in found_keys and _is_plaintext_secret(raw.get("bot_token")):
+            updates["bot_token"] = encrypt(raw["bot_token"])
+            encrypted["bot_token"] = 1
+        web = raw.get("web")
+        if "totp_secret" in found_keys and isinstance(web, dict) \
+                and _is_plaintext_secret(web.get("totp_secret")):
+            web = dict(web)
+            web["totp_secret"] = encrypt(web["totp_secret"])
+            updates["web"] = web
+            encrypted["totp_secret"] = 1
+        if "backup_password" in found_keys \
+                and _is_plaintext_secret(raw.get(BACKUP_PASSWORD_KEY)):
+            updates[BACKUP_PASSWORD_KEY] = encrypt(raw[BACKUP_PASSWORD_KEY])
+            encrypted["backup_password"] = 1
+        if updates:
+            _patch_config_keys(updates)
 
     _audit_encrypt_all(encrypted)
     return {"encrypted": encrypted, "plaintext": scan_plaintext_secrets()}

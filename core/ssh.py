@@ -425,6 +425,8 @@ def _exec_remote(
     timeout: int,
     emit: Optional[Callable[[str], None]] = None,
     stdin_data: Optional[str] = None,
+    cancel_flag: Optional[threading.Event] = None,
+    stream_stderr: bool = False,
 ) -> Tuple[int, str, str]:
     """Общий прогон команды: чтение stdout/stderr и exit status."""
     stdin, stdout, stderr = ssh.exec_command(full_command, timeout=timeout)
@@ -432,25 +434,72 @@ def _exec_remote(
         stdin.write(stdin_data)
         stdin.flush()
         stdin.channel.shutdown_write()
-    out_lines = []
+    from core import cancel_flags
+    import codecs
+
+    flag = cancel_flag if cancel_flag is not None else cancel_flags.current()
     chan = stdout.channel
-    while True:
-        line = stdout.readline()
-        if not line:
-            if chan.exit_status_ready():
+    deadline = time.monotonic() + timeout
+    capture_limit = 4 * 1024 * 1024
+    captures = [bytearray(), bytearray()]
+    truncated = [False, False]
+    decoders = [codecs.getincrementaldecoder("utf-8")("replace") for _ in range(2)]
+    pending = ["", ""]
+
+    def receive(index, chunk):
+        captures[index].extend(chunk)
+        if len(captures[index]) > capture_limit:
+            del captures[index][:-capture_limit]
+            truncated[index] = True
+        if emit and (index == 0 or stream_stderr):
+            pending[index] += decoders[index].decode(chunk)
+            while "\n" in pending[index] or len(pending[index]) >= 16000:
+                if "\n" in pending[index]:
+                    line, pending[index] = pending[index].split("\n", 1)
+                else:
+                    line, pending[index] = pending[index][:16000], pending[index][16000:]
+                line = line.rstrip("\r")
+                if line:
+                    try:
+                        emit(line)
+                    except Exception:
+                        pass
+
+    try:
+        while True:
+            if flag is not None and flag.is_set():
+                raise BinaryStreamCancelled("Отменено")
+            if time.monotonic() >= deadline:
+                raise TimeoutError(f"Таймаут SSH-команды ({timeout}с)")
+            received = False
+            if chan.recv_ready():
+                chunk = chan.recv(32768)
+                receive(0, chunk)
+                received = bool(chunk)
+            if chan.recv_stderr_ready():
+                chunk = chan.recv_stderr(32768)
+                receive(1, chunk)
+                received = bool(chunk) or received
+            if chan.exit_status_ready() and not chan.recv_ready() and not chan.recv_stderr_ready():
                 break
-            continue
-        line = line.rstrip("\r\n")
-        if line:
-            out_lines.append(line)
-            if emit:
-                try:
-                    emit(line)
-                except Exception:
-                    pass
-    exit_code = chan.recv_exit_status()
-    err = stderr.read().decode("utf-8", errors="ignore")
-    return exit_code, "\n".join(out_lines), err
+            if not received:
+                time.sleep(0.02)
+        if emit:
+            for index in range(2 if stream_stderr else 1):
+                tail = pending[index] + decoders[index].decode(b"", final=True)
+                if tail.strip():
+                    try:
+                        emit(tail.rstrip("\r\n"))
+                    except Exception:
+                        pass
+        exit_code = chan.recv_exit_status()
+        texts = [data.decode("utf-8", errors="replace") for data in captures]
+        for index in range(2):
+            if truncated[index]:
+                texts[index] = "[Вывод обрезан: сохранён хвост 4 МиБ]\n" + texts[index]
+        return exit_code, texts[0].rstrip("\r\n"), texts[1]
+    finally:
+        chan.close()
 
 
 def exec_sudo(

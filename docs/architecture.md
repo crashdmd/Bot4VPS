@@ -5,8 +5,8 @@
 «нажми сюда». Это карта кода для того, кто собирается менять ядро: где какой модуль
 живёт, кто кем владеет, какие потоки данных существуют и какие решения приняты осознанно.
 
-Документ написан по фактическому коду. Привязка: **версия 6.3.0** (`core/version.py`),
-срез 2026-10-02. При заметных изменениях ядра обновляйте соответствующие разделы —
+Документ написан по фактическому коду. Привязка: **версия 6.3.1** (`core/version.py`),
+срез 2026-11-06. При заметных изменениях ядра обновляйте соответствующие разделы —
 сильнее всего устаревают числа (интервалы, лимиты) и состав таблиц БД.
 
 ---
@@ -168,7 +168,7 @@ Web: POST /api/tasks/enqueue (ui/web/routers/tasks.py)   │  TG: task_ui / hand
 |---|---|---|---|
 | `system_sync` | 15 мин (константа) | SSH-сбор `check_server_availability` → метрики + резолв доменов | `metric_samples`, `monitor.json` |
 | `online_monitor` | `config.monitor.online.interval` мин (default 5) | лёгкие пробы ICMP → TCP(ssh-порт) → 80 → 443 параллельно | `monitor.json`, `availability_transitions`, события |
-| `ssl_monitor` | сутки (default) | TLS-проверка сертификата | `monitor.json`, события |
+| `ssl_monitor` | сутки (default) | TLS-проверка в рабочем потоке; истечение проверяется в UTC | `monitor.json`, события |
 | `keys_integrity` | 15 мин | локальная проверка существования key-файлов | CRITICAL-события |
 | `update_check` | сутки, гейт `update_check.enabled` (default off) | проверка новой версии | `data/update/state.json` |
 | `services_sync` | 15 мин, concurrency 5 | обновление кэшей сервисов по всем серверам | `data/services/<svc>/<server>.json` |
@@ -212,11 +212,11 @@ Web: POST /api/tasks/enqueue (ui/web/routers/tasks.py)   │  TG: task_ui / hand
 |---|---|---|
 | `data/state.db` | sqlite, WAL, `SCHEMA_VERSION = 7`, миграции только вперёд/аддитивные | `metric_samples` (90 дней), `metric_disks`, `metric_hourly` (24 мес), `operation_metric_peaks(+_disks)`, `audit_records` (append-only, бессрочно), `audit_operations/members/keys` (проекция), `availability_transitions`. Писателей **три процесса** — WAL + busy_timeout 5000 |
 | `servers.json` | JSON-документ под flock (`core/storage.py`), 0600 | записи серверов: подключение, `password` в `enc1:`, `host_key` (TOFU), SSL-настройки, профиль бэкапа. Ротации `backup/servers_*.json` |
-| `monitor.json` | JSON под threading-локом | последний статус сервера: availability, certificate, system |
+| `monitor.json` | JSON под reentrant flock + threading-локом, атомарная запись | последний статус сервера: availability, certificate, system |
 | `logs/events/<id>.json` | JsonItemStore (файл на запись) | журнал событий, лимит default 200 |
-| `logs/tasks/<id>.json` | JsonItemStore | терминальная история задач, лимит default 100 |
+| `logs/tasks/<id>.json` | JsonItemStore | терминальная история задач, приватные параметры и результат в enc1:, лимит default 100 |
 | `logs/notification_queue.json` | JsonDocumentStore | pendings доставки, lease TTL 5 мин; `notification_state.json` — last_reported по серверам, live-сообщения |
-| `config.json` | атомарный патч-запись | настройки; секреты (`bot_token`, `totp_secret`, пароль бэкапов) в `enc1:` |
+| `config.json` | атомарная патч-запись, RMW под reentrant flock + threading-локом, 0600 | настройки; секреты (`bot_token`, `totp_secret`, пароль бэкапов) в `enc1:` |
 | `data/services/<svc>/<server>.json` | кэш сервисов | результат `services_sync`; читают UI, пишут integrator |
 | `data/update/state.json`, `data/web_tls.json`, `data/web_port.json` | state-файлы раннеров | статус долгих переходных операций (см. раздел 12) |
 | `/var/backups/bot4vps` | архивы | бэкапы (manifest v2, B4VE-шифрование); не может лежать внутри каталога установки |
@@ -420,3 +420,9 @@ custom / proxy (терминация на реверс-прокси, довер�
 - новый job → таблица в разделе 5;
 - новый отсоединённый раннер → раздел 12.1;
 - изменился поток операции → диаграмма в разделе 4.
+
+При ошибке OpenSSL «сертификат истёк» SSL-мониторинг сохраняет статус `expired` и создаёт событие также при первой проверке. Дату можно дочитать диагностическим TLS-соединением без верификации; такое чтение помечается `verified=false` и не означает доверия сертификату. Ошибки имени хоста и цепочки доверия остаются статусом `error`.
+
+При штатной остановке Task Manager прекращает приём, отменяет ожидающие задачи и даёт активным 20 секунд на завершение плюс 2 секунды на кооперативную отмену. Автовосстановления очереди после аварии процесса нет. Устанавливаемый Web-unit ограничивает graceful shutdown uvicorn 10 секундами, systemd — 45 секундами.
+
+Явная замена потерянного или неверного мастер-ключа сначала сохраняет исходные файлы в `backup/key-recovery/<дата-id>/` (каталог 0700, файлы 0600, ключ не включается), затем очищает недоступные рабочие секреты. Ошибка архивации прерывает замену до изменения ключа. Исходный ciphertext сохраняется; архив не участвует в обычной ротации и recovery-гейте текущего ключа. Старые task-записи и ротации помечаются `private_key_retired` / `secret_key_retired`, поэтому не блокируют новые данные. Найденный старый ключ позволяет читать исходный архив отдельно от текущей установки.

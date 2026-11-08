@@ -9,7 +9,6 @@ import { loadScripts, bindScriptsUI } from './scripts.js?v=20261001-mobile-chart
 import { loadWireguard, bindWireguardUI, stopWgTimers, openWgServerById } from './wireguard.js?v=20261001-mobile-charts-v1';
 import { loadDocker, bindDockerUI, stopDockerTimers, openDockerServerById } from './docker.js?v=20261001-mobile-charts-v1';
 import { loadXui, stopXuiTimers, stopXuiCardPoll, openXuiServerById } from './3xui.js?v=20261001-mobile-charts-v1';
-import { bindTasksUI } from './tasks.js?v=20261001-handbook-v3';
 import { loadFiles, bindFilesUI } from './files.js?v=20261001-mobile-charts-v1';
 import { bindEditorUI } from './editor.js?v=20260815-scripts-table-v1';
 import { bindTerminalUI, closeTerminal } from './terminal.js?v=20260905-glassblue-v2';
@@ -52,7 +51,7 @@ async function openQuickSetupFromCard(serverId) {
 
 // Settings — отдельная подсистема. Загружаем её лениво, чтобы ошибка нового
 // модуля не останавливала Dashboard, Servers и остальные страницы.
-const settingsModule = import('./settings.js?v=20261001-mobile-charts-v1')
+const settingsModule = import('./settings.js?v=20261108-settings-v2')
   .catch(error => {
     console.error('[settings] module unavailable:', error);
     return null;
@@ -165,7 +164,7 @@ function onNav(page) {
     page = 'history';
   }
   // Переход из марки графика: «История» открывается сразу на аудите.
-  if (page === 'history' && auditFromUrl()) tab = 'actions';
+  if (page === 'history' && !tab && auditFromUrl()) tab = 'actions';
   setPage(page);
   if (page !== 'servers') closeGroupsPanel();
   if (page !== 'server') stopWatchers();
@@ -324,7 +323,6 @@ bindServerUI({ openQuickSetup: openQuickSetupFromCard, openMetrics: openMetricsA
 bindMetricsUI({ openServer, openAuditRecord: openRecordFromMetrics });
 bindAuditUI({ openMetricsAt });
 bindScriptsUI();
-bindTasksUI();
 bindWireguardUI();
 bindDockerUI();
 bindFilesUI();

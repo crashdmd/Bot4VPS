@@ -36,11 +36,13 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 
 from .deps import VERSION
+from ._internal.device_access.preview import preview_enabled, private_web_request
 from .security import (
     _client_ip,
     admin_exists,
     auth_enabled,
     clear_totp_secret,
+    create_web_admin,
     emergency_state,
     ensure_web_secrets,
     establish_web_session,
@@ -49,6 +51,9 @@ from .security import (
     make_totp_secret,
     MIN_WEB_PASSWORD_LEN,
     require_auth,
+    session_valid,
+    auth_version,
+    refresh_web_session,
     set_request_actor,
     set_web_auth,
     set_web_password,
@@ -219,6 +224,8 @@ async def lifespan(_app: FastAPI):
     uvicorn владеет сигналами и event loop.
     PTB — ручной lifecycle (без run_polling), чтобы не конфликтовать с handlers.
     """
+    from core.task_manager import task_manager
+    task_manager.start()
     print(
         f"[WEB] Bot4VPS Web UI {VERSION} "
         f"(auth={'on' if _web_cfg.get('auth_enabled') else 'off'})",
@@ -440,8 +447,24 @@ async def lifespan(_app: FastAPI):
         masterkey_watchdog = asyncio.create_task(_masterkey_watchdog())
 
     try:
+        from core.config import get_web_config
+        from ._internal.device_access.runtime import boot_mobile_api
+        await boot_mobile_api(_app, await asyncio.to_thread(get_web_config))
+    except Exception as exc:
+        print(f"[API] Мобильный API не запущен: {exc}", flush=True)
+
+    try:
         yield
     finally:
+        try:
+            from ._internal.device_access.runtime import stop_mobile_api
+            await stop_mobile_api(_app)
+        except Exception as exc:
+            print(f"[API] Мобильный API stop failed: {exc}", flush=True)
+        try:
+            await task_manager.shutdown()
+        except Exception as e:
+            print(f"[WEB] Task queue stop failed: {e}", flush=True)
         if masterkey_watchdog is not None:
             masterkey_watchdog.cancel()
         try:
@@ -542,6 +565,9 @@ app.include_router(metrics.router, dependencies=_AUTH)
 app.include_router(audit.router, dependencies=_AUTH)
 app.include_router(update.router, dependencies=_AUTH)
 app.include_router(settings.router, dependencies=_AUTH)
+if preview_enabled():
+    from .routers import mobile_access as mobile_access_router
+    app.include_router(mobile_access_router.router)
 app.include_router(tls.router, dependencies=_AUTH)
 app.include_router(quick_setup.router, dependencies=_AUTH)
 # Мастер-ключ: свои каналы подтверждения внутри (2FA/TG-код); весь
@@ -593,6 +619,10 @@ async def index(request: Request):
             )
         except Exception as exc:
             print(f"[AUDIT] открытие панели: пометка не удалась: {exc}", flush=True)
+    if preview_enabled() and private_web_request(request):
+        html = await asyncio.to_thread(index_file.read_text, encoding="utf-8")
+        return HTMLResponse(html.replace('<html lang="ru">', '<html lang="ru" data-mobile-pairing="1">', 1),
+            headers={"Cache-Control": "no-store, no-cache, must-revalidate", "Pragma": "no-cache", "Expires": "0"})
     return FileResponse(
         index_file,
         headers={
@@ -747,16 +777,8 @@ async def api_setup_complete(body: SetupCompleteBody, request: Request):
     if len(body.password or "") < MIN_WEB_PASSWORD_LEN:
         raise HTTPException(400, f"Пароль не короче {MIN_WEB_PASSWORD_LEN} символов")
 
-    # Сохраняем имя и секреты через централизованные точки записи
-    # (внутри каждой — ротация страховки config.json, Этап 1).
-    from core.config import get_web_config, set_web_config
-
-    web = get_web_config()
-    web["username"] = username
-    set_web_config(web)
     set_request_actor(request)
-    set_web_password(body.password, via="setup")
-    set_web_auth(True, via="setup")
+    create_web_admin(username, body.password)
 
     # Код отработал: drop-in удалён, env процесса очищен. Если удаление
     # вдруг не удалось — админ УЖЕ создан и записан, мастер закрыт через
@@ -783,7 +805,7 @@ async def api_me(request: Request):
     theme = get_ui_theme()
     if not auth_enabled():
         return {"auth_enabled": False, "user": None, "theme": theme}
-    return {"auth_enabled": True, "user": request.session.get("user"), "theme": theme}
+    return {"auth_enabled": True, "user": request.session.get("user") if session_valid(request.session) else None, "theme": theme}
 
 
 # Rate-limit первого шага входа (логин+пароль): скользящее окно неудач
@@ -843,10 +865,11 @@ async def api_login(request: Request, body: LoginBody):
             _pending_otp = {
                 "username": body.username,
                 "expires_at": time.monotonic() + _OTP_TTL_SECONDS,
+                "auth_version": auth_version(web),
                 "attempts": 0,
             }
             return {"ok": False, "otp_required": True}
-        establish_web_session(request, body.username)
+        establish_web_session(request, body.username, expected_version=auth_version(web))
         return {"ok": True, "user": body.username}
     _login_register_failure(ip)
     raise HTTPException(401, "Неверный логин или пароль")
@@ -877,6 +900,9 @@ async def api_login_otp(request: Request, body: OtpBody):
     if not pending or time.monotonic() > pending["expires_at"]:
         _pending_otp = None
         raise HTTPException(400, "Войдите заново: код не запрашивался или истёк")
+    if pending.get("auth_version") != auth_version():
+        _pending_otp = None
+        raise HTTPException(400, "Учётные данные изменились — войдите заново")
     if pending["attempts"] >= _OTP_MAX_ATTEMPTS:
         _pending_otp = None
         raise HTTPException(400, "Попытки исчерпаны — войдите заново")
@@ -891,7 +917,7 @@ async def api_login_otp(request: Request, body: OtpBody):
         raise HTTPException(400, f"Неверный код (осталось попыток: {remaining})")
 
     _pending_otp = None
-    establish_web_session(request, pending["username"])
+    establish_web_session(request, pending["username"], expected_version=pending["auth_version"])
     return {"ok": True, "user": pending["username"]}
 
 
@@ -905,7 +931,7 @@ async def api_logout(request: Request):
 async def api_change_password(request: Request, body: PasswordBody):
     if not auth_enabled():
         raise HTTPException(400, "Авторизация выключена")
-    if not request.session.get("user"):
+    if not session_valid(request.session):
         raise HTTPException(401, "Требуется авторизация")
     from core.config import get_web_config
     web = get_web_config()
@@ -915,6 +941,7 @@ async def api_change_password(request: Request, body: PasswordBody):
         raise HTTPException(400, f"Пароль не короче {MIN_WEB_PASSWORD_LEN} символов")
     set_request_actor(request)
     set_web_password(body.new)
+    refresh_web_session(request)
     return {"ok": True}
 
 
@@ -1238,7 +1265,7 @@ async def api_account_get():
 @app.post("/api/auth/account")
 async def api_account_set(request: Request, body: AccountBody):
     # В локальном режиме (auth off) пускаем; при включённой — только залогиненный.
-    if auth_enabled() and not request.session.get("user"):
+    if auth_enabled() and not session_valid(request.session):
         raise HTTPException(401, "Требуется авторизация")
 
     from core.config import get_web_config, set_web_config
@@ -1275,13 +1302,17 @@ async def api_account_set(request: Request, body: AccountBody):
             raise HTTPException(400, "Сначала задайте пароль")
 
     if username is not None:
-        w["username"] = username
-        set_web_config(w)
+        from core.config import patch_web_config
+        patch_web_config({"username": username})
+        if request.session.get("user"):
+            refresh_web_session(request, username)
 
     if body.new_password is not None or body.auth_enabled:
         set_request_actor(request)
     if body.new_password is not None:
         set_web_password(body.new_password, via="account")
+        if request.session.get("user"):
+            refresh_web_session(request)
     if body.auth_enabled:
         set_web_auth(True, via="account")
         # Включили защиту — текущая сессия сгорает: она могла остаться с
@@ -1330,7 +1361,7 @@ async def api_auth_disable(request: Request, body: AuthDisableBody):
     global _pending_disable, _last_disable_request_at
     if not auth_enabled():
         raise HTTPException(400, "Защита входа уже выключена")
-    if not request.session.get("user"):
+    if not session_valid(request.session):
         raise HTTPException(401, "Требуется авторизация")
 
     # Брутфорс старого пароля делит окно с логином: тот же скользящий
@@ -1446,7 +1477,7 @@ async def api_auth_disable_confirm(request: Request, body: AuthDisableConfirmBod
     global _pending_disable
     if not auth_enabled():
         raise HTTPException(400, "Защита входа уже выключена")
-    if not request.session.get("user"):
+    if not session_valid(request.session):
         raise HTTPException(401, "Требуется авторизация")
 
     _disable_clean_expired()
@@ -1499,7 +1530,7 @@ def _require_totp_session(request: Request) -> None:
     но тогда и 2FA включать бессмысленно, сразу отказываем)."""
     if not auth_enabled():
         raise HTTPException(400, "Авторизация выключена — 2FA не нужна")
-    if not request.session.get("user"):
+    if not session_valid(request.session):
         raise HTTPException(401, "Требуется авторизация")
 
 
@@ -1567,6 +1598,7 @@ async def api_totp_enable(request: Request, body: TotpCodeBody):
 
     _pending_totp_setup = None
     set_totp_secret(pending["secret"])
+    refresh_web_session(request)
     return {"ok": True, "enabled": True}
 
 
@@ -1580,4 +1612,5 @@ async def api_totp_disable(request: Request, body: TotpCodeBody):
     if not verify_totp_code(body.code, get_totp_secret()):
         raise HTTPException(400, "Неверный код")
     clear_totp_secret()
+    refresh_web_session(request)
     return {"ok": True, "enabled": False}

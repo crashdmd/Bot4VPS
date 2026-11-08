@@ -184,6 +184,10 @@ class AuditAction(str, Enum):
     WEB_OPEN = "web.open"
     WEB_2FA_ENABLE = "web.2fa_enable"
     WEB_2FA_DISABLE = "web.2fa_disable"
+    MOBILE_API_SETTINGS = "mobile_api.settings"
+    MOBILE_PAIR_CODE = "mobile_api.pair_code"
+    MOBILE_DEVICE_PAIR = "mobile_api.device_pair"
+    MOBILE_DEVICE_REVOKE = "mobile_api.device_revoke"
 
     # --- Секреты (ui/web/routers/masterkey.py, core/secretbox.py) ---
     SECRET_MASTERKEY_CREATE = "secret.masterkey_create"
@@ -316,6 +320,10 @@ ACTION_TITLES: dict[str, str] = {
     AuditAction.WEB_OPEN.value: "Открытие панели",
     AuditAction.WEB_2FA_ENABLE.value: "Включение 2FA",
     AuditAction.WEB_2FA_DISABLE.value: "Выключение 2FA",
+    AuditAction.MOBILE_API_SETTINGS.value: "Настройки мобильного приложения",
+    AuditAction.MOBILE_PAIR_CODE.value: "Создание кода привязки телефона",
+    AuditAction.MOBILE_DEVICE_PAIR.value: "Привязка телефона",
+    AuditAction.MOBILE_DEVICE_REVOKE.value: "Отзыв доступа телефона",
     AuditAction.SECRET_MASTERKEY_CREATE.value: "Создание мастер-ключа",
     AuditAction.SECRET_MASTERKEY_UNLOCK.value: "Восстановление мастер-ключа",
     AuditAction.SECRET_ENCRYPT_ALL.value: "Шифрование всех секретов",
@@ -370,6 +378,7 @@ RESULT_TITLES: dict[str, str] = {
 
 ACTOR_TYPE_TITLES: dict[str, str] = {
     ActorType.WEB.value: "Веб-панель",
+    ActorType.PHONE.value: "phone",
     ActorType.TG.value: "Telegram",
     ActorType.CLI.value: "CLI",
     ActorType.SYSTEM.value: "Панель",

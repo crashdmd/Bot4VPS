@@ -2,12 +2,25 @@ import copy
 import json
 import os
 import re
+import threading
+import tempfile
+from functools import wraps
+from core.json_store import locked
 
 from datetime import datetime
 from pathlib import Path
 
 CONFIG_FILE = Path("config.json")
 TEMP_FILE = Path("config.json.tmp")
+_CONFIG_LOCK = threading.RLock()
+
+
+def _config_locked(fn):
+    @wraps(fn)
+    def wrapped(*args, **kwargs):
+        with locked(CONFIG_FILE.with_name(CONFIG_FILE.name + ".lock"), _CONFIG_LOCK):
+            return fn(*args, **kwargs)
+    return wrapped
 
 # ==========================================================
 # Стойкость config.json (образец — ротация servers.json
@@ -117,6 +130,7 @@ DEFAULT_CONFIG = {
 }
 
 
+@_config_locked
 def load_config():
 
     if not CONFIG_FILE.exists():
@@ -193,6 +207,7 @@ def load_config():
     return config
 
 
+@_config_locked
 def save_config(config):
 
     _write_config_atomic(
@@ -253,16 +268,34 @@ def _next_rotated_path(prefix: str) -> Path:
     return path
 
 
-def _write_insurance_file(path: Path, data: bytes) -> None:
+def _atomic_write_bytes(path: Path, data: bytes) -> None:
     """Атомарно записать копию страховки с правами 0600.
 
     В config.json секреты (enc1:-токен, totp_secret, password_hash) —
     права строже, чем у обычных файлов каталога backup/.
     """
-    tmp = path.with_name(path.name + ".tmp")
-    tmp.write_bytes(data)
-    os.replace(tmp, path)
-    path.chmod(0o600)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(dir=path.parent, prefix=path.name + ".", suffix=".tmp", delete=False) as tmp:
+            temp_path = Path(tmp.name)
+            tmp.write(data)
+            tmp.flush()
+            os.fsync(tmp.fileno())
+        os.replace(temp_path, path)
+        temp_path = None
+        directory_fd = os.open(path.parent, os.O_RDONLY)
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
+    finally:
+        if temp_path is not None:
+            temp_path.unlink(missing_ok=True)
+
+
+def _write_insurance_file(path: Path, data: bytes) -> None:
+    _atomic_write_bytes(path, data)
 
 
 def _update_config_insurance(candidate: bytes | None) -> None:
@@ -295,6 +328,7 @@ def _update_config_insurance(candidate: bytes | None) -> None:
         history.pop(0).unlink(missing_ok=True)
 
 
+@_config_locked
 def _write_config_atomic(text: str) -> None:
     """Атомарная запись config.json с проверкой до и после replace.
 
@@ -321,25 +355,17 @@ def _write_config_atomic(text: str) -> None:
             candidate = data
 
     # 2. Временный файл + проверка нового контента ДО replace
-    with open(TEMP_FILE, "w", encoding="utf-8") as f:
-        f.write(text)
-        if not text.endswith("\n"):
-            f.write("\n")
-        f.flush()
-        os.fsync(f.fileno())
     if not _is_valid_config(text):
-        TEMP_FILE.unlink(missing_ok=True)
         raise ValueError(
             "config.json: новый контент не парсится как JSON-объект"
         )
 
     # 3. replace
-    os.replace(TEMP_FILE, CONFIG_FILE)
+    _atomic_write_bytes(CONFIG_FILE, (text.rstrip("\n") + "\n").encode("utf-8"))
     # Секреты (secret_key — подпись сессионных кук, password_hash,
     # enc1:-блоки) не должны быть читаемы локальными пользователями:
     # с secret_key подделывается сессионная кука в обход пароля.
-    # 0600 как у страховки (_write_insurance_file); tmp создаётся
-    # open() с umask-режимом, поэтому права ставим явно после replace.
+    # Временный файл уже создаётся с 0600, включая момент replace.
     CONFIG_FILE.chmod(0o600)
 
     # 4. Перечитка (replace атомарен — по сути формальность)
@@ -372,6 +398,7 @@ def _cleanup_corrupt_config() -> None:
         corrupt.pop(0).unlink(missing_ok=True)
 
 
+@_config_locked
 def _restore_config_backup() -> dict:
     """Восстановить config.json после повреждения.
 
@@ -407,7 +434,7 @@ def _restore_config_backup() -> dict:
 
         # Копия валидна: она и в config.json, и снова в config_latest
         try:
-            CONFIG_FILE.write_bytes(data)
+            _atomic_write_bytes(CONFIG_FILE, data)
         except OSError as e:
             print(
                 "[CONFIG] не удалось записать восстановленный config.json: %s" % e,
@@ -481,6 +508,7 @@ def list_config_backups() -> list:
     return items
 
 
+@_config_locked
 def restore_config_backup_file(source) -> dict:
     """Восстановить config.json из указанной копии (явный выбор CLI).
 
@@ -551,6 +579,7 @@ def restore_config_backup_file(source) -> dict:
     return {"source": source.name}
 
 
+@_config_locked
 def reset_config() -> dict:
     """Сброс к DEFAULT_CONFIG (CLI «Восстановление»).
 
@@ -571,6 +600,7 @@ def get_monitor_config():
     return load_config()["monitor"]
 
 
+@_config_locked
 def set_monitor_enabled(name, enabled):
 
     config = load_config()
@@ -580,6 +610,7 @@ def set_monitor_enabled(name, enabled):
     save_config(config)
 
 
+@_config_locked
 def set_monitor_interval(name, interval):
 
     config = load_config()
@@ -602,6 +633,7 @@ def get_logs_limits():
     }
 
 
+@_config_locked
 def set_logs_limits(tasks=None, events=None):
     """Точечно заменить изменённые ключи секции logs.
 
@@ -659,6 +691,7 @@ def get_update_check_config():
     return _read_config_raw().get("update_check", {"enabled": False})
 
 
+@_config_locked
 def set_update_check_enabled(enabled):
     """Только флаг update_check.enabled — точечный патч config.json.
 
@@ -679,6 +712,7 @@ def get_web_config():
     return load_config().get("web", {})
 
 
+@_config_locked
 def set_web_config(web):
 
     config = load_config()
@@ -688,6 +722,19 @@ def set_web_config(web):
     save_config(config)
 
 
+@_config_locked
+def patch_web_config(updates: dict, *, remove=()) -> dict:
+    """Точечный RMW web без перезаписи устаревшим снимком соседних полей."""
+    config = load_config()
+    web = config.setdefault("web", {})
+    web.update(updates)
+    for key in remove:
+        web.pop(key, None)
+    save_config(config)
+    return copy.deepcopy(web)
+
+
+@_config_locked
 def set_web_auth(enabled):
     """Включить/выключить авторизацию веб-слоя одним флагом."""
 
@@ -770,6 +817,7 @@ def get_tls_config() -> dict:
     }
 
 
+@_config_locked
 def _validate_and_write_tls(merged: dict) -> dict:
     """Общая проверка + запись web.tls (хвост set/apply)."""
     if merged["mode"] == "proxy" and not merged["trusted_proxies"]:
@@ -785,6 +833,7 @@ def _validate_and_write_tls(merged: dict) -> dict:
     return merged
 
 
+@_config_locked
 def set_tls_config(
     mode: str | None = None,
     domain: str | None = None,
@@ -818,6 +867,7 @@ def set_tls_config(
     return _validate_and_write_tls(merged)
 
 
+@_config_locked
 def apply_tls_config(cfg: dict) -> dict:
     """Заменить web.tls ЦЕЛИКОМ (без merge) с валидацией.
 
@@ -858,6 +908,7 @@ def get_ui_theme() -> str:
     return value if value in UI_THEMES else "dark"
 
 
+@_config_locked
 def set_ui_theme(theme: str) -> str:
     """Точечно сохранить тему Web UI — переживает сброс кеша браузера."""
     if theme not in UI_THEMES:
@@ -879,6 +930,7 @@ def get_backup_config() -> dict:
     return normalize_backup_config(raw)
 
 
+@_config_locked
 def set_backup_config(backup: dict) -> dict:
     """Атомарно заменить только top-level секцию backup после валидации."""
     from core.backup.validation import normalize_backup_config
@@ -909,6 +961,7 @@ def patch_backup_config(patch: dict) -> dict:
 # Telegram
 # ==========================================================
 
+@_config_locked
 def _read_config_raw() -> dict:
     """Прочитать config.json без merge defaults и без save_config."""
     if not CONFIG_FILE.exists():
@@ -983,6 +1036,7 @@ def get_stored_backup_password() -> str:
     return decrypt(str(_read_config_raw().get(BACKUP_PASSWORD_KEY) or "").strip())
 
 
+@_config_locked
 def set_stored_backup_password(password: str | None, *, via: str = "settings") -> None:
     """Сохранить пароль бэкапов (enc1:) или убрать его (None/'').
 
@@ -1023,6 +1077,7 @@ def get_telegram_config():
         "needs_setup": needs_setup,
     }
 
+@_config_locked
 def _patch_config_keys(updates: dict) -> None:
     """Точечно заменить значения top-level ключей в config.json.
 
@@ -1091,6 +1146,7 @@ def get_host_timezone_config() -> str | None:
     return value if isinstance(value, str) and value else None
 
 
+@_config_locked
 def set_host_timezone_config(timezone_name: str) -> str:
     """Атомарно сохранить только подтверждённый IANA ID без UTC offset."""
     from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -1111,6 +1167,7 @@ def set_host_timezone_config(timezone_name: str) -> str:
 
 
 
+@_config_locked
 def set_telegram_enabled(enabled: bool) -> None:
     """Только флаг telegram_enabled — точечный патч config.json."""
     _patch_config_keys({"telegram_enabled": bool(enabled)})
@@ -1138,6 +1195,7 @@ def get_notification_categories() -> dict:
     return defaults
 
 
+@_config_locked
 def set_notification_category(name: str, enabled: bool) -> dict:
     """Переключить одну категорию: остальные сохраняются как были.
 
@@ -1175,6 +1233,7 @@ def get_telegram_channel() -> bool:
     return bool(section.get("telegram_channel", True))
 
 
+@_config_locked
 def set_telegram_channel(enabled: bool) -> bool:
     """Переключить канал Telegram: категории сохраняются как были."""
     _patch_config_keys({
@@ -1186,6 +1245,7 @@ def set_telegram_channel(enabled: bool) -> bool:
     return bool(enabled)
 
 
+@_config_locked
 def set_telegram_credentials(*, user_id=None, bot_token=None) -> dict:
     """Обновить allowed_users / bot_token точечным патчем config.json.
 

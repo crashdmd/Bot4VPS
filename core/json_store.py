@@ -38,6 +38,7 @@ _ID_RE = re.compile(r"^[0-9a-f]{6,64}$")
 _TMP_TTL_SECONDS = 24 * 60 * 60
 
 _fcntl_warned = False
+_held_locks = threading.local()
 
 
 def _warn_fcntl_once(name: str) -> None:
@@ -105,16 +106,25 @@ def quarantine(path: Path) -> Optional[Path]:
 
 @contextmanager
 def locked(lock_path: Path, thread_lock: threading.RLock) -> Iterator[None]:
-    """Кросс-процессная (flock sidecar) + поточная блокировка."""
+    """Кросс-процессная + поточная блокировка с повторным входом."""
     lock_path = Path(lock_path)
     lock_path.parent.mkdir(parents=True, exist_ok=True)
     with thread_lock:
+        held = getattr(_held_locks, "paths", None)
+        if held is None:
+            held = _held_locks.paths = set()
+        key = str(lock_path.resolve())
+        if key in held:
+            yield
+            return
         with lock_path.open("a+", encoding="utf-8") as lock_file:
             if fcntl is not None:
                 fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+            held.add(key)
             try:
                 yield
             finally:
+                held.remove(key)
                 if fcntl is not None:
                     fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
 

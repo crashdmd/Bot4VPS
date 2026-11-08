@@ -1,4 +1,24 @@
 import os
+import re
+from pathlib import Path
+
+
+def validate_script_path(script_name: str) -> Path:
+    if not isinstance(script_name, str) or not re.fullmatch(r"[\w][\w .-]*\.sh", script_name):
+        raise ValueError("Некорректное имя скрипта")
+    root = Path("scripts").resolve()
+    path = (root / script_name).resolve()
+    if not path.is_relative_to(root) or not path.is_file():
+        raise ValueError("Скрипт не найден в каталоге scripts")
+    return path
+
+
+def validate_script_values(values: dict) -> None:
+    if not isinstance(values, dict):
+        raise ValueError("Параметры скрипта должны быть объектом")
+    for key in values:
+        if not isinstance(key, str) or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", key):
+            raise ValueError("Некорректное имя переменной окружения")
 
 
 def load_scripts():
@@ -16,7 +36,7 @@ def load_scripts():
 
 
 def get_script_info(script_name):
-    path = f"scripts/{script_name}"
+    path = validate_script_path(script_name)
 
     try:
         with open(path, "r", encoding="utf-8") as f:
@@ -39,7 +59,7 @@ def get_script_info(script_name):
 
 
 def read_script(script_name):
-    path = f"scripts/{script_name}"
+    path = validate_script_path(script_name)
 
     try:
         with open(path, "r", encoding="utf-8") as f:

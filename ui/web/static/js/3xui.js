@@ -13,6 +13,7 @@
 import { j, esc } from './api.js';
 import { toast, showPage, confirmAction, infoModal } from './ui.js';
 import { ansiToHtml } from './ansi.js';
+import { openTaskModal } from './taskmodal.js?v=20260914-v3';
 import { statusFilterBtn, statusFilterHidden, bindStatusFilter } from './statusfilter.js?v=20260915-v1';
 
 const SID = '3x-ui';
@@ -77,9 +78,8 @@ export function stopXuiTimers() {
   document.getElementById('xui-srv-body')?.classList.remove('xui-card-busy');
 }
 
-/** Live-poll карточки живёт отдельно от таймеров задач: уход с xui-server
- *  останавливает опрос состояния, но установка «в фон» продолжает
- *  сопровождаться (её останавливает stopXuiTimers при уходе с xui*). */
+/** Опрос карточки останавливается при уходе со страницы. Окна установки
+ *  продолжают сопровождаться общим модулем задач. */
 export function stopXuiCardPoll() {
   if (xuiLiveTimer) { clearInterval(xuiLiveTimer); xuiLiveTimer = null; }
 }
@@ -713,25 +713,23 @@ async function renderStep3() {
 // ---------------- установка: прогресс → финал ----------------
 
 async function startInstall() {
+  const sid = wizardCtx.serverId;
   const v = { ...step1Values(), ...step2Values(), arch: wizardCtx.arch };
   document.getElementById('xui-wiz-steptitle').textContent =
     'Установка — это может занять несколько минут';
   showStep('progress');
   warn('');
-  setActions([]);  // во время установки управление — кнопкой «в фон» и Escape
-  // «в фон»: свернуть окно, установка продолжается (поллинг жив, пока
-  // открыта вкладка), по завершении — тост; таблица обновится сама.
-  const bgBtn = document.getElementById('xui-wiz-bg');
-  bgBtn.classList.remove('hidden');
-  bgBtn.onclick = () => { wizardCtx.background = true; closeWizard(); };
+  setActions([]);  // после подтверждения запуска открывается общее окно задачи
   try {
-    const sid = wizardCtx.serverId;
     const r = await j(`${srvBase(sid)}/enqueue/install`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ params: v }),
     });
-    if (r.task) watchInstallTask(r.task.id, v, sid);
+    if (r.task) {
+      closeWizard();
+      watchInstallTask(r.task.id, sid);
+    }
     else throw new Error(r.error || 'очередь не вернула задачу');
   } catch (e) {
     warn(`Не удалось запустить установку: ${e.message}`);
@@ -739,81 +737,23 @@ async function startInstall() {
   }
 }
 
-function watchInstallTask(taskId, params, serverId) {
-  const log = document.getElementById('xui-wiz-progress');
-  log.innerHTML = '<div class="empty">Ожидание очереди…</div>';
-  const tick = async () => {
-    let t;
-    try { t = await j('/api/tasks/' + encodeURIComponent(taskId)); }
-    catch (e) { return; }
-    // Окно свернуто «в фон» — поллинг жив, результат приедет тостом.
-    // Статусы task_manager: queued/running/success/success_warn/
-    // failed/cancelled («done» не существует — раньше финал не рендерился).
-    const ok = t.status === 'success' || t.status === 'success_warn';
-    if (!document.getElementById('xui-install-modal')) {
-      const done = ok || t.status === 'failed' || t.status === 'cancelled';
-      if (done) {
-        clearInterval(xuiTimers[taskId]); delete xuiTimers[taskId];
-        const err = t.result?.error || t.error;
-        toast(ok
-          ? '3x-ui установлен — креды в карточке сервиса'
-          : `Установка не удалась${err ? `: ${err}` : ''}`, ok);
-        loadXui();
-        // Кнопка «Быстрых действий» в карточке сервера зависит от статуса
-        // сервиса — обновляем её (как install-хуки Docker/WG).
-        if (ok && serverId) window.refreshAfterServiceChange?.(serverId);
-      }
-      return;
-    }
-    const head = `${esc(t.emoji || '')} ${esc(t.name || '')} · ${esc(t.status || '')} · ${esc(t.duration || '')}`;
-    const lines = t.output_lines || [];
-    const body = lines.length
-      ? lines.map(ansiToHtml).join('\n')
-      : ansiToHtml(t.result?.output || t.result?.error || t.error || '(нет вывода)');
-    log.innerHTML = `<div class="tasklog-head">${head}</div>
-      <div class="logbox" style="max-height:40vh">${body}</div>`;
-    // Stick-to-bottom: прилипает к низу, только пока пользователь не уехал
-    // вверх сам; вернулся к низу (или новый логбокс) — прилипание снова
-    // включено. Свободная прокрутка вверх не дёргается новыми строками.
-    const box = log.querySelector('.logbox');
-    if (box) {
-      const stick = box.__stick !== false;
-      box.onscroll = () => {
-        box.__stick = box.scrollHeight - box.scrollTop - box.clientHeight < 4;
-      };
-      if (stick) box.scrollTop = box.scrollHeight;
-    }
-    const done = ok || t.status === 'failed' || t.status === 'cancelled';
-    if (!done) return;
-    clearInterval(xuiTimers[taskId]); delete xuiTimers[taskId];
-    // Финал: кнопки «в фон» больше не нужно, управление — «Закрыть»
-    document.getElementById('xui-wiz-bg')?.classList.add('hidden');
-    if (ok) {
-      renderFinal(params);
-      if (serverId) window.refreshAfterServiceChange?.(serverId);
-    }
-    else {
-      // Провал любой глубины — окно остаётся: в нём live-лог и причина
-      // (пользователь смотрит установку прямо в модалке).
-      document.getElementById('xui-wiz-steptitle').textContent =
-        'Установка не удалась';
-      warn(t.result?.error || t.error || 'Задача завершена с ошибкой');
-      setActions([{ label: 'Закрыть', onclick: closeWizard }]);
+function watchInstallTask(taskId, serverId) {
+  const name = statusMap[serverId]?.name;
+  openTaskModal({
+    taskId, title: name ? `Установка 3x-ui — ${name}` : undefined, taskName: 'Установка 3x-ui', serverName: name,
+    doneLabel: '3x-ui установлен — данные доступа в результате и карточке сервиса',
+    onDone: t => {
       loadXui();
-    }
-  };
-  xuiTimers[taskId] = setInterval(tick, 1500);
-  tick();
+      if (t.success) window.refreshAfterServiceChange?.(serverId);
+    },
+    renderResult: (t, box) => { if (t.success) return renderFinal(box, serverId); },
+  });
 }
 
-async function renderFinal(params) {
-  document.getElementById('xui-wiz-steptitle').textContent =
-    'Готово — 3x-ui установлен';
-  const box = document.getElementById('xui-wiz-final');
-  showStep('final');
+async function renderFinal(box, serverId) {
   let res = {};
   try {
-    const r = await j(`${srvBase(wizardCtx.serverId)}/install-result`);
+    const r = await j(`${srvBase(serverId)}/install-result`);
     res = r || {};
   } catch (e) { /* финал покажет то, что есть */ }
   const url = res.panel_url || '';
@@ -849,11 +789,12 @@ async function renderFinal(params) {
   box.querySelectorAll('[data-copy]').forEach(b => {
     b.onclick = () => copyText(values[b.dataset.copy] || '', b);
   });
-  setActions([
-    { label: 'Закрыть', onclick: () => { closeWizard(); loadXui(); } },
-    url ? { label: 'Открыть панель ↗', cls: '', onclick: () => window.open(url, '_blank', 'noopener') } : null,
-  ].filter(Boolean));
-  loadXui();
+  if (url) {
+    const open = document.createElement('button');
+    open.type = 'button'; open.className = 'secondary'; open.textContent = 'Открыть панель ↗';
+    open.onclick = () => window.open(url, '_blank', 'noopener');
+    box.appendChild(open);
+  }
 }
 
 function copyText(text, btn) {
@@ -1738,11 +1679,11 @@ async function removeXuiModal() {
 
 // -- SelfSNI: сайт-заглушка Reality (блок «Доп. действия») ------------
 
-/** Получает только сохранённый fakesite-блок. В отличие от cardAction это
- * не вызывает live /state после ответа и поэтому не открывает SSH. */
-async function fakesiteCachedInfo() {
-  if (!xuiServerId) return { present: false };
-  const r = await j(`${srvBase(xuiServerId)}/action/fakesite_info`, {
+/** Проверяет файлы SelfSNI и HTTPS-ответ локального Reality Dest через SSH.
+ * Не запускает полную повторную синхронизацию панели после проверки. */
+async function fakesiteCachedInfo(serverId = xuiServerId) {
+  if (!serverId) return { present: false };
+  const r = await j(`${srvBase(serverId)}/action/fakesite_info`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ params: {} }),
   });
@@ -1784,7 +1725,7 @@ function openFakesiteUsage(site, title = 'Информация для испол
   if (!site || !site.present) {
     openXuiModal({
       title: 'Информация для использования',
-      bodyHtml: '<div class="tabs-hint" style="margin:0">SelfSNI ещё не установлен. Сначала установите сайт-заглушку.</div>',
+      bodyHtml: `<div class="tabs-hint" style="margin:0">${esc(site?.message || "SelfSNI ещё не установлен. Сначала установите сайт-заглушку.")}</div>`,
       okText: 'Закрыть', hideCancel: true, onOk: close => close(),
     });
     return;
@@ -1859,11 +1800,10 @@ async function removeFakesite() {
 
 async function fakesiteActionMenu() {
   if (!xuiServerId || xuiCardBusy) return;
-  // Сразу открываем локальную модалку: это останавливает обычный live-poll,
-  // пока cache-only запрос получает фейк-сайт. Сам запрос SSH не делает.
+  // Пока проверяем сайт через SSH, модалка останавливает обычный live-poll.
   const loading = openXuiModal({
     title: 'Сайт-заглушка (SelfSNI)',
-    bodyHtml: '<div class="tabs-hint" style="margin:0">Загрузка сохранённой информации…</div>',
+    bodyHtml: '<div class="tabs-hint" style="margin:0">Проверка файлов сайта и HTTPS…</div>',
     okText: 'Закрыть', hideCancel: true, onOk: close => close(),
   });
   let site;
@@ -1872,13 +1812,15 @@ async function fakesiteActionMenu() {
   if (!loading.isConnected) return;
   loading.remove();
   const present = !!site.present;
+  const removable = !!site.managed;
   openXuiModal({
     title: 'Сайт-заглушка (SelfSNI)',
     bodyHtml: `
+      <div class="tabs-hint" style="margin:0 0 .6rem">${esc(site.message || (present ? "SelfSNI установлен" : "SelfSNI не установлен"))}</div>
       <div class="actions" style="display:grid;grid-template-columns:1fr;gap:.45rem;margin:0">
         <button type="button" class="secondary" id="xui-fakesite-install"${present ? ' disabled' : ''}>Установить</button>
         <button type="button" class="secondary" id="xui-fakesite-info">Информация для использования</button>
-        <button type="button" class="svc-action svc-action-danger" id="xui-fakesite-remove" style="align-items:center;text-align:center"${present ? '' : ' disabled'}>
+        <button type="button" class="svc-action svc-action-danger" id="xui-fakesite-remove" style="align-items:center;text-align:center"${removable ? '' : ' disabled'}>
           <b>🗑 Удалить заглушку</b>
         </button>
       </div>`,
@@ -1969,77 +1911,29 @@ function importDbModal() {
   input.click();
 }
 
-function openFakesiteInstallProgress() {
-  let bg = document.getElementById('xui-fakesite-install-modal');
-  if (bg) bg.remove();
-  bg = document.createElement('div');
-  bg.className = 'modal-bg open';
-  bg.id = 'xui-fakesite-install-modal';
-  bg.tabIndex = -1;
-  bg.innerHTML = `
-  <div class="modal" style="width:min(680px,100%)">
-    <div class="section-head" style="margin-bottom:.6rem">
-      <h3 style="margin:0">Установка SelfSNI</h3>
-      <button type="button" id="xui-fakesite-install-bg" title="Свернуть окно: установка продолжится в фоне"
-              style="padding:.2rem .55rem;font-size:.78rem">в фон ↓</button>
-    </div>
-    <div class="tabs-hint" id="xui-fakesite-install-steptitle" style="margin:0 0 .6rem">
-      Установка — это может занять несколько минут
-    </div>
-    <div id="xui-fakesite-install-progress"><div class="empty">Ожидание очереди…</div></div>
-    <div class="err-hint" id="xui-fakesite-install-warn"
-         style="white-space:pre-wrap;color:var(--err);font-size:.78rem"></div>
-    <div class="actions" style="margin-top:.8rem;justify-content:flex-end"
-         id="xui-fakesite-install-actions"></div>
-  </div>`;
-  document.body.appendChild(bg);
-  bg.focus();
-  bg.querySelector('#xui-fakesite-install-bg').onclick = () => bg.remove();
-  bg.addEventListener('keydown', event => {
-    if (event.key === 'Escape') { event.preventDefault(); bg.remove(); }
+function openFakesiteInstallProgress(taskId, serverId) {
+  const name = statusMap[serverId]?.name;
+  openTaskModal({
+    taskId, title: name ? `Установка SelfSNI — ${name}` : undefined, taskName: 'Установка SelfSNI', serverName: name,
+    doneLabel: 'SelfSNI установлен',
+    onDone: async t => {
+      if (xuiServerId === serverId) {
+        xuiCardBusy = false;
+        document.getElementById('xui-srv-body')?.classList.remove('xui-card-busy');
+      }
+      if (xuiServerId === serverId && document.getElementById('page-xui-server')?.classList.contains('on')) {
+        await refreshXuiServerDetailAfterMutation(serverId);
+      } else await loadXui();
+    },
+    renderResult: async (t, box) => {
+      if (!t.success) return;
+      const site = await fakesiteCachedInfo(serverId);
+      const button = document.createElement('button');
+      button.type = 'button'; button.className = 'secondary'; button.textContent = 'Информация для использования SelfSNI';
+      button.onclick = () => openFakesiteUsage(site, 'SelfSNI установлен');
+      box.appendChild(button);
+    },
   });
-  return bg;
-}
-
-function renderFakesiteInstallTask(t) {
-  const bg = document.getElementById('xui-fakesite-install-modal');
-  if (!bg) return;
-  const status = String(t.status || (t.is_done ? (t.success ? 'success' : 'failed') : 'running'));
-  const done = !!t.is_done;
-  const ok = !!t.success;
-  const title = bg.querySelector('#xui-fakesite-install-steptitle');
-  if (title) title.textContent = done
-    ? (ok ? 'Установка завершена — обновляю состояние панели' : 'Установка не удалась')
-    : 'Установка — это может занять несколько минут';
-  const lines = Array.isArray(t.output_lines) ? t.output_lines : [];
-  const body = lines.length
-    ? lines.map(ansiToHtml).join('\n')
-    : ansiToHtml(t.result?.output || t.result?.error || t.error || '(нет вывода)');
-  const log = bg.querySelector('#xui-fakesite-install-progress');
-  if (log) {
-    log.innerHTML = `<div class="tasklog-head">${esc(t.emoji || '')} ${esc(t.name || 'SelfSNI')} · ${esc(status)} · ${esc(t.duration || '')}</div>
-      <div class="logbox" style="max-height:40vh">${body}</div>`;
-    const box = log.querySelector('.logbox');
-    if (box) {
-      const stick = box.__stick !== false;
-      box.onscroll = () => {
-        box.__stick = box.scrollHeight - box.scrollTop - box.clientHeight < 4;
-      };
-      if (stick) box.scrollTop = box.scrollHeight;
-    }
-  }
-  const warn = bg.querySelector('#xui-fakesite-install-warn');
-  if (warn && done && !ok) warn.textContent = t.result?.error || t.error || 'Задача завершена с ошибкой';
-  const actions = bg.querySelector('#xui-fakesite-install-actions');
-  if (actions && done && !ok && !actions.childElementCount) {
-    const close = document.createElement('button');
-    close.type = 'button';
-    close.className = 'secondary';
-    close.textContent = 'Закрыть';
-    close.onclick = () => bg.remove();
-    actions.appendChild(close);
-  }
-  if (done) bg.querySelector('#xui-fakesite-install-bg')?.classList.add('hidden');
 }
 
 /** Тяжёлое действие → очередь задач (do_*), сопровождение поллингом.
@@ -2048,6 +1942,7 @@ function renderFakesiteInstallTask(t) {
 async function enqueueCardTask(action, params, msg) {
   if (!xuiServerId || xuiCardBusy) return;
   xuiCardBusy = true;
+  const serverId = xuiServerId;
   const card = document.getElementById('xui-srv-body');
   if (card) card.classList.add('xui-card-busy');
   try {
@@ -2059,8 +1954,8 @@ async function enqueueCardTask(action, params, msg) {
     // команда принята сервером — сразу даём понять, что ушла
     toast(msg || 'Команда отправлена', true);
     if (r.task) {
-      if (action === 'fakesite_install') openFakesiteInstallProgress();
-      watchXuiTask(r.task.id, action);
+      if (action === 'fakesite_install') openFakesiteInstallProgress(r.task.id, serverId);
+      else watchXuiTask(r.task.id, action);
     } else {
       xuiCardBusy = false;
       card?.classList.remove('xui-card-busy');
@@ -2077,7 +1972,6 @@ function watchXuiTask(taskId, action) {
     let t;
     try { t = await j('/api/tasks/' + encodeURIComponent(taskId)); }
     catch (_) { return; }
-    if (action === 'fakesite_install') renderFakesiteInstallTask(t);
     if (!t.is_done) return;
     clearInterval(xuiTimers[taskId]); delete xuiTimers[taskId];
     // финал задачи — карточка снова активна
@@ -2108,21 +2002,7 @@ function watchXuiTask(taskId, action) {
     const refresh = xuiServerId && document.getElementById('page-xui-server')?.classList.contains('on')
       ? refreshXuiServerDetailAfterMutation(xuiServerId)
       : loadXui();
-    if (action === 'fakesite_install' && t.success) {
-      await refresh;
-      document.getElementById('xui-fakesite-install-modal')?.remove();
-      toast('SelfSNI установлен', true);
-      // Экран результата читает только уже записанный fakesite-кэш.
-      fakesiteCachedInfo().then(site => openFakesiteUsage(site, 'SelfSNI установлен'))
-        .catch(e => toast(e.message || String(e), false));
-    } else if (action === 'fakesite_install') {
-      const modal = document.getElementById('xui-fakesite-install-modal');
-      if (!modal) {
-        let failMsg = t.error || 'Установка SelfSNI завершилась с ошибкой';
-        if (t.result?.output) failMsg += `\n${String(t.result.output).trim().split('\n').slice(-4).join('\n')}`;
-        toast(failMsg, false);
-      }
-    } else if (action === 'fakesite_remove' && t.success) {
+    if (action === 'fakesite_remove' && t.success) {
       await refresh;
       toast('SelfSNI удалён', true);
     } else {

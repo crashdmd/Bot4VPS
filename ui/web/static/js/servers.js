@@ -3,7 +3,7 @@ import { ansiToHtml } from './ansi.js';
 import { toast, showPage, bindPasswordToggles, parseEmoji, confirmAction, formatServerDateTime, serverDateTimeParts, serverDayDifference, serverNow, infoModal } from './ui.js';
 import { state, setServers, setGroups, setKeys, setOpenServer, setPage, setServerGroupTab, setServerSort, setServerQuery as updateServerQuery } from './state.js';
 import { WIREGUARD_ICON, DOCKER_ICON, XUI_ICON } from './icons.js?v=20260905-brandicons-v3';
-import { openTerminal, closeTerminal } from './terminal.js?v=20260904-termfit-v1';
+import { openTerminal, closeTerminal } from './terminal.js?v=20260905-glassblue-v2';
 import { openEventDetail, applyEventsSnapshot } from './monitor.js?v=20261001-mobile-charts-v1';
 import { openTaskLog, cancelTaskAPI } from './tasks.js?v=20261001-handbook-v3';
 import { openBackupsForServer } from './backup.js?v=20261001-handbook-v3';
@@ -471,17 +471,29 @@ function copyServerListIp(serverId, button) {
   });
 }
 
-function serverRowCells(server) {
+function serverRowCellContents(server) {
   const group = serverGroupName(server);
   const groupCell = group
     ? `<button type="button" class="server-group-link" data-group-link="${esc(group)}">${esc(group)}</button>`
     : '<span class="server-no-group">Без группы</span>';
-  return `<td class="server-name-cell" data-label="Имя"><strong>${esc(server.name || '—')}</strong>${server.has_running ? '<span class="server-running-mark" title="Идёт задача">▶</span>' : ''}</td>
-      <td class="server-host-cell" data-label="IP">${serverHostCell(server)}</td>
-      <td data-label="Статус">${onlineCell(server.online, server.ssh_error, server.last_error)}</td>
-      <td data-label="SSL">${sslCell(server)}</td>
-      <td class="server-uptime-cell" data-label="Uptime">${esc(formatUptime(server.uptime, server.uptime_seconds))}</td>
-      <td class="server-group-cell" data-label="Группа">${groupCell}</td>`;
+  return [
+    `<strong>${esc(server.name || '—')}</strong>${server.has_running ? '<span class="server-running-mark" title="Идёт задача">▶</span>' : ''}`,
+    serverHostCell(server),
+    onlineCell(server.online, server.ssh_error, server.last_error),
+    sslCell(server),
+    esc(formatUptime(server.uptime, server.uptime_seconds)),
+    groupCell,
+  ];
+}
+
+function serverRowCells(server) {
+  const cells = serverRowCellContents(server);
+  return `<td class="server-name-cell" data-label="Имя">${cells[0]}</td>
+      <td class="server-host-cell" data-label="IP">${cells[1]}</td>
+      <td data-label="Статус">${cells[2]}</td>
+      <td data-label="SSL">${cells[3]}</td>
+      <td class="server-uptime-cell" data-label="Uptime">${cells[4]}</td>
+      <td class="server-group-cell" data-label="Группа">${cells[5]}</td>`;
 }
 
 function renderServersTable(list) {
@@ -515,17 +527,19 @@ function patchServersTable() {
   if (!list.length) return false;
   const rows = wrap.querySelectorAll('tbody tr[data-sid]');
   if (rows.length !== list.length) return false;
+  const nextCells = list.map(serverRowCellContents);
   for (let i = 0; i < list.length; i++) {
-    if (String(list[i].id) !== rows[i].dataset.sid) return false;
+    if (String(list[i].id) !== rows[i].dataset.sid
+        || rows[i].cells.length !== nextCells[i].length
+        || !Array.isArray(rows[i].__cells)
+        || rows[i].__cells.length !== nextCells[i].length) return false;
   }
   list.forEach((server, i) => {
     const row = rows[i];
-    const cells = serverRowCells(server);
-    const current = row.__cells !== undefined ? row.__cells : row.innerHTML;
-    if (current !== cells) {
-      row.__cells = cells;
-      row.innerHTML = cells;
-    }
+    nextCells[i].forEach((html, index) => {
+      if (row.__cells[index] !== html) row.cells[index].innerHTML = html;
+    });
+    row.__cells = nextCells[i];
   });
   renderServerGroupTabs();
   return true;
@@ -561,6 +575,11 @@ export function renderServers() {
     return;
   }
   el.innerHTML = renderServersTable(list);
+  // Сравниваем исходные строки, а не сериализацию DOM: она может иначе
+  // экранировать HTML и содержать временную подсветку кнопки копирования.
+  el.querySelectorAll('tbody tr[data-sid]').forEach((row, index) => {
+    row.__cells = serverRowCellContents(list[index]);
+  });
 }
 
 export function setServerQuery(query) {
@@ -1157,7 +1176,7 @@ export async function openServer(id) {
           </div>
           <div class="info-row">
             <span class="info-label">SSL</span>
-            <span class="info-value">${cert.days_left ? cert.days_left + ' дней' : '—'}</span>
+            <span class="info-value">${cert.days_left != null ? cert.days_left + ' дней' : '—'}</span>
           </div>
         `;
       }

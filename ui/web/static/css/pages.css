@@ -619,6 +619,14 @@ label{
   padding-bottom:0.5rem;
   margin-bottom:0.75rem;
 }
+#task-progress-modal .section-head{align-items:flex-start}
+#task-progress-modal .section-head h3{min-width:0;flex:1;overflow-wrap:anywhere}
+#task-progress-modal #task-progress-tasks{flex:0 0 auto}
+@media(max-width:480px){
+  #task-progress-modal .section-head{flex-wrap:wrap}
+  #task-progress-modal .section-head h3{flex-basis:100%}
+  #task-progress-modal #task-progress-tasks{margin-left:auto}
+}
 
 .tasklog-body{
   white-space:pre-wrap;

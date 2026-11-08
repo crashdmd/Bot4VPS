@@ -1,6 +1,7 @@
 
 from __future__ import annotations
 from typing import Any, Optional
+from datetime import datetime
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 from ..deps import err, task_brief
@@ -139,7 +140,7 @@ async def api_clear(server_id: str):
 
 
 @router.get("/api/tasks/{task_id}")
-async def api_task(task_id: str):
+async def api_task(task_id: str, full_output: bool = False):
     """Полное состояние задачи: поля Task + emoji/duration/is_done для UI.
 
     Плоская форма (без обёртки) — её читают live-вывод задачи и модалка лога.
@@ -151,6 +152,13 @@ async def api_task(task_id: str):
         if not t:
             raise HTTPException(404, "Задача не найдена")
         data = t.to_dict()
+        if full_output:
+            from core.task_history_store import mask_task_text
+            data["output_lines"] = [mask_task_text(line, t.payload) for line in t.output_lines[-1000:]]
+            data["output_line_start"] = max(0, t._output_line_count - len(data["output_lines"]))
+        start = t.started_at or t.created_at
+        end = t.finished_at or datetime.now(start.tzinfo)
+        data["elapsed_seconds"] = max(0, int((end - start).total_seconds()))
         data["emoji"] = STATUS_EMOJI.get(t.status, "•")
         data["duration"] = t.duration_human()
         data["is_done"] = t.is_done

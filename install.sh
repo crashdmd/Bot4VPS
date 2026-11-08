@@ -302,10 +302,10 @@ Type=simple
 User=root
 WorkingDirectory=${INSTALL_DIR}
 Environment=PYTHONPATH=${INSTALL_DIR}
-ExecStart=${INSTALL_DIR}/venv/bin/python -m uvicorn ui.web.app:app --host 0.0.0.0 --port ${port}${TLS_ARGS:+ ${TLS_ARGS}}
+ExecStart=${INSTALL_DIR}/venv/bin/python -m uvicorn ui.web.app:app --host 0.0.0.0 --port ${port} --timeout-graceful-shutdown 10${TLS_ARGS:+ ${TLS_ARGS}}
 Restart=always
 RestartSec=5
-TimeoutStopSec=3
+TimeoutStopSec=45
 KillMode=mixed
 
 [Install]

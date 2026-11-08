@@ -1,9 +1,8 @@
 import { j } from './api.js';
 import { toast, bindPasswordToggles } from './ui.js';
 
-// Логин/пароль для «Запомнить пароль»: base64 — обфускация от случайных
-// глаз, не защита (пароль и так вводится в форму на этом же браузере).
-const REMEMBER_KEY = 'bot4vps_saved_login';
+// Храним только логин; пароль может запомнить менеджер паролей браузера.
+const REMEMBER_KEY = 'bot4vps_saved_username';
 const THEMES = ['dark', 'light', 'glass'];
 
 // Тема сервера — источник истины (localStorage — лишь кэш отрисовки).
@@ -23,18 +22,21 @@ export function isAuthed() { return authed; }
 
 function loadSavedLogin() {
   try {
-    const raw = localStorage.getItem(REMEMBER_KEY);
-    if (!raw) return null;
-    const saved = JSON.parse(atob(raw));
-    if (!saved || !saved.username || !saved.password) return null;
-    return saved;
+    // Удаляем прежнюю Base64-копию пароля, сохраняя только имя пользователя.
+    const legacy = localStorage.getItem('bot4vps_saved_login');
+    if (legacy) {
+      try {
+        const saved = JSON.parse(atob(legacy));
+        if (saved?.username) localStorage.setItem(REMEMBER_KEY, saved.username);
+      } finally { localStorage.removeItem('bot4vps_saved_login'); }
+    }
+    const username = localStorage.getItem(REMEMBER_KEY);
+    return username ? { username } : null;
   } catch (_) { return null; }
 }
 
-function saveLogin(username, password) {
-  try {
-    localStorage.setItem(REMEMBER_KEY, btoa(JSON.stringify({ username, password })));
-  } catch (_) { /* приватный режим — просто не запоминаем */ }
+function saveLogin(username) {
+  try { localStorage.setItem(REMEMBER_KEY, username); } catch (_) {}
 }
 
 function clearSavedLogin() {
@@ -56,7 +58,7 @@ function showLogin() {
     const pass = document.getElementById('li-pass');
     const remember = document.getElementById('li-remember');
     if (user) user.value = saved.username;
-    if (pass) pass.value = saved.password;
+
     if (remember) remember.checked = true;
   }
   // «Восстановить пароль» — кнопка видна всегда (если есть экран логина,
@@ -136,11 +138,11 @@ function leaveOtpStep() {
   setTimeout(() => document.getElementById('li-pass')?.focus(), 50);
 }
 
-// Общий финал входа: «Запомнить пароль» сохраняем только после ПОЛНОГО
+// Общий финал входа: «Запомнить логин» сохраняем только после ПОЛНОГО
 // успеха (при 2FA — после подтверждения кода), затем перезагрузка.
 function finishLogin(username, password) {
   const remember = document.getElementById('li-remember');
-  if (remember && remember.checked) saveLogin(username, password);
+  if (remember && remember.checked) saveLogin(username);
   else clearSavedLogin();
   toast('Вход выполнен', true);
   hideLogin();

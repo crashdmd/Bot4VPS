@@ -4,7 +4,10 @@ import ssl
 import socket
 import threading
 import time
-from datetime import datetime
+from datetime import datetime, timezone
+from pathlib import Path
+from contextlib import contextmanager
+from core.json_store import locked, atomic_write_json, quarantine
 from core.actor import in_thread_context
 from core.storage import (
     load_servers,
@@ -20,21 +23,31 @@ MONITOR_FILE = "monitor.json"
 _MONITOR_LOCK = threading.RLock()
 
 
+@contextmanager
+def monitor_lock():
+    path = Path(MONITOR_FILE)
+    with locked(path.with_name(path.name + ".lock"), _MONITOR_LOCK):
+        yield
+
+
 def load_monitor():
-    if not os.path.exists(MONITOR_FILE):
-        return {}
-    with open(MONITOR_FILE, "r", encoding="utf-8") as f:
-        return json.load(f)
+    with monitor_lock():
+        if not os.path.exists(MONITOR_FILE):
+            return {}
+        try:
+            with open(MONITOR_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            if not isinstance(data, dict):
+                raise ValueError("monitor.json должен содержать объект")
+            return data
+        except (json.JSONDecodeError, UnicodeDecodeError, ValueError):
+            quarantine(Path(MONITOR_FILE))
+            return {}
 
 
 def save_monitor(data):
-    with open(MONITOR_FILE, "w", encoding="utf-8") as f:
-        json.dump(
-            data,
-            f,
-            ensure_ascii=False,
-            indent=4
-        )
+    with monitor_lock():
+        atomic_write_json(Path(MONITOR_FILE), data)
 
 
 def get_server_monitor(server_id):
@@ -51,7 +64,7 @@ def update_server_uptime(
     if not uptime or uptime == "N/A":
         return
 
-    with _MONITOR_LOCK:
+    with monitor_lock():
         monitor = load_monitor()
         entry = monitor.setdefault(server_id, {})
         system = entry.setdefault("system", {})
@@ -96,44 +109,56 @@ def _now_stamps() -> tuple[str, int]:
 
 def check_certificate(host):
     context = ssl.create_default_context()
+    verification_error = None
     try:
         with socket.create_connection((host, 443), timeout=5) as sock:
             with context.wrap_socket(sock, server_hostname=host) as ssock:
                 cert = ssock.getpeercert()
+        expires = datetime.strptime(cert["notAfter"], "%b %d %H:%M:%S %Y %Z").replace(tzinfo=timezone.utc)
+    except ssl.SSLCertVerificationError as e:
+        checked, ts_epoch = _now_stamps()
+        if getattr(e, "verify_code", None) != 10:
+            return {"status": STATUS_ERROR, "error": str(e), "checked": checked, "ts_epoch": ts_epoch, "verified": False}
+        verification_error = str(e)
+        # OpenSSL уже подтвердил истечение. Повторное соединение читает
+        # только дату сертификата; оно никогда не объявляется доверенным.
+        try:
+            from cryptography import x509
+            diagnostic = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+            diagnostic.check_hostname = False
+            diagnostic.verify_mode = ssl.CERT_NONE
+            with socket.create_connection((host, 443), timeout=5) as sock:
+                with diagnostic.wrap_socket(sock, server_hostname=host) as ssock:
+                    der = ssock.getpeercert(binary_form=True)
+            expires = x509.load_der_x509_certificate(der).not_valid_after_utc
+        except Exception:
+            return {"status": STATUS_EXPIRED, "error": verification_error,
+                    "expires": "не удалось прочитать дату", "days_left": -1,
+                    "checked": checked, "ts_epoch": ts_epoch, "verified": False}
     except Exception as e:
         checked, ts_epoch = _now_stamps()
-        return {
-            "status": STATUS_ERROR,
-            "error": str(e),
-            "checked": checked,
-            "ts_epoch": ts_epoch
-        }
+        return {"status": STATUS_ERROR, "error": str(e), "checked": checked, "ts_epoch": ts_epoch, "verified": False}
 
-    expires = datetime.strptime(cert["notAfter"], "%b %d %H:%M:%S %Y %Z")
-    days_left = (expires - datetime.now()).days
-
+    days_left = (expires - datetime.now(timezone.utc)).days
     checked, ts_epoch = _now_stamps()
-
-    if days_left < 0:
+    if verification_error or days_left < 0:
         status = STATUS_EXPIRED
     elif days_left <= 5:
         status = STATUS_WARNING
     else:
         status = STATUS_VALID
-
-    return {
-        "status": status,
-        "days_left": days_left,
-        "expires": expires.strftime("%Y-%m-%d"),
-        "checked": checked,
-        "ts_epoch": ts_epoch
-    }
+    result = {"status": status, "days_left": days_left,
+              "expires": expires.strftime("%Y-%m-%d"), "checked": checked,
+              "ts_epoch": ts_epoch, "verified": verification_error is None}
+    if verification_error:
+        result["error"] = verification_error
+    return result
 
 
 def compare_certificate(old_cert, new_cert):
     if (
-        old_cert["status"] == STATUS_VALID
-        and new_cert["status"] == STATUS_VALID
+        new_cert["status"] in (STATUS_VALID, STATUS_WARNING)
+        and old_cert.get("expires")
         and old_cert["expires"] != new_cert["expires"]
     ):
         return "renewed"
@@ -166,15 +191,14 @@ def update_server_certificate(server):
     new_cert = check_certificate(ssl_host)
 
     # Атомарный RMW monitor.json — под блокировкой.
-    with _MONITOR_LOCK:
+    with monitor_lock():
         monitor = load_monitor()
         entry = monitor.setdefault(server["id"], {})
 
         old_cert = entry.get("certificate")
         event = None
 
-        if old_cert:
-            event = compare_certificate(old_cert, new_cert)
+        event = compare_certificate(old_cert or {"status": "unknown"}, new_cert)
 
         entry["name"] = server["name"]
         entry["host"] = host
@@ -203,7 +227,7 @@ def clear_server_ssl(server_id: str) -> None:
     Домен сертификата удалён или отслеживание выключено: certificate/ssl_host/
     ssl_ip больше не актуальны. availability/system не трогаем.
     """
-    with _MONITOR_LOCK:
+    with monitor_lock():
         monitor = load_monitor()
         entry = monitor.get(server_id)
         if not entry:
@@ -239,7 +263,7 @@ def refresh_server_host_ip(server) -> bool:
     if not ip:
         return False
 
-    with _MONITOR_LOCK:
+    with monitor_lock():
         monitor = load_monitor()
         entry = monitor.setdefault(server_id, {})
         if entry.get("host_ip") == ip:
@@ -494,7 +518,7 @@ def refresh_ssh_error(server, ok: bool, error: str = ""):
     if not sid:
         return
     new = "" if ok else (error or "")
-    with _MONITOR_LOCK:
+    with monitor_lock():
         monitor = load_monitor()
         avail = (monitor.get(sid) or {}).get("availability")
         if not avail:
@@ -669,7 +693,7 @@ def update_server_availability(
         }
     """
 
-    with _MONITOR_LOCK:
+    with monitor_lock():
 
         monitor = load_monitor()
 
@@ -1019,7 +1043,8 @@ async def ssl_monitor_job(context):
     from core.event_service import notify_event
     from core.event_types import EventType, EventLevel, EventReason
 
-    events = run_daily_monitor()
+    import asyncio
+    events = await asyncio.to_thread(run_daily_monitor)
 
     if not events:
         return

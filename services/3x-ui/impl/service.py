@@ -52,8 +52,8 @@ class Service(BaseService):
         return ("fakesite",)
 
     def card_action_requires_sync(self, action: str) -> bool:
-        # Информация SelfSNI — только уже сохранённый JSON; SSH/live sync
-        # здесь означал бы медленную и ненужную проверку nginx/сертификата.
+        # SelfSNI сам проверяет сайт и обновляет свой блок. Полная повторная
+        # синхронизация панели после read-only проверки не требуется.
         return action != "fakesite_info"
 
     def get_actions(self, server_id: str) -> List[ServiceAction]:
@@ -93,7 +93,7 @@ class Service(BaseService):
         # не ждём; сбой установки не должен оставлять кэш пустым).
         try:
             arch = str(params.get("arch") or release_cache.default_arch())
-            params = lifecycle.resolve_source(params, arch)
+            params = await asyncio.to_thread(lifecycle.resolve_source, params, arch)
         except lifecycle.ReleaseError as e:
             return TaskResult(success=False, error=str(e))
         self._schedule_arch_pull(params)
@@ -105,7 +105,7 @@ class Service(BaseService):
                 )
             except Exception as e:
                 return TaskResult(success=False, error=str(e))
-        self._sync_install_result(server_id, runner)
+        await asyncio.to_thread(self._sync_install_result, server_id, runner)
         res = getattr(runner, "result", {})
         source = res.get("source", "github")
         out = f"3x-ui установлен (источник: {source}). Шаги: " + ", ".join(runner.completed)
@@ -178,7 +178,7 @@ class Service(BaseService):
                 runner = await asyncio.to_thread(lifecycle.update, server, params, emit)
             except Exception as e:
                 return TaskResult(success=False, error=str(e))
-        self._sync_install_result(server_id, runner)
+        await asyncio.to_thread(self._sync_install_result, server_id, runner)
         source = getattr(runner, "result", {}).get("source", "github")
         return TaskResult(
             success=True,
@@ -679,12 +679,16 @@ class Service(BaseService):
             ssh.close()
 
     def card_fakesite_info(self, server_id: str, params: Dict[str, Any]) -> Dict[str, Any]:
-        """SelfSNI usage data from cache only — deliberately no SSH."""
+        """Verify site files and HTTPS in the integrator's worker thread."""
         state = read_cache("3x-ui", server_id) or {}
-        fakesite_state = state.get("fakesite")
-        if not isinstance(fakesite_state, dict):
-            fakesite_state = {"present": False}
-        return {"success": True, "fakesite": dict(fakesite_state)}
+        previous = state.get("fakesite")
+        ssh, server = self._card_ssh(server_id)
+        try:
+            current = fakesite.inspect(ssh, server, previous if isinstance(previous, dict) else {})
+            update_cache("3x-ui", server_id, fakesite=current)
+            return {"success": True, "fakesite": current}
+        finally:
+            ssh.close()
 
     async def _fakesite_op(self, server_id: str, fn, progress_cb) -> Any:
         """SSH + installed check + synchronous SelfSNI operation with progress."""
@@ -748,6 +752,8 @@ class Service(BaseService):
                                  progress_cb) -> TaskResult:
         """Remove only Bot4VPS SelfSNI configuration/content it can prove it owns."""
         previous = (read_cache("3x-ui", server_id) or {}).get("fakesite") or {}
+        if previous.get("managed") is False:
+            return TaskResult(success=False, error="SelfSNI установлен вне Bot4VPS. Автоматическое удаление недоступно.")
         res, err = await self._fakesite_op(
             server_id,
             lambda ssh, srv, emit: fakesite.remove(ssh, srv, previous, emit),

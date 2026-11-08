@@ -2,6 +2,7 @@ import { j, esc } from './api.js';
 import { toast, confirmAction, formatServerDateTime } from './ui.js';
 import { openEditor } from './editor.js?v=20260815-scripts-table-v1';
 import { openServer, openServerTerminal } from './servers.js?v=20261001-mobile-charts-v1';
+import { openTaskModal } from './taskmodal.js?v=20260914-v3';
 import { state, setScripts } from './state.js';
 
 const SCRIPT_PAGE_SIZE = 9;
@@ -457,6 +458,7 @@ function collectRunValues() {
 }
 
 let runMode = 'background';
+let runSubmitting = false;
 
 export function openRunModal(serverId, scriptName, mode = 'background') {
   if (!state.scripts.length || !state.servers.length) {
@@ -477,6 +479,7 @@ export function openRunModal(serverId, scriptName, mode = 'background') {
 }
 
 export async function confirmRun() {
+  if (runSubmitting) return;
   const script_name = document.getElementById('run-script').value;
   const server_id = document.getElementById('run-server').value;
   if (runMode === 'terminal') {
@@ -487,15 +490,37 @@ export async function confirmRun() {
     return;
   }
   const values = collectRunValues();
+  const button = document.getElementById('btn-run-confirm');
+  runSubmitting = true;
+  button.disabled = true;
   try {
     const result = await j('/api/tasks/enqueue', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ script_name, server_id, values }),
     });
     document.getElementById('run-modal').classList.remove('open');
-    toast('В очереди', true);
-    if (result.task) await openServer(server_id);
+    if (result.task?.id) {
+      const script = state.scripts.find(s => s.name === script_name);
+      const server = state.servers.find(s => s.id === server_id);
+      const label = `${script ? displayName(script) : script_name} — ${server?.name || server_id}`;
+      openTaskModal({
+        title: label,
+        taskName: script ? displayName(script) : script_name,
+        serverName: server?.name || server_id,
+        taskId: result.task.id,
+        doneLabel: `${label} — выполнено`,
+        cancellable: true,
+        onTasks: () => window.b4vNav?.('queues'),
+      });
+    } else {
+      toast('Задача добавлена в очередь', true);
+      window.b4vNav?.('queues');
+    }
   } catch (error) { toast(error.message, false); }
+  finally {
+    runSubmitting = false;
+    button.disabled = false;
+  }
 }
 
 export function bindScriptsUI() {

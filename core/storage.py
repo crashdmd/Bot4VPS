@@ -5,6 +5,8 @@ import shutil
 import threading
 from copy import deepcopy
 from contextlib import contextmanager
+from functools import wraps
+from core.json_store import locked, atomic_write_json
 from core.event_service import create_event
 from core.event_types import EventType, EventLevel, EventReason
 
@@ -29,8 +31,16 @@ def data_lock():
     Защищает от потери апдейтов при конкурентной записи из обработчиков,
     потоков мониторинга (asyncio.to_thread) и выполнения скриптов.
     """
-    with _DATA_LOCK:
+    with locked(DATA_FILE.with_name(DATA_FILE.name + ".lock"), _DATA_LOCK):
         yield
+
+
+def _data_locked(fn):
+    @wraps(fn)
+    def wrapped(*args, **kwargs):
+        with data_lock():
+            return fn(*args, **kwargs)
+    return wrapped
 
 DATA_FILE = Path(
     "servers.json"
@@ -154,12 +164,20 @@ def commit_server(server: dict) -> dict | None:
     """
     from core import audit
 
+    server = deepcopy(server)
     with data_lock():
         servers = load_servers()
         stored = None
         for index, item in enumerate(servers):
             if item.get("id") == server.get("id"):
                 stored = item
+                # Форма редактирования может держать старый снимок во
+                # время SSH. Метаданные фоновых подсистем берём свежими.
+                for key in ("host_key", "backup", "quick_setup"):
+                    if key in item:
+                        server[key] = deepcopy(item[key])
+                    else:
+                        server.pop(key, None)
                 servers[index] = server
                 break
         if stored is None:
@@ -671,6 +689,7 @@ def cleanup_backups():
         backups.pop(0)
 
 
+@_data_locked
 def create_backup():
 
     if not DATA_FILE.exists():
@@ -695,7 +714,7 @@ def create_backup():
         "servers_"
         +
         datetime.now().strftime(
-            "%Y-%m-%d_%H-%M-%S"
+            "%Y-%m-%d_%H-%M-%S-%f"
         )
         +
         ".json"
@@ -706,20 +725,15 @@ def create_backup():
         backup_name
     )
 
-    shutil.copy2(
-        DATA_FILE,
-        backup_file
-    )
+    atomic_write_json(backup_file, json.loads(DATA_FILE.read_bytes()))
 
-    shutil.copy2(
-        DATA_FILE,
-        LATEST_BACKUP
-    )
+    atomic_write_json(LATEST_BACKUP, json.loads(DATA_FILE.read_bytes()))
 
     cleanup_backups()
 
     create_backup_readme()
 
+@_data_locked
 def restore_backup():
 
     if not BACKUP_DIR.exists():
@@ -740,10 +754,7 @@ def restore_backup():
 
                 data = json.load(f)
 
-            shutil.copy2(
-                LATEST_BACKUP,
-                DATA_FILE
-            )
+            atomic_write_json(DATA_FILE, data)
 
             # Бэкап мог быть снят до перевода на 0600 — восстановление
             # не должно возвращать мир-читаемые права рабочей базе.
@@ -793,17 +804,11 @@ def restore_backup():
 
                 data = json.load(f)
 
-            shutil.copy2(
-                backup,
-                DATA_FILE
-            )
+            atomic_write_json(DATA_FILE, data)
 
             DATA_FILE.chmod(0o600)
 
-            shutil.copy2(
-                backup,
-                LATEST_BACKUP
-            )
+            atomic_write_json(LATEST_BACKUP, data)
 
             LATEST_BACKUP.chmod(0o600)
 
@@ -872,7 +877,8 @@ def _decrypt_passwords(data):
     return data
 
 
-def load_data():
+@_data_locked
+def load_data(*, decrypt_passwords: bool = True):
 
     if not DATA_FILE.exists():
 
@@ -902,7 +908,8 @@ def load_data():
             encoding="utf-8"
         ) as f:
 
-            return _decrypt_passwords(json.load(f))
+            data = json.load(f)
+            return _decrypt_passwords(data) if decrypt_passwords else data
 
     except json.JSONDecodeError:
 
@@ -910,34 +917,14 @@ def load_data():
             "⚠ servers.json поврежден."
         )
 
-        return _decrypt_passwords(restore_backup())
+        data = restore_backup()
+        return _decrypt_passwords(data) if decrypt_passwords else data
 
+@_data_locked
 def save_data(data):
 
     # Пароли серверов пишем на диск зашифрованными (core/secretbox).
-    with open(
-        TEMP_FILE,
-        "w",
-        encoding="utf-8"
-    ) as f:
-
-        json.dump(
-            _encrypt_passwords_for_disk(data),
-            f,
-            indent=4,
-            ensure_ascii=False
-        )
-
-        f.flush()
-
-        os.fsync(
-            f.fileno()
-        )
-
-    os.replace(
-        TEMP_FILE,
-        DATA_FILE
-    )
+    atomic_write_json(DATA_FILE, _encrypt_passwords_for_disk(data))
 
     # Топология и SSH-пользователи управляемых серверов — не мир-читаемые
     # (пароли и так enc1:, но метаданные тоже персданные). Точка та же,

@@ -32,7 +32,7 @@
     <nav id="nav">
       <div class="nav-section">
         <button type="button" data-page="dashboard" class="on">
-          <span class="icon">📊</span> Дашборд
+          <span class="icon">📊</span> Обзор
         </button>
       </div>
       <div class="nav-section">
@@ -90,6 +90,7 @@
         <input type="search" class="search" placeholder="Поиск серверов, задач..." autocomplete="off" id="global-search"/>
         <span class="search-icon">🔍</span>
       </div>
+      <div class="task-dock" id="task-dock" hidden role="group" aria-label="Свёрнутые задачи"></div>
       <div class="status-line">
         <div class="header-clock" title="Время локального хоста Bot4VPS">
           <span id="header-date" class="header-clock-date">—</span>
@@ -181,7 +182,7 @@
     </div>
 
     <div class="content">
-      <!-- Дашборд -->
+      <!-- Обзор -->
       <section class="page on" id="page-dashboard">
         <h1 class="dash-greeting">Добрый день!</h1>
         <p class="dash-subtitle">Вот что происходит с вашей инфраструктурой</p>
@@ -1183,19 +1184,6 @@
   </div>
 </div>
 
-<!-- Общая модалка лога задачи: используется всеми сервисами и страницей «Очереди» -->
-<div class="modal-bg" id="task-log-modal">
-  <div class="modal task-log-modal-panel" role="dialog" aria-modal="true" aria-labelledby="task-log-title">
-    <div class="modal-head task-log-modal-head">
-      <h3 id="task-log-title" style="margin:0">Лог задачи</h3>
-      <button type="button" class="modal-close" id="task-log-x" aria-label="Закрыть">×</button>
-    </div>
-    <pre class="script-view task-log-modal-body" id="task-log-body"></pre>
-    <div class="actions task-log-modal-actions">
-      <button type="button" class="secondary" id="task-log-close">Закрыть</button>
-    </div>
-  </div>
-</div>
 
 <div class="modal-bg" id="docker-logs-modal">
   <div class="modal" style="width:min(760px,100%)">
@@ -1248,7 +1236,7 @@
         </div>
       </div>
       <div id="li-err" class="err-hint login-err"></div>
-      <label class="login-remember"><input type="checkbox" id="li-remember"/>Запомнить пароль</label>
+      <label class="login-remember"><input type="checkbox" id="li-remember"/>Запомнить логин</label>
       <button type="button" id="li-go" class="login-submit">Войти</button>
       <button type="button" id="li-recover" class="login-recover" hidden>Восстановить пароль</button>
       <!-- Шаг 2 при включённой 2FA: код из приложения-аутентификатора.

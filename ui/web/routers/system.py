@@ -8,18 +8,31 @@ from __future__ import annotations
 
 import asyncio
 import os
+import re
 import shutil
 import time
 from datetime import datetime, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
+from uuid import uuid4
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
 from ..deps import err
 
 router = APIRouter(tags=["system"])
+_INSTANCE_ID = uuid4().hex
+_maintenance_coordinator = None
+
+
+def _panel_maintenance():
+    global _maintenance_coordinator
+    if _maintenance_coordinator is None:
+        from core.task_manager import task_manager
+        from ..maintenance import PanelMaintenance
+        _maintenance_coordinator = PanelMaintenance(task_manager)
+    return _maintenance_coordinator
 
 # Предыдущий снимок /proc/stat: CPU считается как разница между вызовами,
 # иначе пришлось бы усыплять запрос на интервал измерения.
@@ -704,6 +717,102 @@ async def api_system_journal(request: Request):
     )
 
 
+@router.get("/api/system/maintenance")
+async def api_system_maintenance():
+    """Снимок задач до остановки и идентификатор процесса для проверки перезапуска."""
+    from core.task_manager import task_manager
+    from ..deps import VERSION
+
+    return {
+        "instance_id": _INSTANCE_ID,
+        "version": VERSION,
+        "tasks": task_manager.shutdown_preview(),
+        "maintenance": _panel_maintenance().snapshot(),
+    }
+
+
+@router.post("/api/system/maintenance/begin")
+async def api_begin_maintenance(body: dict):
+    """Начать отменяемую подготовку; отсчёт и запуск живут на сервере."""
+    operation_id = str(body.get("id") or "").strip()
+    kind = body.get("kind")
+    target = str(body.get("target") or "").strip() or None
+    if (not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", operation_id)
+            or not isinstance(kind, str) or kind not in {"restart", "update", "rollback"}):
+        raise HTTPException(400, "Неверные параметры операции")
+
+    update_state = None
+    if kind == "restart":
+        action = _request_panel_restart
+    else:
+        from core.update import updater
+        try:
+            if not target:
+                raise ValueError("Не указана версия")
+            version = updater.parse_version(target)
+            if kind == "rollback":
+                if version < updater.MIN_ROLLBACK_VERSION:
+                    raise ValueError("Откат доступен только для версий 3.0.0 и новее")
+                if version == updater.parse_version(updater.APP_VERSION):
+                    raise ValueError("Выбранная версия уже установлена")
+        except ValueError as error:
+            raise HTTPException(400, str(error))
+        update_state = updater.read_state
+
+        existing = _panel_maintenance().snapshot()
+        if not existing or existing["id"] != operation_id:
+            state = updater.read_state()
+            if state["status"] in {"downloading", "installing", "rolling_back"}:
+                raise HTTPException(409, "Установка версии уже выполняется")
+            if kind == "update" and (state.get("available") or {}).get("version") != target:
+                raise HTTPException(400, "Нет выбранного обновления. Повторите проверку обновлений")
+
+        async def action():
+            if kind == "rollback":
+                return await updater.start_rollback(target)
+            available = updater.read_state().get("available") or {}
+            if available.get("version") != target:
+                raise RuntimeError("Доступная версия изменилась. Повторите проверку обновлений")
+            return await updater.start_install()
+
+    try:
+        maintenance = await _panel_maintenance().begin(operation_id, kind, target, action, update_state)
+        return {"ok": True, "maintenance": maintenance, "instance_id": _INSTANCE_ID}
+    except ValueError as error:
+        raise HTTPException(400, str(error))
+    except RuntimeError as error:
+        raise HTTPException(409, str(error))
+
+
+@router.post("/api/system/maintenance/{operation_id}/cancel")
+async def api_cancel_maintenance(operation_id: str):
+    try:
+        return {"ok": True, "maintenance": await _panel_maintenance().cancel(operation_id)}
+    except ValueError as error:
+        raise HTTPException(404, str(error))
+    except RuntimeError as error:
+        raise HTTPException(409, str(error))
+
+
+@router.post("/api/system/maintenance/{operation_id}/force")
+async def api_force_maintenance(operation_id: str):
+    try:
+        return {"ok": True, "maintenance": await _panel_maintenance().force(operation_id)}
+    except ValueError as error:
+        raise HTTPException(404, str(error))
+    except RuntimeError as error:
+        raise HTTPException(409, str(error))
+
+
+async def _request_panel_restart():
+    import subprocess
+    await asyncio.to_thread(
+        subprocess.run, ["systemctl", "--no-block", "restart", "bot4vps"],
+        check=True, capture_output=True, timeout=5,
+    )
+    return {"ok": True, "message": "Служба bot4vps перезапускается"}
+
+
 @router.post("/api/system/restart")
 async def api_system_restart():
     """Поставить перезапуск службы bot4vps в очередь через systemctl."""
@@ -712,14 +821,7 @@ async def api_system_restart():
         # Обработчик живёт внутри того же юнита. Обычный `restart` ждёт
         # остановки текущего процесса, который в итоге убивает и systemctl
         # вместе с HTTP-запросом. --no-block возвращает после постановки job.
-        await asyncio.to_thread(
-            subprocess.run,
-            ["systemctl", "--no-block", "restart", "bot4vps"],
-            check=True,
-            capture_output=True,
-            timeout=5,
-        )
-        return {"ok": True, "message": "Служба bot4vps перезапускается"}
+        return await _request_panel_restart()
     except subprocess.CalledProcessError as e:
         return err(f"Ошибка: {e.stderr.decode('utf-8', errors='replace')}")
     except subprocess.TimeoutExpired:

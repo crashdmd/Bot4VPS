@@ -11,6 +11,9 @@ from __future__ import annotations
 
 import hashlib
 import secrets
+import json
+import time
+import hmac
 from typing import Optional
 
 from fastapi import HTTPException, Request, status
@@ -94,11 +97,8 @@ def set_web_password(new_password: str, *, via: str = "settings") -> None:
     отвечает «кто», ``via`` — «каким путём»: смена пароля
     аварийным путём и смена из настроек — разные события для истории.
     """
-    from core.config import get_web_config, set_web_config
-
-    web = get_web_config()
-    web["password_hash"] = make_password(new_password)
-    set_web_config(web)
+    from core.config import patch_web_config
+    patch_web_config({"password_hash": make_password(new_password)})
 
     from core.audit_actions import AuditAction
 
@@ -107,17 +107,30 @@ def set_web_password(new_password: str, *, via: str = "settings") -> None:
 
 def set_web_auth(enabled: bool, *, via: str = "settings") -> None:
     """Включить или выключить защиту панели и записать успешную операцию."""
-    from core.config import get_web_config, set_web_config
+    from core.config import patch_web_config
     from core.audit_actions import AuditAction
 
     enabled = bool(enabled)
-    web = get_web_config()
-    web["auth_enabled"] = enabled
-    set_web_config(web)
+    patch_web_config({"auth_enabled": enabled})
     _audit_web(
         AuditAction.WEB_AUTH_ENABLE if enabled else AuditAction.WEB_AUTH_DISABLE,
         via=via,
     )
+
+
+def create_web_admin(username: str, password: str) -> None:
+    """Имя, пароль и включение защиты — одной записью первичной настройки."""
+    from core import config
+    from core.json_store import locked
+    from core.audit_actions import AuditAction
+    password_hash = make_password(password)
+    path = config.CONFIG_FILE
+    with locked(path.with_name(path.name + ".lock"), config._CONFIG_LOCK):
+        if config.get_web_config().get("password_hash"):
+            raise HTTPException(409, "Администратор уже создан")
+        config.patch_web_config({"username": username, "password_hash": password_hash, "auth_enabled": True})
+    _audit_web(AuditAction.WEB_PASSWORD_CHANGE, via="setup")
+    _audit_web(AuditAction.WEB_AUTH_ENABLE, via="setup")
 
 
 # ------------------------------------------------------------------
@@ -162,25 +175,50 @@ def totp_provisioning_uri(secret: str, username: str) -> str:
 
 
 def verify_totp_code(code: str, secret: str) -> bool:
-    """Проверить 6-значный код; окно ±1 шаг (30 c) на рассинхрон часов."""
+    """Принять код один раз: окно ±1 шаг, использованный шаг — на диске."""
     import pyotp
+    from core import config
+    from core.json_store import locked
 
     if not code or not secret:
         return False
     try:
-        return pyotp.TOTP(secret).verify(code.strip(), valid_window=1)
+        code = code.strip()
+        if len(code) != 6 or not code.isascii() or not code.isdigit():
+            return False
+        totp = pyotp.TOTP(secret)
+        now_step = int(time.time()) // totp.interval
+        matched = next((step for step in (now_step, now_step - 1, now_step + 1)
+                        if secrets.compare_digest(code, totp.at(step * totp.interval))), None)
+        if matched is None:
+            return False
+        fingerprint = hashlib.sha256(secret.encode()).hexdigest()
+        digest = hmac.new(secret.encode(), code.encode(), hashlib.sha256).hexdigest()
+        path = config.CONFIG_FILE
+        # Проверка и запись — одна транзакция: два параллельных запроса
+        # не могут принять один код. Ошибка записи означает отказ во входе.
+        with locked(path.with_name(path.name + ".lock"), config._CONFIG_LOCK):
+            replay = dict(config.load_config().get("web", {}).get("totp_replay") or {})
+            previous = replay.get(fingerprint) or {}
+            last_step = previous.get("step", -1)
+            if matched <= last_step:
+                return False
+            if matched <= last_step + 2 and previous.get("digest") == digest:
+                return False
+            replay[fingerprint] = {"step": matched, "digest": digest}
+            replay = dict(sorted(replay.items(), key=lambda item: item[1]["step"])[-100:])
+            config.patch_web_config({"totp_replay": replay})
+        return True
     except Exception:
         return False
 
 
 def set_totp_secret(secret: str) -> None:
     """Активировать 2FA: секрет на диск только в зашифрованном виде."""
-    from core.config import get_web_config, set_web_config
+    from core.config import patch_web_config
     from core.secretbox import encrypt
 
-    web = get_web_config()
-    web["totp_secret"] = encrypt(secret)
-    set_web_config(web)
+    patch_web_config({"totp_secret": encrypt(secret)})
 
     from core.audit_actions import AuditAction
 
@@ -195,11 +233,8 @@ def clear_totp_secret(*, via: str = "settings") -> None:
     нового мастер-ключа: секрет становится нерасшифровываемым и снимается
     вместе с остальными enc1-значениями).
     """
-    from core.config import get_web_config, set_web_config
-
-    web = get_web_config()
-    web.pop("totp_secret", None)
-    set_web_config(web)
+    from core.config import patch_web_config
+    patch_web_config({}, remove=("totp_secret",))
 
     from core.audit_actions import AuditAction
 
@@ -394,6 +429,12 @@ def actor_from_request(request: Request) -> Actor:
     авторизации) остаётся ``type=web`` без имени: роль не выдумываем.
     """
     session = _session(request)
+    device_id = getattr(request.state, "mobile_device_id", None)
+    if not isinstance(device_id, str) or not device_id:
+        device_id = None
+    if device_id or request.headers.get("x-bot4vps-client") == "phone":
+        return Actor.phone(session.get("user"), device_id=device_id,
+                           role=session.get(ROLE_SESSION_KEY), ip=_client_ip(request))
     return Actor.web(
         session.get("user"),
         role=session.get(ROLE_SESSION_KEY),
@@ -409,7 +450,30 @@ def set_request_actor(request: Request) -> Actor:
     return actor
 
 
-def establish_web_session(request: Request, username: str) -> None:
+def auth_version(web=None) -> str:
+    """Отпечаток текущей учётки: смена пароля/логина/2FA отзывает куки."""
+    if web is None:
+        from core.config import get_web_config
+        web = get_web_config()
+    data = [web.get("username") or "admin", web.get("password_hash") or "",
+            web.get("totp_secret") or "", bool(web.get("auth_enabled"))]
+    return hashlib.sha256(json.dumps(data, ensure_ascii=False).encode()).hexdigest()
+
+
+def session_valid(session: dict) -> bool:
+    from core.config import get_web_config
+    web = get_web_config()
+    return bool(session.get("user") and session.get("user") == web.get("username")
+                and secrets.compare_digest(str(session.get("auth_version") or ""), auth_version(web)))
+
+
+def refresh_web_session(request: Request, username=None) -> None:
+    if username is not None:
+        request.session["user"] = username
+    request.session["auth_version"] = auth_version()
+
+
+def establish_web_session(request: Request, username: str, *, expected_version=None) -> None:
     """Открыть web-сессию: логин, снимок роли и актор — одним действием.
 
     Единая точка входа вместо россыпи ``session["user"] = ...``: место,
@@ -417,8 +481,12 @@ def establish_web_session(request: Request, username: str) -> None:
     аудит останется без неё в одном из путей входа (их четыре: мастер
     первичной настройки, вход, второй шаг 2FA, восстановление пароля).
     """
+    version = auth_version()
+    if expected_version is not None and not secrets.compare_digest(expected_version, version):
+        raise HTTPException(401, "Учётные данные изменились — войдите заново")
     request.session["user"] = username
     request.session[ROLE_SESSION_KEY] = ActorRole.ADMIN.value
+    request.session["auth_version"] = expected_version or version
     set_request_actor(request)
 
     from core.audit_actions import AuditAction
@@ -434,8 +502,9 @@ async def require_auth(request: Request) -> None:
     set_request_actor(request)
     if not auth_enabled():
         return
-    if request.session.get("user"):
+    if session_valid(request.session):
         return
+    request.session.clear()
     raise HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Требуется авторизация",

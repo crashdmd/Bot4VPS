@@ -3,10 +3,11 @@ import asyncio
 import shlex
 import queue
 import threading
+from collections import deque
 
 from core.storage import find_server
-from core.ssh import create_ssh_client
-from core.script_utils import load_scripts, get_script_info, read_script, get_script_params
+from core.ssh import create_ssh_client, exec_plain, _exec_remote, BinaryStreamCancelled
+from core.script_utils import load_scripts, get_script_info, read_script, get_script_params, validate_script_path, validate_script_values
 
 
 def log(server, text: str):
@@ -31,10 +32,12 @@ def _run_script_sync(
     Возвращает (exit_code|None, output, error|None, warnings:bool)
     """
     ssh = None
-    remote_script = f"/tmp/{script_name}"
-    out_lines = []
+    remote_script = None
+    out_lines = deque(maxlen=1000)
 
     def emit(line: str):
+        from core.task_history_store import mask_task_text
+        line = mask_task_text(line, {"values": values})[-4000:]
         out_lines.append(line)
         try:
             line_queue.put(line)
@@ -49,14 +52,19 @@ def _run_script_sync(
         ssh = create_ssh_client(server)
         emit("✅ SSH подключен")
 
-        local_script = os.path.join("scripts", script_name)
+        local_script = str(validate_script_path(script_name))
+        validate_script_values(values)
+        code, remote_script, error = exec_plain(ssh, server, "mktemp /tmp/bot4vps-script.XXXXXXXX.sh", timeout=15)
+        if code or not remote_script.startswith("/tmp/bot4vps-script.") or "\n" in remote_script:
+            remote_script = None
+            raise RuntimeError("Не удалось создать временный скрипт")
         emit("📤 Загружаем скрипт...")
         with ssh.open_sftp() as sftp:
             sftp.put(local_script, remote_script)
         emit("✅ Скрипт загружен")
 
-        _, chmod_stdout, _ = ssh.exec_command(f"chmod +x {remote_script}")
-        if chmod_stdout.channel.recv_exit_status() != 0:
+        code, _, _ = exec_plain(ssh, server, f"chmod +x -- {shlex.quote(remote_script)}", timeout=15)
+        if code != 0:
             return None, "", "Не удалось сделать скрипт исполняемым.", False
 
         env = " ".join(
@@ -67,54 +75,26 @@ def _run_script_sync(
 
         if env:
             command = (
-                f"{env} timeout 600 bash {remote_script}"
+                f"{env} timeout 600 bash {shlex.quote(remote_script)}"
                 if is_root
-                else f"sudo -S -p '' env {env} timeout 600 bash {remote_script}"
+                else f"sudo -S -p '' env {env} timeout 600 bash {shlex.quote(remote_script)}"
             )
         else:
             command = (
-                f"timeout 600 bash {remote_script}"
+                f"timeout 600 bash {shlex.quote(remote_script)}"
                 if is_root
-                else f"sudo -S -p '' timeout 600 bash {remote_script}"
+                else f"sudo -S -p '' timeout 600 bash {shlex.quote(remote_script)}"
             )
 
         emit("🚀 Запускаем скрипт...")
-        stdin, stdout, stderr = ssh.exec_command(command)
-
-        if not is_root:
-            stdin.write(server.get("password", "") + "\n")
-            stdin.flush()
-            stdin.channel.shutdown_write()
-
         emit("⏳ Ожидаем завершения...")
-
-        while True:
-            if cancel_flag.is_set():
-                try:
-                    stdout.channel.close()
-                except Exception:
-                    pass
-                output = "\n".join(out_lines)
-                return None, output, "Отменено", False
-
-            line = stdout.readline()
-            if not line:
-                if stdout.channel.exit_status_ready():
-                    break
-                continue
-
-            line = line.rstrip("\n\r")
-            if line.strip():
-                log(server, line)
-                emit(line)
-
-        exit_code = stdout.channel.recv_exit_status()
-        log(server, f"Скрипт завершён (код {exit_code})")
-
-        err = stderr.read().decode("utf-8", errors="ignore")
+        stdin_data = None if is_root else server.get("password", "") + "\n"
+        exit_code, out, err = _exec_remote(
+            ssh, command, 620, emit=emit, stdin_data=stdin_data,
+            cancel_flag=cancel_flag, stream_stderr=True,
+        )
         output = "\n".join(out_lines)
-        if err.strip():
-            output += "\n\nSTDERR:\n" + err.strip()
+        log(server, f"Скрипт завершён (код {exit_code})")
 
         if exit_code == 0:
             return 0, output, None, False
@@ -124,6 +104,10 @@ def _run_script_sync(
             return 124, output, "Таймаут (600с)", False
         return exit_code, output, f"Код выхода {exit_code}", False
 
+    except BinaryStreamCancelled:
+        return None, "\n".join(out_lines), "Отменено", False
+    except TimeoutError as e:
+        return 124, "\n".join(out_lines), str(e), False
     except Exception as e:
         log(server, f"Ошибка: {e}")
         emit(f"❌ Ошибка: {e}")
@@ -136,7 +120,8 @@ def _run_script_sync(
             pass
         if ssh:
             try:
-                ssh.exec_command(f"rm -f {remote_script}")
+                if remote_script:
+                    ssh.exec_command(f"rm -f -- {shlex.quote(remote_script)}", timeout=5)
             except Exception:
                 pass
             try:
@@ -189,7 +174,9 @@ async def execute_script_ex(
     if not server:
         return TaskResult(success=False, error="Сервер не найден.")
 
-    line_queue: queue.Queue = queue.Queue()
+    validate_script_path(script_name)
+    validate_script_values(values or {})
+    line_queue: queue.Queue = queue.Queue(maxsize=128)
     cancel_flag = threading.Event()
 
     async def watch_cancel():
@@ -215,16 +202,16 @@ async def execute_script_ex(
 
     cancel_task = asyncio.create_task(watch_cancel())
     drain_task = asyncio.create_task(drain_lines())
+    worker = asyncio.create_task(asyncio.to_thread(
+        _run_script_sync, script_name, server, values or {}, line_queue, cancel_flag,
+    ))
 
     try:
-        exit_code, output, error, warnings = await asyncio.to_thread(
-            _run_script_sync,
-            script_name,
-            server,
-            values or {},
-            line_queue,
-            cancel_flag,
-        )
+        exit_code, output, error, warnings = await asyncio.shield(worker)
+    except asyncio.CancelledError:
+        cancel_flag.set()
+        await worker
+        raise
     finally:
         cancel_flag.set()
         cancel_task.cancel()
@@ -270,6 +257,8 @@ register_executor("script", _script_executor)
 
 
 async def enqueue_script(script_name: str, server_id: str, values=None, *, live_reported: bool = False):
+    validate_script_path(script_name)
+    validate_script_values(values or {})
     server = find_server(server_id)
     if not server:
         raise ValueError("Сервер не найден")

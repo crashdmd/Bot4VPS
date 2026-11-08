@@ -511,6 +511,7 @@ def masterkey_create_new() -> dict:
         )
 
     cleared: list[str] = []
+    recovery_archive = secretbox.archive_before_key_replacement()
     secretbox._create_key_exclusive(via="replacement")
 
     # config.json: bot_token, web.totp_secret
@@ -518,6 +519,9 @@ def masterkey_create_new() -> dict:
     updates = {}
     if raw.get("bot_token"):
         updates["bot_token"] = ""
+    if raw.get("backup_encryption_password"):
+        updates["backup_encryption_password"] = ""
+        cleared.append("пароль резервных копий")
     if isinstance(raw.get("web"), dict) and raw["web"].get("totp_secret"):
         web = dict(raw["web"])
         web.pop("totp_secret", None)
@@ -530,7 +534,7 @@ def masterkey_create_new() -> dict:
 
     # servers.json: пароли серверов
     with storage.data_lock():
-        data = storage.load_data()
+        data = storage.load_data(decrypt_passwords=False)
         count = 0
         for server in data.get("servers", []):
             if isinstance(server, dict) and server.get("password"):
@@ -540,7 +544,11 @@ def masterkey_create_new() -> dict:
             storage.save_data(data)
             cleared.append(f"пароли {count} серверов")
 
-    return {"state": secretbox.master_key_state()["state"], "cleared": cleared}
+    history_count = secretbox.retire_old_encrypted_copies()
+    if history_count:
+        cleared.append(f"приватные данные {history_count} задач")
+
+    return {"state": secretbox.master_key_state()["state"], "cleared": cleared, "recovery_archive": str(recovery_archive)}
 
 
 def masterkey_field_labels(fields: list[str]) -> str:

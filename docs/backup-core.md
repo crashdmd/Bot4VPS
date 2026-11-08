@@ -102,7 +102,7 @@ Inventory и import bundles привязаны к identity архива:
 
 Запись на backup: type, purpose, mode, filename, source, timestamps, storage keys, projection manifest, verification, retention claim.
 
-Purpose различает обычные копии и служебные (в т.ч. protective — не съедаются обычным retention как «старый automatic»).
+Purpose различает обычные копии и исторические служебные виды. Защитная копия перед Restore сейчас записывается как `purpose=regular`, `mode=manual`; automatic retention её не удаляет.
 
 ### 4.2 Operations
 
@@ -251,8 +251,8 @@ Diagnostics tar: известный controlled skip (например ETXTBSY) v
 ## 8. Protective backup
 
 - Создаётся **до** mutation restore.
-- Публикуется как полноценный backup (отдельное имя с infix `_before.restore_`).
-- Старая protective-копия того же контекста удаляется **только после** успешной публикации новой.
+- Публикуется как полноценный обычный backup: `purpose=regular`, `mode=manual`, отдельное имя с infix `_before.restore_`.
+- Предыдущая защитная копия того же контекста удаляется **только после** успешной публикации новой; исторические записи `purpose=protective` остаются допустимыми для чтения.
 - Не должна съедаться обычным automatic retention как «просто старая копия».
 - Если protective не удался — restore не продолжает destructive-фазу (кроме явного confirm без protective, если API это допускает).
 

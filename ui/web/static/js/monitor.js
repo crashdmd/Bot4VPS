@@ -3,6 +3,7 @@ import { toast, plural, confirmAction, formatServerDateTime } from './ui.js';
 // Разметка описания версии — в своём модуле: поднабор markdown плюс
 // экранирование раньше тегов (см. changelog-md.js).
 import { changelogBody } from './changelog-md.js?v=20260925-changelog-md-v1';
+import { confirmPanelMaintenance, runPanelMaintenance, maintenanceActive } from './maintenance.js?v=20261106-maintenance-v1';
 
 // Кэш состояния updater'а (обновляется по кликам и во время установки;
 // SSE-перерисовки блока мониторинга используют кэш, запросов не плодят).
@@ -48,6 +49,7 @@ export async function loadUpdateState() {
 /** Опрос состояния каждые 2с, только пока идёт установка/откат. */
 function scheduleUpdatePolling() {
   if (updatePollTimer) { clearInterval(updatePollTimer); updatePollTimer = null; }
+  if (maintenanceActive()) return;
   const st = updateState && updateState.status;
   if (!st || !['downloading', 'installing', 'rolling_back'].includes(st)) return;
   updatePollTimer = setInterval(async () => {
@@ -122,9 +124,13 @@ export async function showUpdateModal() {
     width: 'min(760px,100%)',
     onOk: async () => {
       try {
-        await j('/api/update/install', { method: 'POST' });
-        toast('Обновление запущено', true);
-        await loadUpdateState();
+        const preview = await confirmPanelMaintenance({
+          kind: 'update',
+          message: `Установить обновление Bot4VPS ${data.version}? После установки панель будет перезапущена.`,
+          confirmText: 'Обновить',
+        });
+        if (!preview) return;
+        await runPanelMaintenance({ kind: 'update', preview, target: data.version });
       } catch (e) { toast(e.message, false); }
     },
   });
@@ -213,25 +219,23 @@ async function showVersionPicker(currentVersion) {
     onOk: async (okBtn) => {
       const sel = document.querySelector('input[name="upd-ver"]:checked');
       if (!sel) { toast('Выберите версию', false); return; }
-      const ok = await confirmAction({
-        title: '⚠️ Откат Bot4VPS',
-        message:
-          `Сейчас установлена версия ${currentVersion}.\n\n` +
-          `Вы собираетесь установить версию ${sel.value}.\n\n` +
-          'Для этого будет загружен соответствующий GitHub Release, ' +
-          'после чего Bot4VPS будет перезапущен.',
-        confirmText: 'Откатить',
-        cancelText: 'Отмена',
-        danger: true,
-      });
-      if (!ok) { okBtn.disabled = false; return; }
+      let preview;
       try {
-        await j('/api/update/rollback', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ version: sel.value }),
+        preview = await confirmPanelMaintenance({
+          kind: 'rollback',
+          message:
+            `Сейчас установлена версия ${currentVersion}.\n\n` +
+            `Вы собираетесь установить версию ${sel.value}.\n\n` +
+            'Для этого будет загружен соответствующий GitHub Release, ' +
+            'после чего Bot4VPS будет перезапущен.',
+          confirmText: 'Откатить',
         });
-        toast('Откат запущен', true);
-        await loadUpdateState();
+      } catch (e) { toast(e.message, false); return; }
+      if (!preview) { okBtn.disabled = false; return; }
+      try {
+        await runPanelMaintenance({
+          kind: 'rollback', preview, target: sel.value,
+        });
       } catch (e) { toast(e.message, false); }
     },
   });
@@ -1015,10 +1019,12 @@ function copyIpAddress() {
 }
 
 async function restartBotService() {
-  if (!await confirmAction({ message: 'Перезапустить службу bot4vps?', confirmFirst: true })) return;
   try {
-    const res = await j('/api/system/restart', { method: 'POST' });
-    toast(res.message || 'Служба перезапускается', true);
+    const preview = await confirmPanelMaintenance({
+      kind: 'restart', message: 'Перезапустить панель Bot4VPS?', confirmText: 'Перезапустить',
+    });
+    if (!preview) return;
+    await runPanelMaintenance({ kind: 'restart', preview });
   } catch (err) {
     toast(err.message || 'Ошибка при перезапуске службы', false);
   }

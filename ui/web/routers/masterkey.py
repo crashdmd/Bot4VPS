@@ -159,7 +159,7 @@ class MasterKeyNewBody(BaseModel):
 
 
 @router.post("/api/masterkey/new")
-async def api_masterkey_new(body: MasterKeyNewBody):
+async def api_masterkey_new(body: MasterKeyNewBody, request: Request):
     """Осознанное создание НОВОГО ключа при наличии enc1: данных.
 
     Разрушающая операция: подтверждённый клиентом факт, что старые
@@ -187,6 +187,7 @@ async def api_masterkey_new(body: MasterKeyNewBody):
 
     # Порядок: сначала ключ (расшифровка уже невозможна — старый ключ
     # не подходит по определению сценария), затем очистка полей.
+    recovery_archive = await asyncio.to_thread(secretbox.archive_before_key_replacement)
     key = await asyncio.to_thread(secretbox._create_key_exclusive, via="replacement")
     try:
         from cryptography.fernet import Fernet
@@ -202,6 +203,9 @@ async def api_masterkey_new(body: MasterKeyNewBody):
         updates = {}
         if raw.get("bot_token"):
             updates["bot_token"] = ""
+        if raw.get("backup_encryption_password"):
+            updates["backup_encryption_password"] = ""
+            cleared.append("пароль резервных копий")
         if isinstance(raw.get("web"), dict) and raw["web"].get("totp_secret"):
             web = dict(raw["web"])
             web.pop("totp_secret", None)
@@ -214,7 +218,7 @@ async def api_masterkey_new(body: MasterKeyNewBody):
         # servers.json: пароли серверов
         def _clear_passwords() -> int:
             with storage.data_lock():
-                data = storage.load_data()
+                data = storage.load_data(decrypt_passwords=False)
                 count = 0
                 for server in data.get("servers", []):
                     if isinstance(server, dict) and server.get("password"):
@@ -227,6 +231,9 @@ async def api_masterkey_new(body: MasterKeyNewBody):
         count = await asyncio.to_thread(_clear_passwords)
         if count:
             cleared.append(f"пароли {count} серверов")
+        history_count = await asyncio.to_thread(secretbox.retire_old_encrypted_copies)
+        if history_count:
+            cleared.append(f"приватные данные {history_count} задач")
     except Exception as exc:
         # Ключ уже создан и записан — откат невозможен; поля, которые не
         # удалось очистить, будут падать ошибкой расшифровки до ручной
@@ -237,7 +244,10 @@ async def api_masterkey_new(body: MasterKeyNewBody):
         ) from exc
 
     state = await asyncio.to_thread(secretbox.master_key_state)
-    return {"ok": True, "created": True, "cleared": cleared, **state}
+    if request.session.get("user"):
+        from ui.web.security import refresh_web_session
+        refresh_web_session(request)
+    return {"ok": True, "created": True, "cleared": cleared, "recovery_archive": str(recovery_archive), **state}
 
 
 # ==================================================================

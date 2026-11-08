@@ -19,7 +19,7 @@ from typing import Any, Callable, Dict, Iterable, Tuple
 from urllib.parse import quote
 
 from core.integrator import StepError
-from core.ssh import exec_sudo
+from core.ssh import exec_sudo, exec_plain
 
 from . import certs, templates
 from .validation import validate_domain
@@ -79,6 +79,154 @@ def _split_http_response(raw: str) -> Tuple[str, str]:
     """
     body, marker, status = (raw or "").rpartition("__B4HTTP__")
     return body.rstrip("\n"), status.strip() if marker else ""
+
+
+def _inspect_exec(ssh, server: dict, command: str) -> Tuple[int, str, str]:
+    # Reading nginx configuration and fetching HTTPS require no elevated rights.
+    # Root uses the same plain wrapper in exec_sudo; existing root callers keep
+    # their executor. Key-authenticated users must not need a sudo password.
+    execute = exec_sudo if server.get("user", "").lower() == "root" else exec_plain
+    return execute(ssh, server, command, timeout=15)
+
+
+def _inspect_read(ssh, server: dict, command: str) -> str:
+    code, out, err = _inspect_exec(ssh, server, command)
+    if code != 0:
+        raise StepError("site_check", code, title="Проверка сайта SelfSNI",
+                        detail=(err or "Не удалось прочитать конфигурацию сайта. Проверьте права SSH-пользователя.").strip()[:500])
+    return out.strip()
+
+
+def _nginx_sites(config: str) -> list[dict]:
+    """Parse server-level directives without confusing nested location blocks."""
+    lexer = shlex.shlex(config, posix=True, punctuation_chars="{};")
+    lexer.whitespace_split = True
+    lexer.commenters = "#"
+    tokens = []
+    for token in lexer:
+        tokens.extend(list(token) if token and set(token) <= set("{};") else [token])
+    sites = []
+    for start in range(len(tokens) - 1):
+        if tokens[start:start + 2] != ["server", "{"]:
+            continue
+        depth, statement, fields, root_location = 1, [], {}, False
+        for token in tokens[start + 2:]:
+            if token == "{":
+                if depth == 1:
+                    root_location = statement in (["location", "/"], ["location", "=", "/"])
+                depth += 1
+                statement = []
+            elif token == "}":
+                depth -= 1
+                statement = []
+                if depth == 1:
+                    root_location = False
+                if depth == 0:
+                    break
+            elif token == ";" and (depth == 1 or depth == 2 and root_location):
+                if statement:
+                    key = statement[0] if depth == 1 else "location_" + statement[0]
+                    fields.setdefault(key, []).append(statement[1:])
+                statement = []
+            elif depth == 1 or depth == 2 and root_location:
+                statement.append(token)
+        if fields:
+            sites.append(fields)
+    return sites
+
+
+def _selfsni_candidates(config: str) -> list[dict]:
+    result = []
+    for site in _nginx_sites(config):
+        root = next(iter(site.get("location_root", []) or site.get("location_alias", []) or site.get("root", [])), [None])[0]
+        domains = next(iter(site.get("server_name", [])), [])
+        domain = next((d for d in domains if re.fullmatch(r"[A-Za-z0-9.-]+", d) and "." in d), None)
+        if not domain:
+            continue
+        for listen in site.get("listen", []):
+            if not listen or "ssl" not in listen:
+                continue
+            address = listen[0]
+            match = re.fullmatch(r"(?:(127\.0\.0\.1|0\.0\.0\.0|\[::1\]|\[::\]|localhost):)?(\d+)", address)
+            if not match:
+                continue
+            bind, port = match.groups()
+            # Reality endpoints are local TLS sites, often with PROXY protocol.
+            # An ordinary public website on 443 alone is not evidence of SelfSNI.
+            proxy = "proxy_protocol" in listen
+            if not proxy and bind not in ("127.0.0.1", "[::1]", "localhost"):
+                continue
+            if not 1 <= int(port) <= 65535:
+                continue
+            host = "::1" if bind in ("[::1]", "[::]") else "127.0.0.1"
+            result.append({"domain": validate_domain(domain), "root": root, "port": int(port),
+                           "host": host, "proxy": proxy,
+                           "certificate": next(iter(site.get("ssl_certificate", [])), [""])[0],
+                           "certificate_key": next(iter(site.get("ssl_certificate_key", [])), [""])[0]})
+    return result
+
+
+def inspect(ssh, server: dict, previous: Dict[str, Any]) -> Dict[str, Any]:
+    """Discover existing SelfSNI sites, including installs outside Bot4VPS."""
+    config = _inspect_read(ssh, server,
+        f"if test -e {_q(templates.FAKESITE_NGINX_CONF)}; then cat {_q(templates.FAKESITE_NGINX_CONF)}; "
+        "else printf '__B4ABSENT__'; fi")
+    managed = config != "__B4ABSENT__" and "# bot4vps-selfsni v1" in config
+    if not managed:
+        config = _inspect_read(ssh, server,
+            "if test -d /etc/nginx; then "
+            "for conf in /etc/nginx/nginx.conf /etc/nginx/conf.d/*.conf /etc/nginx/sites-enabled/*; do "
+            "if test -f \"$conf\"; then printf '\\n'; cat \"$conf\" || exit 1; fi; done; "
+            "else printf '__B4NO_NGINX__'; fi")
+    state = {key: previous[key] for key in ("content_backup",) if previous.get(key)}
+    state.update(checked_at=datetime.now(timezone.utc).isoformat(), reachable=False, managed=managed)
+    candidates = _selfsni_candidates(config)
+    if not candidates:
+        owned = _inspect_read(ssh, server, f"if test -f {_q(_marker_path())}; then echo owned; fi; :")
+        return {**state, "present": False, "managed": managed or owned == "owned",
+                "status": "absent", "message": "Конфигурация сайта SelfSNI не найдена на сервере"}
+    preferred = str(server.get("ssl_host") or "").lower().strip()
+    matching = [site for site in candidates if site["domain"] == preferred]
+    if matching:
+        candidates = matching
+    unique = {(site["domain"], site["port"], site["root"]): site for site in candidates}
+    if len(unique) != 1:
+        raise RuntimeError("Найдено несколько сайтов SelfSNI. Укажите нужный домен в настройках сервера.")
+    site = next(iter(unique.values()))
+    domain, port, root = site["domain"], site["port"], site["root"]
+    if not root or "$" in root or not root.startswith("/"):
+        raise RuntimeError("Не удалось определить каталог сайта SelfSNI из конфигурации nginx")
+    content = _inspect_read(ssh, server,
+        f"if test -s {_q(posixpath.join(root, 'index.html'))} || test -s {_q(posixpath.join(root, 'index.htm'))}; "
+        "then echo content; fi; :")
+    host = site["host"]
+    destination = f"[{host}]:{port}" if ":" in host else f"{host}:{port}"
+    state.update(present=content == "content", domain=domain, sni=domain, dest=destination,
+                 sport=port, xver=1 if site["proxy"] else 0,
+                 certificate=site["certificate"], certificate_key=site["certificate_key"])
+    if not state["present"]:
+        return {**state, "status": "incomplete", "message": "Конфигурация SelfSNI есть, но файлы сайта отсутствуют"}
+    proxy_flag = "--haproxy-protocol " if site["proxy"] else ""
+    resolve_host = f"[{host}]" if ":" in host else host
+    code, out, _ = _inspect_exec(ssh, server,
+        "curl --silent --show-error --noproxy '*' " + proxy_flag
+        + "--connect-timeout 5 --max-time 10 --output /dev/null --write-out '%{http_code}' "
+        + f"--resolve {_q(f'{domain}:{port}:{resolve_host}')} " + _q(f"https://{domain}:{port}/"))
+    status = out.strip()
+    local_reachable = code == 0 and status.isdigit() and 200 <= int(status) < 400
+    state.update(local_reachable=local_reachable, http_status=status if status.isdigit() else None)
+    if not local_reachable:
+        return {**state, "status": "unavailable", "message": "Сайт SelfSNI найден, но локальный HTTPS не работает. Проверьте nginx и сертификат."}
+    code, out, _ = _inspect_exec(ssh, server,
+        "curl --silent --show-error --noproxy '*' --connect-timeout 5 --max-time 10 "
+        "--output /dev/null --write-out '%{http_code}' " + _q(f"https://{domain}/"))
+    public_status = out.strip()
+    reachable = code == 0 and public_status.isdigit() and 200 <= int(public_status) < 400
+    note = " Установлен вне Bot4VPS; автоматическое удаление недоступно." if not managed else ""
+    return {**state, "reachable": reachable, "public_http_status": public_status if public_status.isdigit() else None,
+            "status": "ready" if reachable else "local_only",
+            "message": (f"Сайт SelfSNI найден и открывается по адресу https://{domain}/" if reachable
+                        else f"Сайт SelfSNI локально работает, но https://{domain}/ не открывается. Проверьте DNS и Reality Dest.") + note}
 
 
 def _github_response(ssh, server: dict, url: str, *, output: str | None = None,

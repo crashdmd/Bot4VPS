@@ -102,7 +102,7 @@ function performSearch(query) {
 
   // Поиск разделов
   const sections = [
-    { name: 'Дашборд', page: 'dashboard', icon: '📊' },
+    { name: 'Обзор', page: 'dashboard', icon: '📊' },
     { name: 'Серверы', page: 'servers', icon: '🖥' },
     { name: 'Мониторинг серверов', page: 'metrics', icon: '📈' },
     { name: 'История событий', page: 'history', icon: '🗂' },
@@ -195,7 +195,7 @@ function renderResults(box, results) {
         const cat = searchResults.find(r => r.type === 'settings' && r.data.id === id);
         setPage('settings');
         showPage('settings');
-        import('./settings.js?v=20261001-mobile-charts-v1').then(m => {
+        import('./settings.js?v=20261108-settings-v2').then(m => {
           m.selectSettingsCategory?.(id);
         });
       }
