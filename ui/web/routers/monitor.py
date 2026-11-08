@@ -414,7 +414,7 @@ async def api_events_clear():
     try:
         import core.events as ev
         if hasattr(ev, "clear_events") and callable(ev.clear_events):
-            ev.clear_events()
+            await asyncio.to_thread(ev.clear_events)
             return {"ok": True}
         for name in ("save_events", "write_events", "set_events"):
             if hasattr(ev, name):

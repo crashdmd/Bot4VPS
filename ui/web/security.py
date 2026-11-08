@@ -429,7 +429,7 @@ def actor_from_request(request: Request) -> Actor:
     авторизации) остаётся ``type=web`` без имени: роль не выдумываем.
     """
     session = _session(request)
-    device_id = getattr(request.state, "mobile_device_id", None)
+    device_id = getattr(getattr(request, "state", None), "mobile_device_id", None)
     if not isinstance(device_id, str) or not device_id:
         device_id = None
     if device_id or request.headers.get("x-bot4vps-client") == "phone":

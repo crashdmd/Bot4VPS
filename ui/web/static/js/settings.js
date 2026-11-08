@@ -108,11 +108,11 @@ const categories = [
   { id: 'about', icon: 'i', title: 'О программе', subtitle: 'Версия и проект', render: renderAbout },
 ];
 
-if (document.documentElement.dataset.mobilePairing === '1') {
+{
   categories.splice(categories.findIndex(item => item.id === 'web') + 1, 0, {
     id: 'mobile', icon: '▣', title: 'Мобильное приложение', subtitle: 'Подключение и телефоны',
     render: async () => {
-      const mobile = await import('./_internal/device_access/panel.js?v=20261108-package-v1');
+      const mobile = await import('./_internal/device_access/panel.js?v=20261108-mobile-ui-v3');
       mobileSettingsModule = mobile;
       await mobile.renderMobileAccess(document.getElementById('settings-content'));
     },

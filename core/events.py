@@ -143,4 +143,12 @@ def mark_as_read(event_id: str):
 
 def clear_events() -> int:
     """Очистить журнал; возвращает число удалённых событий."""
-    return _store.clear()
+    from core import audit
+
+    try:
+        cleared = _store.clear()
+    except Exception as exc:
+        audit.record(audit.AuditAction.EVENTS_CLEAR, result=audit.AuditResult.FAILED, error=exc)
+        raise
+    audit.record(audit.AuditAction.EVENTS_CLEAR, result=audit.AuditResult.OK, params={"cleared": cleared})
+    return cleared

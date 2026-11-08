@@ -234,16 +234,13 @@ async def _clear_events_confirm(query):
 
 
 async def _clear_events(query):
-    from core.events import load_events, save_events
+    from core.events import clear_events
 
-    events = load_events()
-    count = len(events)
+    count = await asyncio.to_thread(clear_events)
 
     if count == 0:
         await query.edit_message_text("Журнал уже пуст.")
         return
-
-    save_events([])
 
     await query.edit_message_text(
         f"✅ Журнал событий очищен.\nУдалено записей: {count}",

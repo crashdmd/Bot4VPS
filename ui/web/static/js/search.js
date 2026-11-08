@@ -195,7 +195,7 @@ function renderResults(box, results) {
         const cat = searchResults.find(r => r.type === 'settings' && r.data.id === id);
         setPage('settings');
         showPage('settings');
-        import('./settings.js?v=20261108-settings-v2').then(m => {
+        import('./settings.js?v=20261108-mobile-ui-v3').then(m => {
           m.selectSettingsCategory?.(id);
         });
       }

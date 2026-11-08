@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="108" height="108" viewBox="0 0 108 108">
+  <!-- Vector redraw of the robot in ui/web/static/logo.png.
+       Visible bounds: x 26..82, y 26..82, centered at (54,54).
+       The artwork fits Android's central 66dp adaptive-icon safe circle. -->
+  <defs>
+    <linearGradient id="blue" x1="54" y1="26" x2="54" y2="82" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#52C5FF"/>
+      <stop offset="1" stop-color="#2087ED"/>
+    </linearGradient>
+    <linearGradient id="screen" x1="54" y1="45" x2="54" y2="66" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#152737"/>
+      <stop offset="1" stop-color="#0B1622"/>
+    </linearGradient>
+  </defs>
+  <!-- Antenna and small side antennae. -->
+  <path fill="url(#blue)" d="M52 31 L56 31 L56 39 L52 39 Z M54 26 C51.79 26 50 27.79 50 30 C50 32.21 51.79 34 54 34 C56.21 34 58 32.21 58 30 C58 27.79 56.21 26 54 26 Z"/>
+  <path fill="#98E0FF" d="M54 28 C52.9 28 52 28.9 52 30 C52 31.1 52.9 32 54 32 C55.1 32 56 31.1 56 30 C56 28.9 55.1 28 54 28 Z"/>
+  <path fill="#329FF1" d="M37 38 L33.7 34.7 C33 34 32 34 31.4 34.7 C30.8 35.4 30.8 36.4 31.5 37.1 L34.6 40.2 Z M71 38 L74.3 34.7 C75 34 76 34 76.6 34.7 C77.2 35.4 77.2 36.4 76.5 37.1 L73.4 40.2 Z"/>
+  <!-- Ears, with open dark centers. -->
+  <path fill="url(#blue)" d="M33 47 C28.2 47 26 50.7 26 56 C26 61.3 28.2 65 33 65 L33 61 C30.9 61 30 59.1 30 56 C30 52.9 30.9 51 33 51 Z M75 47 C79.8 47 82 50.7 82 56 C82 61.3 79.8 65 75 65 L75 61 C77.1 61 78 59.1 78 56 C78 52.9 77.1 51 75 51 Z"/>
+  <!-- Neck and two feet. -->
+  <path fill="#238DEA" d="M46 71 L62 71 L62 77 L46 77 Z"/>
+  <path fill="url(#blue)" d="M44 75 L50 77 L43 82 L39 82 C38 82 37.6 80.9 38.4 80.2 Z M64 75 L58 77 L65 82 L69 82 C70 82 70.4 80.9 69.6 80.2 Z"/>
+  <path fill="#45B7FA" d="M45 77 L63 77 C64.66 77 66 78.34 66 80 L42 80 C42 78.34 43.34 77 45 77 Z"/>
+  <!-- Rounded blue frame. -->
+  <path fill="url(#blue)" d="M43 37 L65 37 C71.63 37 77 42.37 77 49 L77 61 C77 67.63 71.63 73 65 73 L43 73 C36.37 73 31 67.63 31 61 L31 49 C31 42.37 36.37 37 43 37 Z"/>
+  <path fill="#80D6FF" d="M43 39 L65 39 C70.52 39 75 43.48 75 49 L75 50 L73.5 50 L73.5 49 C73.5 44.31 69.69 40.5 65 40.5 L43 40.5 C38.31 40.5 34.5 44.31 34.5 49 L34.5 50 L33 50 L33 49 C33 43.48 37.48 39 43 39 Z"/>
+  <!-- Screen inset and quiet lower edge. -->
+  <path fill="#1268B5" d="M44 44 L64 44 C68.42 44 72 47.58 72 52 L72 60 C72 64.42 68.42 68 64 68 L44 68 C39.58 68 36 64.42 36 60 L36 52 C36 47.58 39.58 44 44 44 Z"/>
+  <path fill="url(#screen)" d="M44 45 L64 45 C67.87 45 71 48.13 71 52 L71 59 C71 62.87 67.87 66 64 66 L44 66 C40.13 66 37 62.87 37 59 L37 52 C37 48.13 40.13 45 44 45 Z"/>
+  <!-- White eyes; the symmetry keeps the face centered at small sizes. -->
+  <path fill="#D1EFFF" d="M46 50.5 C43.68 50.5 41.8 52.74 41.8 55.5 C41.8 58.26 43.68 60.5 46 60.5 C48.32 60.5 50.2 58.26 50.2 55.5 C50.2 52.74 48.32 50.5 46 50.5 Z M62 50.5 C59.68 50.5 57.8 52.74 57.8 55.5 C57.8 58.26 59.68 60.5 62 60.5 C64.32 60.5 66.2 58.26 66.2 55.5 C66.2 52.74 64.32 50.5 62 50.5 Z"/>
+  <path fill="#FFFFFF" d="M46 51.5 C44.18 51.5 42.7 53.29 42.7 55.5 C42.7 57.71 44.18 59.5 46 59.5 C47.82 59.5 49.3 57.71 49.3 55.5 C49.3 53.29 47.82 51.5 46 51.5 Z M62 51.5 C60.18 51.5 58.7 53.29 58.7 55.5 C58.7 57.71 60.18 59.5 62 59.5 C63.82 59.5 65.3 57.71 65.3 55.5 C65.3 53.29 63.82 51.5 62 51.5 Z"/>
+</svg>

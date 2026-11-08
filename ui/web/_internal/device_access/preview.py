@@ -1,16 +1,11 @@
-"""Local, explicit opt-in for the internal device access preview."""
+"""Private Web origin guard for managing paired mobile devices."""
 from __future__ import annotations
 
 import ipaddress
 import os
 from urllib.parse import urlsplit
 
-PREVIEW_ENV = "BOT4VPS_MOBILE_API_PREVIEW"
 MANAGEMENT_PREFIX = "/api/settings/mobile-access"
-
-
-def preview_enabled() -> bool:
-    return os.environ.get(PREVIEW_ENV) == "1"
 
 
 def _private_address(value: str) -> bool:

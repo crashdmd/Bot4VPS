@@ -12,7 +12,7 @@ import ssl
 import uvicorn
 
 from .access import ACCESS_HEADER, AccessDenied, MobileAccess
-from .preview import MANAGEMENT_PREFIX, preview_enabled
+from .preview import MANAGEMENT_PREFIX
 
 _PROTOCOL = {"/api/mobile/pair", "/api/mobile/challenge", "/api/mobile/handshake"}
 
@@ -34,7 +34,8 @@ class ApiOnlyApp:
         kind, path = scope["type"], scope.get("path", "")
         if kind not in ("http", "websocket"):
             raise RuntimeError("Mobile API shares its parent's lifespan; run it with lifespan=off")
-        if not path.startswith("/api/") or path == MANAGEMENT_PREFIX or path.startswith(MANAGEMENT_PREFIX + "/"):
+        if (not path.startswith("/api/") or path == MANAGEMENT_PREFIX or path.startswith(MANAGEMENT_PREFIX + "/")
+                or path == "/api/mobile-app" or path.startswith("/api/mobile-app/")):
             if kind == "websocket":
                 await send({"type": "websocket.close", "code": 4404})
             else:
@@ -56,7 +57,7 @@ class ApiOnlyApp:
                 await send({"type": "websocket.close", "code": 4401})
             else:
                 await _json(send, 401 if token else 428,
-                    {"detail": "Привяжите телефон с помощью одноразового кода на LXC", "mobile_pairing_required": True},
+                    {"detail": "Привяжите телефон с помощью одноразового кода в Web-панели", "mobile_pairing_required": True},
                     "session" if token else "pairing")
             return
         scope.setdefault("state", {})["mobile_device_id"] = device_id
@@ -170,8 +171,6 @@ class ApiListener:
 
 
 async def start_api_listener(app, web: dict):
-    if not preview_enabled():
-        return None
     config = web.get("mobile_api") or {}
     if not config.get("enabled"):
         return None

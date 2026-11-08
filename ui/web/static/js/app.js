@@ -18,7 +18,7 @@ import { j, esc } from './api.js';
 import { resumeBackgroundTasks } from './taskmodal.js?v=20260914-v3';
 import { initAuth, bindAuthUI } from './auth.js';
 import { initSetup, bindSetupUI } from './setup.js?v=20260910-setup-v4';
-import { bindGlobalSearch } from './search.js?v=20261001-mobile-charts-v1';
+import { bindGlobalSearch } from './search.js?v=20261108-mobile-ui-v3';
 import { bindBackupUI, loadBackups, stopBackupTimers } from './backup.js?v=20261001-handbook-v3';
 import {
   openMetricsPage, closeMetricsView, bindMetricsUI, metricsFromUrl,
@@ -51,7 +51,7 @@ async function openQuickSetupFromCard(serverId) {
 
 // Settings — отдельная подсистема. Загружаем её лениво, чтобы ошибка нового
 // модуля не останавливала Dashboard, Servers и остальные страницы.
-const settingsModule = import('./settings.js?v=20261108-settings-v2')
+const settingsModule = import('./settings.js?v=20261108-mobile-ui-v3')
   .catch(error => {
     console.error('[settings] module unavailable:', error);
     return null;

@@ -1,4 +1,4 @@
-"""Private Web controls for the unpublished mobile API preview."""
+"""Private Web controls for the paired mobile API."""
 from __future__ import annotations
 
 import asyncio
@@ -9,12 +9,12 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, Field, StrictBool, StrictInt
 
 from .._internal.device_access.access import AccessDenied, MobileAccess, PAIR_TTL, pairing_invitation
-from .._internal.device_access.preview import MANAGEMENT_PREFIX, preview_enabled, private_web_request
+from .._internal.device_access.preview import MANAGEMENT_PREFIX, private_web_request
 from ..security import require_auth
 
 
 async def private_management(request: Request, response: Response):
-    if not preview_enabled() or not private_web_request(request):
+    if not private_web_request(request):
         raise HTTPException(404, "Не найдено")
     if request.headers.get("sec-fetch-site", "") not in ("", "same-origin", "none"):
         raise HTTPException(403, "Откройте настройки в самой панели")
@@ -65,7 +65,7 @@ def _validate_settings(body: SettingsBody):
     try:
         ipaddress.ip_address(body.host)
     except ValueError:
-        raise HTTPException(400, "Укажите IP интерфейса LXC, например 0.0.0.0")
+        raise HTTPException(400, "Укажите IP интерфейса сервера Bot4VPS, например 0.0.0.0")
     if body.port == current_port_from_unit():
         raise HTTPException(400, "Порт API должен отличаться от порта веб-панели")
     url = body.public_url.strip().rstrip("/")

@@ -55,3 +55,27 @@ logs/
 *.code-workspace
 # Runtime lock files
 *.json.lock
+
+# Локальная среда и архивы
+/.local-build/
+/.local-archives/
+
+# Локальные файлы Android
+/ui/Bot4VPS-Mobile/.signing/
+/ui/Bot4VPS-Mobile/.build-env/
+/ui/Bot4VPS-Mobile/.gradle/
+/ui/Bot4VPS-Mobile/.kotlin/
+/ui/Bot4VPS-Mobile/.idea/
+/ui/Bot4VPS-Mobile/**/build/
+/ui/Bot4VPS-Mobile/**/__pycache__/
+/ui/Bot4VPS-Mobile/local.properties
+/ui/Bot4VPS-Mobile/**/*.iml
+/ui/Bot4VPS-Mobile/**/*.jks
+/ui/Bot4VPS-Mobile/**/*.keystore
+/ui/Bot4VPS-Mobile/**/*.apk
+
+# Рабочие заметки и отчёты
+/ui/Bot4VPS-Mobile/AGENTS.md
+/ui/Bot4VPS-Mobile/docs/session-state.md
+/ui/Bot4VPS-Mobile/docs/mapping-*-release.txt.gz
+/ui/Bot4VPS-Mobile/docs/verification-*-release.json

@@ -1,5 +1,5 @@
 import { j, esc } from '../../api.js?v=20260821-telegram-health-v1';
-import { toast, confirmAction } from '../../ui.js';
+import { toast, confirmAction, infoModal } from '../../ui.js';
 
 const ROOT = '/api/settings/mobile-access';
 let closePairCode = null;
@@ -79,7 +79,7 @@ function showPairCode(data) {
   modal.id = 'mobile-pair-dialog'; modal.className = 'modal-bg open';
   modal.innerHTML = `<div class="modal confirm-modal" role="dialog" aria-modal="true" aria-labelledby="mobile-pair-title">
     <div class="modal-head"><h2 id="mobile-pair-title">Привязать телефон</h2><button type="button" class="modal-close" aria-label="Закрыть">×</button></div>
-    <p class="set-desc">Скопируйте код и вставьте в приложение на экране подключения. Адрес сервера подставится автоматически. Код действует 10 минут и становится недействительным после первой успешной привязки, даже для того же телефона. При создании нового кода ключ сервера остаётся прежним.</p>
+    <p class="set-desc">Вставьте полный код в первое поле подключения приложения. Адрес и ключ сервера подставятся автоматически. Код действует 10 минут и используется один раз.</p>
     <p class="set-desc">Адрес API в коде: <strong>${esc(data.public_url)}</strong></p>
     <label class="set-form">Код привязки<textarea readonly rows="4" autocomplete="off" spellcheck="false">${esc(data.code)}</textarea></label>
     <p class="set-desc">После привязки доступ телефона можно отозвать в этом разделе.</p>
@@ -108,27 +108,66 @@ export async function renderMobileAccess(content) {
   stopMobileAccess();
   const view = { content, controller: new AbortController(), pairing: false, saving: false };
   statusView = view;
-  let data;
-  try { data = await request('', undefined, { signal: view.controller.signal }); }
-  catch (error) { if (statusView !== view) return; stopMobileAccess(); throw error; }
+  const results = await Promise.allSettled([
+    request('', undefined, { signal: view.controller.signal }),
+    j('/api/mobile-app', { signal: view.controller.signal }),
+  ]);
   if (statusView !== view) return;
+  const data = results[0].status === 'fulfilled' ? results[0].value : null;
+  const release = results[1].status === 'fulfilled' ? results[1].value : { available: false, message: 'Не удалось проверить файл приложения. Повторите проверку; если ошибка останется, обновите и перезапустите Bot4VPS.' };
+  const appCard = `<div class="set-form-card mobile-app-card">
+    <div class="mobile-app-heading"><div class="mobile-app-mark"><img src="/static/logo.png?v=20260905-logo-v2" alt=""></div><div><h3>Bot4VPS Mobile ${release.available ? '<span class="set-badge">' + esc(release.version) + '</span>' : ''}</h3><p>Ваши серверы и сервисы на Android</p></div></div>
+    <div class="mobile-app-meta"><span>Android 8.0 и новее</span>${release.available ? '<span>APK · ' + esc((release.size / 1048576).toFixed(1)) + ' МБ</span>' : ''}</div>
+    <p class="set-desc">Скачайте APK на телефон и откройте файл для установки. Telegram для скачивания не нужен.</p>
+    <div class="set-form-actions mobile-install-actions">${release.available ? '<a class="btn" id="mobile-download-apk" href="/api/mobile-app/download" download>Скачать APK</a>' : '<button type="button" id="mobile-download-apk" disabled>Скачать APK</button>'}
+      <button type="button" class="secondary" id="mobile-send-apk" ${release.available && release.telegram_available ? '' : 'disabled'}>Получить в Telegram</button></div>
+    ${release.available ? '<p class="set-desc">' + (release.telegram_hint ? esc(release.telegram_hint) + '. Скачайте APK кнопкой выше.' : 'Через Telegram файл отправится получателю из настроек панели.') + '</p>' : '<p class="set-desc" role="status">' + esc(release.message || 'Файл приложения недоступен. Проверьте целостность установки Bot4VPS.') + '</p><button type="button" class="secondary mobile-apk-retry" id="mobile-apk-retry">Повторить проверку APK</button>'}
+  </div>`;
+  const guide = `<details class="mobile-quick-guide"><summary>Как подключить телефон</summary><ol><li>Укажите доступный телефону HTTPS-адрес и отдельный порт. Включите подключение и сохраните.</li><li>Создайте код в блоке «Телефоны» и скопируйте его целиком.</li><li>Вставьте код в первое поле подключения приложения. При включённом входе используйте учётную запись панели.</li></ol><button type="button" class="faq-help-link" id="mobile-guide-help">Полная инструкция в справочнике</button></details>`;
+  function bindApk() {
+    const retry = content.querySelector('#mobile-apk-retry');
+    if (retry) retry.onclick = () => renderMobileAccess(content).catch(error => toast(error.message, false));
+    const hints = {
+      'mobile-connect-help': { title: 'Подключение мобильного приложения', message: 'Укажите HTTPS-адрес и отдельный порт, доступные телефону. Для доступа извне пробросьте на роутере TCP-порт к машине с Bot4VPS; Web-порт можно оставить внутри доверенной сети. API создаёт свой TLS-сертификат, поэтому HTTPS локальной Web-панели включать не требуется. При сохранении Bot4VPS открывает только свой порт в поддерживаемом локальном файрволле; при выключении останавливает API и удаляет своё правило. Настройки добавленных VPS и роутера не меняются.', handbookAnchor: 'mobile-connection' },
+      'mobile-phones-help': { title: 'Привязка телефона и отзыв доступа', message: 'Создайте код и вставьте его целиком в первое поле подключения приложения. Адрес и отпечаток ключа подставятся автоматически. Код живёт 10 минут и используется один раз. API разрешает работу только привязанным устройствам, даже если пароль Web выключен. Первую привязку через HTTP выполняйте только в доверенной сети. Если телефон потерян, отзовите его доступ в этом списке.', handbookAnchor: 'mobile-pairing' },
+      'mobile-guide-help': { title: 'Bot4VPS Mobile: установка и подключение', message: 'Скачайте APK или получите его через Telegram, включите отдельное подключение и привяжите телефон кодом из Web. Подробные шаги, защита приложения и устранение ошибок — в справочнике.', handbookAnchor: 'mobile-app' },
+    };
+    for (const [id, hint] of Object.entries(hints)) {
+      const help = content.querySelector('#' + id);
+      if (help) help.onclick = () => infoModal(hint);
+    }
+    const button = content.querySelector('#mobile-send-apk');
+    if (!button) return;
+    button.onclick = async () => {
+      button.disabled = true;
+      try { const result = await j('/api/mobile-app/send', { method: 'POST', headers: { 'X-Bot4VPS-Pairing-Web': '1' } }); toast(result.message, true); }
+      catch (error) { toast(error.message, false); }
+      finally { button.disabled = !release.available || !release.telegram_available; }
+    };
+  }
+  if (!data) {
+    content.innerHTML = `<section class="set-section mobile-access"><div class="set-section-head"><h2>Мобильное приложение</h2><p>Установка и подключение Bot4VPS Mobile</p></div>${appCard}
+      <div class="set-form-card"><div class="set-form-title"><div><h3>Подключение <button type="button" class="faq-help-link" id="mobile-connect-help">Подробнее</button></h3><p>Настройка доступна из доверенной сети</p></div></div><p class="set-desc">Для привязки откройте Web-панель по локальному IP сервера или разрешённому доверенному DNS-имени.</p><button type="button" class="secondary" id="mobile-refresh">Повторить проверку</button></div>${guide}</section>`;
+    bindApk();
+    content.querySelector('#mobile-refresh').onclick = () => renderMobileAccess(content).catch(error => toast(error.message, false));
+    return;
+  }
   const cfg = data.settings;
-  content.innerHTML = `<section class="set-section"><div class="set-section-head"><h2>Мобильное приложение</h2><p>Подключение к Bot4VPS и разрешённые телефоны</p></div>
-    <div class="set-form-card"><div class="set-form-title"><div><h3>Подключение</h3><p>На роутере пробросьте только порт API на LXC. Веб-панель остаётся в домашней сети.</p></div><span id="mobile-api-status" class="set-badge" role="status" aria-live="polite"></span></div>
+  content.innerHTML = `<section class="set-section mobile-access"><div class="set-section-head"><h2>Мобильное приложение</h2><p>Приложение для Android и разрешённые телефоны</p></div>${appCard}
+    <div class="set-form-card"><div class="set-form-title"><div><h3>Подключение <button type="button" class="faq-help-link" id="mobile-connect-help" aria-label="Подробнее: подключение приложения">Подробнее</button></h3><p>Отдельный защищённый доступ для телефона</p></div><span id="mobile-api-status" class="set-badge" role="status" aria-live="polite"></span></div>
       <form class="set-form" id="mobile-api-settings">
-        <label>Адрес для приложения<input name="public_url" type="url" placeholder="https://белый-IP:8444" value="${esc(cfg.public_url)}"><small>Белый IP или домен с внешним портом API, настроенным на роутере. Без указанного порта HTTPS использует 443.</small></label>
-        <label>Порт API на LXC<input name="port" type="number" min="1" max="65535" required value="${esc(cfg.port)}"></label>
+        <div class="mobile-api-toggle"><div class="set-tls-toggle-text"><b>Разрешить подключение</b><small>Сохраните настройки, чтобы применить изменение</small></div><label class="set-switch" title="Разрешить подключение приложения"><input name="enabled" type="checkbox" ${cfg.enabled ? 'checked' : ''} aria-label="Разрешить подключение приложения"><span class="set-switch-track"><span></span></span></label></div>
+        <div class="mobile-connection-fields"><label>Адрес для приложения<input name="public_url" type="url" placeholder="https://api.example.com:8444" value="${esc(cfg.public_url)}" spellcheck="false" autocomplete="url"><small>Доступный телефону IP или домен с внешним портом.</small></label>
+        <label>Порт на сервере<input name="port" type="number" min="1" max="65535" required value="${esc(cfg.port)}" inputmode="numeric"><small>Отдельно от Web-порта.</small></label></div>
         <input name="host" type="hidden" value="${esc(cfg.host)}">
-        <label><span><input name="enabled" type="checkbox" ${cfg.enabled ? 'checked' : ''}> Разрешить подключение приложения</span></label>
-        <p class="set-desc">Ключ сервера создаётся автоматически. Сертификаты NPM и включение HTTPS веб-панели не требуются.</p>
-        <p class="set-desc">При сохранении порт открывается в локальном файрволле LXC. При выключении API останавливается и его правило удаляется. Настройки VPS не меняются.</p>
-        <div class="set-form-actions"><button type="submit">Сохранить</button><span class="set-desc" id="mobile-api-result">${esc(data.error || '')}</span></div>
+        <div class="set-form-actions"><button type="submit">Сохранить подключение</button></div><p class="set-desc mobile-result" id="mobile-api-result" role="status" aria-live="polite">${esc(data.error || '')}</p>
       </form></div>
-    <div class="set-form-card" style="margin-top:1rem"><div class="set-form-title"><div><h3>Телефоны</h3><p>Доступ получает только телефон, привязанный вашим кодом.</p></div></div>
-      <form id="mobile-pair-form" class="set-form"><label>Название телефона<input name="name" maxlength="80" value="Мой телефон" autocomplete="off"></label>
-      <div class="set-form-actions"><button type="submit" ${!data.running || data.restart_required ? 'disabled' : ''}>Привязать телефон</button><button type="button" class="secondary" id="mobile-refresh">Обновить список</button></div></form>
-      <div id="mobile-device-list">${data.devices.length ? data.devices.map(device => `<div class="set-port-line"><span style="flex:1"><strong>${esc(device.name)}</strong><small class="set-desc" style="display:block">Привязан ${esc(new Date(device.created * 1000).toLocaleString('ru-RU'))}</small></span><button class="secondary" type="button" data-revoke="${esc(device.id)}">Отозвать доступ</button></div>`).join('') : '<p class="set-desc">Привязанных телефонов пока нет.</p>'}</div>
-    </div></section>`;
+    <div class="set-form-card"><div class="set-form-title"><div><h3>Телефоны <button type="button" class="faq-help-link" id="mobile-phones-help" aria-label="Подробнее: привязка телефона">Подробнее</button></h3><p>Доступ только для ваших привязанных устройств</p></div></div>
+      <form id="mobile-pair-form" class="set-form"><label for="mobile-phone-name">Название телефона</label><div class="mobile-pair-row"><input id="mobile-phone-name" name="name" maxlength="80" value="Мой телефон" autocomplete="off"><button type="submit" ${!data.running || data.restart_required ? 'disabled' : ''}>Привязать телефон</button></div><p class="set-desc">Код действует 10 минут и используется один раз.</p></form>
+      <div class="mobile-devices-head"><span>Привязанные устройства</span><button type="button" class="secondary" id="mobile-refresh">Обновить</button></div>
+      <div id="mobile-device-list">${data.devices.length ? data.devices.map(device => `<div class="mobile-device"><div><strong>${esc(device.name)}</strong><small>Привязан ${esc(new Date(device.created * 1000).toLocaleString('ru-RU'))}</small></div><button class="secondary" type="button" data-revoke="${esc(device.id)}">Отозвать доступ</button></div>`).join('') : '<p class="mobile-empty">Привязанных телефонов пока нет.<br>Создайте код, чтобы подключить первое устройство.</p>'}</div>
+    </div>${guide}</section>`;
+  bindApk();
   content.querySelector('#mobile-api-settings').onsubmit = async event => {
     event.preventDefault(); const form = event.currentTarget; const button = form.querySelector('button'); button.disabled = true;
     view.saving = true;

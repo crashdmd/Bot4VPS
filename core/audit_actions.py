@@ -71,6 +71,8 @@ class AuditAction(str, Enum):
     TASK_FINISH = "task.finish"
     TASK_FAIL = "task.fail"
     TASK_CANCEL = "task.cancel"
+    TASK_HISTORY_CLEAR = "task.history_clear"
+    EVENTS_CLEAR = "events.clear"
 
     # --- Скрипты (core/scripts.py) ---
     # ``script.run`` из карты §8.2 в словаре нет по той же причине, что и
@@ -262,6 +264,8 @@ ACTION_TITLES: dict[str, str] = {
     AuditAction.TASK_FINISH.value: "Задача завершена",
     AuditAction.TASK_FAIL.value: "Задача с ошибкой",
     AuditAction.TASK_CANCEL.value: "Задача отменена",
+    AuditAction.TASK_HISTORY_CLEAR.value: "Очистка истории задач",
+    AuditAction.EVENTS_CLEAR.value: "Очистка журнала событий",
     AuditAction.SSH_ACCESS_PORT_CHANGE.value: "Смена SSH-порта",
     AuditAction.SSH_ACCESS_ROOT_LOGIN.value: "Вход root по SSH",
     AuditAction.SSH_ACCESS_PASSWORD_AUTH.value: "Вход по паролю",

@@ -1,0 +1,122 @@
+[
+  {
+    "serviceId": "wireguard",
+    "method": "POST",
+    "suffix": "export-zip",
+    "title": "Экспорт профилей",
+    "description": "Сохранить клиентские конфиги выбранных профилей",
+    "group": "Профили"
+  },
+  {
+    "serviceId": "wireguard",
+    "method": "POST",
+    "suffix": "enqueue/reissue_all",
+    "title": "Перевыпустить импортированные профили",
+    "description": "Сделать профили управляемыми и подготовить новые клиентские конфиги",
+    "group": "Профили"
+  },
+  {
+    "serviceId": "docker",
+    "method": "GET",
+    "suffix": "ignored-stacks",
+    "title": "Исключённые проекты",
+    "description": "Посмотреть проекты, скрытые из списка",
+    "group": "Compose"
+  },
+  {
+    "serviceId": "docker",
+    "method": "POST",
+    "suffix": "stacks/{name}/zip",
+    "title": "Импорт проекта",
+    "description": "Загрузить ZIP-архив проекта в библиотеку Compose",
+    "group": "Compose"
+  },
+  {
+    "serviceId": "docker",
+    "method": "POST",
+    "suffix": "stacks/{name}/file",
+    "title": "Создать или изменить проект",
+    "description": "Редактировать Compose-файл в библиотеке",
+    "group": "Compose"
+  },
+  {
+    "serviceId": "3x-ui",
+    "method": "POST",
+    "suffix": "action/reset_settings",
+    "title": "Сбросить настройки панели",
+    "description": "Вернуть настройки 3x-ui к исходным",
+    "group": "Панель"
+  },
+  {
+    "serviceId": "3x-ui",
+    "method": "POST",
+    "suffix": "action/set_bbr",
+    "title": "Настроить BBR",
+    "description": "Управление алгоритмом TCP",
+    "group": "Система"
+  },
+  {
+    "serviceId": "3x-ui",
+    "method": "POST",
+    "suffix": "action/update_geo",
+    "title": "Обновить GeoIP и GeoSite",
+    "description": "Загрузить актуальные базы маршрутизации",
+    "group": "Система"
+  },
+  {
+    "serviceId": "3x-ui",
+    "method": "POST",
+    "suffix": "enqueue/cert_issue_ip",
+    "title": "Сертификат для IP",
+    "description": "Выпустить HTTPS-сертификат для IP-адреса",
+    "group": "HTTPS"
+  },
+  {
+    "serviceId": "3x-ui",
+    "method": "POST",
+    "suffix": "enqueue/cert_renew",
+    "title": "Продлить сертификат",
+    "description": "Обновить сертификат панели",
+    "group": "HTTPS"
+  },
+  {
+    "serviceId": "3x-ui",
+    "method": "POST",
+    "suffix": "enqueue/cert_remove",
+    "title": "Удалить сертификат",
+    "description": "Удалить выбранный сертификат",
+    "group": "HTTPS"
+  },
+  {
+    "serviceId": "3x-ui",
+    "method": "POST",
+    "suffix": "action/fakesite_info",
+    "title": "Состояние сайта",
+    "description": "Посмотреть настройки маскирующего сайта",
+    "group": "Сайт"
+  },
+  {
+    "serviceId": "3x-ui",
+    "method": "POST",
+    "suffix": "enqueue/fakesite_install",
+    "title": "Настроить сайт",
+    "description": "Установить маскирующий сайт",
+    "group": "Сайт"
+  },
+  {
+    "serviceId": "3x-ui",
+    "method": "POST",
+    "suffix": "enqueue/fakesite_remove",
+    "title": "Удалить сайт",
+    "description": "Удалить маскирующий сайт",
+    "group": "Сайт"
+  },
+  {
+    "serviceId": "3x-ui",
+    "method": "GET",
+    "suffix": "install-result",
+    "title": "Данные установки",
+    "description": "Посмотреть результат первоначальной установки",
+    "group": "Панель"
+  }
+]

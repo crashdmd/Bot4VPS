@@ -4049,6 +4049,38 @@ label{
 .set-switch{display:inline-flex;cursor:pointer}.set-switch input{position:absolute;opacity:0;pointer-events:none}.set-switch-track{display:block;width:2.65rem;height:1.45rem;padding:.18rem;border-radius:999px;background:var(--field-border);transition:background var(--transition-fast)}.set-switch-track span{display:block;width:1.09rem;height:1.09rem;border-radius:50%;background:var(--text-muted);transition:transform var(--transition-fast),background var(--transition-fast)}.set-switch input:checked+.set-switch-track{background:var(--accent-switch, var(--accent))}.set-switch input:checked+.set-switch-track span{transform:translateX(1.2rem);background:#fff}
 .set-badge{display:inline-flex;align-items:center;max-width:16rem;padding:.3rem .55rem;border:1px solid var(--border);border-radius:999px;color:var(--text-dim);font-size:.72rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.set-badge.ok{border-color:var(--ok);color:var(--ok)}.set-badge.warn{border-color:#d99a32;color:#eab35b}.set-badge.error{border-color:var(--err);color:var(--err)}
 .set-form-card{display:grid;gap:.85rem}.set-form-title{display:flex;align-items:flex-start;justify-content:space-between;gap:1rem}.set-form-title h3{margin:0;font-size:1rem}.set-form-title p{margin:.2rem 0 0;color:var(--text-dim);font-size:.76rem}.set-form{display:grid;gap:.65rem}.set-form label{display:grid;gap:.3rem;color:var(--text-muted);font-size:.78rem}.set-form label small{display:inline;color:var(--text-dim);font-weight:400}.set-form-actions,.set-inline-actions{display:flex;align-items:center;gap:.45rem;flex-wrap:wrap}.set-form-actions{margin-top:.15rem}.set-inline-actions{padding-top:.2rem}.set-inline-actions.tg-telegram-actions{flex-wrap:nowrap}.set-inline-actions .tg-health-action{margin-left:auto;white-space:nowrap}.set-port-line{display:flex;align-items:center;gap:.5rem;margin-top:.65rem}.set-port-line input{max-width:5.5rem;padding:.4rem .5rem;font-size:.78rem}.set-port-line button{white-space:nowrap;padding:.4rem .6rem;font-size:.78rem}
+/* Mobile app settings follow the Telegram tab: concise cards and contextual help. */
+.mobile-access{display:grid;gap:1rem}
+.mobile-access .set-section-head{margin-bottom:0}
+.mobile-access .set-desc{margin:0;line-height:1.5;grid-column:auto;grid-row:auto}
+.mobile-access .set-form-title{align-items:center;flex-wrap:wrap;gap:.5rem}
+.mobile-app-heading{display:flex;align-items:center;gap:.8rem}
+.mobile-app-heading h3{display:flex;align-items:center;gap:.5rem;margin:0;font-size:1.05rem}
+.mobile-app-heading p{margin:.25rem 0 0;color:var(--text-dim);font-size:.8rem}
+.mobile-app-mark{display:grid;place-items:center;flex:0 0 3rem;width:3rem;height:3rem;border:1px solid var(--border);border-radius:.8rem;background:var(--field)}
+.mobile-app-mark img{width:2.6rem;height:2.6rem;object-fit:contain}
+.mobile-app-meta{display:flex;flex-wrap:wrap;gap:.5rem 1rem;color:var(--text-dim);font-size:.75rem}
+.mobile-api-toggle{display:flex;align-items:center;justify-content:space-between;gap:1rem;padding:.65rem .75rem;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--field)}
+.mobile-api-toggle .set-switch{display:inline-flex;flex-shrink:0}
+.mobile-connection-fields{display:grid;grid-template-columns:minmax(0,1fr) 10rem;gap:.8rem;margin-top:.3rem}
+.mobile-connection-fields input,.mobile-pair-row input{min-width:0;width:100%;box-sizing:border-box}
+.mobile-pair-row{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:.75rem}
+.mobile-pair-row input,.mobile-pair-row button{height:2.75rem;min-height:2.75rem;box-sizing:border-box;margin:0;line-height:1.4}
+.mobile-pair-row button{white-space:nowrap}
+.mobile-apk-retry{justify-self:start}
+.mobile-access .mobile-result:empty{display:none}
+.mobile-devices-head{display:flex;align-items:center;justify-content:space-between;gap:.5rem;padding-top:.6rem;border-top:1px solid var(--border);color:var(--text-dim);font-size:.75rem}
+.mobile-devices-head button{padding:.35rem .6rem;font-size:.75rem}
+.mobile-device{display:flex;align-items:center;justify-content:space-between;gap:.75rem;padding:.8rem 0;border-bottom:1px solid var(--border)}
+.mobile-device:last-child{border-bottom:0;padding-bottom:0}
+.mobile-device>div{min-width:0}.mobile-device strong{display:block;overflow-wrap:anywhere;font-size:.85rem}
+.mobile-device small{display:block;margin-top:.2rem;color:var(--text-dim);font-size:.72rem}
+.mobile-device button{padding:.45rem .65rem;font-size:.75rem}
+.mobile-empty{margin:0;padding:.8rem;text-align:center;border:1px dashed var(--border);border-radius:var(--radius-sm);color:var(--text-dim);font-size:.76rem;line-height:1.6}
+.mobile-quick-guide{padding:.75rem .9rem;border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text-dim);font-size:.78rem;line-height:1.6}
+.mobile-quick-guide summary{cursor:pointer;color:var(--text-muted);font-weight:600}.mobile-quick-guide ol{padding-left:1.15rem;margin:.65rem 0}
+@media(max-width:600px){.mobile-connection-fields{grid-template-columns:1fr}.mobile-pair-row{gap:.5rem}.mobile-pair-row button{padding:.6rem .65rem;font-size:.8rem}.mobile-access .set-form-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}.mobile-access .set-form-actions>*{white-space:normal;padding:.6rem .65rem;font-size:.8rem}.mobile-api-toggle{padding:.65rem}.mobile-device{flex-wrap:wrap}}
+@media(max-width:360px){.mobile-pair-row{grid-template-columns:1fr}.mobile-pair-row button{width:100%}.mobile-access .mobile-install-actions{grid-template-columns:1fr}}
 
 /* Сеть и доступ: порт + HTTPS в одной карточке (Настройки → Безопасность) */
 .set-mini-label{font-size:.78rem;color:var(--text-muted);white-space:nowrap}

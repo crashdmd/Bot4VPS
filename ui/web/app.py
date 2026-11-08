@@ -36,7 +36,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 
 from .deps import VERSION
-from ._internal.device_access.preview import preview_enabled, private_web_request
+from ._internal.device_access.preview import private_web_request
 from .security import (
     _client_ip,
     admin_exists,
@@ -565,9 +565,9 @@ app.include_router(metrics.router, dependencies=_AUTH)
 app.include_router(audit.router, dependencies=_AUTH)
 app.include_router(update.router, dependencies=_AUTH)
 app.include_router(settings.router, dependencies=_AUTH)
-if preview_enabled():
-    from .routers import mobile_access as mobile_access_router
-    app.include_router(mobile_access_router.router)
+from .routers import mobile_access as mobile_access_router, mobile_app as mobile_app_router
+app.include_router(mobile_access_router.router)
+app.include_router(mobile_app_router.router)
 app.include_router(tls.router, dependencies=_AUTH)
 app.include_router(quick_setup.router, dependencies=_AUTH)
 # Мастер-ключ: свои каналы подтверждения внутри (2FA/TG-код); весь
@@ -619,7 +619,7 @@ async def index(request: Request):
             )
         except Exception as exc:
             print(f"[AUDIT] открытие панели: пометка не удалась: {exc}", flush=True)
-    if preview_enabled() and private_web_request(request):
+    if private_web_request(request):
         html = await asyncio.to_thread(index_file.read_text, encoding="utf-8")
         return HTMLResponse(html.replace('<html lang="ru">', '<html lang="ru" data-mobile-pairing="1">', 1),
             headers={"Cache-Control": "no-store, no-cache, must-revalidate", "Pragma": "no-cache", "Expires": "0"})

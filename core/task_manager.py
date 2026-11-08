@@ -663,10 +663,37 @@ class TaskManager:
 
     async def clear_history(self) -> int:
         """Очистить только историю Task Manager, сохранив в файле ``[]``."""
+        from core import audit
+
+        actor = get_actor()
+        def clear_and_audit():
+            try:
+                count = self._history_store.clear()
+            except Exception as exc:
+                audit.record(audit.AuditAction.TASK_HISTORY_CLEAR,
+                    result=audit.AuditResult.FAILED, actor=actor, error=exc)
+                raise
+            audit.record(audit.AuditAction.TASK_HISTORY_CLEAR,
+                result=audit.AuditResult.OK, actor=actor, params={"cleared": count})
+            return count
+
         async with self._lock:
-            cleared = self._history_store.clear()
+            worker = asyncio.create_task(asyncio.to_thread(clear_and_audit))
+            cancelled = False
+            while True:
+                try:
+                    cleared = await asyncio.shield(worker)
+                    break
+                except asyncio.CancelledError:
+                    if worker.cancelled():
+                        raise
+                    # Finish deletion and audit before releasing the lock,
+                    # including repeated cancellation by a disconnected client.
+                    cancelled = True
             self._history = []
-            return cleared
+            if cancelled:
+                raise asyncio.CancelledError
+        return cleared
 
     def set_history_limit(self, limit: int) -> None:
         """Горячая смена лимита истории (Настройки → История и данные).

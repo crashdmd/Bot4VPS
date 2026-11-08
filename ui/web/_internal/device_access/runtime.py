@@ -5,7 +5,6 @@ import asyncio
 
 from core._internal.device_access.firewall import LocalApiFirewall
 from .listener import start_api_listener
-from .preview import preview_enabled
 
 
 def _lock(app):
@@ -44,7 +43,7 @@ async def boot_mobile_api(app, web):
     async with _lock(app):
         _set_listener(app, None)
         cfg = web.get("mobile_api") or {}
-        if not preview_enabled() or not cfg.get("enabled"):
+        if not cfg.get("enabled"):
             await _firewall(app, None)
             return
         candidate = None
@@ -117,7 +116,7 @@ async def apply_mobile_settings(app, cfg):
                 _set_listener(app, None)
             candidate = old if same_socket else await start_api_listener(app, {"mobile_api": cfg})
             if candidate is None:
-                raise RuntimeError("Режим мобильного API выключен в окружении службы")
+                raise RuntimeError("Не удалось запустить мобильный API")
             message = await _firewall(app, cfg["port"])
             await asyncio.to_thread(patch_web_config, {"mobile_api": cfg})
         except Exception as exc:
