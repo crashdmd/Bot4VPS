@@ -20,6 +20,9 @@ login/me/logout/recover/totp) закрываются зависимостью re
 """
 from __future__ import annotations
 
+from core.migration.privilege_migration import enforce_application_user
+enforce_application_user()
+
 import asyncio
 import hmac
 import secrets
@@ -51,6 +54,7 @@ from .security import (
     make_totp_secret,
     MIN_WEB_PASSWORD_LEN,
     require_auth,
+    verified_mobile_device_id,
     session_valid,
     auth_version,
     refresh_web_session,
@@ -803,6 +807,11 @@ async def api_me(request: Request):
     # кеша браузера он рисуется в дефолтной тёмной.
     from core.config import get_ui_theme
     theme = get_ui_theme()
+    device_id = verified_mobile_device_id(request)
+    if device_id:
+        set_request_actor(request)
+        return {"auth_enabled": True, "user": None, "theme": theme,
+                "mobile_authenticated": True, "mobile_device_id": device_id}
     if not auth_enabled():
         return {"auth_enabled": False, "user": None, "theme": theme}
     return {"auth_enabled": True, "user": request.session.get("user") if session_valid(request.session) else None, "theme": theme}
@@ -862,6 +871,8 @@ async def api_login(request: Request, body: LoginBody):
             # Полусессия запрещена — до подтверждения OTP пользователь
             # для require_auth анонимен. Pending живёт 5 минут.
             global _pending_otp
+            _pending_otp = None
+            get_totp_secret()  # Настроенная, но повреждённая 2FA блокирует вход.
             _pending_otp = {
                 "username": body.username,
                 "expires_at": time.monotonic() + _OTP_TTL_SECONDS,

@@ -26,6 +26,10 @@ class InvalidTimezoneError(HostTimezoneError):
 
 def _run_timedatectl(*args: str) -> subprocess.CompletedProcess[str]:
     try:
+        from core.local_privileges import separated, request
+        if separated() and args and args[0] == "set-timezone":
+            result = request("host.timezone", name=args[1])
+            return subprocess.CompletedProcess(["timedatectl", *args], result["returncode"], result["stdout"], result["stderr"])
         return subprocess.run(
             ["timedatectl", *args],
             capture_output=True,

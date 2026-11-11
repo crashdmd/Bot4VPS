@@ -1328,6 +1328,16 @@ def filter_self_restore_live_state(plan: dict, data_root) -> dict:
     """
     excluded = self_restore_live_state_paths(data_root)
     entries = list(plan.get("entries") or ())
+    from core.local_privileges import separated
+    if separated():
+        from core.install_paths import get_install_path
+        install = get_install_path()
+        aliases = {str(install / name): str(install / "data/runtime" / name) for name in ("config.json", "servers.json", "monitor.json")}
+        plan = {**plan, "entries": [{**entry, "path": aliases.get(str(entry.get("path")), entry.get("path")),
+                                    "root": aliases.get(str(entry.get("root")), entry.get("root"))} for entry in entries],
+                "roots": [{**item, "root": aliases.get(str(item.get("root")), item.get("root"))} for item in plan.get("roots") or ()],
+                "clean_roots": [aliases.get(str(root), root) for root in plan.get("clean_roots") or ()]}
+        entries = plan["entries"]
     kept = [
         entry
         for entry in entries

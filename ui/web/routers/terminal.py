@@ -21,7 +21,7 @@ _IDLE_TIMEOUT = 15 * 60
 
 def _ws_authorized(websocket: WebSocket) -> bool:
     """Та же проверка, что require_auth, но для WS: сессия приходит в scope."""
-    from ui.web.security import (auth_enabled, session_valid, emergency_state,
+    from ui.web.security import (auth_enabled, session_valid, verified_mobile_device_id, emergency_state,
                                  setup_wizard_active, setup_expired_active, login_stub_active)
     if emergency_state() or setup_wizard_active() or setup_expired_active() or login_stub_active():
         return False
@@ -37,6 +37,8 @@ def _ws_authorized(websocket: WebSocket) -> bool:
         except ValueError:
             return False
 
+    if verified_mobile_device_id(websocket):
+        return True
     if not auth_enabled():
         return True
     session = websocket.scope.get("session") or {}

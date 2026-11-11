@@ -706,6 +706,7 @@ class OperationStore:
             # его входов (member list, job). Записывается до запуска раннера,
             # значение детерминировано operation_id — replay идемпотентен.
             "self_restore",
+            "self_archive_binding",
         }
         if key not in allowed:
             raise BackupError(ErrorCode.INVALID_REQUEST, "Некорректный ключ Restore metadata")

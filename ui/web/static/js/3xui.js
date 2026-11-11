@@ -1108,7 +1108,7 @@ function bindXuiCardUI() {
   document.getElementById('btn-back-xui-server')?.addEventListener('click', async () => {
     if (!xuiServerId) return;
     try {
-      const { openServer } = await import('./servers.js?v=20261001-mobile-charts-v1');
+      const { openServer } = await import('./servers.js?v=20261109-hostkey-v1');
       await openServer(xuiServerId);
     } catch (e) {
       console.error('Не удалось открыть карточку сервера:', e);
@@ -1988,7 +1988,7 @@ function watchXuiTask(taskId, action) {
         try { localStorage.removeItem('bot4vps_xui_server_id'); } catch (_) {}
         if (returnToServer) {
           try {
-            const { openServer } = await import('./servers.js?v=20261001-mobile-charts-v1');
+            const { openServer } = await import('./servers.js?v=20261109-hostkey-v1');
             await openServer(sid);
           } catch (_) { backToXuiList(); }
         } else {

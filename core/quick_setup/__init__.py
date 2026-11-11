@@ -38,6 +38,7 @@ from .manager import (
     packages_list,
     refresh_diagnostics,
     ssh_accept_host_key,
+    ssh_preview_host_key,
     ssh_change_password,
     ssh_change_port,
     ssh_create_user,
@@ -68,6 +69,7 @@ from .models import (
 )
 
 __all__ = [
+    "ssh_preview_host_key",
     "get_overview",
     "refresh_diagnostics",
     "system_check_updates",

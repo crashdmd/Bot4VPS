@@ -30,8 +30,8 @@ async def api_update_state():
 @router.post("/api/update/check")
 async def api_update_check():
     try:
-        from core.update import updater
-        result = await updater.check_for_update(notify=True)
+        from core.update.checks import check_updates
+        result = await check_updates(notify=True)
         if result.get("busy"):
             raise HTTPException(400, "Обновление уже выполняется")
         return result

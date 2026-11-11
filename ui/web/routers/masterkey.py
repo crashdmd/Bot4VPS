@@ -2,8 +2,8 @@
 
 ТЗ «Защита и восстановление мастер-ключа». Правила безопасности:
 
-- ключ возвращается РОВНО ОДНИМ эндпоинтом — ``POST /api/masterkey/view/confirm``
-  и только после пройденного подтверждения (2FA приоритетно, код в
+- ключ возвращается только HTTP confirm-маршрутами после подтверждения
+  владельца или подписи отдельного ключа операции (2FA приоритетно, код в
   Telegram — запасной канал, консоль — всегда доступный аварийный путь);
 - статус/restore/create-new никогда не возвращают значение ключа;
 - модели не содержат валидаторов (min_length и т.п.): дефолтный 422
@@ -23,11 +23,35 @@ from __future__ import annotations
 import asyncio
 import secrets as pysecrets
 import time
+from collections import deque
 
 from fastapi import APIRouter, HTTPException, Request
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
+from fastapi.routing import APIRoute
 from pydantic import BaseModel
 
-router = APIRouter(tags=["masterkey"])
+class SensitiveRoute(APIRoute):
+    def get_route_handler(self):
+        handler = super().get_route_handler()
+        async def safe_handler(request: Request):
+            try:
+                if request.url.path.startswith("/api/masterkey/phone/"):
+                    _owner(request)
+                    _mobile(request)
+                return await handler(request)
+            except RequestValidationError:
+                # FastAPI's normal 422 includes input values, possibly secrets.
+                from ui.web.security import set_request_actor
+                set_request_actor(request)
+                if "/view" in request.url.path or "/phone/" in request.url.path:
+                    from core.secretbox import audit_master_key_view
+                    audit_master_key_view(success=False, reason="request")
+                return JSONResponse({"detail": "Некорректный запрос"}, status_code=400)
+        return safe_handler
+
+
+router = APIRouter(tags=["masterkey"], route_class=SensitiveRoute)
 
 # Просмотр ключа: подтверждение одноразовым кодом (TTL/попытки по образцу
 # recovery-флоу пароля — app.py _RECOVERY_*). Pending живёт в памяти
@@ -42,10 +66,80 @@ _pending_view: dict | None = None  # {channel, code, expires_at, attempts}
 _last_view_request_at = 0.0
 
 
-def _clean_expired() -> None:
+_bound_views: dict[str, dict] = {}
+_view_rates: dict[str, deque] = {}
+
+
+def _owner(request: Request | None) -> str:
+    if request is None:
+        return "direct"  # Compatibility for internal route unit tests only.
+    from ui.web.security import verified_mobile_device_id, set_request_actor
+    set_request_actor(request)
+    device = verified_mobile_device_id(request)
+    if device:
+        return "phone:" + device
+    # Binding lives in the signed Web session; external headers cannot choose it.
+    session = request.scope.get("session")
+    if session is None:
+        _deny(403, "Требуется подтверждённая сессия", "session")
+    session.setdefault("masterkey_view_binding", pysecrets.token_urlsafe(32))
+    return "web:" + session["masterkey_view_binding"]
+
+
+def _pending(owner: str) -> dict | None:
     global _pending_view
-    if _pending_view and time.monotonic() > _pending_view["expires_at"]:
-        _pending_view = None
+    value = _pending_view if owner == "direct" else _bound_views.get(owner)
+    if value and time.monotonic() > value["expires_at"]:
+        _store_pending(owner, None)
+        return None
+    return value
+
+
+def _store_pending(owner: str, value: dict | None) -> None:
+    global _pending_view
+    if owner == "direct":
+        _pending_view = value
+    elif value is None:
+        _bound_views.pop(owner, None)
+    else:
+        now = time.monotonic()
+        for key in list(_bound_views):
+            if _bound_views[key]["expires_at"] <= now:
+                del _bound_views[key]
+        if owner not in _bound_views and len(_bound_views) >= 64:
+            _deny(429, "Слишком много запросов просмотра", "rate")
+        _bound_views[owner] = value
+
+
+def _deny(status: int, message: str, stage: str):
+    from core.secretbox import audit_master_key_view
+    audit_master_key_view(success=False, reason=stage)
+    raise HTTPException(status, message)
+
+
+def _limit(owner: str) -> None:
+    now = time.monotonic()
+    for key in list(_view_rates):
+        if not _view_rates[key] or _view_rates[key][-1] <= now - 60:
+            del _view_rates[key]
+    if owner not in _view_rates and len(_view_rates) >= 1024:
+        _deny(429, "Слишком много попыток просмотра", "rate")
+    attempts = _view_rates.setdefault(owner, deque())
+    while attempts and attempts[0] <= now - 60:
+        attempts.popleft()
+    if len(attempts) >= 10:
+        _deny(429, "Слишком много попыток — подождите минуту", "rate")
+    attempts.append(now)
+
+
+def _mobile(request: Request):
+    from ui.web.security import verified_mobile_device_id
+    from ui.web._internal.device_access.access import MobileAccess
+    device = verified_mobile_device_id(request)
+    access = request.scope.get("state", {}).get("mobile_access")
+    if not device or not isinstance(access, MobileAccess):
+        _deny(403, "Требуется привязанный телефон", "device")
+    return access, device
 
 
 @router.get("/api/masterkey/status")
@@ -81,10 +175,7 @@ async def api_masterkey_status():
 
     from ui.web.security import totp_enabled
 
-    try:
-        two_fa = totp_enabled()
-    except Exception:
-        two_fa = False
+    two_fa = totp_enabled()
 
     channels = {
         "totp": bool(two_fa),
@@ -255,171 +346,251 @@ async def api_masterkey_new(body: MasterKeyNewBody, request: Request):
 # ==================================================================
 
 class MasterKeyViewBody(BaseModel):
-    password: str  # пароль Web-учётной записи (канал totp)
+    password: str = ""
+    operation_public_key: str = ""  # Optional enrollment, bound to both factors.
 
 
 @router.post("/api/masterkey/view")
-async def api_masterkey_view(body: MasterKeyViewBody):
-    """Фаза 1 просмотра: проверить пароль и отправить код подтверждения.
-
-    2FA включена → код в приложение-аутентификатор не отправляем:
-    подтверждением служит сам код 2FA на следующем шаге. Telegram-канал
-    → код доставки в TG. Нет ни того, ни другого → консоль.
-    """
-    global _pending_view, _last_view_request_at
+async def api_masterkey_view(body: MasterKeyViewBody, request: Request = None):
+    owner = _owner(request)
+    _limit(owner)
     from core.config import get_web_config
     from ui.web.security import totp_enabled, verify_password
+    from ui.web._internal.device_access.access import _public_key, AccessDenied
 
     if not body.password:
-        raise HTTPException(400, "Введите пароль")
-
+        _store_pending(owner, None)
+        _deny(400, "Введите пароль", "password")
     web = get_web_config()
-    if not verify_password(body.password, web.get("password_hash", "")):
-        raise HTTPException(400, "Неверный пароль")
-
-    two_fa = False
-    try:
-        two_fa = totp_enabled()
-    except Exception:
-        two_fa = False
-
-    if two_fa:
-        # Пароль уже проверен; вторым фактором станет код из приложения,
-        # который пользователь введёт в /view/confirm.
-        _pending_view = {
-            "channel": "totp",
-            "expires_at": time.monotonic() + _VIEW_TTL_SECONDS,
-            "attempts": 0,
-        }
+    if not await asyncio.to_thread(verify_password, body.password, web.get("password_hash", "")):
+        _store_pending(owner, None)
+        _deny(400, "Неверный пароль", "password")
+    enrollment = body.operation_public_key
+    if enrollment:
+        _mobile(request)
+        try:
+            _public_key(enrollment)
+        except AccessDenied:
+            _deny(400, "Некорректный ключ операции", "enrollment")
+    if totp_enabled():
+        _store_pending(owner, {"channel": "totp", "expires_at": time.monotonic() + _VIEW_TTL_SECONDS,
+                               "attempts": 0, "enrollment": enrollment, "password_hash": web.get("password_hash", "")})
         return {"ok": True, "channel": "totp"}
-
-    # Telegram-канал: код доставки в TG (доставка — как в recovery-флоу).
-    # _recovery_available() не пустит сюда выключенный Telegram — владелец
-    # мог отключить его именно потому, что TG не работает.
-    from ui.web.app import _recovery_available, _send_recovery_message
-
+    from ui.web.app import _recovery_available
     if _recovery_available():
-        # Живой код уже отправлен (пользователь закрыл окно и вернулся):
-        # НЕ отправляем новый и НЕ блокируем — переиспользуем pending,
-        # окно ввода кода открывается сразу.
-        _clean_expired()
-        pending = _pending_view
-        if pending and pending.get("channel") == "telegram":
+        pending = _pending(owner)
+        if pending and pending.get("channel") == "telegram" and pending.get("enrollment", "") == enrollment:
             return {"ok": True, "channel": "telegram", "resent": False}
-        return await _send_view_code()
-
-    # Ни 2FA, ни доступного Telegram: Web не может подтвердить владельца.
-    # Единственный путь — консоль. Без советов «включите 2FA»: тот, кто
-    # вводит пароль, может и не быть владельцем.
-    raise HTTPException(
-        403,
-        "С текущими настройками безопасности просмотр мастер-ключа "
-        "через Web невозможен. Используйте консоль управления сервисом "
-        "Bot4VPS (bot4vps → 2. Безопасность → 5. Мастер-ключ).",
-    )
+        return await _send_view_code(owner, enrollment, web.get("password_hash", ""))
+    _store_pending(owner, None)
+    _deny(403, "С текущими настройками безопасности просмотр мастер-ключа невозможен. "
+          "Используйте консоль управления сервисом Bot4VPS (bot4vps → 2. Безопасность → 5. Мастер-ключ).", "channel")
 
 
-async def _send_view_code() -> dict:
-    """Реальная отправка нового TG-кода (первая или повторная по кнопке).
-
-    Повторная стирает старый pending: в силе всегда ровно один код.
-    Кулдаун 30 с между отправками (защита от спама кнопкой).
-    """
-    global _pending_view, _last_view_request_at
+async def _send_view_code(owner: str = "direct", enrollment: str = "", password_hash: str = "") -> dict:
+    global _last_view_request_at
     from ui.web.app import _send_recovery_message
-
     now = time.monotonic()
+    # Global delivery cooldown also prevents spamming Telegram via many sessions.
     if now - _last_view_request_at < _VIEW_COOLDOWN_SECONDS:
-        raise HTTPException(429, "Код уже отправлен — повторите чуть позже")
+        _deny(429, "Код уже отправлен — повторите чуть позже", "rate")
     _last_view_request_at = now
     code = f"{pysecrets.randbelow(1_000_000):06d}"
-    text = (
-        "🔑 <b>Просмотр мастер-ключа Bot4VPS</b>\n\n"
-        f"Код подтверждения: <code>{code}</code>\n"
-        "Действует 10 минут.\n\n"
-        "Если вы не запрашивали просмотр — проигнорируйте сообщение: "
-        "без кода ключ не показывается."
-    )
+    text = ("🔑 <b>Просмотр мастер-ключа Bot4VPS</b>\n\n"
+            f"Код подтверждения: <code>{code}</code>\nДействует 10 минут.\n\n"
+            "Если вы не запрашивали просмотр — проигнорируйте сообщение: без кода ключ не показывается.")
     try:
         await _send_recovery_message(text)
-    except HTTPException:
-        raise
-    except Exception as exc:
-        raise HTTPException(502, "Не удалось отправить код в Telegram")
-    _pending_view = {
-        "channel": "telegram",
-        "code": code,
-        "expires_at": time.monotonic() + _VIEW_TTL_SECONDS,
-        "attempts": 0,
-    }
+    except Exception:
+        _deny(502, "Не удалось отправить код в Telegram", "delivery")
+    _store_pending(owner, {"channel": "telegram", "code": code,
+                          "expires_at": time.monotonic() + _VIEW_TTL_SECONDS, "attempts": 0, "enrollment": enrollment,
+                          "password_hash": password_hash})
     return {"ok": True, "channel": "telegram", "resent": True}
 
 
 @router.post("/api/masterkey/view/resend")
-async def api_masterkey_view_resend():
-    """«Не пришёл код? Отправить ещё раз» — осознанная повторная отправка.
-
-    Доступна не раньше _VIEW_RESEND_AFTER_SECONDS после первой отправки:
-    раньше нового кода ждать бессмысленно (старый жив 10 минут и мог
-    просто задержаться в доставке). Новый код стирает старый pending.
-    """
-    _clean_expired()
-    pending = _pending_view
+async def api_masterkey_view_resend(request: Request = None):
+    owner = _owner(request)
+    pending = _pending(owner)
     if not pending or pending.get("channel") != "telegram":
-        raise HTTPException(400, "Код ещё не отправлялся — начните просмотр заново")
-    sent_at = pending["expires_at"] - _VIEW_TTL_SECONDS
-    if time.monotonic() - sent_at < _VIEW_RESEND_AFTER_SECONDS:
-        wait = int(_VIEW_RESEND_AFTER_SECONDS - (time.monotonic() - sent_at))
-        raise HTTPException(
-            429, "Предыдущий код ещё актуален — новый можно запросить через %d с" % max(1, wait))
-    return await _send_view_code()
+        _deny(400, "Код ещё не отправлялся — начните просмотр заново", "pending")
+    elapsed = time.monotonic() - (pending["expires_at"] - _VIEW_TTL_SECONDS)
+    if elapsed < _VIEW_RESEND_AFTER_SECONDS:
+        _deny(429, "Предыдущий код ещё актуален — новый можно запросить через %d с" %
+              max(1, int(_VIEW_RESEND_AFTER_SECONDS - elapsed)), "rate")
+    return await _send_view_code(owner, pending.get("enrollment", ""), pending.get("password_hash", ""))
 
 
 class MasterKeyViewConfirmBody(BaseModel):
-    code: str
+    code: str = ""
 
 
-@router.post("/api/masterkey/view/confirm")
-async def api_masterkey_view_confirm(body: MasterKeyViewConfirmBody):
-    """Фаза 2: код 2FA или код из Telegram → единственный ответ с ключом.
-
-    Выполняется ТОЛЬКО при подтверждении фазы 1 и живом pending.
-    Введённый код не логируется; ответ содержит ключ и не попадает
-    в какие-либо журналы/историю (event-логи здесь не пишутся).
-    """
-    global _pending_view
+async def _read_view_key() -> dict:
     from core import secretbox
-    from ui.web.security import get_totp_secret, verify_totp_code
-
-    _clean_expired()
-    pending = _pending_view
-    if not pending:
-        raise HTTPException(400, "Просмотр не начинался или истёк — начните заново")
-
-    if pending["channel"] == "totp":
-        secret = get_totp_secret()
-        if not secret or not verify_totp_code(body.code, secret):
-            pending["attempts"] += 1
-            remaining = _VIEW_MAX_ATTEMPTS - pending["attempts"]
-            if remaining <= 0:
-                _pending_view = None
-                raise HTTPException(400, "Неверный код. Попытки исчерпаны — начните заново")
-            raise HTTPException(400, f"Неверный код (осталось попыток: {remaining})")
-    else:  # telegram
-        if body.code.strip() != pending.get("code", ""):
-            pending["attempts"] += 1
-            remaining = _VIEW_MAX_ATTEMPTS - pending["attempts"]
-            if remaining <= 0:
-                _pending_view = None
-                raise HTTPException(400, "Неверный код. Попытки исчерпаны — начните заново")
-            raise HTTPException(400, f"Неверный код (осталось попыток: {remaining})")
-
-    # Подтверждение пройдено — одноразовый pending, единственный возврат ключа
-    _pending_view = None
     try:
         key = await asyncio.to_thread(secretbox.read_master_key)
-    except secretbox.SecretBoxError as exc:
-        raise HTTPException(409, str(exc))
+    except secretbox.SecretBoxError:
+        raise HTTPException(409, "Мастер-ключ недоступен — проверьте его состояние")
     except Exception:
         raise HTTPException(500, "Не удалось прочитать мастер-ключ")
     return {"ok": True, "key": key}
+
+
+@router.post("/api/masterkey/view/confirm")
+async def api_masterkey_view_confirm(body: MasterKeyViewConfirmBody, request: Request = None):
+    owner = _owner(request)
+    from ui.web.security import get_totp_secret, verify_totp_code, totp_enabled
+    pending = _pending(owner)
+    if not pending:
+        _deny(400, "Просмотр не начинался или истёк — начните заново", "pending")
+    # A security configuration change invalidates pending confirmation.
+    channel = pending["channel"]
+    if request is not None:
+        from core.config import get_web_config
+        if pending.get("password_hash") != get_web_config().get("password_hash", ""):
+            _store_pending(owner, None)
+            _deny(400, "Пароль изменился — начните заново", "password")
+    if request is not None and (channel == "totp") != bool(totp_enabled()):
+        _store_pending(owner, None)
+        _deny(400, "Настройки подтверждения изменились — начните заново", "channel")
+    if channel == "totp":
+        secret = get_totp_secret()
+        valid = bool(secret and verify_totp_code(body.code, secret))
+    else:
+        valid = bool(body.code.strip() and pysecrets.compare_digest(body.code.strip(), pending.get("code", "")))
+    if not valid:
+        pending["attempts"] += 1
+        remaining = _VIEW_MAX_ATTEMPTS - pending["attempts"]
+        if remaining <= 0:
+            _store_pending(owner, None)
+            _deny(400, "Неверный код. Попытки исчерпаны — начните заново", "second_factor")
+        _deny(400, f"Неверный код (осталось попыток: {remaining})", "second_factor")
+    _store_pending(owner, None)  # Consume before any await; no concurrent replay.
+    enrollment = pending.get("enrollment")
+    if enrollment:
+        from ui.web._internal.device_access.access import AccessDenied
+        access, device = _mobile(request)
+        try:
+            await asyncio.to_thread(access.enroll_masterkey, device, enrollment)
+        except AccessDenied:
+            _deny(403, "Не удалось настроить ключ операции", "enrollment")
+        return {"ok": True, "enrolled": True}
+    return await _read_view_key()
+
+
+@router.get("/api/masterkey/phone/status")
+async def api_masterkey_phone_status(request: Request):
+    _owner(request)
+    access, device = _mobile(request)
+    status = await api_masterkey_status()
+    return {"ok": True, "public_key": await asyncio.to_thread(access.masterkey_public_key, device),
+            "device_operation_public_key": await asyncio.to_thread(access.masterkey_device_public_key, device), **status}
+
+
+class MasterKeyAvailabilityBody(BaseModel):
+    protected: bool = False
+
+
+@router.post("/api/masterkey/phone/view/availability")
+async def api_masterkey_phone_availability(body: MasterKeyAvailabilityBody, request: Request):
+    _owner(request)
+    _mobile(request)
+    status = await api_masterkey_phone_status(request)
+    if status["state"] != "ok":
+        _deny(409, "Мастер-ключ недоступен — проверьте его состояние", "state")
+    # This flag selects an explanation only. No credential, enrollment or
+    # signature checks are skipped by it, and no key is ever returned here.
+    if not body.protected and not status["channels"]["any"]:
+        _deny(403, "Для просмотра включите PIN/биометрию приложения либо настройте 2FA/Telegram. "
+              "Также ключ доступен через CLI: bot4vps → Безопасность → Мастер-ключ.", "channel")
+    return status
+
+
+@router.post("/api/masterkey/phone/view")
+async def api_masterkey_phone_view(body: MasterKeyViewBody, request: Request):
+    _owner(request)
+    _mobile(request)
+    if body.operation_public_key:
+        _deny(400, "Настройте защищённый просмотр через протокол телефона", "enrollment")
+    return await api_masterkey_view(body, request)
+
+
+@router.post("/api/masterkey/phone/view/confirm")
+async def api_masterkey_phone_view_confirm(body: MasterKeyViewConfirmBody, request: Request):
+    _owner(request)
+    _mobile(request)
+    return await api_masterkey_view_confirm(body, request)
+
+
+@router.post("/api/masterkey/phone/view/resend")
+async def api_masterkey_phone_view_resend(request: Request):
+    _owner(request)
+    _mobile(request)
+    return await api_masterkey_view_resend(request)
+
+
+class MasterKeyEnrollmentBody(BaseModel):
+    public_key: str = ""
+    device_operation_public_key: str = ""
+
+
+@router.post("/api/masterkey/phone/enroll/challenge")
+async def api_masterkey_phone_enrollment_challenge(body: MasterKeyEnrollmentBody, request: Request):
+    _owner(request)
+    access, device = _mobile(request)
+    _limit("phone:" + device)
+    from ui.web._internal.device_access.access import AccessDenied
+    try:
+        return await asyncio.to_thread(access.masterkey_enrollment_challenge, device, body.public_key, body.device_operation_public_key)
+    except AccessDenied as exc:
+        _deny(exc.status, str(exc), "enrollment")
+
+
+class MasterKeyEnrollmentProofBody(BaseModel):
+    challenge_id: str = ""
+    device_signature: str = ""
+    operation_signature: str = ""
+    keystore_signature: str = ""
+
+
+@router.post("/api/masterkey/phone/enroll/confirm")
+async def api_masterkey_phone_enrollment_confirm(body: MasterKeyEnrollmentProofBody, request: Request):
+    _owner(request)
+    access, device = _mobile(request)
+    from ui.web._internal.device_access.access import AccessDenied
+    try:
+        await asyncio.to_thread(access.confirm_masterkey_enrollment, device, body.challenge_id,
+                                body.device_signature, body.operation_signature, body.keystore_signature)
+    except AccessDenied:
+        _deny(403, "Подтверждение настройки недействительно или истекло", "enrollment_proof")
+    return {"ok": True, "enrolled": True}
+
+
+@router.post("/api/masterkey/phone/challenge")
+async def api_masterkey_phone_challenge(request: Request):
+    _owner(request)
+    access, device = _mobile(request)
+    from ui.web._internal.device_access.access import AccessDenied
+    try:
+        return await asyncio.to_thread(access.masterkey_challenge, device)
+    except AccessDenied as exc:
+        _deny(exc.status, str(exc), "challenge")
+
+
+class MasterKeyProofBody(BaseModel):
+    challenge_id: str = ""
+    signature: str = ""
+    keystore_signature: str = ""
+
+
+@router.post("/api/masterkey/phone/confirm")
+async def api_masterkey_phone_confirm(body: MasterKeyProofBody, request: Request):
+    _owner(request)
+    access, device = _mobile(request)
+    from ui.web._internal.device_access.access import AccessDenied
+    try:
+        await asyncio.to_thread(access.confirm_masterkey, device, body.challenge_id, body.signature, body.keystore_signature)
+    except AccessDenied:
+        _deny(403, "Подтверждение операции недействительно или истекло", "proof")
+    return await _read_view_key()

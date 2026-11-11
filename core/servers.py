@@ -105,7 +105,7 @@ def _probe_network(host, port: int | None = None):
     Критерий ONLINE: ответил хотя бы один зонд. Порядок от дешёвого к
     fallback'у: ICMP не грузит сервер, TCP на известный port честно ловит
     «закрытый» VPS без ICMP и без веба, 80/443 — последний fallback.
-    Возвращает (ping_ms, network): network — "ping" | "tcp" | "http" | "none".
+    Возвращает (ping_ms, network): network — "ping" | "tcp" | "none".
     """
     try:
         latency = ping(host, timeout=2)

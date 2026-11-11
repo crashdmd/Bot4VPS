@@ -2,6 +2,9 @@
 from __future__ import annotations
 
 import asyncio
+import time
+from threading import Lock
+from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException
@@ -10,6 +13,43 @@ from pydantic import BaseModel
 from ..deps import err
 
 router = APIRouter(tags=["monitor"])
+
+# Shared by Web and Mobile API, including calls from different event loops.
+_manual_check_locks = {kind: Lock() for kind in ("online", "ssl")}
+_manual_check_tasks: set[asyncio.Task] = set()
+
+
+def _manual_check_done(task: asyncio.Task) -> None:
+    _manual_check_tasks.discard(task)
+    if not task.cancelled():
+        task.exception()  # Retrieve failures even if the HTTP client disconnected.
+
+
+def _check_results_store():
+    """Последние ручные проверки переживают перезапуск и перенос data/."""
+    from core.json_store import JsonDocumentStore
+    return JsonDocumentStore(Path("data/monitor_checks.json"), name="MONITOR CHECK RESULTS")
+
+
+def _saved_check(kind: str) -> dict:
+    return next((row for row in _check_results_store().read() if row.get("kind") == kind), {})
+
+
+def _save_check(kind: str, measurements: dict[str, dict] | None = None) -> int:
+    completed_at = int(time.time() * 1000)
+    record = {"kind": kind, "completed_at": completed_at}
+    if measurements is not None:
+        # Доступность читается из актуального monitor.json; сохраняем только
+        # задержку и способ последней ручной пробы, даже если ms равна нулю.
+        record["measurements"] = {
+            sid: {key: value.get(key) for key in ("ms", "method", "probe_error")}
+            for sid, value in measurements.items()
+        }
+    _check_results_store().mutate(lambda rows: [
+        row for row in rows
+        if row.get("kind") in ("online", "ssl") and row.get("kind") != kind
+    ] + [record])
+    return completed_at
 
 
 class MonitorPatch(BaseModel):
@@ -213,6 +253,8 @@ def _snapshot_online(probe_results: dict[str, dict] | None = None):
         avail = mon.get("availability") or {}
         probe = (probe_results or {}).get(s["id"]) or {}
         on = probe.get("online", avail.get("online"))
+        if probe.get("probe_error"):
+            on = None
         if on is True:
             online_n += 1
             st = "online"
@@ -231,7 +273,7 @@ def _snapshot_online(probe_results: dict[str, dict] | None = None):
             "online": on,
             "ms": ms,
             "method": method,
-            "error": avail.get("last_error") or "",
+            "error": probe.get("probe_error") or avail.get("last_error") or "",
             "ssh_error": avail.get("ssh_error") or "",
         })
     return {
@@ -262,9 +304,16 @@ def _light_online_check(servers: list[dict]) -> tuple[dict[str, dict], list[dict
         port = server.get("port") or 22
         try:
             ms, network = _probe_network(host, port)
+            if network not in ("ping", "tcp", "http", "none"):
+                raise ValueError("Unexpected network probe result")
         except Exception:
-            ms, network = None, "none"
+            # An internal probe error gives no evidence of network loss.
+            # Keep the last known availability and do not create an event.
+            return {"online": None, "ms": None, "method": "—",
+                    "probe_error": "Не удалось выполнить проверку доступности"}, None
         online = network != "none"
+        if not online:
+            ms = None
         method = "Ping" if network == "ping" else ("TCP" if network == "tcp" else ("HTTP" if network == "http" else "—"))
         result = {"online": online, "ms": ms, "method": method}
         event = None
@@ -288,7 +337,8 @@ def _light_online_check(servers: list[dict]) -> tuple[dict[str, dict], list[dict
                     events.append(event)
             except Exception as e:
                 print(f"[MONITOR CHECK] {server.get('name', '?')}: {e}", flush=True)
-                results[server["id"]] = {"online": None, "ms": None, "method": "—"}
+                results[server["id"]] = {"online": None, "ms": None, "method": "—",
+                                         "probe_error": "Не удалось выполнить проверку доступности"}
     return results, events
 
 
@@ -321,8 +371,49 @@ def _snapshot_ssl():
     return {"rows": rows, "counts": counts, "total": len(rows)}
 
 
+@router.get("/api/monitor/check/{kind}")
+async def api_monitor_check_snapshot(kind: str):
+    """Read saved monitoring state without probing hosts or sending events."""
+    if kind not in ("online", "ssl"):
+        raise HTTPException(400, "kind: online|ssl")
+    saved = await asyncio.to_thread(_saved_check, kind)
+    if kind == "online":
+        snap = await asyncio.to_thread(_snapshot_online, saved.get("measurements", {}))
+        summary = {key: snap[key] for key in ("total", "online", "offline", "unknown")}
+    else:
+        snap = await asyncio.to_thread(_snapshot_ssl)
+        summary = snap["counts"]
+    return {"ok": True, "kind": kind, "summary": summary, "servers": snap["rows"],
+            "completed_at": saved.get("completed_at")}
+
+
 @router.post("/api/monitor/check/{kind}")
 async def api_monitor_check(kind: str):
+    if kind not in _manual_check_locks:
+        raise HTTPException(400, "kind: online|ssl")
+    lock = _manual_check_locks[kind]
+    if not lock.acquire(blocking=False):
+        raise HTTPException(409, "Эта проверка уже выполняется. Дождитесь завершения и обновите результаты.")
+
+    async def run():
+        try:
+            return await _execute_monitor_check(kind)
+        finally:
+            lock.release()
+
+    # A disconnected client must not release the gate while its to_thread
+    # probe is still running. The task owns the lock through probe + save.
+    try:
+        task = asyncio.create_task(run())
+    except BaseException:
+        lock.release()
+        raise
+    _manual_check_tasks.add(task)
+    task.add_done_callback(_manual_check_done)
+    return await asyncio.shield(task)
+
+
+async def _execute_monitor_check(kind: str):
     try:
         if kind not in ("online", "ssl"):
             raise HTTPException(400, "kind: online|ssl")
@@ -346,10 +437,14 @@ async def api_monitor_check(kind: str):
                 except Exception as ne:
                     print(f"[WEB] notify online: {ne}", flush=True)
 
-            snap = _snapshot_online(probe_results)
+            snap = await asyncio.to_thread(_snapshot_online, probe_results)
+            # Preserve measured latency for read-only refreshes. Availability
+            # always comes from current monitor state, never this old probe.
+            completed_at = await asyncio.to_thread(_save_check, kind, probe_results)
             return {
                 "ok": True,
                 "kind": "online",
+                "completed_at": completed_at,
                 "changes": len(changed),
                 "events": changed,
                 "summary": {
@@ -371,10 +466,12 @@ async def api_monitor_check(kind: str):
             except Exception as ne:
                 print(f"[WEB] notify ssl: {ne}", flush=True)
 
-        snap = _snapshot_ssl()
+        snap = await asyncio.to_thread(_snapshot_ssl)
+        completed_at = await asyncio.to_thread(_save_check, kind)
         return {
             "ok": True,
             "kind": "ssl",
+            "completed_at": completed_at,
             "changes": len(changed),
             "events": changed,
             "summary": snap["counts"],

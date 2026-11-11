@@ -62,6 +62,9 @@ def _write_state(path: Path, **patches) -> dict:
 
 
 def _systemctl(job: dict, *args: str, timeout: int = 90) -> subprocess.CompletedProcess:
+    if job.get("separated_restore") is not None:
+        from core.local_privileges import systemctl
+        return systemctl(*args, timeout=timeout)
     return subprocess.run(
         ["systemctl", *args], capture_output=True, text=True, timeout=timeout
     )
@@ -100,6 +103,15 @@ def _stop_service(job: dict, state_path: Path) -> bool:
 
 def _extract(job: dict, state_path: Path) -> bool:
     """Распаковка ровно по trusted member list (флаги = core/backup)."""
+    if job.get("separated_restore") is not None:
+        try:
+            from core.backup.separated_restore import extract
+            extract(job)
+            _write_state(state_path, extract={"exit_code": 0, "stderr": ""})
+            return True
+        except Exception as exc:
+            _write_state(state_path, extract={"exit_code": 1, "stderr": str(exc)[:4000]})
+            return False
     strip: list[str] = []
     if job["layout"] == "manifest_payload":
         root = "/"
@@ -193,6 +205,9 @@ def _pip_if_changed(job: dict, state_path: Path) -> bool:
     venv не пересобирается (его нет в архиве); удаление пакетов при
     понижении версии не делается — это предупреждение prepare, не действие.
     """
+    if job.get("separated_restore") is not None:
+        _write_state(state_path, pip={"ran": False, "ok": True, "error": None})
+        return True
     new_req = Path(job["app_dir"]) / "requirements.txt"
     if not new_req.exists():
         _write_state(state_path, pip={"ran": False, "ok": True, "error": None})
@@ -421,6 +436,9 @@ def main(argv: list[str]) -> int:
         failure = "Health-check не пройден после восстановления"
 
     _cleanup_inputs(job)
+    if job.get("separated_restore") is not None:
+        from core.local_privileges import request
+        request("restore.finish", success=failure is None)
     if failure is None:
         _write_state(state_path, status="succeeded", error=None)
         print("[self-restore] OK", flush=True)

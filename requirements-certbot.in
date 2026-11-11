@@ -1,0 +1,2 @@
+# Optional Let's Encrypt client. Compile together with requirements.in.
+certbot>=5

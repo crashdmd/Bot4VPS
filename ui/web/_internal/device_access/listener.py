@@ -6,15 +6,23 @@ from contextlib import contextmanager, suppress
 import ipaddress
 import inspect
 import json
+import math
 import socket
 import ssl
+import time
 
 import uvicorn
 
 from .access import ACCESS_HEADER, AccessDenied, MobileAccess
 from .preview import MANAGEMENT_PREFIX
+from .principal import VerifiedMobileDevice
 
 _PROTOCOL = {"/api/mobile/pair", "/api/mobile/challenge", "/api/mobile/handshake"}
+_WEB_ONLY = (MANAGEMENT_PREFIX, "/api/mobile-app", "/api/auth", "/api/login", "/api/logout", "/api/setup")
+
+
+class _SessionEnded(Exception):
+    pass
 
 
 async def _json(send, status: int, data: dict, error: str | None = None):
@@ -34,8 +42,7 @@ class ApiOnlyApp:
         kind, path = scope["type"], scope.get("path", "")
         if kind not in ("http", "websocket"):
             raise RuntimeError("Mobile API shares its parent's lifespan; run it with lifespan=off")
-        if (not path.startswith("/api/") or path == MANAGEMENT_PREFIX or path.startswith(MANAGEMENT_PREFIX + "/")
-                or path == "/api/mobile-app" or path.startswith("/api/mobile-app/")):
+        if not path.startswith("/api/") or any(path == prefix or path.startswith(prefix + "/") for prefix in _WEB_ONLY):
             if kind == "websocket":
                 await send({"type": "websocket.close", "code": 4404})
             else:
@@ -51,8 +58,8 @@ class ApiOnlyApp:
             await self._protocol(scope, receive, send)
             return
         token = next((v.decode("latin-1") for k, v in scope.get("headers", []) if k.lower() == ACCESS_HEADER), None)
-        device_id = await asyncio.to_thread(self.access.authorize, token)
-        if device_id is None:
+        lease = await asyncio.to_thread(self.access.session_details, token)
+        if lease is None:
             if kind == "websocket":
                 await send({"type": "websocket.close", "code": 4401})
             else:
@@ -60,10 +67,33 @@ class ApiOnlyApp:
                     {"detail": "Привяжите телефон с помощью одноразового кода в Web-панели", "mobile_pairing_required": True},
                     "session" if token else "pairing")
             return
+        device_id = lease.device_id
+        # Capture the authenticated lifetime of this connection. An HTTP
+        # handshake rotates the device's token, but may not silently prolong
+        # an existing socket: it must present the new token on that socket.
+        deadline = time.monotonic() + max(0, lease.expires - self.access.clock())
         scope.setdefault("state", {})["mobile_device_id"] = device_id
+        scope["state"]["mobile_identity"] = VerifiedMobileDevice(device_id)
+        scope["state"]["mobile_access"] = self.access
         started = finished = False
+
+        def remaining():
+            return min(lease.expires - self.access.clock(), deadline - time.monotonic())
+
+        async def close_socket(reason):
+            nonlocal finished
+            if not finished:
+                finished = True
+                await send({"type": "websocket.close", "code": 4401, "reason": reason})
+
         async def forward(message):
             nonlocal started, finished
+            if kind == "websocket":
+                if finished:
+                    return
+                if remaining() <= 0:
+                    await close_socket("mobile_session_expired")
+                    raise _SessionEnded()
             if message["type"] == "http.response.start":
                 started = True
                 headers = list(message.get("headers", []))
@@ -74,26 +104,63 @@ class ApiOnlyApp:
                 message = {**message, "headers": headers}
             elif message["type"] == "websocket.accept":
                 started = True
+                message = {**message, "headers": list(message.get("headers", [])) + [
+                    (b"x-bot4vps-mobile-session-renewal", b"1"),
+                    (b"x-bot4vps-mobile-session-ttl", str(max(0, math.ceil(remaining()))).encode())]}
             if message["type"] == "http.response.body" and not message.get("more_body") or message["type"] == "websocket.close":
                 finished = True
             await send(message)
+
+        async def receive_verified():
+            nonlocal lease, deadline
+            while True:
+                message = await receive()
+                if kind != "websocket" or message["type"] != "websocket.receive":
+                    return message
+                if finished or remaining() <= 0:
+                    await close_socket("mobile_session_expired")
+                    raise _SessionEnded()
+                text = message.get("text")
+                try:
+                    data = json.loads(text) if isinstance(text, str) and len(text) <= 8192 else None
+                except (ValueError, RecursionError):
+                    data = None
+                if not isinstance(data, dict) or data.get("type") != "mobile_session":
+                    return message
+                renewed = await asyncio.to_thread(self.access.session_details, data.get("session"))
+                if (remaining() <= 0 or renewed is None or renewed.device_id != device_id
+                        or renewed.expires < lease.expires):
+                    await close_socket("mobile_session_invalid")
+                    raise _SessionEnded()
+                if renewed.expires > lease.expires:
+                    lease = renewed
+                    deadline = time.monotonic() + max(0, lease.expires - self.access.clock())
+                await forward({"type": "websocket.send", "text": json.dumps({
+                    "type": "mobile_session", "status": "renewed", "expires_in": max(0, math.ceil(remaining()))})})
+
         async def watch_revocation():
-            while await asyncio.to_thread(self.access.device_exists, device_id):
-                await asyncio.sleep(2)
-        request = asyncio.create_task(self.app(scope, receive, forward))
+            while True:
+                if kind == "websocket" and remaining() <= 0:
+                    return "mobile_session_expired"
+                if not await asyncio.to_thread(self.access.device_exists, device_id):
+                    return "mobile_device_revoked"
+                await asyncio.sleep(min(2, max(.001, remaining())) if kind == "websocket" else 2)
+        request = asyncio.create_task(self.app(scope, receive_verified, forward))
         watcher = asyncio.create_task(watch_revocation())
         try:
             done, _ = await asyncio.wait((request, watcher), return_when=asyncio.FIRST_COMPLETED)
             if request in done:
-                await request
+                with suppress(_SessionEnded):
+                    await request
             else:
+                reason = await watcher
+                if kind == "websocket":
+                    await close_socket(reason)
                 request.cancel()
-                with suppress(asyncio.CancelledError):
+                with suppress(asyncio.CancelledError, _SessionEnded):
                     await request
                 if not finished:
-                    if kind == "websocket":
-                        await send({"type": "websocket.close", "code": 4401})
-                    elif started:
+                    if started:
                         await send({"type": "http.response.body", "body": b"", "more_body": False})
                     else:
                         await _json(send, 403, {"detail": "Доступ телефона отозван"})
@@ -126,7 +193,7 @@ class ApiOnlyApp:
             body = await asyncio.wait_for(read(), timeout=5)
             path = scope["path"]
             if path.endswith("/pair"):
-                result = await asyncio.to_thread(self.access.pair, body.get("code"), body.get("public_key"))
+                result = await asyncio.to_thread(self.access.pair, body.get("code"), body.get("public_key"), body.get("masterkey_device_public_key"))
                 from core import audit
                 from core.actor import Actor
                 await asyncio.to_thread(audit.record, audit.AuditAction.MOBILE_DEVICE_PAIR, result=audit.AuditResult.OK,

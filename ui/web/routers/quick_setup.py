@@ -841,11 +841,27 @@ async def api_ssh_status(server_id: str):
         return _internal_error(e)
 
 
-@router.post("/api/servers/{server_id}/quick-setup/ssh/hostkey/accept")
-async def api_ssh_hostkey_accept(server_id: str):
-    """Принять текущий SSH host key сервера (после его переустановки)."""
+class HostKeyAcceptBody(StrictBody):
+    expected_fingerprint: str = Field(pattern=r"^SHA256:[A-Za-z0-9+/]{43}$")
+
+
+@router.get("/api/servers/{server_id}/quick-setup/ssh/hostkey/preview")
+async def api_ssh_hostkey_preview(server_id: str):
+    """Показать ключ до подтверждения, без SSH-аутентификации."""
     try:
-        record = await asyncio.to_thread(_qs().ssh_accept_host_key, server_id)
+        record = await asyncio.to_thread(_qs().ssh_preview_host_key, server_id)
+        return {"ok": True, "host_key": {"type": record["type"], "fingerprint": record["fingerprint"]}}
+    except QuickSetupServerNotFoundError as e:
+        raise HTTPException(404, str(e)) from e
+    except Exception:
+        raise HTTPException(502, "Не удалось получить SSH-ключ сервера без авторизации") from None
+
+
+@router.post("/api/servers/{server_id}/quick-setup/ssh/hostkey/accept")
+async def api_ssh_hostkey_accept(server_id: str, body: HostKeyAcceptBody):
+    """Принять только показанный и подтверждённый SSH host key."""
+    try:
+        record = await asyncio.to_thread(_qs().ssh_accept_host_key, server_id, body.expected_fingerprint)
         return {
             "ok": True,
             "host_key": {
@@ -855,6 +871,8 @@ async def api_ssh_hostkey_accept(server_id: str):
         }
     except QuickSetupServerNotFoundError as e:
         raise HTTPException(404, str(e)) from e
+    except ValueError as e:
+        raise HTTPException(409, str(e)) from e
     except Exception as e:
         # Причину (SSH-таймаут, отказ аутентификации) видно и пользователю,
         # и в journal: безликое «Внутренняя ошибка» не объясняла ничего.

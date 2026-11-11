@@ -3,6 +3,9 @@ from __future__ import annotations
 
 import asyncio
 import ipaddress
+import base64
+import io
+import secrets
 from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
@@ -34,7 +37,8 @@ def _settings():
     from core.config import get_web_config
     cfg = get_web_config().get("mobile_api") or {}
     return {"enabled": cfg.get("enabled") is True, "host": cfg.get("host", "0.0.0.0"),
-            "port": cfg.get("port", 8444), "public_url": cfg.get("public_url", "")}
+            "port": cfg.get("port", 8444), "public_url": cfg.get("public_url", ""),
+            "public_address": cfg.get("public_address", cfg.get("public_url", ""))}
 
 
 @router.get(MANAGEMENT_PREFIX)
@@ -58,6 +62,7 @@ class SettingsBody(BaseModel):
     host: str = Field(default="0.0.0.0", max_length=64)
     port: StrictInt = Field(default=8444, ge=1, le=65535)
     public_url: str = Field(default="", max_length=512)
+    public_address: str | None = Field(default=None, max_length=512)
 
 
 def _validate_settings(body: SettingsBody):
@@ -77,7 +82,7 @@ def _validate_settings(body: SettingsBody):
             raise ValueError()
     except ValueError:
         if url or body.enabled:
-            raise HTTPException(400, "Адрес приложения — https://домен:внешний-порт, без пути и пароля")
+            raise HTTPException(400, "Адрес API — https://IP-или-домен:порт, без пути и пароля")
     if body.enabled:
         from .._internal.device_access.identity import server_identity
         try:
@@ -86,6 +91,8 @@ def _validate_settings(body: SettingsBody):
             raise HTTPException(400, str(exc)) from exc
     settings = {"enabled": body.enabled, "host": body.host, "port": body.port,
                 "public_url": url}
+    if body.public_address is not None:
+        settings["public_address"] = body.public_address
     return settings
 
 
@@ -113,16 +120,34 @@ async def pair(body: PairBody, request: Request):
     if not cfg["public_url"] or any(listener.config.get(k, default) != cfg[k] for k, default in (("enabled", False), ("host", "0.0.0.0"), ("port", 8444), ("public_url", ""))):
         raise HTTPException(409, "Настройки API изменились. Сначала сохраните настройки подключения.")
     access = MobileAccess()
+    status_token = secrets.token_urlsafe(32)
     try:
-        code = await asyncio.to_thread(access.issue_pairing_code, body.name)
+        code = await asyncio.to_thread(access.issue_pairing_code, body.name, status_token=status_token)
     except AccessDenied as exc:
         raise HTTPException(exc.status, str(exc)) from exc
     invitation_code = pairing_invitation(cfg["public_url"], code, listener.identity["server_pin"])
+    def render_qr():
+        import qrcode
+        image = qrcode.make(invitation_code)
+        output = io.BytesIO()
+        image.save(output, format="PNG")
+        return "data:image/png;base64," + base64.b64encode(output.getvalue()).decode("ascii")
+    qr = await asyncio.to_thread(render_qr)
     from core import audit
     await asyncio.to_thread(audit.record, audit.AuditAction.MOBILE_PAIR_CODE, result=audit.AuditResult.OK,
                             params={"name": body.name, "expires_in": PAIR_TTL})
     from fastapi.responses import JSONResponse
-    return JSONResponse({"code": invitation_code, "expires_in": PAIR_TTL, "public_url": cfg["public_url"]}, headers={"Cache-Control": "no-store"})
+    return JSONResponse({"code": invitation_code, "qr": qr, "status_token": status_token,
+                         "expires_in": PAIR_TTL, "public_url": cfg["public_url"]}, headers={"Cache-Control": "no-store"})
+
+
+class PairStatusBody(BaseModel):
+    status_token: str = Field(min_length=40, max_length=64)
+
+
+@router.post(MANAGEMENT_PREFIX + "/pair/status")
+async def pair_status(body: PairStatusBody):
+    return await asyncio.to_thread(MobileAccess().pairing_status, body.status_token)
 
 
 @router.post(MANAGEMENT_PREFIX + "/revoke/{device_id}")

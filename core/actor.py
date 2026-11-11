@@ -118,7 +118,7 @@ class Actor:
         never grants authentication, a role or API access.
         """
         return cls(type=ActorType.PHONE.value, id=str(user or device_id) if user or device_id else None,
-                   role=(role or ActorRole.ADMIN.value) if user else None, ip=ip)
+                   role=role or (ActorRole.ADMIN.value if user else None), ip=ip)
 
     @classmethod
     def cli(cls) -> "Actor":

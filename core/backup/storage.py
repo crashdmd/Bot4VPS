@@ -14,6 +14,7 @@ from uuid import uuid4
 from core.json_store import atomic_write_json
 
 from .errors import BackupError, ErrorCode
+from .archive_format import archive_format_from_prefix
 from .ids import validate_id
 from .inventory import (
     ARCHIVE_INVENTORY_HEAVY_OPERATION,
@@ -470,10 +471,7 @@ class LocalBackupStorage:
             # B4VE (archive_crypto) — это зашифрованный паролем tar.gz, поэтому
             # его магия легитимно проходит как "tar.gz". Настоящее сцепление
             # артефакта с inventory делает sha256 + bytes ниже.
-            if prefix[:4] == b"B4VE" or prefix[:2] == bytes.fromhex("1f8b"):
-                actual_format = "tar.gz"
-            else:
-                actual_format = "tar"
+            actual_format = archive_format_from_prefix(prefix)
             checksum_payload = os.read(checksum_fd, 66)
             expected_checksum_payload = (
                 (expected_digest + "\n").encode("ascii")
@@ -1073,9 +1071,7 @@ class LocalBackupStorage:
                 # B4VE — зашифрованный паролем tar.gz (archive_crypto):
                 # format описывает содержимое, а не контейнер.
                 prefix = stream.read(4)
-                if prefix[:4] == b"B4VE" or prefix[:2] == bytes.fromhex("1f8b"):
-                    return "tar.gz"
-                return "tar"
+                return archive_format_from_prefix(prefix)
         except OSError as exc:
             raise BackupError(
                 ErrorCode.STORAGE_BACKEND_ERROR,
@@ -1195,13 +1191,7 @@ class LocalBackupStorage:
             expected_digest = expected_archive.get("sha256")
             # B4VE — зашифрованный паролем tar.gz: format описывает содержимое.
             import_prefix = os.pread(archive_fd, 4, 0)
-            if (
-                import_prefix[:4] == b"B4VE"
-                or import_prefix[:2] == bytes.fromhex("1f8b")
-            ):
-                actual_format = "tar.gz"
-            else:
-                actual_format = "tar"
+            actual_format = archive_format_from_prefix(import_prefix)
             expected_checksum_payload = (
                 (expected_digest + "\n").encode("ascii")
                 if isinstance(expected_digest, str)

@@ -34,6 +34,8 @@ from .archive_crypto import (
     is_encrypted_file,
     verify_password,
 )
+from .archive_format import archive_format_from_prefix, wrap_self_archive
+from .self_restore_version import require_self_restore_compatible
 from .bot4vps_sources import iter_source_entries, resolve_bot4vps_sources
 
 from .catalog import CatalogStore
@@ -556,6 +558,39 @@ class BackupManager:
             self.storage.remove_staging(staging_dir, "create")
             raise
         return plain
+
+    def _snapshot_self_restore_archive(self, archive: Path, checksum: str) -> Path:
+        """Pin actual bytes under the source lock before inspection/decryption.
+
+        Prepare and apply each take a fresh private snapshot. Planning, version
+        checks and runner staging use this same file, never reopen the source.
+        """
+        staging = f"self-{uuid4().hex}"
+        self.storage.create_staging(staging, "create")
+        snapshot = self.storage.staging_archive_path(staging, "archive", "create")
+        try:
+            descriptor = os.open(archive, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+            with os.fdopen(descriptor, "rb") as source, snapshot.open("xb") as output:
+                before = os.fstat(source.fileno())
+                if not stat.S_ISREG(before.st_mode):
+                    raise BackupError(ErrorCode.ARCHIVE_INVALID, "Архив должен быть обычным файлом")
+                os.fchmod(output.fileno(), 0o600)
+                digest = hashlib.sha256()
+                while chunk := source.read(1024 * 1024):
+                    output.write(chunk)
+                    digest.update(chunk)
+                after = os.fstat(source.fileno())
+                output.flush()
+                os.fsync(output.fileno())
+                if (before.st_size, before.st_mtime_ns, before.st_ctime_ns) != (after.st_size, after.st_mtime_ns, after.st_ctime_ns) or digest.hexdigest() != checksum:
+                    raise BackupError(ErrorCode.CHECKSUM_MISMATCH, "Архив изменился: выполните подготовку восстановления заново")
+            return snapshot
+        except OSError as exc:
+            self.storage.remove_staging(staging, "create")
+            raise BackupError(ErrorCode.STAGING_IO_FAILED, "Не удалось прочитать архив восстановления", retryable=True) from exc
+        except BaseException:
+            self.storage.remove_staging(staging, "create")
+            raise
 
     @staticmethod
     def _discard_decrypted_restore_archive(plain: Path | None) -> None:
@@ -2136,6 +2171,9 @@ class BackupManager:
         staging_created = False
         filename = None
         try:
+            from core.local_privileges import separated, request
+            if separated():
+                request("code.checkpoint")
             policy = resolve_bot4vps_sources()
             if not locks_held:
                 backup_permit = self.coordinator.begin_backup(operation_id, "bot4vps")
@@ -2226,7 +2264,7 @@ class BackupManager:
             )
             source_utc_offset = local_utc_offset(operation["created_at"])
             manifest = {
-                "manifest_version": 2,
+                "manifest_version": 3,
                 "backup_id": backup_id,
                 "type": "bot4vps",
                 "purpose": purpose,
@@ -2346,6 +2384,7 @@ class BackupManager:
                     if position > int(max_archive_bytes):
                         raise BackupError(ErrorCode.ARCHIVE_LIMIT_EXCEEDED, "Итоговый archive превышает допустимый размер")
 
+            wrap_self_archive(archive_path)
             archive_size = archive_path.stat().st_size
             if max_archive_bytes is not None and archive_size > int(max_archive_bytes):
                 raise BackupError(ErrorCode.ARCHIVE_LIMIT_EXCEEDED, "Итоговый archive превышает допустимый размер")
@@ -3044,9 +3083,15 @@ class BackupManager:
                         )
                     # Расшифровка ДО регистрации операции и границы мутаций:
                     # неверный пароль — чистый отказ без записи в истории.
-                    decrypted_archive = self._decrypt_restore_archive(
-                        encrypted_file, password
-                    )
+                    if target_server_id is None:
+                        with self.coordinator.acquire_artifact_read(artifact_ref):
+                            pinned = self._snapshot_self_restore_archive(encrypted_file, record["archive"]["checksum"])
+                        try:
+                            decrypted_archive = self._decrypt_restore_archive(pinned, password)
+                        finally:
+                            self._discard_decrypted_restore_archive(pinned)
+                    else:
+                        decrypted_archive = self._decrypt_restore_archive(encrypted_file, password)
             elif source_kind == "imported":
                 if not isinstance(source_id, str):
                     raise BackupError(
@@ -3101,9 +3146,14 @@ class BackupManager:
                         )
                     # Расшифровка ДО регистрации операции и границы мутаций:
                     # неверный пароль — чистый отказ без записи в истории.
-                    decrypted_archive = self._decrypt_restore_archive(
-                        encrypted_file, password
-                    )
+                    if target_server_id is None:
+                        pinned = self._snapshot_self_restore_archive(encrypted_file, record["checksum"]["value"])
+                        try:
+                            decrypted_archive = self._decrypt_restore_archive(pinned, password)
+                        finally:
+                            self._discard_decrypted_restore_archive(pinned)
+                    else:
+                        decrypted_archive = self._decrypt_restore_archive(encrypted_file, password)
             else:
                 raise BackupError(
                     ErrorCode.INVALID_REQUEST,
@@ -3121,6 +3171,16 @@ class BackupManager:
                 )
 
             if target_server_id is None:
+                if decrypted_archive is None:
+                    if source_kind == "managed":
+                        with self.coordinator.acquire_artifact_read(artifact_ref):
+                            decrypted_archive = self._snapshot_self_restore_archive(
+                                self.storage.resolve_key(record["storage"]["key"]), record["archive"]["checksum"]
+                            )
+                    else:
+                        decrypted_archive = self._snapshot_self_restore_archive(
+                            resolved_import["archive"], record["checksum"]["value"]
+                        )
                 if mode == RESTORE_MODE_CLEAN:
                     raise BackupError(
                         ErrorCode.RESTORE_PRECHECK_FAILED,
@@ -3268,6 +3328,17 @@ class BackupManager:
                     archive_override=decrypted_archive,
                 )
             full_plan = planned["plan"]
+            if target_server_id is None:
+                # Entire archive is checked before selection and before any
+                # protective copy. Both prepare and apply re-read pinned bytes.
+                require_self_restore_compatible(decrypted_archive, full_plan)
+                binding = {
+                    "sha256": self.storage.calculate_checksum(decrypted_archive),
+                    "bytes": decrypted_archive.stat().st_size,
+                }
+                if prepared_operation is not None and (prepared_operation.get("restore") or {}).get("self_archive_binding") != binding:
+                    raise BackupError(ErrorCode.RESTORE_PRECHECK_FAILED, "Архив отличается от подготовленного: выполните подготовку восстановления заново")
+                self.operations.attach_restore_metadata(operation_id, "self_archive_binding", binding)
             plan = build_effective_restore_plan(
                 full_plan,
                 selection_mode=selection_mode,
@@ -3452,16 +3523,12 @@ class BackupManager:
                 else:
                     # Предупреждения prepare: понижение/повышение версии кода,
                     # смена режима юнита (web+tg ↔ tg-only) и порта.
-                    warnings.extend(
-                        prepare_warnings_for(
-                            self,
-                            source_kind=source_kind,
-                            record=record,
-                            resolved_import=resolved_import,
-                            decrypted_archive=decrypted_archive,
-                            plan=plan,
-                        )
-                    )
+                    warnings.extend(prepare_warnings_for(
+                        self, source_kind=source_kind, record=record,
+                        resolved_import=resolved_import,
+                        decrypted_archive=decrypted_archive, plan=plan,
+                        full_plan=full_plan,
+                    ))
                 existing = existing_local_paths(archive_paths)
 
             # Сводка плана сохраняется в самой Operation, иначе она не выживет:
@@ -3561,6 +3628,7 @@ class BackupManager:
                     warnings=warnings,
                     protective_result=protective_result,
                     backup_filename=record.get("filename"),
+                    full_plan=full_plan,
                 )
 
             # ── доставка архива: последний шаг, который ещё можно отменить ──
@@ -4348,18 +4416,8 @@ class BackupManager:
                 self.operations.update_stage(operation_id, "computing_checksum")
                 checksum = self.storage.calculate_checksum(paths["archive"])
                 imported_at = utc_timestamp()
-                if encrypted_import:
-                    with paths["archive"].open("rb") as stream:
-                        raw_bytes = stream.read(4)
-                    detected_format = (
-                        "tar.gz"
-                        if raw_bytes[:4] == b"B4VE" or raw_bytes[:2] == bytes.fromhex("1f8b")
-                        else "tar"
-                    )
-                else:
-                    with paths["archive"].open("rb") as stream:
-                        raw_bytes = stream.read(2)
-                    detected_format = "tar.gz" if raw_bytes == bytes.fromhex("1f8b") else "tar"
+                with paths["archive"].open("rb") as stream:
+                    detected_format = archive_format_from_prefix(stream.read(4))
                 # Инспекция зашифрованного импорта с паролем — настоящая (из
                 # расшифрованного TAR); без пароля — консервативно пустая.
                 inspection_real = encrypted_import and bool(password)

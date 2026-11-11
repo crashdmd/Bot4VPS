@@ -119,7 +119,7 @@ function applySnapshot(data) {
         has_running: !!s.has_running,
       };
     }));
-    import('./servers.js?v=20261001-mobile-charts-v1').then(m => {
+    import('./servers.js?v=20261109-hostkey-v1').then(m => {
       if (state.page === 'servers' && m.renderServersFromState) m.renderServersFromState();
     }).catch(() => {});
   }
@@ -131,7 +131,7 @@ function applySnapshot(data) {
       && data.task_history_revision !== taskHistoryRevision) {
     taskHistoryRevision = data.task_history_revision;
     if (state.page === 'history' && state.historyTab === 'queues') {
-      import('./servers.js?v=20261001-mobile-charts-v1').then(m => {
+      import('./servers.js?v=20261109-hostkey-v1').then(m => {
         m.loadHistory?.();
       }).catch(() => {});
     }
@@ -159,7 +159,7 @@ function applySnapshot(data) {
     }
     // Открытая карточка сервера — обновить блок «Недавние события»
     if (state.page === 'server') {
-      import('./servers.js?v=20261001-mobile-charts-v1').then(m => {
+      import('./servers.js?v=20261109-hostkey-v1').then(m => {
         if (m.refreshOpenServerEvents) m.refreshOpenServerEvents();
         else if (m.openServerId) {
           // fallback: модуль мог ещё не экспортировать helper

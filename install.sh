@@ -2,11 +2,9 @@
 # Bot4VPS Manager — install / update / remove / status / enable-web
 set -euo pipefail
 
-REPO="https://github.com/crashdmd/Bot4VPS.git"
 INSTALL_DIR="/opt/bot4vps"
 SERVICE_NAME="bot4vps"
 PYTHON="python3"
-BRANCH="main"
 
 # Результат open_web_port: none | ufw | firewalld | failed
 FIREWALL_STATUS="none"
@@ -49,8 +47,17 @@ require_root() {
     fi
 }
 
+# Runtime reads/writes use the service UID even in the owner-run installer.
+app_python() {
+    if [[ -d "$INSTALL_DIR/data/runtime" ]]; then
+        /usr/sbin/runuser -u bot4vps -- /usr/bin/env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin HOME="$INSTALL_DIR" PYTHONPATH="$INSTALL_DIR" PYTHONDONTWRITEBYTECODE=1 "$INSTALL_DIR/venv/bin/python" "$@"
+    else
+        "$INSTALL_DIR/venv/bin/python" "$@"
+    fi
+}
+
 is_installed() {
-    [[ -d "$INSTALL_DIR/.git" ]] && [[ -f "$INSTALL_DIR/bot.py" ]]
+    [[ -f "$INSTALL_DIR/bot.py" ]] && [[ -f "$INSTALL_DIR/core/version.py" ]]
 }
 
 get_mode() {
@@ -78,7 +85,7 @@ detect_ip() {
 update_tg_config() {
     local token="$1"
     local user_id="$2"
-    python3 - "$token" "$user_id" <<'PY'
+    app_python - "$token" "$user_id" <<'PY'
 import json
 import sys
 from pathlib import Path
@@ -106,7 +113,7 @@ PY
 # Первая установка: ключа ещё нет — не усложняем, штатный первичный flow.
 encrypt_plaintext_secrets_if_key() {
     local result
-    result=$("${INSTALL_DIR}/venv/bin/python" <<'PY' 2>/dev/null || true
+    result=$(app_python <<'PY' 2>/dev/null || true
 from core import secretbox
 
 if secretbox.master_key_state().get("state") == "ok":
@@ -128,7 +135,7 @@ PY
 # Переспрашиваем токен лишь при явном отказе авторизации.
 probe_tg_token() {
     local token="$1"
-    "${INSTALL_DIR}/venv/bin/python" - "$token" <<'PY' 2>/dev/null || echo unreachable
+    app_python - "$token" <<'PY' 2>/dev/null || echo unreachable
 import asyncio
 import sys
 
@@ -188,10 +195,6 @@ check_python_venv() {
 }
 
 ensure_install_prerequisites() {
-    if ! command -v git &>/dev/null; then
-        install_apt_packages git
-    fi
-
     if ! command -v "$PYTHON" &>/dev/null; then
         install_apt_packages python3 python3-venv
     fi
@@ -204,40 +207,30 @@ ensure_install_prerequisites() {
             return 1
         fi
     fi
-}
-
-clone_repository() {
-    if [[ -e "$INSTALL_DIR" && ! -d "$INSTALL_DIR" ]]; then
-        err "Путь $INSTALL_DIR существует и не является каталогом."
-        return 1
-    fi
-
-    if [[ -d "$INSTALL_DIR" && -n "$(ls -A "$INSTALL_DIR" 2>/dev/null)" ]]; then
-        local clone_tmp
-        local clone_dir
-        clone_tmp=$(mktemp -d)
-        clone_dir="$clone_tmp/repository"
-
-        if ! git clone --depth 1 --branch "$BRANCH" "$REPO" "$clone_dir"; then
-            rm -rf "$clone_tmp"
-            err "Не удалось клонировать репозиторий."
+    if ! "$PYTHON" -c 'from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey' &>/dev/null; then
+        install_apt_packages python3-cryptography
+        if ! "$PYTHON" -c 'from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey' &>/dev/null; then
+            err "Для проверки подписи установите python3-cryptography для $PYTHON."
             return 1
         fi
-        if ! cp -a "$clone_dir"/. "$INSTALL_DIR"/; then
-            rm -rf "$clone_tmp"
-            err "Не удалось перенести код в $INSTALL_DIR."
-            return 1
-        fi
-
-        rm -rf "$clone_tmp"
-        return 0
     fi
-
-    git clone --depth 1 --branch "$BRANCH" "$REPO" "$INSTALL_DIR"
 }
+
+# BEGIN GENERATED RELEASE BOOTSTRAP
+# Source: core/update/release_verify.py + bootstrap.py; tools/build_installer.py
+run_install_bootstrap() {
+    "$PYTHON" - "$@" <<'B4V_BOOTSTRAP_PY'
+import base64, sys, types
+verifier = types.ModuleType("release_verify")
+sys.modules[verifier.__name__] = verifier
+exec(compile(base64.b64decode("IiIi0J/RgNC+0LLQtdGA0LrQsCDQv9C+0LTQv9C40YHQsNC90L3QvtCz0L4g0YDQtdC70LjQt9CwOyDRgtCw0LrQttC1INC60L7Qv9C40YDRg9C10YLRgdGPINGA0Y/QtNC+0Lwg0YHQviBzdGFuZGFsb25lIHJ1bm5lci4KCtCa0LvRjtGHINC00L7QstC10YDQuNGPINCx0LXRgNGR0YLRgdGPINC40Lcg0YPRgdGC0LDQvdC+0LLQu9C10L3QvdC+0LPQviDQutC+0LTQsCwg0L3QuNC60L7Qs9C00LAg0LjQtyDQt9Cw0LPRgNGD0LbQtdC90L3QvtCz0L4g0YDQtdC70LjQt9CwLgrQl9Cw0LrRgNGL0YLRi9C5INC60LvRjtGHINC90YPQttC10L0g0YLQvtC70YzQutC+INC40LfQtNCw0YLQtdC70Y4g0Lgg0L3QtSDQstGF0L7QtNC40YIg0LIg0L/QvtGB0YLQsNCy0LrRgyDQv9GA0LjQu9C+0LbQtdC90LjRjy4KIiIiCmZyb20gX19mdXR1cmVfXyBpbXBvcnQgYW5ub3RhdGlvbnMKCmltcG9ydCBiYXNlNjQKaW1wb3J0IGpzb24KaW1wb3J0IHJlCmltcG9ydCBzeXMKZnJvbSBwYXRobGliIGltcG9ydCBQYXRoCmZyb20gdXJsbGliLnBhcnNlIGltcG9ydCBxdW90ZQoKZnJvbSBjcnlwdG9ncmFwaHkuZXhjZXB0aW9ucyBpbXBvcnQgSW52YWxpZFNpZ25hdHVyZQpmcm9tIGNyeXB0b2dyYXBoeS5oYXptYXQucHJpbWl0aXZlcy5hc3ltbWV0cmljLmVkMjU1MTkgaW1wb3J0IEVkMjU1MTlQdWJsaWNLZXkKClJFUE9TSVRPUlkgPSAiY3Jhc2hkbWQvQm90NFZQUyIKTUFOSUZFU1RfTkFNRSA9ICJCb3Q0VlBTLXVwZGF0ZS5qc29uIgpNQVhfTUFOSUZFU1RfQllURVMgPSAxMjggKiAxMDI0Ck1BWF9BUkNISVZFX0JZVEVTID0gNTEyICogMTAyNCAqIDEwMjQKRE9NQUlOID0gYiJCb3Q0VlBTIHVwZGF0ZSBtYW5pZmVzdCB2MVxuIgpUUlVTVEVEX0tFWVMgPSB7CiAgICAidXBkYXRlLTIwMjYtMTEiOiAiOTQwNDdlZDUyOWNmZWIzN2E3MGRlNjcyM2NmYjkxNDZmMzQ4ZGNlODEzZWNmNDJjNDFjYzA4ZWQwNTM0N2M3NyIsCn0KCgpjbGFzcyBSZWxlYXNlVHJ1c3RFcnJvcihWYWx1ZUVycm9yKToKICAgIHBhc3MKCgpkZWYgY2Fub25pY2FsX3BheWxvYWQocGF5bG9hZDogZGljdCkgLT4gYnl0ZXM6CiAgICByZXR1cm4gRE9NQUlOICsganNvbi5kdW1wcyhwYXlsb2FkLCBlbnN1cmVfYXNjaWk9RmFsc2UsIHNvcnRfa2V5cz1UcnVlLCBzZXBhcmF0b3JzPSgiLCIsICI6IiksIGFsbG93X25hbj1GYWxzZSkuZW5jb2RlKCJ1dGYtOCIpCgoKZGVmIF91bmlxdWVfcGFpcnMocGFpcnMpOgogICAgcmVzdWx0ID0ge30KICAgIGZvciBrZXksIHZhbHVlIGluIHBhaXJzOgogICAgICAgIGlmIGtleSBpbiByZXN1bHQ6CiAgICAgICAgICAgIHJhaXNlIFJlbGVhc2VUcnVzdEVycm9yKCLQntC/0LjRgdCw0L3QuNC1INGA0LXQu9C40LfQsCDRgdC+0LTQtdGA0LbQuNGCINC/0L7QstGC0L7RgNGP0Y7RidC40LXRgdGPINC/0L7Qu9GPIikKICAgICAgICByZXN1bHRba2V5XSA9IHZhbHVlCiAgICByZXR1cm4gcmVzdWx0CgoKZGVmIGRlY29kZV9lbnZlbG9wZShkYXRhOiBieXRlcykgLT4gZGljdDoKICAgIGlmIGxlbihkYXRhKSA+IE1BWF9NQU5JRkVTVF9CWVRFUzoKICAgICAgICByYWlzZSBSZWxlYXNlVHJ1c3RFcnJvcigi0J7Qv9C40YHQsNC90LjQtSDRgNC10LvQuNC30LAg0YHQu9C40YjQutC+0Lwg0LHQvtC70YzRiNC+0LUiKQogICAgdHJ5OgogICAgICAgIHZhbHVlID0ganNvbi5sb2FkcyhkYXRhLCBvYmplY3RfcGFpcnNfaG9vaz1fdW5pcXVlX3BhaXJzKQogICAgZXhjZXB0IChWYWx1ZUVycm9yLCBVbmljb2RlRXJyb3IsIFJlY3Vyc2lvbkVycm9yKSBhcyBlOgogICAgICAgIHJhaXNlIFJlbGVhc2VUcnVzdEVycm9yKCLQndC1INGD0LTQsNC70L7RgdGMINC/0YDQvtGH0LjRgtCw0YLRjCDQv9C+0LTQv9C40YHQsNC90L3QvtC1INC+0L/QuNGB0LDQvdC40LUg0YDQtdC70LjQt9CwIikgZnJvbSBlCiAgICBpZiBub3QgaXNpbnN0YW5jZSh2YWx1ZSwgZGljdCk6CiAgICAgICAgcmFpc2UgUmVsZWFzZVRydXN0RXJyb3IoItCe0LbQuNC00LDQtdGC0YHRjyDQv9C+0LTQv9C40YHQsNC90L3QvtC1INC+0L/QuNGB0LDQvdC40LUg0YDQtdC70LjQt9CwIikKICAgIHJldHVybiB2YWx1ZQoKCmRlZiBub3JtYWxpemVkX3ZlcnNpb24odmFsdWU6IHN0cikgLT4gc3RyOgogICAgaWYgbm90IGlzaW5zdGFuY2UodmFsdWUsIHN0cikgb3Igbm90IHJlLmZ1bGxtYXRjaChyInY/XGQrKD86XC5cZCspezAsMn0iLCB2YWx1ZSk6CiAgICAgICAgcmFpc2UgUmVsZWFzZVRydXN0RXJyb3IoItCd0LXQstC10YDQvdCw0Y8g0LLQtdGA0YHQuNGPINC/0L7QtNC/0LjRgdCw0L3QvdC+0LPQviDRgNC10LvQuNC30LAiKQogICAgcGFydHMgPSB2YWx1ZS5yZW1vdmVwcmVmaXgoInYiKS5zcGxpdCgiLiIpCiAgICByZXR1cm4gIi4iLmpvaW4oc3RyKGludCh4KSkgZm9yIHggaW4gcGFydHMgKyBbIjAiXSAqICgzIC0gbGVuKHBhcnRzKSkpCgoKZGVmIHZlcmlmeV9lbnZlbG9wZShlbnZlbG9wZTogZGljdCwgZXhwZWN0ZWRfdmVyc2lvbjogc3RyIHwgTm9uZSA9IE5vbmUpIC0+IGRpY3Q6CiAgICB0cnk6CiAgICAgICAgaWYgbGVuKGpzb24uZHVtcHMoZW52ZWxvcGUsIGVuc3VyZV9hc2NpaT1GYWxzZSwgYWxsb3dfbmFuPUZhbHNlKS5lbmNvZGUoInV0Zi04IikpID4gTUFYX01BTklGRVNUX0JZVEVTOgogICAgICAgICAgICByYWlzZSBSZWxlYXNlVHJ1c3RFcnJvcigi0J7Qv9C40YHQsNC90LjQtSDRgNC10LvQuNC30LAg0YHQu9C40YjQutC+0Lwg0LHQvtC70YzRiNC+0LUiKQogICAgICAgIGlmIHNldChlbnZlbG9wZSkgIT0geyJrZXlfaWQiLCAicGF5bG9hZCIsICJzaWduYXR1cmUifToKICAgICAgICAgICAgcmFpc2UgVmFsdWVFcnJvcigiRW52ZWxvcGUgZmllbGRzIikKICAgICAgICBwYXlsb2FkID0gZW52ZWxvcGVbInBheWxvYWQiXQogICAgICAgIGlmIG5vdCBpc2luc3RhbmNlKHBheWxvYWQsIGRpY3QpOgogICAgICAgICAgICByYWlzZSBWYWx1ZUVycm9yKCJQYXlsb2FkIikKICAgICAgICBlbmNvZGVkX2tleSA9IFRSVVNURURfS0VZUy5nZXQoZW52ZWxvcGVbImtleV9pZCJdKQogICAgICAgIGlmIG5vdCBlbmNvZGVkX2tleToKICAgICAgICAgICAgcmFpc2UgUmVsZWFzZVRydXN0RXJyb3IoItCg0LXQu9C40Lcg0L/QvtC00L/QuNGB0LDQvSDQvdC10LjQt9Cy0LXRgdGC0L3Ri9C8INC60LvRjtGH0L7QvCIpCiAgICAgICAgc2lnbmF0dXJlID0gYmFzZTY0LmI2NGRlY29kZShlbnZlbG9wZVsic2lnbmF0dXJlIl0sIHZhbGlkYXRlPVRydWUpCiAgICAgICAgRWQyNTUxOVB1YmxpY0tleS5mcm9tX3B1YmxpY19ieXRlcyhieXRlcy5mcm9taGV4KGVuY29kZWRfa2V5KSkudmVyaWZ5KHNpZ25hdHVyZSwgY2Fub25pY2FsX3BheWxvYWQocGF5bG9hZCkpCiAgICBleGNlcHQgUmVsZWFzZVRydXN0RXJyb3I6CiAgICAgICAgcmFpc2UKICAgIGV4Y2VwdCAoSW52YWxpZFNpZ25hdHVyZSwgVmFsdWVFcnJvciwgVHlwZUVycm9yLCBLZXlFcnJvciwgUmVjdXJzaW9uRXJyb3IpIGFzIGU6CiAgICAgICAgcmFpc2UgUmVsZWFzZVRydXN0RXJyb3IoItCf0L7QtNC/0LjRgdGMINGA0LXQu9C40LfQsCDQvdC10LTQtdC50YHRgtCy0LjRgtC10LvRjNC90LAuINCj0YHRgtCw0L3QvtCy0LrQsCDQt9Cw0L/RgNC10YnQtdC90LAiKSBmcm9tIGUKCiAgICBpZiAoc2V0KHBheWxvYWQpICE9IHsic2NoZW1hIiwgInJlcG9zaXRvcnkiLCAidmVyc2lvbiIsICJ0YWciLCAiY29tbWl0IiwgImFyY2hpdmUiLCAiY2hhbmdlbG9nIn0KICAgICAgICAgICAgb3IgdHlwZShwYXlsb2FkWyJzY2hlbWEiXSkgaXMgbm90IGludCBvciBwYXlsb2FkWyJzY2hlbWEiXSAhPSAxCiAgICAgICAgICAgIG9yIHBheWxvYWRbInJlcG9zaXRvcnkiXSAhPSBSRVBPU0lUT1JZKToKICAgICAgICByYWlzZSBSZWxlYXNlVHJ1c3RFcnJvcigi0J/QvtC00L/QuNGB0LDQvdC90YvQuSDRgNC10LvQuNC3INC40LzQtdC10YIg0L3QtdC/0L7QtNC00LXRgNC20LjQstCw0LXQvNGL0Lkg0YTQvtGA0LzQsNGCINC40LvQuCDRgNC10L/QvtC30LjRgtC+0YDQuNC5IikKICAgIHZlcnNpb24gPSBub3JtYWxpemVkX3ZlcnNpb24ocGF5bG9hZFsidmVyc2lvbiJdKQogICAgaWYgdmVyc2lvbiAhPSBwYXlsb2FkWyJ2ZXJzaW9uIl0gb3Igbm9ybWFsaXplZF92ZXJzaW9uKHBheWxvYWRbInRhZyJdKSAhPSB2ZXJzaW9uOgogICAgICAgIHJhaXNlIFJlbGVhc2VUcnVzdEVycm9yKCLQktC10YDRgdC40Y8g0Lgg0YLQtdCzINC/0L7QtNC/0LjRgdCw0L3QvdC+0LPQviDRgNC10LvQuNC30LAg0L3QtSDRgdC+0LLQv9Cw0LTQsNGO0YIiKQogICAgaWYgZXhwZWN0ZWRfdmVyc2lvbiBpcyBub3QgTm9uZSBhbmQgdmVyc2lvbiAhPSBub3JtYWxpemVkX3ZlcnNpb24oZXhwZWN0ZWRfdmVyc2lvbik6CiAgICAgICAgcmFpc2UgUmVsZWFzZVRydXN0RXJyb3IoItCf0L7QtNC/0LjRgdCw0L3QvdC+0LUg0L7Qv9C40YHQsNC90LjQtSDQvtGC0L3QvtGB0LjRgtGB0Y8g0Log0LTRgNGD0LPQvtC5INCy0LXRgNGB0LjQuCIpCiAgICBpZiBub3QgaXNpbnN0YW5jZShwYXlsb2FkWyJjb21taXQiXSwgc3RyKSBvciBub3QgcmUuZnVsbG1hdGNoKHIiWzAtOWEtZl17NDB9IiwgcGF5bG9hZFsiY29tbWl0Il0pOgogICAgICAgIHJhaXNlIFJlbGVhc2VUcnVzdEVycm9yKCLQoNC10LvQuNC3INC90LUg0LfQsNC60YDQtdC/0LvRkdC9INC30LAg0LrQvtC90LrRgNC10YLQvdC+0Lkg0YDQtdCy0LjQt9C40LXQuSIpCiAgICBhcmNoaXZlID0gcGF5bG9hZFsiYXJjaGl2ZSJdCiAgICBpZiAobm90IGlzaW5zdGFuY2UoYXJjaGl2ZSwgZGljdCkgb3Igc2V0KGFyY2hpdmUpICE9IHsibmFtZSIsICJzaGEyNTYiLCAic2l6ZSJ9CiAgICAgICAgICAgIG9yIGFyY2hpdmVbIm5hbWUiXSAhPSBmIkJvdDRWUFMte3ZlcnNpb259LnRhci5neiIKICAgICAgICAgICAgb3IgdHlwZShhcmNoaXZlWyJzaXplIl0pIGlzIG5vdCBpbnQgb3Igbm90IDAgPCBhcmNoaXZlWyJzaXplIl0gPD0gTUFYX0FSQ0hJVkVfQllURVMKICAgICAgICAgICAgb3Igbm90IGlzaW5zdGFuY2UoYXJjaGl2ZVsic2hhMjU2Il0sIHN0cikgb3Igbm90IHJlLmZ1bGxtYXRjaChyIlswLTlhLWZdezY0fSIsIGFyY2hpdmVbInNoYTI1NiJdKSk6CiAgICAgICAgcmFpc2UgUmVsZWFzZVRydXN0RXJyb3IoItCd0LXQutC+0YDRgNC10LrRgtC90YvQtSDRgNCw0LfQvNC10YAsINC40LzRjyDQuNC70Lgg0YXQtdGIINC/0L7QtNC/0LjRgdCw0L3QvdC+0LPQviDQsNGA0YXQuNCy0LAiKQogICAgaWYgbm90IGlzaW5zdGFuY2UocGF5bG9hZFsiY2hhbmdlbG9nIl0sIHN0cikgb3IgbGVuKHBheWxvYWRbImNoYW5nZWxvZyJdLmVuY29kZSgidXRmLTgiKSkgPiA2NCAqIDEwMjQ6CiAgICAgICAgcmFpc2UgUmVsZWFzZVRydXN0RXJyb3IoItCd0LXQutC+0YDRgNC10LrRgtC90L7QtSDQvtC/0LjRgdCw0L3QuNC1INC40LfQvNC10L3QtdC90LjQuSDRgNC10LvQuNC30LAiKQogICAgcmV0dXJuIHBheWxvYWQKCgpkZWYgbWFuaWZlc3RfdXJsKHRhZzogc3RyKSAtPiBzdHI6CiAgICBub3JtYWxpemVkX3ZlcnNpb24odGFnKQogICAgcmV0dXJuIGYiaHR0cHM6Ly9naXRodWIuY29tL3tSRVBPU0lUT1JZfS9yZWxlYXNlcy9kb3dubG9hZC97cXVvdGUodGFnLCBzYWZlPScnKX0ve01BTklGRVNUX05BTUV9IgoKCmRlZiBhcmNoaXZlX3VybChwYXlsb2FkOiBkaWN0KSAtPiBzdHI6CiAgICByZXR1cm4gZiJodHRwczovL2dpdGh1Yi5jb20ve1JFUE9TSVRPUll9L3JlbGVhc2VzL2Rvd25sb2FkL3txdW90ZShwYXlsb2FkWyd0YWcnXSwgc2FmZT0nJyl9L3twYXlsb2FkWydhcmNoaXZlJ11bJ25hbWUnXX0iCgoKZGVmIG1haW4oKSAtPiBpbnQ6CiAgICB0cnk6CiAgICAgICAgaWYgbGVuKHN5cy5hcmd2KSAhPSAzOgogICAgICAgICAgICByYWlzZSBSZWxlYXNlVHJ1c3RFcnJvcigi0J3QtSDRg9C60LDQt9Cw0L3RiyDQvtC/0LjRgdCw0L3QuNC1INGA0LXQu9C40LfQsCDQuCDQvtC20LjQtNCw0LXQvNCw0Y8g0LLQtdGA0YHQuNGPIikKICAgICAgICB3aXRoIFBhdGgoc3lzLmFyZ3ZbMV0pLm9wZW4oInJiIikgYXMgc291cmNlOgogICAgICAgICAgICBlbnZlbG9wZSA9IGRlY29kZV9lbnZlbG9wZShzb3VyY2UucmVhZChNQVhfTUFOSUZFU1RfQllURVMgKyAxKSkKICAgICAgICBwYXlsb2FkID0gdmVyaWZ5X2VudmVsb3BlKGVudmVsb3BlLCBzeXMuYXJndlsyXSkKICAgICAgICBwcmludChqc29uLmR1bXBzKHsicGF5bG9hZCI6IHBheWxvYWQsICJhcmNoaXZlX3VybCI6IGFyY2hpdmVfdXJsKHBheWxvYWQpfSwgZW5zdXJlX2FzY2lpPUZhbHNlKSkKICAgICAgICByZXR1cm4gMAogICAgZXhjZXB0IEV4Y2VwdGlvbjoKICAgICAgICBwcmludCgi0J3QtSDRg9C00LDQu9C+0YHRjCDQv9C+0LTRgtCy0LXRgNC00LjRgtGMINC/0L7QtNC70LjQvdC90L7RgdGC0Ywg0YDQtdC70LjQt9CwLiDQo9GB0YLQsNC90L7QstC60LAg0LfQsNC/0YDQtdGJ0LXQvdCwIiwgZmlsZT1zeXMuc3RkZXJyKQogICAgICAgIHJldHVybiAxCgoKaWYgX19uYW1lX18gPT0gIl9fbWFpbl9fIjoKICAgIHJhaXNlIFN5c3RlbUV4aXQobWFpbigpKQo="), "<trusted release verifier>", "exec"), verifier.__dict__)
+exec(compile(base64.b64decode("IiIiRnJlc2gtaW5zdGFsbCB2ZXJpZmljYXRpb24sIGVtYmVkZGVkIGluIGluc3RhbGwuc2ggd2l0aCBpdHMgdHJ1c3RlZCB2ZXJpZmllci4KCk9ubHkgc3RhbmRhcmQtbGlicmFyeSBtb2R1bGVzIGFuZCB0aGUgZGlzdHJpYnV0aW9uJ3MgcHl0aG9uMy1jcnlwdG9ncmFwaHkKYXJlIHVzZWQgYmVmb3JlIHRoZSBzaWduZWQgc291cmNlIGFuZCBpdHMgZGVwZW5kZW5jeSBsb2NrIGFyZSB0cnVzdGVkLgoiIiIKZnJvbSBfX2Z1dHVyZV9fIGltcG9ydCBhbm5vdGF0aW9ucwoKaW1wb3J0IGFyZ3BhcnNlCmZyb20gY29udGV4dGxpYiBpbXBvcnQgbnVsbGNvbnRleHQKaW1wb3J0IGhhc2hsaWIKaW1wb3J0IGpzb24KaW1wb3J0IHJlCmltcG9ydCBzaHV0aWwKaW1wb3J0IHN5cwppbXBvcnQgdGFyZmlsZQpmcm9tIHBhdGhsaWIgaW1wb3J0IFBhdGgsIFB1cmVQb3NpeFBhdGgKZnJvbSB1cmxsaWIucGFyc2UgaW1wb3J0IHVybHNwbGl0CmZyb20gdXJsbGliLnJlcXVlc3QgaW1wb3J0IEhUVFBSZWRpcmVjdEhhbmRsZXIsIFJlcXVlc3QsIGJ1aWxkX29wZW5lcgoKdHJ5OgogICAgZnJvbSAuIGltcG9ydCByZWxlYXNlX3ZlcmlmeSBhcyB0cnVzdApleGNlcHQgSW1wb3J0RXJyb3I6ICAjIFN0YW5kYWxvbmUgaW5zdGFsbGVyOiB0aGUgdHJ1c3RlZCBtb2R1bGUgaXMgZW1iZWRkZWQuCiAgICBpbXBvcnQgcmVsZWFzZV92ZXJpZnkgYXMgdHJ1c3QKClJFTEVBU0VTX0FQSSA9IGYiaHR0cHM6Ly9hcGkuZ2l0aHViLmNvbS9yZXBvcy97dHJ1c3QuUkVQT1NJVE9SWX0vcmVsZWFzZXM/cGVyX3BhZ2U9MTAwIgpIT1NUUyA9IHsiZ2l0aHViLmNvbSIsICJhcGkuZ2l0aHViLmNvbSIsICJvYmplY3RzLmdpdGh1YnVzZXJjb250ZW50LmNvbSIsICJyZWxlYXNlLWFzc2V0cy5naXRodWJ1c2VyY29udGVudC5jb20ifQpQUklWQVRFX1JPT1RTID0geyIuZ2l0IiwgImNvbmZpZy5qc29uIiwgInNlcnZlcnMuanNvbiIsICJtb25pdG9yLmpzb24iLCAia2V5cyIsICJkYXRhIiwgImxvZ3MiLCAiYmFja3VwIiwgInZlbnYiLCAidGVzdHMiLCAiLmxvY2FsLWJ1aWxkIiwgIi5sb2NhbC1hcmNoaXZlcyJ9Ck1BWF9VTlBBQ0tFRCA9IDEwMjQgKiAxMDI0ICogMTAyNAoKCmRlZiBjaGVja191cmwodXJsKToKICAgIHBhcnNlZCA9IHVybHNwbGl0KHVybCkKICAgIGlmIChwYXJzZWQuc2NoZW1lICE9ICJodHRwcyIgb3IgcGFyc2VkLmhvc3RuYW1lIG5vdCBpbiBIT1NUUyBvciBwYXJzZWQucG9ydCBub3QgaW4gKE5vbmUsIDQ0MykKICAgICAgICAgICAgb3IgcGFyc2VkLnVzZXJuYW1lIGlzIG5vdCBOb25lIG9yIHBhcnNlZC5wYXNzd29yZCBpcyBub3QgTm9uZSk6CiAgICAgICAgcmFpc2UgVmFsdWVFcnJvcigi0J3QtdC00L7Qv9GD0YHRgtC40LzRi9C5INCw0LTRgNC10YEg0LfQsNCz0YDRg9C30LrQuCDRgNC10LvQuNC30LAiKQoKCmNsYXNzIFJlbGVhc2VSZWRpcmVjdChIVFRQUmVkaXJlY3RIYW5kbGVyKToKICAgIGRlZiByZWRpcmVjdF9yZXF1ZXN0KHNlbGYsIHJlcSwgZnAsIGNvZGUsIG1zZywgaGVhZGVycywgbmV3dXJsKToKICAgICAgICBjaGVja191cmwobmV3dXJsKQogICAgICAgIHJldHVybiBzdXBlcigpLnJlZGlyZWN0X3JlcXVlc3QocmVxLCBmcCwgY29kZSwgbXNnLCBoZWFkZXJzLCBuZXd1cmwpCgoKZGVmIGRvd25sb2FkKHVybDogc3RyLCBsaW1pdDogaW50LCBkZXN0aW5hdGlvbjogUGF0aCB8IE5vbmUgPSBOb25lKSAtPiBieXRlczoKICAgIGNoZWNrX3VybCh1cmwpCiAgICByZXF1ZXN0ID0gUmVxdWVzdCh1cmwsIGhlYWRlcnM9eyJVc2VyLUFnZW50IjogIkJvdDRWUFMgaW5zdGFsbGVyIiwgIkFjY2VwdCI6ICJhcHBsaWNhdGlvbi9qc29uIiBpZiBkZXN0aW5hdGlvbiBpcyBOb25lIGVsc2UgImFwcGxpY2F0aW9uL29jdGV0LXN0cmVhbSJ9KQogICAgb3BlbmVyID0gYnVpbGRfb3BlbmVyKFJlbGVhc2VSZWRpcmVjdCgpKQogICAgdG90YWwgPSAwCiAgICBkYXRhID0gYnl0ZWFycmF5KCkKICAgIHdpdGggb3BlbmVyLm9wZW4ocmVxdWVzdCwgdGltZW91dD02MCkgYXMgcmVzcG9uc2U6CiAgICAgICAgY2hlY2tfdXJsKHJlc3BvbnNlLmdldHVybCgpKQogICAgICAgIHdpdGggZGVzdGluYXRpb24ub3BlbigieGIiKSBpZiBkZXN0aW5hdGlvbiBlbHNlIG51bGxjb250ZXh0KCkgYXMgc3RyZWFtOgogICAgICAgICAgICB3aGlsZSBibG9jayA6PSByZXNwb25zZS5yZWFkKG1pbigyNTYgKiAxMDI0LCBsaW1pdCArIDEgLSB0b3RhbCkpOgogICAgICAgICAgICAgICAgdG90YWwgKz0gbGVuKGJsb2NrKQogICAgICAgICAgICAgICAgaWYgdG90YWwgPiBsaW1pdDoKICAgICAgICAgICAgICAgICAgICByYWlzZSBWYWx1ZUVycm9yKCLQpNCw0LnQuyDRgNC10LvQuNC30LAg0L/RgNC10LLRi9GI0LDQtdGCINC00L7Qv9GD0YHRgtC40LzRi9C5INGA0LDQt9C80LXRgCIpCiAgICAgICAgICAgICAgICBpZiBzdHJlYW0gaXMgbm90IE5vbmU6CiAgICAgICAgICAgICAgICAgICAgc3RyZWFtLndyaXRlKGJsb2NrKQogICAgICAgICAgICAgICAgZWxzZToKICAgICAgICAgICAgICAgICAgICBkYXRhLmV4dGVuZChibG9jaykKICAgIHJldHVybiBieXRlcyhkYXRhKQoKCmRlZiBsYXRlc3RfdGFnKGRhdGE6IGJ5dGVzKSAtPiBzdHI6CiAgICByZWxlYXNlcyA9IGpzb24ubG9hZHMoZGF0YSkKICAgIGlmIG5vdCBpc2luc3RhbmNlKHJlbGVhc2VzLCBsaXN0KToKICAgICAgICByYWlzZSBWYWx1ZUVycm9yKCLQndC1INGD0LTQsNC70L7RgdGMINC/0YDQvtGH0LjRgtCw0YLRjCDRgdC/0LjRgdC+0Log0YHRgtCw0LHQuNC70YzQvdGL0YUg0YDQtdC70LjQt9C+0LIiKQogICAgdGFncyA9IFtdCiAgICBmb3IgcmVsZWFzZSBpbiByZWxlYXNlczoKICAgICAgICBpZiBub3QgaXNpbnN0YW5jZShyZWxlYXNlLCBkaWN0KSBvciByZWxlYXNlLmdldCgiZHJhZnQiKSBvciByZWxlYXNlLmdldCgicHJlcmVsZWFzZSIpOgogICAgICAgICAgICBjb250aW51ZQogICAgICAgIHRhZyA9IHJlbGVhc2UuZ2V0KCJ0YWdfbmFtZSIpCiAgICAgICAgdHJ5OgogICAgICAgICAgICB2ZXJzaW9uID0gdHJ1c3Qubm9ybWFsaXplZF92ZXJzaW9uKHRhZykKICAgICAgICBleGNlcHQgdHJ1c3QuUmVsZWFzZVRydXN0RXJyb3I6CiAgICAgICAgICAgIGNvbnRpbnVlCiAgICAgICAgdGFncy5hcHBlbmQoKHR1cGxlKG1hcChpbnQsIHZlcnNpb24uc3BsaXQoIi4iKSkpLCB0YWcpKQogICAgaWYgbm90IHRhZ3M6CiAgICAgICAgcmFpc2UgVmFsdWVFcnJvcigi0J3QtdGCINGB0YLQsNCx0LjQu9GM0L3QvtCz0L4g0YDQtdC70LjQt9CwIEJvdDRWUFMuINCj0YHRgtCw0L3QvtCy0LrQsCDQuNC3IG1haW4g0LfQsNC/0YDQtdGJ0LXQvdCwIikKICAgIHJldHVybiBtYXgodGFncylbMV0KCgpkZWYgZXh0cmFjdF92ZXJpZmllZChhcmNoaXZlOiBQYXRoLCBkZXN0aW5hdGlvbjogUGF0aCwgcGF5bG9hZDogZGljdCkgLT4gUGF0aDoKICAgIGRpZ2VzdCA9IGhhc2hsaWIuc2hhMjU2KCkKICAgIHdpdGggYXJjaGl2ZS5vcGVuKCJyYiIpIGFzIHN0cmVhbToKICAgICAgICB3aGlsZSBibG9jayA6PSBzdHJlYW0ucmVhZCgyNTYgKiAxMDI0KToKICAgICAgICAgICAgZGlnZXN0LnVwZGF0ZShibG9jaykKICAgIGlmIGFyY2hpdmUuc3RhdCgpLnN0X3NpemUgIT0gcGF5bG9hZFsiYXJjaGl2ZSJdWyJzaXplIl0gb3IgZGlnZXN0LmhleGRpZ2VzdCgpICE9IHBheWxvYWRbImFyY2hpdmUiXVsic2hhMjU2Il06CiAgICAgICAgcmFpc2UgVmFsdWVFcnJvcigi0KDQsNC30LzQtdGAINC40LvQuCBTSEEyNTYg0LDRgNGF0LjQstCwINC90LUg0YHQvtCy0L/QsNC00LDQtdGCINGBINC/0L7QtNC/0LjRgdCw0L3QvdGL0Lwg0YDQtdC70LjQt9C+0LwiKQogICAgc291cmNlID0gZGVzdGluYXRpb24gLyAic291cmNlIgogICAgd2l0aCB0YXJmaWxlLm9wZW4oYXJjaGl2ZSwgInI6Z3oiKSBhcyB0YXI6CiAgICAgICAgaWYgdGFyLnBheF9oZWFkZXJzLmdldCgiY29tbWVudCIpICE9IHBheWxvYWRbImNvbW1pdCJdOgogICAgICAgICAgICByYWlzZSBWYWx1ZUVycm9yKCJHaXQt0LrQvtC80LzQuNGCINCw0YDRhdC40LLQsCDQvdC1INGB0L7QstC/0LDQtNCw0LXRgiDRgSDQv9C+0LTQv9C40YHQsNC90L3Ri9C8INGA0LXQu9C40LfQvtC8IikKICAgICAgICBtZW1iZXJzID0gdGFyLmdldG1lbWJlcnMoKQogICAgICAgIHByZWZpeCA9IGYnQm90NFZQUy17cGF5bG9hZFsidmVyc2lvbiJdfScKICAgICAgICBwYXRocyA9IHNldCgpCiAgICAgICAgdG90YWwgPSAwCiAgICAgICAgZm9yIG1lbWJlciBpbiBtZW1iZXJzOgogICAgICAgICAgICBwYXRoID0gUHVyZVBvc2l4UGF0aChtZW1iZXIubmFtZSkKICAgICAgICAgICAgaWYgcGF0aC5pc19hYnNvbHV0ZSgpIG9yICIuLiIgaW4gcGF0aC5wYXJ0cyBvciBub3QgcGF0aC5wYXJ0cyBvciBwYXRoLnBhcnRzWzBdICE9IHByZWZpeDoKICAgICAgICAgICAgICAgIHJhaXNlIFZhbHVlRXJyb3IoItCQ0YDRhdC40LIg0YHQvtC00LXRgNC20LjRgiDQvdC10LTQvtC/0YPRgdGC0LjQvNGL0Lkg0L/Rg9GC0YwiKQogICAgICAgICAgICBpZiBub3QgbWVtYmVyLmlzZmlsZSgpIGFuZCBub3QgbWVtYmVyLmlzZGlyKCk6CiAgICAgICAgICAgICAgICByYWlzZSBWYWx1ZUVycm9yKCLQodGB0YvQu9C60Lgg0Lgg0YHQv9C10YbQuNCw0LvRjNC90YvQtSDRhNCw0LnQu9GLINCyINCw0YDRhdC40LLQtSDQt9Cw0L/RgNC10YnQtdC90YsiKQogICAgICAgICAgICBpZiBsZW4ocGF0aC5wYXJ0cykgPT0gMToKICAgICAgICAgICAgICAgIGlmIG5vdCBtZW1iZXIuaXNkaXIoKToKICAgICAgICAgICAgICAgICAgICByYWlzZSBWYWx1ZUVycm9yKCLQndC10LLQtdGA0L3Ri9C5INC60L7RgNC90LXQstC+0Lkg0LrQsNGC0LDQu9C+0LMg0LDRgNGF0LjQstCwIikKICAgICAgICAgICAgICAgIGNvbnRpbnVlCiAgICAgICAgICAgIHJlbGF0aXZlID0gUHVyZVBvc2l4UGF0aCgqcGF0aC5wYXJ0c1sxOl0pCiAgICAgICAgICAgIGlmIHJlbGF0aXZlLnBhcnRzWzBdIGluIFBSSVZBVEVfUk9PVFMgb3IgcmVsYXRpdmUgaW4gcGF0aHM6CiAgICAgICAgICAgICAgICByYWlzZSBWYWx1ZUVycm9yKCLQkNGA0YXQuNCyINGB0L7QtNC10YDQttC40YIg0YDQsNCx0L7Rh9C40LUg0LTQsNC90L3Ri9C1INC40LvQuCDQv9C+0LLRgtC+0YDRj9GO0YnQuNC50YHRjyDQv9GD0YLRjCIpCiAgICAgICAgICAgIHBhdGhzLmFkZChyZWxhdGl2ZSkKICAgICAgICAgICAgdG90YWwgKz0gbWVtYmVyLnNpemUKICAgICAgICAgICAgaWYgdG90YWwgPiBNQVhfVU5QQUNLRUQ6CiAgICAgICAgICAgICAgICByYWlzZSBWYWx1ZUVycm9yKCLQoNCw0YHQv9Cw0LrQvtCy0LDQvdC90YvQuSDQsNGA0YXQuNCyINGB0LvQuNGI0LrQvtC8INCx0L7Qu9GM0YjQvtC5IikKICAgICAgICBzb3VyY2UubWtkaXIoKQogICAgICAgIGZvciBtZW1iZXIgaW4gbWVtYmVyczoKICAgICAgICAgICAgcmVsYXRpdmUgPSBQdXJlUG9zaXhQYXRoKCpQdXJlUG9zaXhQYXRoKG1lbWJlci5uYW1lKS5wYXJ0c1sxOl0pCiAgICAgICAgICAgIHRhcmdldCA9IHNvdXJjZSAvIHJlbGF0aXZlCiAgICAgICAgICAgIGlmIG1lbWJlci5pc2RpcigpOgogICAgICAgICAgICAgICAgdGFyZ2V0Lm1rZGlyKHBhcmVudHM9VHJ1ZSwgZXhpc3Rfb2s9VHJ1ZSkKICAgICAgICAgICAgZWxpZiBtZW1iZXIuaXNmaWxlKCk6CiAgICAgICAgICAgICAgICB0YXJnZXQucGFyZW50Lm1rZGlyKHBhcmVudHM9VHJ1ZSwgZXhpc3Rfb2s9VHJ1ZSkKICAgICAgICAgICAgICAgIHdpdGggdGFyLmV4dHJhY3RmaWxlKG1lbWJlcikgYXMgc3RyZWFtLCB0YXJnZXQub3BlbigieGIiKSBhcyBvdXQ6CiAgICAgICAgICAgICAgICAgICAgc2h1dGlsLmNvcHlmaWxlb2JqKHN0cmVhbSwgb3V0KQogICAgICAgICAgICAgICAgdGFyZ2V0LmNobW9kKDBvNzU1IGlmIG1lbWJlci5tb2RlICYgMG8xMTEgZWxzZSAwbzY0NCkKICAgIHZlcnNpb25fc291cmNlID0gKHNvdXJjZSAvICJjb3JlL3ZlcnNpb24ucHkiKS5yZWFkX3RleHQoZW5jb2Rpbmc9InV0Zi04IikKICAgIG1hdGNoID0gcmUuc2VhcmNoKHInXkFQUF9WRVJTSU9OXHMqPVxzKltcJyJdKFteXCciXSspW1wnIl1ccyokJywgdmVyc2lvbl9zb3VyY2UsIHJlLk1VTFRJTElORSkKICAgIGlmIG1hdGNoIGlzIE5vbmUgb3IgbWF0Y2guZ3JvdXAoMSkgIT0gcGF5bG9hZFsidmVyc2lvbiJdIG9yIG5vdCAoc291cmNlIC8gImJvdC5weSIpLmlzX2ZpbGUoKToKICAgICAgICByYWlzZSBWYWx1ZUVycm9yKCLQktC10YDRgdC40Y8g0LjQu9C4INGB0L7RgdGC0LDQsiDQuNGB0YXQvtC00L3QuNC60L7QsiDQvdC1INGB0L7QstC/0LDQtNCw0LXRgiDRgSDRgNC10LvQuNC30L7QvCIpCiAgICByZXR1cm4gc291cmNlCgoKZGVmIHByZXBhcmUoZGVzdGluYXRpb246IFBhdGgpIC0+IGRpY3Q6CiAgICB0YWcgPSBsYXRlc3RfdGFnKGRvd25sb2FkKFJFTEVBU0VTX0FQSSwgNCAqIDEwMjQgKiAxMDI0KSkKICAgIGVudmVsb3BlID0gdHJ1c3QuZGVjb2RlX2VudmVsb3BlKGRvd25sb2FkKHRydXN0Lm1hbmlmZXN0X3VybCh0YWcpLCB0cnVzdC5NQVhfTUFOSUZFU1RfQllURVMpKQogICAgcGF5bG9hZCA9IHRydXN0LnZlcmlmeV9lbnZlbG9wZShlbnZlbG9wZSwgdGFnKQogICAgaWYgcGF5bG9hZFsidGFnIl0gIT0gdGFnOgogICAgICAgIHJhaXNlIFZhbHVlRXJyb3IoItCf0L7QtNC/0LjRgdGMINC+0YLQvdC+0YHQuNGC0YHRjyDQuiDQtNGA0YPQs9C+0LzRgyDRgtC10LPRgyIpCiAgICBhcmNoaXZlID0gZGVzdGluYXRpb24gLyBwYXlsb2FkWyJhcmNoaXZlIl1bIm5hbWUiXQogICAgZG93bmxvYWQodHJ1c3QuYXJjaGl2ZV91cmwocGF5bG9hZCksIHBheWxvYWRbImFyY2hpdmUiXVsic2l6ZSJdLCBhcmNoaXZlKQogICAgZXh0cmFjdF92ZXJpZmllZChhcmNoaXZlLCBkZXN0aW5hdGlvbiwgcGF5bG9hZCkKICAgIHJldHVybiBwYXlsb2FkCgoKZGVmIGluc3RhbGxfc291cmNlKHNvdXJjZTogUGF0aCwgZGVzdGluYXRpb246IFBhdGgpOgogICAgaWYgZGVzdGluYXRpb24uaXNfc3ltbGluaygpIG9yIChkZXN0aW5hdGlvbi5leGlzdHMoKSBhbmQgbm90IGRlc3RpbmF0aW9uLmlzX2RpcigpKToKICAgICAgICByYWlzZSBWYWx1ZUVycm9yKCLQmtCw0YLQsNC70L7QsyDRg9GB0YLQsNC90L7QstC60Lgg0L3QtSDQtNC+0LvQttC10L0g0LHRi9GC0Ywg0YHRgdGL0LvQutC+0Lkg0LjQu9C4INGE0LDQudC70L7QvCIpCiAgICAjIFZhbGlkYXRlIGV2ZXJ5IGRlc3RpbmF0aW9uIGJlZm9yZSBjb3B5aW5nIGV2ZW4gdGhlIGZpcnN0IHNvdXJjZSBmaWxlLgogICAgZm9yIGVudHJ5IGluIHNvdXJjZS5yZ2xvYigiKiIpOgogICAgICAgIHJlbGF0aXZlID0gZW50cnkucmVsYXRpdmVfdG8oc291cmNlKQogICAgICAgIGlmIHJlbGF0aXZlLnBhcnRzWzBdIGluIFBSSVZBVEVfUk9PVFMgb3IgZW50cnkuaXNfc3ltbGluaygpOgogICAgICAgICAgICByYWlzZSBWYWx1ZUVycm9yKCLQndC10LTQvtC/0YPRgdGC0LjQvNGL0Lkg0YTQsNC50Lsg0YPRgdGC0LDQvdC+0LLQutC4IikKICAgICAgICB0YXJnZXQgPSBkZXN0aW5hdGlvbiAvIHJlbGF0aXZlCiAgICAgICAgZm9yIGNvbXBvbmVudCBpbiAodGFyZ2V0LCAqdGFyZ2V0LnBhcmVudHMpOgogICAgICAgICAgICBpZiBjb21wb25lbnQuaXNfc3ltbGluaygpOgogICAgICAgICAgICAgICAgcmFpc2UgVmFsdWVFcnJvcigi0KHRgdGL0LvQutC4INCyINC60LDRgtCw0LvQvtCz0LUg0YPRgdGC0LDQvdC+0LLQutC4INC30LDQv9GA0LXRidC10L3RiyIpCiAgICAgICAgaWYgdGFyZ2V0LmV4aXN0cygpIGFuZCB0YXJnZXQuaXNfZGlyKCkgIT0gZW50cnkuaXNfZGlyKCk6CiAgICAgICAgICAgIHJhaXNlIFZhbHVlRXJyb3IoItCi0LjQvyDRhNCw0LnQu9CwINCyINC60LDRgtCw0LvQvtCz0LUg0YPRgdGC0LDQvdC+0LLQutC4INC90LUg0YHQvtCy0L/QsNC00LDQtdGCIikKICAgIGRlc3RpbmF0aW9uLm1rZGlyKHBhcmVudHM9VHJ1ZSwgZXhpc3Rfb2s9VHJ1ZSkKICAgIHNodXRpbC5jb3B5dHJlZShzb3VyY2UsIGRlc3RpbmF0aW9uLCBkaXJzX2V4aXN0X29rPVRydWUpCgoKZGVmIG1haW4oKToKICAgIHBhcnNlciA9IGFyZ3BhcnNlLkFyZ3VtZW50UGFyc2VyKCkKICAgIHN1YiA9IHBhcnNlci5hZGRfc3VicGFyc2VycyhkZXN0PSJjb21tYW5kIiwgcmVxdWlyZWQ9VHJ1ZSkKICAgIGZldGNoID0gc3ViLmFkZF9wYXJzZXIoInByZXBhcmUiKQogICAgZmV0Y2guYWRkX2FyZ3VtZW50KCJkZXN0aW5hdGlvbiIsIHR5cGU9UGF0aCkKICAgIGluc3RhbGwgPSBzdWIuYWRkX3BhcnNlcigiaW5zdGFsbCIpCiAgICBpbnN0YWxsLmFkZF9hcmd1bWVudCgic291cmNlIiwgdHlwZT1QYXRoKQogICAgaW5zdGFsbC5hZGRfYXJndW1lbnQoImRlc3RpbmF0aW9uIiwgdHlwZT1QYXRoKQogICAgYXJncyA9IHBhcnNlci5wYXJzZV9hcmdzKCkKICAgIHRyeToKICAgICAgICBpZiBhcmdzLmNvbW1hbmQgPT0gInByZXBhcmUiOgogICAgICAgICAgICBwYXlsb2FkID0gcHJlcGFyZShhcmdzLmRlc3RpbmF0aW9uKQogICAgICAgICAgICBwcmludChmJ9Cf0YDQvtCy0LXRgNC10L0g0YHRgtCw0LHQuNC70YzQvdGL0Lkg0L/QvtC00L/QuNGB0LDQvdC90YvQuSDRgNC10LvQuNC3IHtwYXlsb2FkWyJ2ZXJzaW9uIl19ICh7cGF5bG9hZFsiY29tbWl0Il1bOjEyXX0pJykKICAgICAgICBlbHNlOgogICAgICAgICAgICBpbnN0YWxsX3NvdXJjZShhcmdzLnNvdXJjZSwgYXJncy5kZXN0aW5hdGlvbikKICAgIGV4Y2VwdCBFeGNlcHRpb24gYXMgZXhjOgogICAgICAgIHByaW50KGYi0KPRgdGC0LDQvdC+0LLQutCwINC+0YHRgtCw0L3QvtCy0LvQtdC90LA6IHtleGN9IiwgZmlsZT1zeXMuc3RkZXJyKQogICAgICAgIHJldHVybiAxCiAgICByZXR1cm4gMAoKCmlmIF9fbmFtZV9fID09ICJfX21haW5fXyI6CiAgICByYWlzZSBTeXN0ZW1FeGl0KG1haW4oKSkK"), "<trusted install bootstrap>", "exec"), {"__name__": "__main__", "__package__": None})
+B4V_BOOTSTRAP_PY
+}
+# END GENERATED RELEASE BOOTSTRAP
 
 admin_exists() {
-    "$INSTALL_DIR/venv/bin/python" - <<'PY' 2>/dev/null
+    app_python - <<'PY' 2>/dev/null
 import sys
 from core.config import get_web_config
 sys.exit(0 if get_web_config().get("password_hash") else 1)
@@ -268,7 +261,7 @@ issue_setup_code() {
 # по нему Web-мастер предложит создать свой логин и пароль.
 setup_web_auth() {
     local web_port="$1"
-    "$INSTALL_DIR/venv/bin/python" <<'PY'
+    app_python <<'PY'
 from core.config import set_web_auth
 set_web_auth(True)
 PY
@@ -311,6 +304,9 @@ KillMode=mixed
 [Install]
 WantedBy=multi-user.target
 EOF
+    if [[ -d "$INSTALL_DIR/data/runtime" ]]; then
+        "$PYTHON" -I "$INSTALL_DIR/core/migration/privileged/install.py" --no-start
+    fi
 }
 
 write_tg_unit() {
@@ -332,6 +328,9 @@ RestartSec=5
 [Install]
 WantedBy=multi-user.target
 EOF
+    if [[ -d "$INSTALL_DIR/data/runtime" ]]; then
+        "$PYTHON" -I "$INSTALL_DIR/core/migration/privileged/install.py" --no-start
+    fi
 }
 
 # ─────────────────────────────────────────────
@@ -355,7 +354,7 @@ ensure_certbot() {
     # («...venv/bin/certbot: No such file or directory» на чистых машинах
     # без системного certbot; найдено живым прогоном на чистой VPS).
     info "Ставлю certbot в venv (в requirements.txt он не входит)..." >&2
-    if "${INSTALL_DIR}/venv/bin/pip" install -q certbot; then
+    if "${INSTALL_DIR}/venv/bin/pip" install -q --require-hashes -r "${INSTALL_DIR}/requirements-certbot.txt"; then
         echo "${INSTALL_DIR}/venv/bin/certbot"
         return 0
     fi
@@ -371,6 +370,19 @@ ensure_certbot() {
 issue_letsencrypt() {
     local domain="$1"
     local email="$2"
+
+    if [[ -d "$INSTALL_DIR/data/runtime" ]]; then
+        app_python - "$domain" "$email" <<'PY'
+import sys
+from core.web_tls import run_certbot, copy_le_certificate
+ok, stdout, stderr = run_certbot("root-helper", sys.argv[2] or None, sys.argv[1])
+if not ok:
+    print(stderr or stdout, file=sys.stderr)
+    raise SystemExit(1)
+copy_le_certificate(sys.argv[1])
+PY
+        return
+    fi
 
     local certbot
     certbot=$(ensure_certbot)
@@ -425,8 +437,10 @@ issue_letsencrypt() {
 # Самоподписанный сертификат: генерация через venv-python (cryptography).
 gen_self_signed() {
     local cn="$1"
-    mkdir -p "$WEB_TLS_DIR"
-    if ! "${INSTALL_DIR}/venv/bin/python" "$INSTALL_DIR/core/web_tls.py" --gen-self-signed "$cn"; then
+    if [[ ! -d "$INSTALL_DIR/data/runtime" ]]; then
+        mkdir -p "$WEB_TLS_DIR"
+    fi
+    if ! app_python "$INSTALL_DIR/core/web_tls.py" --gen-self-signed "$cn"; then
         err "Не удалось сгенерировать сертификат."
         return 1
     fi
@@ -515,7 +529,7 @@ setup_https() {
                 echo "  переименуйте файл. Продолжаю без HTTPS (см. выше)."
                 return 0
             fi
-            if ! "${INSTALL_DIR}/venv/bin/python" - "$cert_path" "$key_path" <<'PY'
+            if ! app_python - "$cert_path" "$key_path" <<'PY'
 import sys
 from core.web_tls import validate_pair
 try:
@@ -536,7 +550,7 @@ PY
             set_tls_config_mode custom "" "$cert_path" "$key_path"
             # Флаги строит ядро (core.web_tls.unit_tls_flags): пути с
             # пробелами квотируются там же, что и для enable-web.
-            if ! TLS_ARGS=$("${INSTALL_DIR}/venv/bin/python" <<'PY'
+            if ! TLS_ARGS=$(app_python <<'PY'
 from core.config import get_tls_config
 from core.web_tls import unit_tls_flags
 print(unit_tls_flags(get_tls_config()), end="")
@@ -559,7 +573,7 @@ PY
 # config.json -> web.tls (mode + домен/пути) из install.sh.
 set_tls_config_mode() {
     local mode="$1" domain="$2" cert="${3:-}" key="${4:-}"
-    "${INSTALL_DIR}/venv/bin/python" - "$mode" "$domain" "$cert" "$key" <<'PY'
+    app_python - "$mode" "$domain" "$cert" "$key" <<'PY'
 import sys
 from core.config import apply_tls_config
 mode, domain, cert, key = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
@@ -601,6 +615,16 @@ read_web_port() {
 open_web_port() {
     local port="$1"
     FIREWALL_STATUS="none"
+
+    if [[ -d "$INSTALL_DIR/data/runtime" ]]; then
+        FIREWALL_STATUS=$(app_python - "$port" <<'PY'
+import sys
+from core.local_privileges import request
+print(request("firewall.web", port=int(sys.argv[1]), opening=True))
+PY
+        ) || FIREWALL_STATUS="failed"
+        return
+    fi
 
     if command -v ufw &>/dev/null && ufw status 2>/dev/null | grep -qi "Status: active"; then
         info "UFW активен — открываю ${port}/tcp..."
@@ -790,7 +814,7 @@ do_enable_web() {
     cd "$INSTALL_DIR"
     # shellcheck disable=SC1091
     source venv/bin/activate
-    pip install -q -r requirements.txt
+    pip install --isolated --require-hashes --no-input -q -r requirements.txt
 
     info "Включаю авторизацию Web UI..."
     setup_web_auth "$WEB_PORT"
@@ -799,7 +823,7 @@ do_enable_web() {
     # переписывается — TLS-флаги обязаны пережить включение Web.
     WEB_SCHEME="http"
     WEB_TLS_MODE=""
-    if ! TLS_PROBE=$("${INSTALL_DIR}/venv/bin/python" <<'PY'
+    if ! TLS_PROBE=$(app_python <<'PY'
 import sys
 from core.config import get_tls_config
 from core.web_tls import tls_asset_paths, unit_tls_flags
@@ -863,11 +887,12 @@ do_install() {
     require_root
     ensure_install_prerequisites
 
+    local reinstall=false
     if is_installed; then
         warn "Bot4VPS уже установлен в $INSTALL_DIR"
         ask "Переустановить? [y/N]: " ans "N"
         [[ "${ans,,}" == "y" ]] || { info "Отмена."; return; }
-        do_remove --keep-data
+        reinstall=true
     fi
 
     echo
@@ -892,8 +917,24 @@ do_install() {
         WEB_PORT=$(read_web_port "$WEB_PORT")
     fi
 
-    info "Клонирую репозиторий..."
-    clone_repository
+    info "Проверяю стабильный подписанный релиз..."
+    local install_tmp
+    install_tmp=$(mktemp -d)
+    if ! run_install_bootstrap prepare "$install_tmp"; then
+        rm -rf "$install_tmp"
+        return 1
+    fi
+    if [[ "$reinstall" == true ]]; then
+        if ! do_remove --keep-data; then
+            rm -rf "$install_tmp"
+            return 1
+        fi
+    fi
+    if ! run_install_bootstrap install "$install_tmp/source" "$INSTALL_DIR"; then
+        rm -rf "$install_tmp"
+        return 1
+    fi
+    rm -rf "$install_tmp"
     cd "$INSTALL_DIR"
 
     info "Создаю venv и ставлю зависимости..."
@@ -901,7 +942,7 @@ do_install() {
     # shellcheck disable=SC1091
     source venv/bin/activate
     pip install -q --upgrade pip
-    pip install -q -r requirements.txt
+    pip install -q --require-hashes -r requirements.txt
     ok "Зависимости установлены"
 
     mkdir -p scripts keys backup logs
@@ -980,6 +1021,9 @@ do_install() {
     systemctl daemon-reload
     systemctl enable ${SERVICE_NAME}.service
 
+    info "Подготавливаю непривилегированную службу и локального помощника..."
+    "$PYTHON" -I "$INSTALL_DIR/core/migration/privileged/install.py" --no-start
+
     ask "Запустить сейчас? [Y/n]: " start_now "Y"
     if [[ "${start_now,,}" == "y" ]]; then
         systemctl restart ${SERVICE_NAME}.service
@@ -1012,7 +1056,7 @@ do_install() {
         # оставшийся в config HTTPS-режим сам не поднимается.
         if [[ -z "${WEB_TLS_MODE:-}" ]]; then
             local stale_tls stale_label
-            stale_tls=$("${INSTALL_DIR}/venv/bin/python" <<'PY' 2>/dev/null || true
+            stale_tls=$(app_python <<'PY' 2>/dev/null || true
 from core.config import get_tls_config
 mode = get_tls_config()["mode"]
 print(mode if mode != "off" else "", end="")
@@ -1054,66 +1098,12 @@ do_update() {
 
     cd "$INSTALL_DIR"
 
-    info "Проверяю обновления..."
-    git fetch --quiet origin
-
-    LOCAL=$(git rev-parse HEAD)
-    REMOTE=$(git rev-parse "origin/$BRANCH" 2>/dev/null || git rev-parse origin/main)
-
-    if [[ "$LOCAL" == "$REMOTE" ]]; then
-        ok "Уже установлена последняя версия ($(git rev-parse --short HEAD))"
-        return
+    info "Проверяю подписанные релизы..."
+    if [[ ! -f "core/update/release_verify.py" ]]; then
+        err "В этой установке нет проверки подписи релизов. Сначала установите версию с поддержкой подписанных обновлений."
+        return 1
     fi
-
-    echo
-    echo -e "${YELLOW}Доступны обновления:${NC}"
-    git log --oneline --no-decorate "$LOCAL..$REMOTE"
-    echo
-    ask "Обновить сейчас? [Y/n]: " ans "Y"
-    [[ "${ans,,}" == "y" ]] || { info "Отмена."; return; }
-
-    info "Обновляю код..."
-    # Стэш нужен только на время pull/reset. Запоминаем: создали ли МЫ
-    # новый стэш (refs/stash появился/сменился) — чтобы после обновления
-    # вернуть правки, а не терять их молча в stash list.
-    local stash_before stash_after
-    stash_before=$(git rev-parse -q --verify refs/stash 2>/dev/null || true)
-    git stash push -u -m "bot4vps-manager-auto" 2>/dev/null || true
-    stash_after=$(git rev-parse -q --verify refs/stash 2>/dev/null || true)
-
-    if ! git pull --ff-only origin "$BRANCH"; then
-        warn "Fast-forward не удался. Пробую reset --hard..."
-        git reset --hard "origin/$BRANCH"
-    fi
-
-    if [[ -n "$stash_after" && "$stash_after" != "$stash_before" ]]; then
-        if ! git stash pop; then
-            warn "Локальные правки конфликтуют с обновлённым кодом и не"
-            warn "возвращены автоматически. Они целы в стэше:"
-            warn "  git -C $INSTALL_DIR stash list / git stash pop"
-        fi
-    fi
-
-    info "Обновляю зависимости..."
-    # shellcheck disable=SC1091
-    source venv/bin/activate
-    pip install -q --upgrade pip
-    pip install -q -r requirements.txt
-
-    if systemctl is-enabled --quiet ${SERVICE_NAME}.service 2>/dev/null; then
-        info "Перезапускаю сервис..."
-        systemctl restart ${SERVICE_NAME}.service
-        sleep 2
-        if systemctl is-active --quiet ${SERVICE_NAME}.service; then
-            ok "Сервис перезапущен"
-        else
-            err "Сервис не поднялся. Смотрите: journalctl -u ${SERVICE_NAME} -n 50"
-        fi
-    else
-        warn "Сервис не включён в автозагрузку"
-    fi
-
-    ok "Обновление завершено → $(git rev-parse --short HEAD)"
+    app_python -m core.update
 }
 
 # ─────────────────────────────────────────────
@@ -1138,6 +1128,15 @@ get_installed_web_port() {
 close_web_port() {
     local port="$1"
     local handled=0
+
+    if [[ -d "$INSTALL_DIR/data/runtime" ]]; then
+        app_python - "$port" <<'PY'
+import sys
+from core.local_privileges import request
+request("firewall.web", port=int(sys.argv[1]), opening=False)
+PY
+        return
+    fi
 
     if command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -qE '^Status:.*active'; then
         if ufw delete allow "${port}/tcp" >/dev/null 2>&1; then
@@ -1229,6 +1228,7 @@ do_remove() {
     fi
 
     systemctl disable --now ${SERVICE_NAME}.service 2>/dev/null || true
+    systemctl stop bot4vps-helper.service 2>/dev/null || true
     rm -f /etc/systemd/system/${SERVICE_NAME}.service
     rm -f /usr/local/bin/${SERVICE_NAME}
     # Drop-in с кодом первичной установки не должен переживать удаление
@@ -1276,20 +1276,12 @@ do_status() {
     cd "$INSTALL_DIR"
     echo -e "${BOLD}Bot4VPS${NC}"
     echo "  Путь:     $INSTALL_DIR"
-    echo "  Версия:   $(git rev-parse --short HEAD) ($(git log -1 --format=%s))"
+    echo "  Версия:   $("${INSTALL_DIR}/venv/bin/python" -c 'from core.version import APP_VERSION; print(APP_VERSION)')"
     echo "  Режим:    $(get_mode)"
     echo "  Сервис:   $(systemctl is-active ${SERVICE_NAME}.service 2>/dev/null || echo 'нет юнита')"
     echo
 
-    git fetch --quiet origin 2>/dev/null || true
-    LOCAL=$(git rev-parse HEAD)
-    REMOTE=$(git rev-parse "origin/$BRANCH" 2>/dev/null || echo "$LOCAL")
-    if [[ "$LOCAL" == "$REMOTE" ]]; then
-        ok "Обновлений нет"
-    else
-        warn "Доступны обновления ($(git rev-list --count HEAD.."origin/$BRANCH") коммитов)"
-        echo "  Запустите: $0 update"
-    fi
+    app_python -m core.update --check || warn "Не удалось проверить подписанные обновления"
 }
 
 # ─────────────────────────────────────────────

@@ -60,6 +60,15 @@ def setup_code_state() -> dict:
     попадает в процесс только при старте с существующим drop-in, а
     легитимное удаление кода чистит env в этом же процессе.
     """
+    from core.local_privileges import separated, request
+    if separated():
+        result = request("setup.code", action="read")
+        if result is None or not result.get("code"):
+            return {"code": None, "expired": False, "age": None, "ttl_left": None, "source": None}
+        age = max(0.0, time.time() - result["mtime"])
+        expired = age > SETUP_CODE_TTL_SECONDS
+        return {"code": None if expired else result["code"], "expired": expired,
+                "age": age, "ttl_left": None if expired else max(0.0, SETUP_CODE_TTL_SECONDS - age), "source": "file"}
     try:
         text = DROPIN_FILE.read_text(encoding="utf-8")
         mtime = DROPIN_FILE.stat().st_mtime
@@ -117,6 +126,10 @@ def write_setup_code(code: str) -> None:
     code = (code or "").strip()
     if not code or any(ch.isspace() for ch in code):
         raise ValueError("Код установки не может быть пустым или содержать пробелы")
+    from core.local_privileges import separated, request
+    if separated():
+        request("setup.code", action="write", code=code)
+        return
     DROPIN_DIR.mkdir(parents=True, exist_ok=True)
     tmp = DROPIN_FILE.with_name(DROPIN_FILE.name + ".tmp")
     tmp.write_text(
@@ -136,6 +149,11 @@ def remove_setup_code() -> None:
     Вызывающая сторона (Web после создания админа) ничего больше не
     чистит — состояние мастера вычисляется по факту (код есть/нет).
     """
+    from core.local_privileges import separated, request
+    if separated():
+        request("setup.code", action="remove")
+        os.environ.pop(ENV_VAR, None)
+        return
     try:
         DROPIN_FILE.unlink(missing_ok=True)
     except OSError as e:

@@ -5,8 +5,8 @@
 «нажми сюда». Это карта кода для того, кто собирается менять ядро: где какой модуль
 живёт, кто кем владеет, какие потоки данных существуют и какие решения приняты осознанно.
 
-Документ написан по фактическому коду. Привязка: **версия 6.3.1** (`core/version.py`),
-срез 2026-11-06. При заметных изменениях ядра обновляйте соответствующие разделы —
+Документ написан по фактическому коду. Привязка: **версия 7.0.0** (`core/version.py`),
+срез 2026-11-12. При заметных изменениях ядра обновляйте соответствующие разделы —
 сильнее всего устаревают числа (интервалы, лимиты) и состав таблиц БД.
 
 ---
@@ -16,11 +16,14 @@
 ```text
 Пользователь
 │
-├── Web UI (ui/web)          FastAPI + SPA без сборщика, REST /api/* + SSE;
-│                            отдельный защищённый справочник GET /faq
-├── Telegram (ui/telegram)   python-telegram-bot, кнопки + текст
-└── CLI (ui/cli)             локальное меню, /usr/local/bin/bot4vps
-        │
+├── Android / Bot4VPS Mobile (отдельный репозиторий, часть проекта)
+│      └── HTTPS/WSS :8444 → ApiOnlyApp (TLS pin, ключ и сессия телефона)
+│                                └── разрешённые общие FastAPI /api/*
+├── Web UI (ui/web) → FastAPI :8080 (HTTP/HTTPS, cookie + 2FA)
+│                     SPA, REST /api/*, SSE, WSS/WS, защищённый GET /faq
+├── Telegram (ui/telegram) → python-telegram-bot, кнопки + текст
+└── CLI (ui/cli) → локальное меню, /usr/local/bin/bot4vps
+        │  серверные интерфейсы и общий runtime от пользователя bot4vps
         ▼
 ┌───────────────────────────── core/ ──────────────────────────────┐
 │  servers / ssh          модель сервера, paramiko, TOFU host keys │
@@ -48,17 +51,37 @@
                              notification_queue.json
 ```
 
-Три интерфейса — тонкие слои над одним `core/`. Ядро не знает ни про Telegram,
-ни про Web: доставка уведомлений отвязана через реестр нотификаторов
-(`core/event_service.py::register_notifier`), регистрируемый при старте бота.
+Четыре интерфейса используют один `core/` и общие серверные данные. Android
+вынесен в отдельный репозиторий для разработки и выпуска APK, оставаясь частью
+Bot4VPS. `core/mobile_release.py` обновляет выдаваемый APK из `Bot4VPS-Mobile/main/apk`
+в `data/mobile-release/`, а серверная часть
+Mobile API находится в `ui/web/_internal/device_access/` и
+`core/_internal/device_access/`. Android не обращается к SSH или JSON сервера напрямую.
+
+Локальные привилегированные действия образуют отдельную границу:
+
+```text
+Core / серверные UI (bot4vps)
+    → core/local_privileges.py
+    → /run/bot4vps-helper/control.sock (JSON, Unix peer credentials)
+    → bot4vps-helper.service (root, код /usr/lib/bot4vps-helper)
+    → фиксированные операции над unit, firewall, кодом/venv и восстановлением
+      защищённое состояние /var/lib/bot4vps-helper
+```
+
+Это локальная граница прав. На управляемом сервере SSH и удалённый sudo используют
+учётную запись из его настроек. Доставка уведомлений отвязана от интерфейса через
+реестр нотификаторов (`core/event_service.py::register_notifier`).
 
 ---
 
-## 2. Три входа, один lifecycle
+## 2. Серверные входы, Mobile API и lifecycle
 
 | Вход | Что это | Кто поднимает |
 |---|---|---|
 | **uvicorn (основной)** | `ui.web.app:app`, FastAPI (`ui/web/app.py`): SPA на `/`, REST `/api/*`, SSE и отдельный защищённый справочник `GET /faq` (`ui/web/faq.html`, без загрузки SPA). Порт 8080 из systemd-юнита | `bot4vps.service`: `ExecStart=.../venv/bin/python -m uvicorn ui.web.app:app --host 0.0.0.0 --port 8080`. **Telegram-бот запускается внутри веб-процесса** (`bot.start_telegram()` в lifespan) |
+| **Mobile API** | Включаемый HTTPS listener `ui/web/_internal/device_access/listener.py`, по умолчанию порт 8444, обёртка `ApiOnlyApp` вокруг того же FastAPI | `boot_mobile_api()` в Web lifespan; отдельный socket, без повторного startup (`lifespan=off`), остановка через `stop_mobile_api()` |
+| **Root-помощник** | Независимый локальный IPC-демон, системный Python с `-I` | отдельный `bot4vps-helper.service`; живёт отдельно от основного Web/TG-процесса |
 | **bot.py (Telegram-only)** | чистый PTB `run_polling()`, для инсталляций без Web | свой юнит с `ExecStart=... python bot.py` (вариант в `install.sh`) |
 | **CLI** | `python -m ui.cli` → меню | команда `/usr/local/bin/bot4vps`; самопроверяется при старте любого из входов (`ui/cli/bootstrap.py::ensure_cli_command`) |
 
@@ -80,34 +103,166 @@
 Важно не путать: `CoreJobQueue` — **не** очередь пользовательских операций.
 Пользовательские операции — `core/task_manager.py` (раздел 4).
 
+### 2.1. Владение Mobile API
+
+Android — внешний клиент, а Mobile API — дополнительный серверный вход общего
+Web-процесса. Telegram-only и CLI сами этот listener не запускают. Web lifespan
+вызывает `boot_mobile_api()` после старта общего runtime и `stop_mobile_api()`
+при остановке; выключение Telegram не выключает Mobile API.
+
+`runtime.py::apply_mobile_settings()` меняет listener без рестарта Web:
+подготавливает TLS, запускает сокет, синхронизирует локальный firewall через
+root-помощник и сохраняет конфигурацию. При сбое закрывает новый сокет и
+пытается вернуть прежний listener/правила. Объект `mobile_api_lock` сериализует
+изменения. Настройки, работающий listener и последняя ошибка — разные состояния;
+UI показывает фактическое состояние, а не только флаг в config.
+
+### 2.2. HTTPS, привязка и сессия телефона
+
+`ui/web/_internal/device_access/listener.py::ApiOnlyApp`
+слушает отдельный HTTPS-порт (по умолчанию 8444) внутри того же lifespan.
+Он фильтрует маршруты и передаёт разрешённые запросы общему FastAPI;
+HTML, статика, Web-логин, смена пароля/2FA, первичная настройка и управление
+устройствами на этом сокете недоступны. `/api/mobile/pair` регистрирует
+P-256 ключ телефона по одноразовому коду (10 минут). Challenge (30 секунд)
+проверяет ECDSA-подпись и выдаёт сессию (15 минут), передаваемую в
+`X-Bot4VPS-Mobile-Session`; в памяти сервера хранится хеш токена.
+После проверки шлюз устанавливает `VerifiedMobileDevice` в ASGI state.
+`require_auth`, `/api/me` и WS-терминал доверяют этому серверному результату;
+Web-cookie или заголовок `X-Bot4VPS-Client` его не заменяют. Отзыв проверяется
+во время длинных запросов и WS (каждые 2 секунды). WS также ограничен сроком
+подтверждённой сессии: Android заранее присылает новую сессию сообщением
+`mobile_session`, шлюз проверяет токен и тот же ID телефона, а сообщение
+не попадает в SSH-ввод. Продление сохраняет соединение и PTY. Истечение
+срока без продления или неверная сессия закрывают WS с кодом 4401.
+Обычная ротация HTTP-токена не продлевает WS: его первоначально
+подтверждённый срок сохраняется до явного продления на этом соединении.
+Сессии сбрасываются при перезапуске. Android закрепляет SHA-256 публичного ключа
+сертификата (SPKI pin) за конкретным HTTPS origin из приглашения и проверяет
+срок сертификата. Редиректы запрещены;
+чужой сертификат не принимается даже с подписью публичного CA.
+Автоматический локальный сертификат из `identity.py` работает без публичного CA,
+домена и Let's Encrypt; можно задать свою пару `cert_path`/`key_path`.
+TLS-ключ и сертификат находятся в `data/mobile-api/`, открытые ключи устройств —
+в `data/mobile_devices.json`. Перевыпуск сертификата с прежним ключом сохраняет
+pin; смена самого ключа требует новой привязки. Потеря ключа при сохранившемся
+сертификате вызывает отказ вместо незаметной генерации другой идентичности.
+Web может оставаться на HTTP; отключение его TLS или смена Web-порта не меняют API.
+
+Просмотр мастер-ключа использует отдельные `/api/masterkey/phone/…` маршруты
+с проверенной сессией телефона. С выключенной защитой API проверяет пароль
+администратора и TOTP либо Telegram-код. PIN/биометрия открывают зашифрованный
+ключ операции; сервер проверяет его подпись и подпись отдельного ключа
+Android Keystore над одноразовым challenge. Первая регистрация этих ключей
+требует также подпись ключа привязки. На сервере хранятся только открытые
+ключи; флаги интерфейса не разрешают выдачу. Подтверждения ограничены сроком,
+телефоном и назначением, повторное использование запрещено. Аудит просмотра
+использует `secret.masterkey_view`, источник `phone` и результат без секретов.
+
+Поток первичного подключения и обычного запроса:
+
+```text
+Web: администратор → /api/settings/mobile-access/pair
+                    → одноразовое приглашение {HTTPS URL, code, server_pin}
+Android: приглашение → проверка TLS pin → POST /api/mobile/pair + открытый ключ P-256
+                    → POST /api/mobile/challenge → подпись ключом телефона
+                    → POST /api/mobile/handshake → короткая сессия
+Android: REST / SSE / WSS + X-Bot4VPS-Mobile-Session
+                    → ApiOnlyApp: маршрут, TLS, сессия и отзыв устройства
+                    → VerifiedMobileDevice → общие FastAPI-роутеры → Core
+```
+
+Создание приглашений, настройки API и отзыв устройств доступны только через
+аутентифицированный Web (`ui/web/routers/mobile_access.py`), а протокол привязки
+обрабатывается самим шлюзом. На основном Web-сокете заголовок мобильной сессии
+не заменяет Web-авторизацию. `X-Bot4VPS-Client` используется для атрибуции, но
+не подтверждает устройство.
+
 ---
 
 ## 3. Слои и направление зависимостей
 
 ```text
-ui/web, ui/telegram, ui/cli   →   core   ←   services/* (docker, wireguard, 3x-ui)
+Android: Compose UI → ViewModel → Repository → Retrofit/OkHttp
+                                              │ HTTPS / SSE / WSS
+                                              ▼
+                      Mobile gateway ──┐
+Web SPA ───────────────────────────────┴─→ общие FastAPI-роутеры
+                                                │
+Telegram / CLI ──────────────────────────────────┤
+                                                ▼
+                                              core/ ← services/*
+                                                │
+                ┌───────────────────────────────┼─────────────────────┐
+                ▼                               ▼                     ▼
+         JSON / SQLite                  SSH / SFTP             local_privileges
+         рабочие данные                 удалённый сервер       │ Unix IPC
+                                                               ▼
+                                                        root-помощник
+                                                        локальная ОС/код
 ```
 
-- `core` **никогда не импортирует** `ui.*` и `services.*`. Обратная связь —
-  реестры и колбэки (нотификаторы событий, `set_delivery_bot`).
-- `services/<id>/` — самоописываемые модули: манифест `service.json` + класс сервиса,
-  наследующий `core.integrator.Service`. Ядро находит их сканом каталога и импортирует
-  лениво, при первом действии. Зависимости строго однонаправленные.
-- Рудимент, о котором надо знать: корневой `state.py` — глобальные dict'ы FSM
-  Telegram-визардов (`ADD_SERVER_STATE` и т.п.). Новые многошаговые TG-флоу
-  традиционно заводят запись там.
+- **Клиентский слой Android** содержит экраны, модели состояния, репозитории,
+  локальные предпочтения и транспорт. Собственный PIN/биометрия защищают телефон;
+  серверные разрешения устанавливаются протоколом привязки и проверенной сессией.
+  Например, скрытие группы — предпочтение телефона, а `ssl_monitor` — общая
+  серверная настройка. Они сохраняются независимо и не подменяют друг друга.
+- **Транспорт и авторизация** принадлежат серверному UI: Web security проверяет
+  cookie/2FA, Mobile gateway — ключ устройства и сессию. Шлюз устанавливает
+  `VerifiedMobileDevice` в ASGI state до входа в общий обработчик. Роутеры
+  используют Core для операций; отдельного мобильного ядра и копии REST API нет.
+- **Core** владеет данными, очередью, фоновыми задачами, аудитом и событиями.
+  Основные зависимости направлены от UI к Core; обратная связь — реестры и
+  колбэки (нотификаторы, `set_delivery_bot`). Есть legacy-исключение:
+  `core/update/__main__.py` лениво вызывает `ui.cli.ops.update_install`.
+- **services/<id>/** — манифест `service.json` и реализация `core.integrator.Service`.
+  `core.integrator` сканирует каталог и лениво импортирует реализацию при действии.
+- **Привилегированный слой** отделён IPC, а не обычным импортом в Web.
+  Root-помощник не импортирует приложение или его venv; клиент проверяет UID 0
+  помощника, помощник проверяет реальный UID клиента. Неизвестные операции и
+  поля отвергаются. Подробности — ниже.
+- Корневой `state.py` остаётся хранилищем dict FSM Telegram-визардов
+  (`ADD_SERVER_STATE` и т.п.).
+
+### 3.1. Исходники помощника и граница root
+
+| Код / путь | Роль |
+|---|---|
+| `core/local_privileges.py` | Клиент IPC: `request()`, `systemctl()`, `configure_unit()`, `launch_task()` |
+| `core/migration/privilege_migration.py` | Включение разделения прав при установке/обновлении |
+| `core/migration/privileged/install.py` | Канонический установщик/миграция: пользователь, пути данных, helper, unit, health и возврат при сбое |
+| `core/migration/privileged/daemon.py`, `protocol.py` | Реализация root-демона, закрытая схема операций, проверки и сериализация мутаций |
+| `core/migration/privileged/update_worker.py`, `code_snapshots.py`, `regression.py` | Подписанное обновление, защищённые снимки кода и обратная миграция при откате ниже 7.0 |
+| `/usr/lib/bot4vps-helper/` | Установленная независимая root-owned копия помощника; системный Python с `-I` |
+| `/var/lib/bot4vps-helper/` | Защищённые журналы, staging обновлений, снимки кода и восстановления |
+
+Приложение и CLI работают от `bot4vps`. Код, venv, launcher и системные unit
+недоступны этому пользователю для записи; рабочие JSON находятся в `data/runtime/`,
+прежние корневые пути сохранены ссылками. IPC не предоставляет произвольный shell
+или произвольный `ExecStart`: unit реконструируется по фиксированной схеме с
+`User=bot4vps`. Примеры разрешённых операций: `service.control`, `unit.configure`,
+`firewall.sync`, `tls.certbot`, `task.launch`, `update.install`, `code.restore`.
+
+Помощник сохраняет защищённый журнал до системных мутаций, проверяет аргументы
+самостоятельно и выполняет recovery после прерывания. Для изменений предусмотрен
+root-owned flock; синхронизация Mobile API firewall и чтения имеют отдельные
+блокировки, чтобы startup/shutdown не взаимоблокировались с обновлением.
+Полная процедура установки, отката и восстановления описана в
+[root-separation.md](root-separation.md); для ручного переноса кода с 6.5 начните
+с [пошаговой инструкции миграции](root-separation.md#ручной-переход-с-65-на-70).
 
 ---
 
 ## 4. Поток операции (главный поток продукта)
 
-Пример: пользователь в Web жмёт «запустить скрипт».
+Пример: пользователь в Android или Web жмёт «запустить скрипт».
 
 ```text
 Пользователь
-   │  кнопка в Web / Telegram
+   │  Android: HTTPS → Mobile gateway → проверенный телефон
+   │  Web: проверенная cookie-сессия; Telegram: allowed_users
    ▼
-Web: POST /api/tasks/enqueue (ui/web/routers/tasks.py)   │  TG: task_ui / handlers
+Android/Web: POST /api/tasks/enqueue (ui/web/routers/tasks.py) │ TG: task_ui / handlers
    └───────────────────┬──────────────────────────────────┘
                        ▼
      core/task_manager.py :: enqueue()
@@ -131,7 +286,7 @@ Web: POST /api/tasks/enqueue (ui/web/routers/tasks.py)   │  TG: task_ui / hand
      │                          op_id = "task-<id>", актор — из снимка задачи
      ├── operation_metrics ───► сэмплы source="operation" + монотонный пик
      ├── events/task_history ► logs/events/<id>.json, logs/tasks/<id>.json
-     └── live-вывод ──────────► подписчикам (TG live, Web-стрим)
+     └── live-вывод ──────────► подписчикам (TG live, Web/Android-стрим)
 ```
 
 Детали, которые чаще всего surprise'ят при чтении кода:
@@ -157,6 +312,47 @@ Web: POST /api/tasks/enqueue (ui/web/routers/tasks.py)   │  TG: task_ui / hand
   чистый ТГ, CLI) видят согласованное состояние.
 - Прямые операции без очереди тоже существуют: `integrator.call()` (диагностика)
   и reboot — они сами строят пару аудита и включают собственные метрики.
+
+### 4.1. Android и общие операции
+
+После проверки шлюза Android попадает в те же роутеры и очередь, что Web.
+Актор помечается источником `phone`; аудит и история остаются общими.
+Вывод задач доставляется через общие потоки, терминал — через WSS с продлением
+мобильной сессии (раздел 2.2). Отключение экрана не отменяет серверную задачу.
+
+**Android-проверки серверов.** `DashboardViewModel` получает TCP-пинг карточек
+через GET `/api/servers/{id}/ping` отдельно от SSH-метрик. Экран
+«Сервисы → Проверки серверов» вызывает POST `/api/monitor/check/online`
+или `/api/monitor/check/ssl` через общий Mobile API. `ServerChecksController`
+сохраняет независимые результаты вкладок, не допускает повторный запрос
+той же проверки до завершения и оставляет прежний результат при ошибке.
+Протяжка вызывает только GET снимка. Время ручных запусков обеих вкладок,
+последние задержки и методы проб хранятся в `data/monitor_checks.json` через
+JsonDocumentStore, поэтому восстанавливаются после перезапуска сервера;
+текущая доступность и SSL-статусы читаются из monitor.json.
+
+### 4.2. Локальная системная операция
+
+Обновление Bot4VPS, изменение Web-порта/HTTPS и self-restore затрагивают
+саму установку. Они используют собственный lifecycle с состоянием и health,
+а не SSH-очередь удалённого сервера:
+
+```text
+Android/Web/CLI → проверка доступа и подтверждений → профильный Core-модуль
+    → состояние операции и аудит
+    → core/local_privileges → Unix-сокет → root-помощник
+    → проверка схемы/аргументов, журнал и защищённый снимок
+    → фиксированный отдельный исполнитель (переживает рестарт основного сервиса)
+    → системные изменения → restart → health
+    → успех / откат → startup-reconcile → итоговый аудит и состояние для UI
+```
+
+Для обновления helper независимо проверяет подпись и архив релиза, защищает
+staging и заменяет код/venv. Для Web-порта/HTTPS он изменяет фиксированный unit;
+исполнитель сверяет health и при ошибке возвращает транспорт. Self-restore
+распаковывает рабочие данные без root, а код восстанавливает только из доверенного
+защищённого снимка (раздел 8). Синхронный IPC, SSH и файловые операции вызываются
+через `asyncio.to_thread`/контекстные обёртки и не блокируют event loop.
 
 ---
 
@@ -211,15 +407,18 @@ Web: POST /api/tasks/enqueue (ui/web/routers/tasks.py)   │  TG: task_ui / hand
 | Хранилище | Формат | Содержимое / ретенция |
 |---|---|---|
 | `data/state.db` | sqlite, WAL, `SCHEMA_VERSION = 7`, миграции только вперёд/аддитивные | `metric_samples` (90 дней), `metric_disks`, `metric_hourly` (24 мес), `operation_metric_peaks(+_disks)`, `audit_records` (append-only, бессрочно), `audit_operations/members/keys` (проекция), `availability_transitions`. Писателей **три процесса** — WAL + busy_timeout 5000 |
-| `servers.json` | JSON-документ под flock (`core/storage.py`), 0600 | записи серверов: подключение, `password` в `enc1:`, `host_key` (TOFU), SSL-настройки, профиль бэкапа. Ротации `backup/servers_*.json` |
+| `servers.json` | ссылка на `data/runtime/servers.json`, JSON под flock (`core/storage.py`), 0600 | записи серверов: подключение, `password` в `enc1:`, `host_key` (TOFU), SSL-настройки, профиль бэкапа. Ротации `data/config-backup/servers_*.json` |
 | `monitor.json` | JSON под reentrant flock + threading-локом, атомарная запись | последний статус сервера: availability, certificate, system |
 | `logs/events/<id>.json` | JsonItemStore (файл на запись) | журнал событий, лимит default 200 |
 | `logs/tasks/<id>.json` | JsonItemStore | терминальная история задач, приватные параметры и результат в enc1:, лимит default 100 |
 | `logs/notification_queue.json` | JsonDocumentStore | pendings доставки, lease TTL 5 мин; `notification_state.json` — last_reported по серверам, live-сообщения |
-| `config.json` | атомарная патч-запись, RMW под reentrant flock + threading-локом, 0600 | настройки; секреты (`bot_token`, `totp_secret`, пароль бэкапов) в `enc1:` |
+| `config.json` | ссылка на `data/runtime/config.json`, атомарный RMW под reentrant flock + threading-локом, 0600 | настройки; секреты (`bot_token`, `totp_secret`, пароль бэкапов) в `enc1:`; история в `data/config-backup/` |
 | `data/services/<svc>/<server>.json` | кэш сервисов | результат `services_sync`; читают UI, пишут integrator |
+| `data/mobile_devices.json`, `data/mobile-api/` | atomic JSON + TLS PEM | Привязанные открытые ключи телефонов и постоянная TLS-идентичность API; приватные ключи устройств остаются в Android Keystore |
+| `data/mobile-release/` | атомарный каталог выдачи APK | один Bot4VPS-Mobile.apk, метаданные и состояние проверки из Bot4VPS-Mobile; независим от версии сервиса и TLS Mobile API |
 | `data/update/state.json`, `data/web_tls.json`, `data/web_port.json` | state-файлы раннеров | статус долгих переходных операций (см. раздел 12) |
-| `/var/backups/bot4vps` | архивы | бэкапы (manifest v2, B4VE-шифрование); не может лежать внутри каталога установки |
+| `/var/lib/bot4vps-helper/` | root-owned журналы и снимки | staging обновлений, защищённые копии кода, владение локальными firewall-правилами, миграция и recovery; приложение не пишет сюда напрямую |
+| `/var/backups/bot4vps` | архивы | серверные копии TAR/manifest v1/v2; новые собственные копии B4VS/TAR/manifest v3; опциональное B4VE-шифрование для обоих типов; каталог вне установки |
 
 Общая механика JSON-сторов — `core/json_store.py`: sidecar flock + атомарная запись
 (tmp + `os.replace` + fsync файла и каталога), повреждённый файл уходит в карантин
@@ -254,25 +453,35 @@ Web: POST /api/tasks/enqueue (ui/web/routers/tasks.py)   │  TG: task_ui / hand
    → admission: место на диске, лимит архива, источники (корень минус /proc /sys /dev /run)
    → пароль: явный → сохранённый (enc1: из config) → None
        автоматика без пароля → plain-архив + warning (отсутствующий бэкап хуже)
-   → snapshot state.db консистентным VACUUM INTO (метрики в архив НЕ входят)
-   → tar.gz → B4VE: AES-256-GCM, ключ scrypt (N=2^14), чанки 4 МиБ,
+   → для собственной копии: snapshot аудита state.db, метрики в архив НЕ входят
+   → сервер: tar.gz + manifest v2 (v1 при неизвестном UTC-offset)
+   → Bot4VPS: tar.gz + manifest v3 → обязательный контейнер B4VS v1
+   → опциональное B4VE: AES-256-GCM, ключ scrypt (N=2^14), чанки 4 МиБ,
      AAD = заголовок + номер чанка + last-флаг (защита от склейки/обрезки)
-   → /var/backups/bot4vps + manifest v2 + инвентаризация (фоновый индексатор)
+   → /var/backups/bot4vps + инвентаризация
 
 restore
-   → ранний verify_password: расшифровка только первого куска,
-     ДО регистрации Operation → неверный пароль не оставляет следов в истории
    → идемпотентность по request_id, consent-проверка
-   → защитная копия затрагиваемых путей (purpose=protective)
+   → B4VE: полная расшифровка в staging до регистрации Restore Operation
+   → общий адаптер обычного TAR и внутреннего TAR контейнера B4VS
+   → полный план, effective selection, сверка prepared contract и preflight
+   → защитная копия (purpose=regular, mode=manual)
    → apply=False: стадия prepared, мутаций нет
    → apply=True: preflight → mutation boundary (отмена запрещена) →
      tar apply (удалённо по SSH или локально) → verify
 
 self-restore (восстановление самой панели)
-   → раннер вне процесса: systemd-run --scope (иначе KillMode=mixed убьёт его
-     при stop сервиса) + go-файл как атомарная граница мутации
-   → runner на чистом stdlib: stop → уборка -wal/-shm спутников БД →
-     extract → pip install (если requirements изменился) → start → health
+   → приватный снимок под source read-lock и checksum
+   → перед prepare и заново apply: APP_VERSION из core/version.py всего архива
+     в установке 7.0+ архив <7.0 или с неизвестной версией запрещён,
+     включая выбор только данных; отказ до защитной копии и остановки службы
+   → effective selection и prepared digest/bytes всего архива
+   → внутренний TAR в shared staging, повторная проверка версии байтов раннера
+   → прежние проверки helper: доверенный код, unit, допустимые рабочие данные
+   → helper запускает отдельный transient unit от bot4vps, вне cgroup панели,
+     чтобы пережить stop сервиса; go-файл — атомарная граница мутации
+   → runner: stop → уборка -wal/-shm спутников БД → данные от bot4vps →
+     доверенный код/unit/зависимости через helper → start → health
    → на старте панели reconcile_self_restores усыновляет/финализирует брошенное
 ```
 
@@ -280,9 +489,16 @@ self-restore (восстановление самой панели)
   (targets/artifacts/retention/operations/imports), ни одно действие без Permit.
 - Имена БД и её спутников backup-слой берёт у владельца схемы (`core/state_db`),
   не дублирует строки.
-- Telegram — read-only клиент бэкапов: зашифрованные архивы и merge/full-restore
-  в TG недоступны by design (пароль в чат не вводим); проба Web делается локальным
+- Telegram поддерживает создание серверной копии по профилю и полное
+  восстановление доступного архива. Зашифрованные архивы и выбор отдельных
+  путей восстанавливаются через Web; пароль в чат не вводится. Проба Web делается локальным
   HTTP-запросом к порту из systemd-юнита.
+- Серверные копии сохраняют прежнюю совместимость. Обычные старые TAR-копии
+  самой Bot4VPS допускаются в 7.0+ при подтверждённой версии кода 7.0+ и не
+  конвертируются автоматически. Новые собственные копии в B4VS старые ядра
+  отвергают до распаковки, в том числе после расшифровки и переименования.
+  Для архива ниже 7.0 сначала нужен штатный откат до совместимой версии, затем
+  restore. Ручная пересборка архива не входит в защиту контейнера.
 - Планировщик (`AutomaticBackupScheduler`): poll 30 c, claim-записи гарантируют
   ровно один запуск на суточный occurrence, воркеры сериализованы.
 - Глубокое погружение в backup — модель безопасности, границы доверия, полный
@@ -337,13 +553,55 @@ self-restore (восстановление самой панели)
 
 ## 11. Updates и HTTPS панели
 
-**Updates (`core/update/`).** main-ветка — единственный источник проверки и обычного
-обновления; GitHub Releases — только источник конкретной версии при откате
-(rollback ≥ 3.0.0). Установка: main- tarball → раннер **вне процесса**
-(`systemd-run --scope`) → бэкап кода → swap → pip при изменении requirements →
+**Updates (`core/update/`).** Для целевой версии 7.0 и новее обновление и
+ручной откат требуют подписанного GitHub Release. Описание фиксирует версию, тег, commit SHA, размер и SHA256
+архива; Ed25519-подпись проверяется ключом из текущей установки, также
+повторно отдельным проверяющим рядом с раннером. Неподписанный main-tarball
+не используется. Установка: проверка подписи → загрузка и сверка размера/хеша →
+сверка ревизии и версии исходников → защищённый root-исполнитель **в отдельном
+transient unit**, запущенном помощником → бэкап кода → swap → pip при изменении requirements →
 restart → health по ожидаемой версии → при провале health **авто-откат кода**.
+Откат на версию ниже 7.0 разрешает неподписанный архив фиксированного
+GitHub-репозитория по HTTPS: root-исполнитель сам разрешает опубликованный
+тег в коммит. `core/migration/privileged/regression.py` возвращает root-unit
+и прежние пути данных; защищённый полный снимок runtime и журнал восстанавливают
+7.0 при ошибке или прерывании. Цель 7.0+ не использует это исключение.
 Аудит-пара started→finished переживает рестарт через снимок `audit_op` в
 `data/update/state.json`; `init_on_startup` закрывает брошенные состояния.
+
+**APK приложения (`core/mobile_release.py`).** Фиксированный источник —
+`https://api.github.com/repos/crashdmd/Bot4VPS-Mobile/contents/apk/release.json?ref=main`.
+GitHub Contents API возвращает исходные файлы по `Accept: application/vnd.github.raw+json`.
+Имя APK выводится из проверенной версии, URL из метаданных не используется.
+Загрузка по HTTPS ограничена тем же каталогом и 49 MB; размер и SHA-256
+проверяются во временном файле до `os.replace` в постоянный
+`data/mobile-release/Bot4VPS-Mobile.apk`. Метаданные публикуются под короткой
+`release.lock`; `check.lock` сериализует сеть отдельно и не блокирует чтение
+текущего APK во время загрузки. Временный journal и hardlink обеспечивают откат
+ошибки публикации и recovery перед чтением после прерывания. После успеха
+предыдущий APK удалён, временные файлы очищены. `open_selected()` открывает
+проверенный inode под блокировкой до передачи в HTTP/TG: начатая передача
+может завершиться после замены файла без сохранения старой версии на диске.
+Прежний `ui/mobile/` мигрирует в данные и удаляется из сервиса.
+Версия и `versionCode` не могут понижаться; новая сборка 1.5.0 может иметь больший code.
+
+`core/update/checks.py::check_updates()` параллельно вызывает серверную проверку
+и обновление APK, возвращая отдельный `mobile_app` результат. Его используют
+Web, CLI и суточная задача; ошибка одного источника не блокирует другой.
+Роутер `ui/web/routers/mobile_app.py` читает выбранную копию, выдаёт её через Web/TG
+и предоставляет отдельный POST `/api/mobile-app/check`. GET состояния запускает первичную загрузку только при отсутствии APK; перед выдачей выполняется проверка с часовым TTL. Синхронная сеть и файловые
+операции идут через `asyncio.to_thread`. Код/`ui/` не изменяются, root не требуется.
+Android получает тот же манифест напрямую отдельным OkHttp-клиентом без сессий
+панели и перед установкой дополнительно проверяет пакет и подпись APK.
+
+**Зависимости.** `requirements.in` содержит прямые ограничения; генерируемый
+`requirements.txt` фиксирует всю транзитивную цепочку с SHA-256 и маркерами Python.
+Опциональный `requirements-certbot.txt` согласован с тем же runtime lock;
+установщик, updater и self-restore используют зафиксированный `requirements.txt`.
+См. [dependencies.md](dependencies.md).
+
+**Привилегии.** Граница root-помощника и исходники в `core/migration/privileged/` описаны в
+разделе 3.1, поток локальной системной операции — в разделе 4.2.
 
 **HTTPS панели (`core/web_tls.py`).** Режимы: off / letsencrypt / self-signed /
 custom / proxy (терминация на реверс-прокси, доверие X-Forwarded-* только
@@ -360,11 +618,14 @@ custom / proxy (терминация на реверс-прокси, довер�
 Это самый важный раздел для понимания кодовой базы — решения повторяются в разных
 подсистемах.
 
-1. **Отсоединённый раннер: `systemd-run --scope` + state.json + startup-reconcile.**
+1. **Отсоединённый раннер: отдельный systemd unit + state.json + startup-reconcile.**
    Используют `update/updater.py`, `web_tls.py`, `web_port.py`,
-   `backup/self_restore.py`. Причина: `KillMode=mixed` юнита убивает дочерние
-   процессы при stop — раннер должен переживать рестарт сервиса, которому меняет
-   код/порт/самого себя. Все раннеры stdlib-only. Брошенные состояния закрывает
+   `backup/self_restore.py`. В разделённой установке помощник запускает
+   transient service через `systemd-run --service-type=exec`: порт, TLS и
+   self-restore работают от `bot4vps`, обновление кода — в защищённом
+   root-исполнителе. Раннер находится вне cgroup основной службы и переживает
+   её stop/restart. Прежняя root-установка использует `systemd-run --scope`,
+   локальная разработка — Popen в новой сессии. Брошенные состояния закрывает
    reconcile на старте.
 2. **Systemd-юнит — источник истины о транспорте.** updater (порт/схема health),
    web_tls, web_port, TG-бэкапы читают фактические флаги из юнита, а не из config —
@@ -398,7 +659,13 @@ custom / proxy (терминация на реверс-прокси, довер�
 
 | Задача | Файлы |
 |---|---|
-| Добавить API-эндпоинт | `ui/web/routers/<область>.py` (19 роутеров), авторизация — зависимость `_AUTH` в `app.py` |
+| Добавить API-эндпоинт | `ui/web/routers/<область>.py`, авторизация — `_AUTH`/`require_auth` в `app.py` и `security.py`; для Android учитывать фильтр `ApiOnlyApp` |
+| Изменить Android UI / локальные настройки | Отдельный репозиторий Bot4VPS-Mobile: `app/src/main/java/com/bot4vps/mobile/ui/`, `data/repository/`, `data/local/`; выдача APK сервисом — `core/mobile_release.py`, `data/mobile-release/` |
+| Изменить протокол привязки / Mobile API | `ui/web/_internal/device_access/access.py`, `listener.py`, `principal.py`, `runtime.py`; Web-управление — `ui/web/routers/mobile_access.py` |
+| Изменить HTTPS приложения | `ui/web/_internal/device_access/identity.py`, `listener.py`; Android `data/api/MobilePinnedTls.kt`, `MobileAccessClient.kt`; локальный firewall — `core/_internal/device_access/firewall.py` через helper |
+| Изменить локальную привилегированную операцию | `core/local_privileges.py`, `core/migration/privileged/protocol.py`, `daemon.py`; обновить установленный helper штатной процедурой, см. [root-separation.md](root-separation.md) |
+| Вручную перевести установку 6.5 на 7.0 | [Переход и диагностика ошибок](root-separation.md#ручной-переход-с-65-на-70); установщик — `core/migration/privileged/install.py` |
+| Обновить Python-зависимости | `requirements.in`, `requirements-certbot.in`, `tools/lock_dependencies.py`, сгенерированные `requirements*.txt`; порядок и тестовый lock — `dependencies.md` |
 | Изменить пользовательский справочник | `ui/web/faq.html`, `ui/web/static/js/faq.js`; маршрут `GET /faq` в `ui/web/app.py`. Это отдельный аутентифицированный `FileResponse`, не страница SPA и не файл в `/static`; контекстные ссылки используют якорь раздела и `returnTo` с возвратом только на `/` того же origin |
 | Добавить TG-обработчик | `ui/telegram/handlers/…`, регистрация в цепочке `bot_handlers.py::button()`; состояние визарда — `state.py` |
 | Новая фоновая задача | `core/jobs_runtime.py` (CoreJobQueue) |
@@ -419,7 +686,11 @@ custom / proxy (терминация на реверс-прокси, довер�
 - новая таблица sqlite или миграция → раздел 6 и `SCHEMA_VERSION`;
 - новый job → таблица в разделе 5;
 - новый отсоединённый раннер → раздел 12.1;
-- изменился поток операции → диаграмма в разделе 4.
+- изменился поток операции → диаграммы в разделе 4;
+- изменились Mobile API, TLS/привязка или граница root → разделы 1–4 и 11,
+  README, `root-separation.md` и документация Android в его репозитории;
+- изменились Python-зависимости → исходные `.in`, сгенерированные `.txt`,
+  согласованный тестовый lock, `dependencies.md` и changelog.
 
 При ошибке OpenSSL «сертификат истёк» SSL-мониторинг сохраняет статус `expired` и создаёт событие также при первой проверке. Дату можно дочитать диагностическим TLS-соединением без верификации; такое чтение помечается `verified=false` и не означает доверия сертификату. Ошибки имени хоста и цепочки доверия остаются статусом `error`.
 

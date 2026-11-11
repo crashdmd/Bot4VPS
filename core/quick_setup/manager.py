@@ -626,15 +626,17 @@ def ssh_status(server_id: str) -> SshAccessStatus:
     return ssh_access_mod.get_status(_require_server(server_id))
 
 
-def ssh_accept_host_key(server_id: str) -> dict:
-    """Принять ТЕКУЩИЙ host key сервера (после переустановки).
+def ssh_preview_host_key(server_id: str) -> dict:
+    """Предъявленный ключ без передачи SSH-реквизитов."""
+    from core.ssh import probe_host_key
+    return probe_host_key(_require_server(server_id))
 
-    Явное административное решение: подключение без сверы, предъявленный
-    ключ принудительно перезаписывает сохранённый (событие в журнал).
-    """
+
+def ssh_accept_host_key(server_id: str, expected_fingerprint: str) -> dict:
+    """Принять ключ с подтверждённым пользователем отпечатком."""
     from core.ssh import accept_new_host_key
 
-    return accept_new_host_key(_require_server(server_id))
+    return accept_new_host_key(_require_server(server_id), expected_fingerprint)
 
 
 @audited(

@@ -311,9 +311,11 @@ class CatalogStore:
         elif not isinstance(source.get("install_path"), str) or not source["install_path"].startswith("/"):
             raise BackupError(ErrorCode.CATALOG_CONFLICT, "Некорректный source.install_path Catalog")
         manifest_version = manifest_projection.get("version")
-        if manifest_version not in {1, 2} or not isinstance(manifest_projection.get("producer_version"), str):
+        if manifest_version not in {1, 2, 3} or not isinstance(manifest_projection.get("producer_version"), str):
             raise BackupError(ErrorCode.CATALOG_CONFLICT, "Некорректная manifest projection Catalog")
-        if schema_version == 5 and manifest_version != 2:
+        if manifest_version == 3 and record.get("type") != "bot4vps":
+            raise BackupError(ErrorCode.CATALOG_CONFLICT, "Manifest v3 предназначен только для Bot4VPS")
+        if schema_version == 5 and manifest_version not in ({2, 3} if record.get("type") == "bot4vps" else {2}):
             raise BackupError(ErrorCode.CATALOG_CONFLICT, "Catalog v5 требует Manifest v2")
         if schema_version != 5 and manifest_version != 1:
             raise BackupError(ErrorCode.CATALOG_CONFLICT, "Manifest v2 требует Catalog v5")

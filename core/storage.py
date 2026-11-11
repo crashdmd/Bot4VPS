@@ -42,17 +42,12 @@ def _data_locked(fn):
             return fn(*args, **kwargs)
     return wrapped
 
-DATA_FILE = Path(
-    "servers.json"
-)
+from core.install_paths import runtime_file, runtime_backup_dir
+DATA_FILE = runtime_file("servers.json")
 
-TEMP_FILE = Path(
-    "servers.json.tmp"
-)
+TEMP_FILE = DATA_FILE.with_name("servers.json.tmp")
 
-BACKUP_DIR = Path(
-    "backup"
-)
+BACKUP_DIR = runtime_backup_dir()
 
 LATEST_BACKUP = (
     BACKUP_DIR /
@@ -466,7 +461,8 @@ def get_server_connection_snapshot(server_id: str) -> dict:
 
 
 def record_server_host_key(
-    server_id: str, record: dict, *, overwrite: bool = False
+    server_id: str, record: dict, *, overwrite: bool = False,
+    expected_target: tuple[str, int] | None = None,
 ) -> bool:
     """Записать SSH host key сервера (host key verification, 5.1).
 
@@ -481,6 +477,8 @@ def record_server_host_key(
         for server in data.get("servers", []):
             if server.get("id") != server_id:
                 continue
+            if expected_target is not None and (server.get("host"), server.get("port", 22)) != expected_target:
+                raise ValueError("Адрес или порт сервера изменился. Получите отпечаток SSH-ключа заново")
             if server.get("host_key") and not overwrite:
                 return False
             server["host_key"] = deepcopy(record)

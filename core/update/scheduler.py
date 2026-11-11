@@ -15,6 +15,7 @@ async def update_check_job(context) -> None:
     """Ежедневная проверка main; при выключенной настройке — молча пропустить."""
     from core.config import get_update_check_config
     from core.update import updater
+    from core.update.checks import check_updates
 
     if not get_update_check_config().get("enabled"):
         return
@@ -24,7 +25,7 @@ async def update_check_job(context) -> None:
         return  # не мешать идущей установке
 
     # Тихо: при отсутствии обновления пользователю ничего не показывается (ТЗ п.11)
-    await updater.check_for_update(notify=True)
+    await check_updates(notify=True)
 
 
 def schedule_update_jobs(job_queue) -> None:

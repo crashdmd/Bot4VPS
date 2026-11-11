@@ -47,15 +47,13 @@ DB_PATH = Path("data") / DB_NAME
 # Версия схемы, которую знает этот код. Поднимается вместе с новой миграцией.
 SCHEMA_VERSION = 7
 
-# Метрики не входят в архив Bot4VPS (§16.1 ТЗ). Список имён, а не «всё,
+# Периодические метрики не входят в архив Bot4VPS (§16.1 ТЗ). Список имён, а не «всё,
 # кроме audit_records»: новая таблица по умолчанию остаётся в слепке, чтобы не
 # потерять данные из-за пропущенного исключения.
 METRIC_TABLES: tuple[str, ...] = (
     "metric_samples",
     "metric_disks",
     "metric_hourly",
-    "operation_metric_peaks",
-    "operation_metric_peak_disks",
 )
 
 

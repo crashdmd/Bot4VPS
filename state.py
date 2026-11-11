@@ -1,5 +1,7 @@
 ADD_SERVER_STATE = {}
 EDIT_SERVER_STATE = {}
+# Подтверждение SSH host key: user_id → server/target/fingerprint/expires_at.
+HOST_KEY_CONFIRM_STATE = {}
 ADD_GROUP_STATE = {}
 ADD_GROUP_SSL_STATE = {}
 

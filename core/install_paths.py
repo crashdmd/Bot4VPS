@@ -8,6 +8,17 @@ DEFAULT_STORAGE_ROOT = Path("/var/backups/bot4vps")
 DEFAULT_LOCK_ROOT = Path("/run/lock/bot4vps")
 
 
+def runtime_file(name: str) -> Path:
+    """Old layouts use root JSON files; separated layouts use writable data/."""
+    directory = Path("data/runtime")
+    return directory / name if directory.is_dir() else Path(name)
+
+
+def runtime_backup_dir() -> Path:
+    # Old root updater must retain its protected backup/ paths during handoff.
+    return Path('data/config-backup') if Path('data/runtime').is_dir() else Path('backup')
+
+
 def get_install_path() -> Path:
     """Return the actual Bot4VPS installation root, independent of cwd."""
     return Path(__file__).resolve().parents[1]

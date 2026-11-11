@@ -239,7 +239,7 @@ function uptimeRu(raw) {
 /** Переиспользуем модалку добавления сервера со страницы «Серверы». */
 function bindDashAdd(box) {
   box.querySelector('[data-dash-add]')?.addEventListener('click', async () => {
-    const m = await import('./servers.js?v=20261001-mobile-charts-v1');
+    const m = await import('./servers.js?v=20261109-hostkey-v1');
     m.openAddServerModal();
   });
 }
@@ -418,7 +418,7 @@ export function stopDashMetrics() {
 
 async function openServerFromDash(id) {
   stopDashMetrics();
-  const m = await import('./servers.js?v=20261001-mobile-charts-v1');
+  const m = await import('./servers.js?v=20261109-hostkey-v1');
   setPage('servers');
   showPage('servers');
   m.openServer(id);

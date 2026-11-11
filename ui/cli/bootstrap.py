@@ -41,6 +41,13 @@ def ensure_cli_command() -> bool:
     False — если не получилось (нет прав и т.п.; вызывающий продолжает
     работу — это не критическая ошибка).
     """
+    if COMMAND_PATH == Path('/usr/local/bin/bot4vps') and INSTALL_DIR != Path('/opt/bot4vps'):
+        # A test/development checkout must never replace the installed launcher.
+        return False
+    from core.local_privileges import separated
+    if separated():
+        # Installation owns this executable; the application only checks it.
+        return COMMAND_PATH.is_file() and os.access(COMMAND_PATH, os.X_OK)
     try:
         expected = _expected_content()
         if COMMAND_PATH.is_file():

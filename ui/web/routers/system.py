@@ -659,6 +659,22 @@ _JOURNAL_IDLE = 20.0   # без новых строк — отправляем p
 
 async def _journal_stream(request: Request):
     """SSE-генератор: строки journalctl как события `line`."""
+    from core.local_privileges import separated, request as helper_request
+    if separated():
+        cursor = None
+        yield "event: hello\ndata: ok\n\n"
+        while not await request.is_disconnected():
+            try:
+                result = await asyncio.to_thread(helper_request, "journal.read", cursor=cursor)
+            except Exception as exc:
+                yield "event: fail\ndata: " + str(exc).replace("\n", " ") + "\n\n"
+                return
+            cursor = result["cursor"]
+            for line in result["lines"]:
+                yield "event: line\n" + "".join("data: " + part + "\n" for part in line.split("\n")) + "\n"
+            yield ": ping\n\n"
+            await asyncio.sleep(2)
+        return
     try:
         proc = await asyncio.create_subprocess_exec(
             *_JOURNAL_ARGV,
@@ -806,6 +822,11 @@ async def api_force_maintenance(operation_id: str):
 
 async def _request_panel_restart():
     import subprocess
+    from core.local_privileges import separated, systemctl
+    if separated():
+        result = await asyncio.to_thread(systemctl, "--no-block", "restart", "bot4vps")
+        result.check_returncode()
+        return {"ok": True, "message": "Служба bot4vps перезапускается"}
     await asyncio.to_thread(
         subprocess.run, ["systemctl", "--no-block", "restart", "bot4vps"],
         check=True, capture_output=True, timeout=5,
@@ -823,7 +844,10 @@ async def api_system_restart():
         # вместе с HTTP-запросом. --no-block возвращает после постановки job.
         return await _request_panel_restart()
     except subprocess.CalledProcessError as e:
-        return err(f"Ошибка: {e.stderr.decode('utf-8', errors='replace')}")
+        detail = e.stderr or "Не удалось перезапустить службу"
+        if isinstance(detail, bytes):
+            detail = detail.decode('utf-8', errors='replace')
+        return err(f"Ошибка: {detail}")
     except subprocess.TimeoutExpired:
         return err("Превышено время ожидания")
     except FileNotFoundError:

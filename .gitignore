@@ -14,35 +14,44 @@ venv/
 .venv/
 
 # --------------------------------------------------
-# Конфигурация
+# Конфигурация и данные (ТОЛЬКО в корне проекта — ведущий слэш,
+# иначе правило съедает одноимённые каталоги кода: так было
+# потеряно core/backup/)
 # --------------------------------------------------
 
 # Основной файл конфигурации (содержит секреты)
-config.json
+/config.json
 
-# --------------------------------------------------
-# Пользовательские данные (не входят в репозиторий)
-# --------------------------------------------------
 # Зарегистрированные серверы
-servers.json
+/servers.json
 
 # Состояние мониторинга
-monitor.json
+/monitor.json
+
+# Побочные файлы runtime JSON: резервные копии, quarantine и временные файлы
+/config.json.*
+/servers.json.*
+/monitor.json.*
+
+# Sidecar locks for runtime JSON stores
+/config.json.lock
+/servers.json.lock
+/monitor.json.lock
 
 # SSH-ключи пользователя
-keys/
+/keys/
 
 # Пользовательские скрипты
-scripts/
+/scripts/
 
-# Резервные копии
+# Резервные копии (архивы)
 /backup/
 
 # Рабочие данные
-data/
+/data/
 
 # Журналы
-logs/
+/logs/
 *.log
 
 # --------------------------------------------------
@@ -53,29 +62,14 @@ logs/
 .vscode/
 *.swp
 *.code-workspace
-# Runtime lock files
-*.json.lock
 
-# Локальная среда и архивы
-/.local-build/
+# Локальные инструменты
+.pytest_cache/
+
+# Рантайм-состояние: БД метрик и аудита (data/state.db), кэши сервисов,
+# состояние Telegram, каталоги обновления. В репозитории ему делать нечего —
+# оно у каждой машины своё и восстанавливается из бэкапа панели.
+
+# Локальные архивы и среды сборки, не входят в релиз
 /.local-archives/
-
-# Локальные файлы Android
-/ui/Bot4VPS-Mobile/.signing/
-/ui/Bot4VPS-Mobile/.build-env/
-/ui/Bot4VPS-Mobile/.gradle/
-/ui/Bot4VPS-Mobile/.kotlin/
-/ui/Bot4VPS-Mobile/.idea/
-/ui/Bot4VPS-Mobile/**/build/
-/ui/Bot4VPS-Mobile/**/__pycache__/
-/ui/Bot4VPS-Mobile/local.properties
-/ui/Bot4VPS-Mobile/**/*.iml
-/ui/Bot4VPS-Mobile/**/*.jks
-/ui/Bot4VPS-Mobile/**/*.keystore
-/ui/Bot4VPS-Mobile/**/*.apk
-
-# Рабочие заметки и отчёты
-/ui/Bot4VPS-Mobile/AGENTS.md
-/ui/Bot4VPS-Mobile/docs/session-state.md
-/ui/Bot4VPS-Mobile/docs/mapping-*-release.txt.gz
-/ui/Bot4VPS-Mobile/docs/verification-*-release.json
+/.local-build/

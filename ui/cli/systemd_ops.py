@@ -79,6 +79,13 @@ def run(cmd: list[str], timeout: int = 90) -> subprocess.CompletedProcess:
 
 
 def systemctl(*args: str, timeout: int = 90) -> subprocess.CompletedProcess:
+    from core.local_privileges import separated, systemctl as helper_systemctl
+    if separated() and args and args[0] in {"start", "stop", "restart", "enable", "disable", "daemon-reload"}:
+        result = helper_systemctl(*args, timeout=timeout)
+        if result.returncode == 0 and args[0] in {"start", "restart"}:
+            from core.local_privileges import commit_unit
+            commit_unit()
+        return result
     return run(["systemctl", *args], timeout=timeout)
 
 
@@ -135,6 +142,10 @@ def unit_mode() -> str | None:
 
 def write_unit(text: str) -> None:
     """Атомарная запись юнита (tmp + os.replace, как core/web_port)."""
+    from core.local_privileges import separated, configure_unit
+    if separated():
+        configure_unit(text)
+        return
     tmp = UNIT_PATH.with_suffix(".service.tmp")
     tmp.write_text(text, encoding="utf-8")
     import os
@@ -199,11 +210,18 @@ def stop_service() -> tuple[bool, str]:
 
 
 def remove_unit() -> None:
+    from core.local_privileges import separated, request
+    if separated():
+        request("installation.remove", kind="service")
+        return
     UNIT_PATH.unlink(missing_ok=True)
 
 
 def remove_wrapper() -> bool:
     """Удалить /usr/local/bin/bot4vps (создаётся install.sh при установке)."""
+    from core.local_privileges import separated
+    if separated():
+        return not WRAPPER_PATH.exists()
     if WRAPPER_PATH.exists():
         WRAPPER_PATH.unlink()
         return True
@@ -213,6 +231,10 @@ def remove_wrapper() -> bool:
 def delete_install_dir() -> None:
     """Полное удаление: /opt/bot4vps целиком. Только для пункта
     «Полное удаление» (ввод слова DELETE) и только последним шагом."""
+    from core.local_privileges import separated, request
+    if separated():
+        request("installation.remove", kind="all")
+        return
     import shutil as _shutil
 
     _shutil.rmtree(INSTALL_DIR, ignore_errors=False)
@@ -228,6 +250,9 @@ def firewall_open_port(port: int) -> str:
     nftables с runtime-only конфигурацией не трогаем (паритет с install.sh):
     без известной persistent-конфигурации правило исчезло бы после reboot.
     """
+    from core.local_privileges import separated, request
+    if separated():
+        return request("firewall.web", port=port, opening=True)
     if shutil.which("ufw"):
         status = run(["ufw", "status"], timeout=15)
         if "active" in (status.stdout or "").lower():
@@ -256,6 +281,10 @@ def firewall_open_port(port: int) -> str:
 
 def firewall_close_port(port: int) -> bool:
     """Закрыть порт Web UI (ufw/firewalld). Паритет с close_web_port."""
+    from core.local_privileges import separated, request
+    if separated():
+        request("firewall.web", port=port, opening=False)
+        return True
     handled = False
     if shutil.which("ufw"):
         status = run(["ufw", "status"], timeout=15)

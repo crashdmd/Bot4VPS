@@ -1320,7 +1320,7 @@ function watchTask(taskId, serverId, action) {
 
             if (returnToServer) {
               try {
-                const { openServer } = await import('./servers.js?v=20261001-mobile-charts-v1');
+                const { openServer } = await import('./servers.js?v=20261109-hostkey-v1');
                 await openServer(serverId);
               } catch (_) {
                 backToWgList();
@@ -1474,7 +1474,7 @@ export function bindWireguardUI() {
     if (!wgServerId) return;
 
     try {
-      const { openServer } = await import('./servers.js?v=20261001-mobile-charts-v1');
+      const { openServer } = await import('./servers.js?v=20261109-hostkey-v1');
       await openServer(wgServerId);
     } catch (e) {
       console.error('Не удалось открыть карточку сервера:', e);

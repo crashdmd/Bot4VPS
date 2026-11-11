@@ -653,9 +653,9 @@ def restart_or_start() -> str:
 # ==================================================================
 
 def update_check() -> dict:
-    from core.update import updater
+    from core.update.checks import check_updates
 
-    return asyncio.run(updater.check_for_update(notify=False))
+    return asyncio.run(check_updates(notify=False))
 
 
 def update_install(target_version: str) -> None:

@@ -1,19 +1,18 @@
-"""Download the bundled Android release or send it to the configured owner."""
+"""Deliver the verified Android release from its independent public source."""
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass
-import hashlib
-import json
 import logging
 from pathlib import Path
-import re
 import time
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
-from fastapi.responses import FileResponse
+from fastapi.responses import StreamingResponse
 
 from ..security import require_auth
+from core import mobile_release
+
+Release = mobile_release.Release
 
 RELEASE_DIR = Path(__file__).resolve().parents[2] / "mobile"
 router = APIRouter(prefix="/api/mobile-app", dependencies=[Depends(require_auth)], include_in_schema=False)
@@ -22,40 +21,32 @@ _send_lock = asyncio.Lock()
 _last_send = 0.0
 
 
-@dataclass(frozen=True)
-class Release:
-    path: Path
-    version: str
-    size: int
-    sha256: str
-
-
 def bundled_release() -> Release:
-    """Only a contained, verified, fixed release can be delivered."""
+    """Compatibility entry point for validating the supplied fallback APK."""
     try:
-        root = RELEASE_DIR.resolve()
-        manifest = json.loads((root / "release.json").read_text(encoding="utf-8"))
-        version = manifest["version"]
-        if not isinstance(version, str) or not re.fullmatch(r"[0-9]+\.[0-9]+(?:\.[0-9]+)?", version):
-            raise ValueError()
-        filename = f"Bot4VPS-Mobile-{version}-release.apk"
-        if manifest["filename"] != filename:
-            raise ValueError()
-        path = root / filename
-        if path.is_symlink() or path.resolve().parent != root:
-            raise ValueError()
-        size, digest = manifest["size"], manifest["sha256"]
-        if type(size) is not int or not 0 < size < 49_000_000 or not re.fullmatch(r"[a-f0-9]{64}", digest):
-            raise ValueError()
-        with path.open("rb") as stream:
-            checksum = hashlib.sha256()
-            for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-                checksum.update(chunk)
-            if path.stat().st_size != size or checksum.hexdigest() != digest:
-                raise ValueError()
-        return Release(path, version, size, digest)
+        return mobile_release.bundled_release(RELEASE_DIR)
     except (OSError, ValueError, TypeError, KeyError):
         raise HTTPException(503, "Релиз приложения пока недоступен. Проверьте целостность установки Bot4VPS.") from None
+
+
+def available_release() -> Release:
+    try:
+        return mobile_release.selected_release(RELEASE_DIR)
+    except (OSError, ValueError, TypeError, KeyError):
+        raise HTTPException(503, "Релиз приложения пока недоступен. Проверьте источник APK в настройках.") from None
+
+
+async def latest_release() -> Release:
+    try:
+        await asyncio.to_thread(mobile_release.refresh, directory=RELEASE_DIR)
+    except Exception:
+        logger.warning("Не удалось обновить локальную копию APK")
+    return await asyncio.to_thread(available_release)
+
+
+async def latest_document():
+    await latest_release()
+    return await asyncio.to_thread(mobile_release.open_selected, RELEASE_DIR)
 
 
 def telegram_delivery():
@@ -81,26 +72,50 @@ async def web_request(request: Request, response: Response):
 @router.get("", dependencies=[Depends(web_request)])
 async def state():
     try:
-        release = await asyncio.to_thread(bundled_release)
+        release = await asyncio.to_thread(available_release)
     except HTTPException as exc:
-        return {"available": False, "message": exc.detail, "telegram_available": False, "telegram_hint": ""}
+        try:
+            release = await latest_release()
+        except HTTPException:
+            return {"available": False, "message": exc.detail, "telegram_available": False, "telegram_hint": ""}
     try:
         ready, reason = await asyncio.to_thread(telegram_delivery)
     except Exception:
         logger.warning("Telegram availability could not be checked for APK delivery")
         ready, reason = False, "Не удалось проверить настройки Telegram"
     return {"available": True, "version": release.version, "size": release.size, "sha256": release.sha256,
+            "versionCode": release.version_code,
+            "installation_note": release.installation_note,
             "download_url": "/api/mobile-app/download", "telegram_available": ready, "telegram_hint": reason}
+
+
+@router.post("/check", dependencies=[Depends(web_request)])
+async def check():
+    try:
+        return await asyncio.to_thread(mobile_release.refresh, force=True, directory=RELEASE_DIR)
+    except Exception:
+        return {"ok": False, "updated": False, "error": "Не удалось проверить APK приложения."}
 
 
 @router.get("/download", dependencies=[Depends(web_request)])
 async def download():
-    release = await asyncio.to_thread(bundled_release)
-    return FileResponse(release.path, filename=release.path.name, media_type="application/vnd.android.package-archive",
-                        headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"})
+    release, document = await latest_document()
+    def chunks():
+        with document:
+            yield from iter(lambda: document.read(64 * 1024), b"")
+    filename = f"Bot4VPS-Mobile-{release.version}-release.apk"
+    class DownloadResponse(StreamingResponse):
+        async def __call__(self, scope, receive, send):
+            try:
+                await super().__call__(scope, receive, send)
+            finally:
+                document.close()
+    return DownloadResponse(chunks(), media_type="application/vnd.android.package-archive", headers={
+        "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff",
+        "Content-Length": str(release.size), "Content-Disposition": f'attachment; filename="{filename}"'})
 
 
-async def send_release(release: Release):
+async def send_release(release: Release, document=None):
     from core.config import get_saved_bot_token, get_telegram_config
     from core.telegram_health import classify_telegram_error
     cfg = await asyncio.to_thread(get_telegram_config)
@@ -124,10 +139,11 @@ async def send_release(release: Release):
             owned = True
             await asyncio.wait_for(bot_obj.initialize(), timeout=10)
             initialized = True
-        with release.path.open("rb") as document:
+        with document if document is not None else release.path.open("rb") as document:
             await asyncio.wait_for(bot_obj.send_document(
-                chat_id=cfg["user_id"], document=document, filename=release.path.name,
-                caption=f"Bot4VPS Mobile {release.version} для Android. Подключение: Настройки → Мобильное приложение в Web-панели.",
+                chat_id=cfg["user_id"], document=document, filename=f"Bot4VPS-Mobile-{release.version}-release.apk",
+                caption=(f"Bot4VPS Mobile {release.version} для Android. Подключение: Настройки → Мобильное приложение в Web-панели."
+                         + ("\n\n" + release.installation_note if release.installation_note else ""))[:1024],
                 read_timeout=30, write_timeout=30, connect_timeout=10), timeout=45)
     except HTTPException:
         raise
@@ -153,7 +169,10 @@ async def send():
         ready, _ = await asyncio.to_thread(telegram_delivery)
         if not ready:
             raise HTTPException(409, "Telegram выключен или не настроен. Скачайте APK в панели.")
-        release = await asyncio.to_thread(bundled_release)
-        _last_send = time.monotonic()
-        await send_release(release)
+        release, document = await latest_document()
+        try:
+            _last_send = time.monotonic()
+            await send_release(release, document=document)
+        finally:
+            document.close()
     return {"ok": True, "message": "APK отправлен настроенному получателю в Telegram"}

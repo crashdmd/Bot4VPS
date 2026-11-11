@@ -581,6 +581,7 @@ class OperationRecord:
             # Локальный self-restore: указатель на state.json раннера и его
             # входы. Запись валидируется _validate_restore_details.
             "self_restore",
+            "self_archive_binding",
         }
         if (
             not isinstance(self.restore, dict)
@@ -611,7 +612,12 @@ class OperationRecord:
                 raise ValueError("Некорректный safe error Operation")
             if "details" in self.error and not isinstance(self.error["details"], dict):
                 raise ValueError("Некорректные details safe error Operation")
-            if any(len(self.error[key]) > 512 or any(ord(char) < 32 and char not in "\t" for char in self.error[key]) for key in ("code", "message", "correlation_id")):
+            if any(len(self.error[key]) > 512 or any(ord(char) < 32 and char not in "\t" for char in self.error[key]) for key in ("code", "correlation_id")):
+                raise ValueError("Некорректный safe error Operation")
+            # Restore compatibility errors explain the architecture boundary
+            # in paragraphs and must survive terminal history unchanged.
+            message = self.error["message"]
+            if len(message) > 2048 or any(ord(char) < 32 and char not in "\t\n" for char in message):
                 raise ValueError("Некорректный safe error Operation")
         if self.status == OperationStatus.FAILED.value and self.error is None:
             raise ValueError("Failed Operation должна иметь safe error")
@@ -631,11 +637,19 @@ class OperationRecord:
         details = self.restore
         optional = {
             key: details[key]
-            for key in ("preflight_conflicts", "skipped_members", "extraction", "verification", "self_restore")
+            for key in ("preflight_conflicts", "skipped_members", "extraction", "verification", "self_restore", "self_archive_binding")
             if key in details
         }
         if self.type not in {"restore", "migrate"} and optional:
             raise ValueError("Дополнительные Restore facts неприменимы к Operation")
+        binding = details.get("self_archive_binding")
+        if binding is not None:
+            if self.target.get("kind") != "bot4vps" or not isinstance(binding, dict) or set(binding) != {"sha256", "bytes"}:
+                raise ValueError("Некорректная привязка архива self-restore")
+            digest = binding["sha256"]
+            size = binding["bytes"]
+            if not isinstance(digest, str) or len(digest) != 64 or any(char not in "0123456789abcdef" for char in digest) or isinstance(size, bool) or not isinstance(size, int) or size < 0:
+                raise ValueError("Некорректные digest/bytes архива self-restore")
         advisory = details.get("preflight_conflicts")
         if advisory is not None:
             advisory_keys = {

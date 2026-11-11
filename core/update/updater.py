@@ -1,8 +1,7 @@
 """Ядро встроенного updater'а Bot4VPS (логика внутри процесса).
 
 Ответственности:
-- проверка новой версии по changelog из ветки main (единственный источник
-  для проверки и обычного обновления);
+- проверка новой версии по подписанному описанию GitHub Release;
 - хранение состояния в data/update/state.json (атомарная запись);
 - локальные changelog-файлы: changelog.md (текущая версия) и
   changelog_new.md (найденное обновление);
@@ -27,11 +26,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from core.version import APP_VERSION
+from core.update import release_verify
 
 # --- GitHub (публичный репозиторий) -------------------------------
 REPO_URL = "https://github.com/crashdmd/Bot4VPS"
 CHANGELOG_URL = "https://raw.githubusercontent.com/crashdmd/Bot4VPS/main/core/update/changelog.md"
-MAIN_TARBALL_URL = "https://codeload.github.com/crashdmd/Bot4VPS/tar.gz/refs/heads/main"
 RELEASES_API = "https://api.github.com/repos/crashdmd/Bot4VPS/releases?per_page=100"
 USER_AGENT = "Bot4VPS-Updater"
 
@@ -230,7 +229,10 @@ def write_state(**patches) -> dict:
 def _http_get(url: str, timeout: int = _HTTP_TIMEOUT) -> bytes:
     req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
     with urllib.request.urlopen(req, timeout=timeout) as resp:
-        return resp.read()
+        data = resp.read(4 * 1024 * 1024 + 1)
+        if len(data) > 4 * 1024 * 1024:
+            raise ValueError("Ответ GitHub слишком большой")
+        return data
 
 
 def fetch_changelog() -> str:
@@ -284,7 +286,7 @@ def _stale_available(state: dict) -> bool:
 
 
 async def check_for_update(*, notify: bool) -> dict:
-    """Сравнить верхнюю версию changelog из main с установленной.
+    """Предлагать только подписанный релиз новее установленной версии.
 
     Никогда не бросает исключение: ошибки сети уходят в
     state.last_check_error. Возвращает срез состояния для UI.
@@ -298,19 +300,14 @@ async def check_for_update(*, notify: bool) -> dict:
     # loop два вызова не могут interleaving'ом оба пройти guard.
     write_state(status="checking")
     try:
-        md = await asyncio.to_thread(fetch_changelog)
-        versions = parse_changelog_versions(md)
-        if not versions:
-            raise ValueError("changelog.md в main не содержит заголовков «## X.Y.Z»")
-
-        top = versions[0]
-        is_newer = parse_version(top) > parse_version(APP_VERSION)
-        if is_newer:
-            section = extract_changelog_section(md, top)
+        release = await asyncio.to_thread(_latest_signed_update)
+        if release is not None:
+            top = release["version"]
+            section = release["payload"]["changelog"]
             UPDATE_DIR.mkdir(parents=True, exist_ok=True)
             CHANGELOG_NEW_FILE.write_text(section + "\n", encoding="utf-8")
             write_state(
-                available={"version": top, "found_at": _now_iso()},
+                available={"version": top, "found_at": _now_iso(), "release": release},
                 last_check=_now_iso(),
                 last_check_error=None,
                 status="idle",
@@ -366,8 +363,8 @@ def _friendly_check_error(e: Exception) -> str:
     if isinstance(e, urllib.error.HTTPError):
         if e.code == 404:
             return (
-                "changelog.md не найден в ветке main репозитория "
-                "(появится после публикации версии 4.0.0)"
+                "Подписанное описание релиза не найдено в GitHub. "
+                "Установка неподписанного обновления запрещена"
             )
         if e.code == 403:
             return "GitHub отклонил запрос (лимит API). Повторите позже"
@@ -438,32 +435,45 @@ def get_rollback_version_section(version: str) -> str:
     return section
 
 
-def resolve_release(version: str) -> dict:
-    """Найти GitHub Release по нормализованной версии (только для отката).
-
-    Возвращает {"version", "asset_url"}: первый кастомный ассет
-    (.tar.gz/.tgz), иначе — автогенерируемый tarball_url релиза.
-    """
-    want = parse_version(version)
+def _published_release_tags() -> list[str]:
     data = json.loads(_http_get(RELEASES_API).decode("utf-8"))
+    tags = []
     for rel in data if isinstance(data, list) else []:
+        if not isinstance(rel, dict) or rel.get("draft") or rel.get("prerelease"):
+            continue
         tag = str(rel.get("tag_name") or "")
         try:
-            if parse_version(tag) != want:
-                continue
+            parse_version(tag)
         except ValueError:
             continue
-        asset_url = None
-        for asset in rel.get("assets") or []:
-            name = str(asset.get("name") or "").lower()
-            if name.endswith((".tar.gz", ".tgz")):
-                asset_url = asset.get("browser_download_url")
-                if asset_url:
-                    break
-        url = asset_url or rel.get("tarball_url")
-        if not url:
-            continue
-        return {"version": version, "asset_url": url}
+        tags.append(tag)
+    return sorted(set(tags), key=parse_version, reverse=True)
+
+
+def _signed_release(tag: str) -> dict:
+    envelope = release_verify.decode_envelope(_http_get(release_verify.manifest_url(tag)))
+    payload = release_verify.verify_envelope(envelope, tag)
+    if payload["tag"] != tag:
+        raise release_verify.ReleaseTrustError("Подпись относится к другому тегу релиза")
+    return {"version": payload["version"], "asset_url": release_verify.archive_url(payload),
+            "payload": payload, "envelope": envelope}
+
+
+def _latest_signed_update() -> dict | None:
+    tags = _published_release_tags()
+    newest = next((tag for tag in tags if parse_version(tag) > parse_version(APP_VERSION)), None)
+    return _signed_release(newest) if newest is not None else None
+
+
+def resolve_release(version: str) -> dict:
+    """Pre-7.0 rollback uses the fixed HTTPS repository; newer releases require signatures."""
+    want = parse_version(version)
+    if want < (7, 0, 0):
+        from .legacy_release import resolve
+        return resolve('rollback', version)
+    for tag in _published_release_tags():
+        if parse_version(tag) == want:
+            return _signed_release(tag)
     raise ValueError(
         "Версия %s не найдена в GitHub Releases" % normalize_version(want)
     )
@@ -513,7 +523,30 @@ def _health_scheme() -> str:
     return "http"
 
 
-def _build_job(action: str, target: str, download_url: str, work_dir: Path) -> dict:
+def _health_mode() -> str:
+    """Telegram-only не имеет HTTP health endpoint."""
+    try:
+        unit = Path("/etc/systemd/system/bot4vps.service").read_text(encoding="utf-8")
+        if re.search(r"^ExecStart=.*\bbot\.py(?:\s|$)", unit, re.MULTILINE):
+            return "service"
+    except OSError:
+        pass
+    return "web"
+
+
+def _build_job(action: str, target: str, release: dict, work_dir: Path) -> dict:
+    envelope = release.get("envelope")
+    legacy = action == 'rollback' and MIN_ROLLBACK_VERSION <= parse_version(target) < (7, 0, 0)
+    if legacy:
+        from .legacy_release import resolve
+        # Re-resolve instead of trusting URLs/commits supplied by an interface.
+        old = resolve(action, target)
+        download_url = old['archive_url']
+    elif not isinstance(envelope, dict):
+        raise RuntimeError("У обновления нет подписи. Выполните проверку обновлений заново")
+    else:
+        payload = release_verify.verify_envelope(envelope, target)
+        download_url = release_verify.archive_url(payload)
     return {
         "action": action,  # "update" | "rollback"
         "target_version": target,
@@ -522,10 +555,13 @@ def _build_job(action: str, target: str, download_url: str, work_dir: Path) -> d
         "venv_python": sys.executable,
         "service_name": _service_name(),
         "download_url": download_url,
+        "release_envelope": envelope,
+        "legacy_rollback": legacy,
         "state_file": str(_app_dir() / STATE_FILE),
         "work_dir": str(work_dir),
         "health_port": _health_port(),
         "health_scheme": _health_scheme(),
+        "health_mode": _health_mode(),
         "health_timeout": 120,
         "dev_no_systemd": False,
     }
@@ -539,11 +575,18 @@ def _launch_runner(job: dict) -> int:
     раннер, запущенный обычным Popen, был бы убит собственным restart'ом.
     Фолбэк (нет systemd-run, локальная разработка): Popen в новой сессии.
     """
+    from core.local_privileges import separated, request
+    if separated():
+        return request("update.install", action=job["action"], target=job["target_version"],
+                       envelope=job["release_envelope"])["pid"]
     work_dir = Path(job["work_dir"])
     work_dir.mkdir(parents=True, exist_ok=True)
     src = Path(__file__).with_name("runner.py")
     dst = work_dir / "runner.py"
     shutil.copyfile(src, dst)
+    # Это проверяющий код из ТЕКУЩЕЙ установки, до загрузки нового архива.
+    shutil.copyfile(Path(__file__).with_name("release_verify.py"), work_dir / "release_verify.py")
+    shutil.copyfile(Path(__file__).with_name("legacy_release.py"), work_dir / "legacy_release.py")
     (work_dir / "job.json").write_text(
         json.dumps(job, ensure_ascii=False, indent=2), encoding="utf-8"
     )
@@ -570,7 +613,7 @@ def _launch_runner(job: dict) -> int:
 
 
 async def start_install() -> dict:
-    """Установить найденное обновление из main (без повторной проверки)."""
+    """Установить выбранный подписанный архив; main и URL из кэша не доверяем."""
     state = read_state()
     if state["status"] in _BUSY_STATUSES:
         raise RuntimeError("Обновление уже выполняется")
@@ -578,23 +621,50 @@ async def start_install() -> dict:
     if not available:
         raise RuntimeError("Нет доступного обновления. Сначала выполните проверку")
 
-    work_dir = Path(tempfile.mkdtemp(prefix="bot4vps_update_"))
-    job = _build_job("update", available["version"], MAIN_TARBALL_URL, work_dir)
-    pid = await asyncio.to_thread(_launch_runner, job)
-    from core.audit_actions import AuditAction
+    target = available["version"]
+    if parse_version(target) <= parse_version(APP_VERSION):
+        raise RuntimeError("Выбранное обновление не новее установленной версии")
+    return await _start_verified_install("update", target, available.get("release") or {})
 
-    _audit_update_started(AuditAction.UPDATE_INSTALL, available["version"])
-    write_state(
-        status="downloading",
-        action={
-            "type": "update",
-            "target": available["version"],
-            "started_at": _now_iso(),
-        },
-        pid=pid,
-        last_error=None,
-    )
-    return {"ok": True, "status": "downloading", "target": available["version"]}
+
+async def _start_verified_install(action: str, target: str, release: dict) -> dict:
+    from core.audit_actions import AuditAction
+    work_dir = Path(tempfile.mkdtemp(prefix="bot4vps_update_"))
+    launch_task = None
+    try:
+        job = _build_job(action, target, release, work_dir)
+        _audit_update_started(AuditAction.UPDATE_ROLLBACK if action == "rollback" else AuditAction.UPDATE_INSTALL, target)
+        write_state(status="downloading", action={"type": action, "target": target, "started_at": _now_iso()}, pid=None, last_error=None)
+        launch_task = asyncio.create_task(asyncio.to_thread(_launch_runner, job))
+        pid = await asyncio.shield(launch_task)
+        # Раннер мог уже завершиться. Не возвращаем его финальное состояние
+        # в downloading, как это было при записи статуса после запуска.
+        if read_state()["status"] in _BUSY_STATUSES:
+            write_state(pid=pid)
+        return {"ok": True, "status": read_state()["status"], "target": target}
+    except asyncio.CancelledError:
+        # Отмена HTTP-запроса не отменяет уже запущенную установку и не
+        # удаляет файлы, которые ещё использует поток запуска раннера.
+        async def finish_launch():
+            try:
+                pid = await launch_task
+                if read_state()["status"] in _BUSY_STATUSES:
+                    write_state(pid=pid)
+            except Exception:
+                state = read_state()
+                shutil.rmtree(work_dir, ignore_errors=True)
+                write_state(status="failed", last_error="Не удалось запустить проверенное обновление", action=None, pid=None)
+                _audit_update_finished(state, state.get("action"), ok=False, error="Не удалось запустить проверенное обновление")
+        if launch_task is not None:
+            asyncio.create_task(finish_launch())
+        raise
+    except Exception:
+        shutil.rmtree(work_dir, ignore_errors=True)
+        if read_state()["status"] in _BUSY_STATUSES:
+            state = read_state()
+            write_state(status="failed", last_error="Не удалось запустить проверенное обновление", action=None, pid=None)
+            _audit_update_finished(state, state.get("action"), ok=False, error="Не удалось запустить проверенное обновление")
+        raise
 
 
 async def start_rollback(version: str) -> dict:
@@ -611,26 +681,14 @@ async def start_rollback(version: str) -> dict:
     if state["status"] in _BUSY_STATUSES:
         raise RuntimeError("Откат уже выполняется")
 
-    release = await asyncio.to_thread(resolve_release, version)
-    work_dir = Path(tempfile.mkdtemp(prefix="bot4vps_update_"))
-    job = _build_job("rollback", normalize_version(target),
-                     release["asset_url"], work_dir)
-    pid = await asyncio.to_thread(_launch_runner, job)
-    from core.audit_actions import AuditAction
-
-    _audit_update_started(AuditAction.UPDATE_ROLLBACK, normalize_version(target))
-    write_state(
-        status="downloading",
-        action={
-            "type": "rollback",
-            "target": normalize_version(target),
-            "started_at": _now_iso(),
-        },
-        pid=pid,
-        last_error=None,
-    )
-    return {"ok": True, "status": "downloading",
-            "target": normalize_version(target)}
+    write_state(status="checking")
+    try:
+        release = await asyncio.to_thread(resolve_release, version)
+        return await _start_verified_install("rollback", normalize_version(target), release)
+    except BaseException:
+        if read_state()["status"] == "checking":
+            write_state(status="idle", last_check_error="Не удалось проверить подпись версии для отката")
+        raise
 
 
 # ==================================================================

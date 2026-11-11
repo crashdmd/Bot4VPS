@@ -1,3 +1,6 @@
+from core.migration.privilege_migration import enforce_application_user
+enforce_application_user()
+
 from tzlocal import get_localzone
 
 import logging

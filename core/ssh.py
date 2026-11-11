@@ -1,6 +1,7 @@
 import os
 import re
 import shlex
+import socket
 import threading
 import time
 from typing import Callable, Optional, Sequence, Tuple
@@ -58,35 +59,37 @@ def _ssh_connect(ssh, server, timeout=8):
         )
 
 
-def accept_new_host_key(server, timeout=15):
-    """Явное принятие ТЕКУЩЕГО host key сервера (после переустановки).
-
-    Отдельный административный поток: подключаемся без сверки (AutoAdd),
-    забираем предъявленный ключ и принудительно перезаписываем запись.
-    Возвращает новую запись. Ошибки подключения пробрасываются наружу.
-    """
+def probe_host_key(server, timeout=15):
+    """Получить публичный SSH-ключ через handshake без какой-либо авторизации."""
     from core import host_keys
 
-    ssh = paramiko.SSHClient()
-    ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    transport = None
+    connection = socket.create_connection(
+        (server["host"], server.get("port", 22)), timeout=timeout
+    )
     try:
-        _ssh_connect(ssh, server, timeout)
-    except Exception:
-        from core.monitor import note_ssh_failure
-        note_ssh_failure(server.get("id"))
-        raise
-    # подключение удалось — снимаем backoff авто-проб (сервер снова доступен)
-    from core.monitor import note_ssh_success
-    note_ssh_success(server.get("id"))
-    try:
-        key = ssh.get_transport().get_remote_server_key()
-        presented = host_keys.record_from_pkey(key)
+        transport = paramiko.Transport(connection)
+        transport.start_client(timeout=timeout)
+        return host_keys.record_from_pkey(transport.get_remote_server_key())
     finally:
-        ssh.close()
+        if transport is not None:
+            transport.close()
+        connection.close()
+
+
+def accept_new_host_key(server, expected_fingerprint=None, timeout=15):
+    """Закрепить именно показанный и подтверждённый ключ, не отправляя реквизиты."""
+    from core import host_keys
     from core.storage import record_server_host_key
 
+    if not isinstance(expected_fingerprint, str) or not expected_fingerprint.startswith("SHA256:"):
+        raise ValueError("Сначала получите и подтвердите отпечаток SSH-ключа сервера")
+    presented = probe_host_key(server, timeout)
+    if presented["fingerprint"] != expected_fingerprint:
+        raise ValueError("SSH-ключ изменился после просмотра. Получите новый отпечаток и подтвердите его заново")
     old = host_keys.stored_record(server)
-    record_server_host_key(str(server.get("id")), presented, overwrite=True)
+    record_server_host_key(str(server.get("id")), presented, overwrite=True,
+                           expected_target=(server["host"], server.get("port", 22)))
     host_keys.report_accepted_new(server, old, presented)
     _audit_host_key_accepted(server, old, presented)
     return presented

@@ -205,6 +205,14 @@ def launch(new_port: int) -> int:
     (см. core/update/updater.py::_launch_runner). Popen-фолбэк — только
     для dev-окружений без systemd-run.
     """
+    from core.local_privileges import separated, launch_task
+    if separated():
+        try:
+            return launch_task("port")
+        except Exception as exc:
+            write_state(status="failed", finished_at=datetime.now().isoformat(), error=str(exc), pid=None)
+            reconcile_audit()
+            raise
     cmd = [sys.executable, "-m", "core.web_port"]
     ts = datetime.now().strftime("%Y%m%d%H%M%S")
     try:
@@ -233,6 +241,10 @@ def launch(new_port: int) -> int:
 
 def _atomic_write_unit(text: str) -> None:
     """Атомарная запись юнита: tmp в каталоге юнита -> fsync -> replace."""
+    from core.local_privileges import separated, configure_unit
+    if separated():
+        configure_unit(text)
+        return
     UNIT_PATH.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp_name = tempfile.mkstemp(
         dir=str(UNIT_PATH.parent), prefix="bot4vps.service.", suffix=".tmp"
@@ -252,6 +264,9 @@ def _atomic_write_unit(text: str) -> None:
 
 
 def _systemctl(*args: str, timeout: int = 90) -> subprocess.CompletedProcess:
+    from core.local_privileges import separated, systemctl
+    if separated():
+        return systemctl(*args, timeout=timeout)
     return subprocess.run(
         ["systemctl", *args], capture_output=True, text=True, timeout=timeout
     )
@@ -311,6 +326,8 @@ def _rollback(unit_backup: str, old_port: int, reason: str) -> None:
         if r.returncode != 0:
             _log("restart при откате не удался: %s" % (r.stderr or "").strip()[:300])
             raise RuntimeError(r.stderr or "systemctl restart failed")
+        from core.local_privileges import commit_unit
+        commit_unit()
         # Старый порт должен ответить; если нет — тоже ошибка, но юнит уже
         # восстановлен, сервис перезапущен (следующий старт поднимет его).
         if not _health_ok(old_port, ROLLBACK_HEALTH_TIMEOUT):
@@ -389,6 +406,8 @@ def _apply() -> int:
 
     # 5. Health-check нового порта
     if _health_ok(new_port, HEALTH_TIMEOUT):
+        from core.local_privileges import commit_unit
+        commit_unit()
         write_state(
             status="done",
             finished_at=datetime.now().isoformat(),

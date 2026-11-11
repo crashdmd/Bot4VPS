@@ -8,6 +8,7 @@ from __future__ import annotations
 import argparse
 import base64
 from collections import deque
+from dataclasses import dataclass
 import hashlib
 import json
 import secrets
@@ -26,6 +27,12 @@ PAIR_TTL = 600
 CHALLENGE_TTL = 30
 SESSION_TTL = 900
 ACCESS_HEADER = b"x-bot4vps-mobile-session"
+
+
+@dataclass(frozen=True)
+class MobileSession:
+    device_id: str
+    expires: float
 
 
 class AccessDenied(ValueError):
@@ -57,6 +64,14 @@ def challenge_message(device_id: str, challenge_id: str, nonce: str) -> bytes:
     return f"bot4vps-mobile-v1\n{device_id}\n{challenge_id}\n{nonce}".encode("ascii")
 
 
+def masterkey_message(device_id: str, challenge_id: str, nonce: str) -> bytes:
+    return f"bot4vps-masterkey-view-v1\n{device_id}\n{challenge_id}\n{nonce}".encode("ascii")
+
+
+def masterkey_enrollment_message(device_id: str, challenge_id: str, nonce: str, public_key: str, device_operation_public_key: str) -> bytes:
+    return f"bot4vps-masterkey-enroll-v1\n{device_id}\n{challenge_id}\n{nonce}\n{public_key}\n{device_operation_public_key}".encode("ascii")
+
+
 def pairing_invitation(url: str, code: str, server_pin: str) -> str:
     data = {"version": 1, "url": url, "code": code, "server_pin": server_pin}
     return "b4vps:" + base64.urlsafe_b64encode(json.dumps(data, separators=(",", ":")).encode()).decode().rstrip("=")
@@ -70,26 +85,164 @@ class MobileAccess:
         self._challenges: dict = {}
         self._sessions: dict = {}
         self._rates: dict = {}
+        self._masterkey_challenges: dict = {}
+        self._masterkey_enrollments: dict = {}
 
-    def issue_pairing_code(self, name: str) -> str:
+    def masterkey_public_key(self, device_id: str) -> str | None:
+        row = next((r for r in self.store.read() if r.get("kind") == "device" and r.get("id") == device_id), None)
+        if row is None:
+            raise AccessDenied()
+        return row.get("masterkey_public_key")
+
+    def masterkey_device_public_key(self, device_id: str) -> str | None:
+        row = next((r for r in self.store.read() if r.get("kind") == "device" and r.get("id") == device_id), None)
+        if row is None:
+            raise AccessDenied()
+        return row.get("masterkey_device_public_key")
+
+    def enroll_masterkey(self, device_id: str, public_key: str) -> None:
+        # Called only after server-side owner password + second factor.
+        key = _public_key(public_key)
+        canonical = base64.b64encode(key.public_bytes(serialization.Encoding.DER,
+                                  serialization.PublicFormat.SubjectPublicKeyInfo)).decode()
+        def enroll(rows):
+            row = next((r for r in rows if r.get("kind") == "device" and r.get("id") == device_id), None)
+            if row is None or canonical == row.get("public_key"):
+                raise AccessDenied()
+            row["masterkey_public_key"] = canonical
+            return rows
+        with self._lock:
+            self.store.mutate(enroll)
+            self._masterkey_challenges = {k: v for k, v in self._masterkey_challenges.items() if v["device_id"] != device_id}
+
+    def masterkey_enrollment_challenge(self, device_id: str, public_key: str, device_operation_public_key: str) -> dict:
+        self.rate_limit("masterkey-enroll:" + device_id)
+        key = _public_key(public_key)
+        canonical = base64.b64encode(key.public_bytes(serialization.Encoding.DER,
+                                    serialization.PublicFormat.SubjectPublicKeyInfo)).decode()
+        native = _public_key(device_operation_public_key)
+        native_canonical = base64.b64encode(native.public_bytes(serialization.Encoding.DER,
+                                           serialization.PublicFormat.SubjectPublicKeyInfo)).decode()
+        with self._lock:
+            row = next((r for r in self.store.read() if r.get("kind") == "device" and r.get("id") == device_id), None)
+            if row is None or canonical == row.get("public_key") or native_canonical in (canonical, row.get("public_key")):
+                raise AccessDenied()
+            if row.get("masterkey_public_key") not in (None, canonical):
+                raise AccessDenied(409, "Ключ защиты телефона изменился. Перепривяжите телефон для настройки защищённого просмотра.")
+            if row.get("masterkey_device_public_key") not in (None, native_canonical):
+                raise AccessDenied(409, "Ключ Keystore изменился. Перепривяжите телефон.")
+            now = self.clock()
+            self._masterkey_enrollments = {k: v for k, v in self._masterkey_enrollments.items()
+                                           if v["expires"] > now and v["device_id"] != device_id}
+            if len(self._masterkey_enrollments) >= 64:
+                raise AccessDenied(429, "Слишком много попыток настройки")
+            challenge_id, nonce = secrets.token_urlsafe(24), secrets.token_urlsafe(32)
+            self._masterkey_enrollments[challenge_id] = {
+                "device_id": device_id, "nonce": nonce, "public_key": canonical,
+                "device_operation_public_key": native_canonical,
+                "device_public_key": row["public_key"], "expires": now + CHALLENGE_TTL}
+        return {"ok": True, "device_id": device_id, "challenge_id": challenge_id,
+                "nonce": nonce, "public_key": canonical, "device_operation_public_key": native_canonical, "expires_in": CHALLENGE_TTL}
+
+    def confirm_masterkey_enrollment(self, device_id: str, challenge_id: str,
+                                    device_signature: str, operation_signature: str, keystore_signature: str) -> None:
+        with self._lock:
+            pending = self._masterkey_enrollments.pop(challenge_id, None)
+            row = next((r for r in self.store.read() if r.get("kind") == "device" and r.get("id") == device_id), None)
+            if (not pending or not row or pending["device_id"] != device_id
+                    or pending["expires"] <= self.clock() or pending["device_public_key"] != row.get("public_key")
+                    or row.get("masterkey_public_key") not in (None, pending["public_key"])
+                    or row.get("masterkey_device_public_key") not in (None, pending["device_operation_public_key"])):
+                raise AccessDenied()
+            message = masterkey_enrollment_message(device_id, challenge_id, pending["nonce"], pending["public_key"], pending["device_operation_public_key"])
+            try:
+                _public_key(row["public_key"]).verify(_decode(device_signature, 256), message, ec.ECDSA(hashes.SHA256()))
+                _public_key(pending["public_key"]).verify(_decode(operation_signature, 256), message, ec.ECDSA(hashes.SHA256()))
+                _public_key(pending["device_operation_public_key"]).verify(_decode(keystore_signature, 256), message, ec.ECDSA(hashes.SHA256()))
+            except (InvalidSignature, ValueError, KeyError) as exc:
+                raise AccessDenied() from exc
+            # Pairing already grants this device access. A session token or UI
+            # flag alone cannot enroll: both independent private keys must sign.
+            # Replacing an existing operation key requires a new Web pairing or
+            # the legacy owner-factor flow; this path never silently replaces it.
+            def enroll(rows):
+                current = next((r for r in rows if r.get("kind") == "device" and r.get("id") == device_id), None)
+                if (current is None or current.get("public_key") != pending["device_public_key"]
+                        or current.get("masterkey_public_key") not in (None, pending["public_key"])
+                        or current.get("masterkey_device_public_key") not in (None, pending["device_operation_public_key"])):
+                    raise AccessDenied()
+                current["masterkey_public_key"] = pending["public_key"]
+                current["masterkey_device_public_key"] = pending["device_operation_public_key"]
+                return rows
+            self.store.mutate(enroll)
+            self._masterkey_challenges = {k: v for k, v in self._masterkey_challenges.items() if v["device_id"] != device_id}
+
+    def masterkey_challenge(self, device_id: str) -> dict:
+        self.rate_limit("masterkey:" + device_id)
+        with self._lock:
+            key = self.masterkey_public_key(device_id)
+            if not key:
+                raise AccessDenied(409, "Подтвердите владельца для настройки защищённого просмотра")
+            now = self.clock()
+            self._masterkey_challenges = {k: v for k, v in self._masterkey_challenges.items()
+                                          if v["expires"] > now and v["device_id"] != device_id}
+            if len(self._masterkey_challenges) >= 64:
+                raise AccessDenied(429, "Слишком много попыток просмотра")
+            challenge_id, nonce = secrets.token_urlsafe(24), secrets.token_urlsafe(32)
+            self._masterkey_challenges[challenge_id] = {"device_id": device_id, "nonce": nonce,
+                                                      "public_key": key, "device_operation_public_key": self.masterkey_device_public_key(device_id),
+                                                      "expires": now + CHALLENGE_TTL}
+        return {"ok": True, "challenge_id": challenge_id, "nonce": nonce, "expires_in": CHALLENGE_TTL,
+                "device_id": device_id}
+
+    def confirm_masterkey(self, device_id: str, challenge_id: str, signature: str, keystore_signature: str = "") -> None:
+        with self._lock:
+            challenge = self._masterkey_challenges.pop(challenge_id, None)
+            if (not challenge or challenge["device_id"] != device_id or challenge["expires"] <= self.clock()
+                    or self.masterkey_public_key(device_id) != challenge["public_key"]
+                    or self.masterkey_device_public_key(device_id) != challenge.get("device_operation_public_key")):
+                raise AccessDenied()
+            try:
+                _public_key(challenge["public_key"]).verify(_decode(signature, 256),
+                    masterkey_message(device_id, challenge_id, challenge["nonce"]), ec.ECDSA(hashes.SHA256()))
+                if challenge.get("device_operation_public_key"):
+                    _public_key(challenge["device_operation_public_key"]).verify(_decode(keystore_signature, 256),
+                        masterkey_message(device_id, challenge_id, challenge["nonce"]), ec.ECDSA(hashes.SHA256()))
+            except (InvalidSignature, ValueError, KeyError) as exc:
+                raise AccessDenied() from exc
+
+    def issue_pairing_code(self, name: str, *, status_token: str | None = None) -> str:
         code = secrets.token_urlsafe(32)
         now = self.clock()
         def create(rows):
             rows = [r for r in rows if r.get("kind") != "invite" or r.get("expires", 0) > now]
             if sum(r.get("kind") == "invite" for r in rows) >= 16:
                 raise AccessDenied(409, "Слишком много активных кодов привязки")
-            return rows + [{"kind": "invite", "hash": hashlib.sha256(code.encode()).hexdigest(),
-                            "name": name.strip()[:80] or "Телефон", "expires": now + PAIR_TTL}]
+            invite = {"kind": "invite", "hash": hashlib.sha256(code.encode()).hexdigest(),
+                      "name": name.strip()[:80] or "Телефон", "expires": now + PAIR_TTL}
+            if status_token:
+                invite["status_hash"] = hashlib.sha256(status_token.encode()).hexdigest()
+            return rows + [invite]
         self.store.mutate(create)
         return code
 
-    def pair(self, code: str, public_key: str) -> dict:
+    def pair(self, code: str, public_key: str, masterkey_device_public_key: str | None = None) -> dict:
         if not isinstance(code, str) or not 40 <= len(code) <= 64:
             raise AccessDenied(403, "Код привязки недействителен или истёк")
-        _public_key(public_key)
+        key = _public_key(public_key)
+        public_key = base64.b64encode(key.public_bytes(serialization.Encoding.DER,
+                                     serialization.PublicFormat.SubjectPublicKeyInfo)).decode()
+        if masterkey_device_public_key is not None:
+            native = _public_key(masterkey_device_public_key)
+            masterkey_device_public_key = base64.b64encode(native.public_bytes(serialization.Encoding.DER,
+                                                         serialization.PublicFormat.SubjectPublicKeyInfo)).decode()
+            if masterkey_device_public_key == public_key:
+                raise AccessDenied(400, "Для мастер-ключа нужен отдельный ключ телефона")
         code_hash = hashlib.sha256(code.encode()).hexdigest()
         now = self.clock()
         device = {"kind": "device", "id": str(uuid.uuid4()), "public_key": public_key, "created": now}
+        if masterkey_device_public_key is not None:
+            device["masterkey_device_public_key"] = masterkey_device_public_key
         def enroll(rows):
             # Strictly one use, including retries with the same phone key.
             # Consumption and enrollment share the atomic storage transaction.
@@ -100,9 +253,25 @@ class MobileAccess:
             if sum(r.get("kind") == "device" for r in rows) >= 32:
                 raise AccessDenied(409, "Достигнут лимит привязанных телефонов")
             device["name"] = invite.get("name", "Телефон")
+            if invite.get("status_hash"):
+                device.update(status_hash=invite["status_hash"], status_expires=invite["expires"])
             return [r for r in rows if r is not invite and (r.get("kind") != "invite" or r.get("expires", 0) > now)] + [device]
         self.store.mutate(enroll)
         return {"device_id": device["id"], "name": device["name"]}
+
+    def pairing_status(self, token: str) -> dict:
+        # A separate read-only token cannot enroll a phone or recover the code.
+        if not isinstance(token, str) or not 40 <= len(token) <= 64:
+            raise AccessDenied(400, "Некорректный запрос состояния привязки")
+        digest = hashlib.sha256(token.encode()).hexdigest()
+        for row in self.store.read():
+            if secrets.compare_digest(str(row.get("status_hash", "")), digest):
+                expires = row.get("status_expires", row.get("expires", 0))
+                if expires > self.clock():
+                    if row.get("kind") == "device":
+                        return {"state": "paired", "name": row.get("name", "Телефон")}
+                    return {"state": "pending"}
+        return {"state": "expired"}
 
     def devices(self) -> list:
         return [{k: row[k] for k in ("id", "name", "created") if k in row}
@@ -174,14 +343,19 @@ class MobileAccess:
             self._sessions[hashlib.sha256(token.encode()).hexdigest()] = {"device_id": device_id, "expires": now + SESSION_TTL}
         return {"session": token, "expires_in": SESSION_TTL}
 
-    def authorize(self, token: str | None) -> str | None:
+    def session_details(self, token: str | None) -> MobileSession | None:
         if not isinstance(token, str) or not 40 <= len(token) <= 64:
             return None
         with self._lock:
             entry = self._sessions.get(hashlib.sha256(token.encode()).hexdigest())
+            entry = dict(entry) if entry else None
         if not entry or entry["expires"] <= self.clock() or not self.device_exists(entry["device_id"]):
             return None
-        return entry["device_id"]
+        return MobileSession(entry["device_id"], entry["expires"])
+
+    def authorize(self, token: str | None) -> str | None:
+        session = self.session_details(token)
+        return session.device_id if session else None
 
 
 def main():

@@ -10,8 +10,9 @@ from core.json_store import locked
 from datetime import datetime
 from pathlib import Path
 
-CONFIG_FILE = Path("config.json")
-TEMP_FILE = Path("config.json.tmp")
+from core.install_paths import runtime_file, runtime_backup_dir
+CONFIG_FILE = runtime_file("config.json")
+TEMP_FILE = CONFIG_FILE.with_name("config.json.tmp")
 _CONFIG_LOCK = threading.RLock()
 
 
@@ -32,7 +33,7 @@ def _config_locked(fn):
 # история конфига — config_<ts>.json, страховка — config_latest.json,
 # повреждённые файлы — corrupt_config_<ts>.json (glob истории их не
 # видит и кандидатами восстановления они быть не могут).
-CONFIG_BACKUP_DIR = Path("backup")
+CONFIG_BACKUP_DIR = runtime_backup_dir()
 CONFIG_LATEST = CONFIG_BACKUP_DIR / "config_latest.json"
 MAX_CONFIG_BACKUPS = 5    # как MAX_BACKUPS у servers.json
 CORRUPT_CONFIG_KEEP = 3   # сколько повреждённых файлов хранить для разбора
@@ -481,7 +482,7 @@ def _restore_config_backup() -> dict:
 
     raise ConfigCorruptedError(
         "config.json повреждён, валидных копий не найдено "
-        "(backup/config_latest.json, backup/config_*.json)"
+        f"({CONFIG_BACKUP_DIR}/config_latest.json, {CONFIG_BACKUP_DIR}/config_*.json)"
     )
 
 

@@ -1,7 +1,7 @@
 import { j, esc } from './api.js';
 import { toast, confirmAction, formatServerDateTime } from './ui.js';
 import { openEditor } from './editor.js?v=20260815-scripts-table-v1';
-import { openServer, openServerTerminal } from './servers.js?v=20261001-mobile-charts-v1';
+import { openServer, openServerTerminal } from './servers.js?v=20261109-hostkey-v1';
 import { openTaskModal } from './taskmodal.js?v=20260914-v3';
 import { state, setScripts } from './state.js';
 

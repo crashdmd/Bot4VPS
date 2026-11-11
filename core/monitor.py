@@ -15,7 +15,8 @@ from core.storage import (
     is_group_ssl_enabled
 )
 
-MONITOR_FILE = "monitor.json"
+from core.install_paths import runtime_file
+MONITOR_FILE = str(runtime_file("monitor.json"))
 
 # Блокировка для атомарных RMW над monitor.json.
 # Онлайн- и SSL-мониторинг пишут файл из разных потоков (asyncio.to_thread),

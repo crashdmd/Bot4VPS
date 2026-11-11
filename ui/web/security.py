@@ -5,7 +5,9 @@ PBKDF2-HMAC-SHA256 (только stdlib, без сторонних зависи�
 
 По умолчанию ``auth_enabled=False`` — локальный режим без логина
 (сервис крутится дома). Включается одним флагом, после чего все ``/api``-роуты
-(кроме login/me) закрываются зависимостью ``require_auth``.
+(кроме login/me) закрываются зависимостью ``require_auth``. На отдельном Mobile
+API эта зависимость принимает проверенную шлюзом сессию устройства; Web-вход
+и настройки учётной записи остаются отдельными.
 """
 from __future__ import annotations
 
@@ -142,20 +144,40 @@ def create_web_admin(username: str, password: str) -> None:
 # ------------------------------------------------------------------
 
 def get_totp_secret() -> str:
-    """Активный TOTP-секрет (расшифрованный) или '' если 2FA выключена."""
+    """Пустой результат только при выключенной 2FA; ошибка секрета закрывает вход."""
+    import base64
     from core.config import get_web_config
     from core.secretbox import decrypt
 
-    try:
-        return decrypt(str(get_web_config().get("totp_secret") or ""))
-    except Exception:
-        # Повреждённый ciphertext не должен ронять логин: считаем 2FA
-        # невключённой и ждём диагностики (консольный сброс это лечит)
+    stored = get_web_config().get("totp_secret")
+    if stored is None or stored == "":
         return ""
+    try:
+        if not isinstance(stored, str):
+            raise ValueError("Invalid TOTP record")
+        secret = decrypt(stored)
+        if not isinstance(secret, str) or not secret:
+            raise ValueError("Empty TOTP secret")
+        secret = secret.strip().upper()
+        # pyotp использует Base32. Проверяем и расшифрованный plaintext:
+        # нечитаемая/пустая запись не должна становиться выключенной 2FA.
+        if not secret or not base64.b32decode(secret + "=" * (-len(secret) % 8)):
+            raise ValueError("Invalid TOTP secret")
+        return secret
+    except Exception:
+        raise HTTPException(
+            503,
+            "Секрет двухфакторной аутентификации недоступен или повреждён. "
+            "Вход заблокирован. Восстановите мастер-ключ или сбросьте 2FA "
+            "через консоль Bot4VPS на сервере.",
+        ) from None
 
 
 def totp_enabled() -> bool:
-    return bool(get_totp_secret())
+    """Настроенность 2FA не зависит от возможности расшифровать её секрет."""
+    from core.config import get_web_config
+    stored = get_web_config().get("totp_secret")
+    return stored is not None and stored != ""
 
 
 def make_totp_secret() -> str:
@@ -429,6 +451,9 @@ def actor_from_request(request: Request) -> Actor:
     авторизации) остаётся ``type=web`` без имени: роль не выдумываем.
     """
     session = _session(request)
+    verified_id = verified_mobile_device_id(request)
+    if verified_id:
+        return Actor.phone(device_id=verified_id, role=ActorRole.ADMIN.value, ip=_client_ip(request))
     device_id = getattr(getattr(request, "state", None), "mobile_device_id", None)
     if not isinstance(device_id, str) or not device_id:
         device_id = None
@@ -440,6 +465,21 @@ def actor_from_request(request: Request) -> Actor:
         role=session.get(ROLE_SESSION_KEY),
         ip=_client_ip(request),
     )
+
+
+def verified_mobile_device_id(request: Request) -> str | None:
+    """Trust the gateway's in-process proof, never client headers or Web cookies.
+
+    The gateway has checked the device session and watches revocation for the
+    entire HTTP/WS request. A device id by itself is only audit metadata.
+    """
+    from ._internal.device_access.principal import VerifiedMobileDevice
+    identity = request.scope.get("state", {}).get("mobile_identity")
+    if (request.scope.get("scheme") in ("https", "wss")
+            and isinstance(identity, VerifiedMobileDevice)
+            and isinstance(identity.device_id, str) and identity.device_id):
+        return identity.device_id
+    return None
 
 
 def set_request_actor(request: Request) -> Actor:
@@ -495,11 +535,13 @@ def establish_web_session(request: Request, username: str, *, expected_version=N
 
 
 async def require_auth(request: Request) -> None:
-    """Пропускает запрос, если авторизация выключена; иначе требует сессию."""
+    """Device proof for Mobile API; optional cookie-based login for Web."""
     # Актор выставляется до проверки: он нужен и в режиме без авторизации
     # (тогда у актора нет имени), а отказанный запрос до хендлера не дойдёт
     # и в аудит не попадёт.
     set_request_actor(request)
+    if verified_mobile_device_id(request):
+        return
     if not auth_enabled():
         return
     if session_valid(request.session):

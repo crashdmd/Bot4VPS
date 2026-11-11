@@ -112,9 +112,11 @@ const categories = [
   categories.splice(categories.findIndex(item => item.id === 'web') + 1, 0, {
     id: 'mobile', icon: '▣', title: 'Мобильное приложение', subtitle: 'Подключение и телефоны',
     render: async () => {
-      const mobile = await import('./_internal/device_access/panel.js?v=20261108-mobile-ui-v3');
+      const mobile = await import('./_internal/device_access/panel.js?v=20261111-mobile-source-v3');
       mobileSettingsModule = mobile;
-      await mobile.renderMobileAccess(document.getElementById('settings-content'));
+      await mobile.renderMobileAccess(document.getElementById('settings-content'), {
+        onOpenSecurity: () => selectSettingsCategory('web'),
+      });
     },
   });
 }
@@ -1093,6 +1095,13 @@ async function openMasterKeyView() {
 }
 
 function closeMasterKeyView() {
+  mkViewGeneration++;
+  mkKeyValue = null;
+  mkKeyRevealed = false;
+  for (const id of ['mk-view-start-btn', 'mk-view-confirm-btn']) {
+    const button = document.getElementById(id);
+    if (button) button.disabled = false;
+  }
   document.getElementById('mk-view-modal')?.classList.remove('open');
   // Очистка: пароль и ключ не остаются в DOM дольше нужного
   const pass = document.getElementById('mk-view-pass');
@@ -1110,6 +1119,7 @@ function closeMasterKeyView() {
 
 let mkViewChannel = null;
 let mkKeyValue = null;
+let mkViewGeneration = 0;
 let mkNoCodeTimer = null;
 let mkResendTimer = null;
 // Момент (Date.now) первой/последней отправки TG-кода — resend-кнопка
@@ -1159,17 +1169,20 @@ function scheduleNoCodeHint(resent) {
 
 /** Повторная отправка TG-кода: новый код стирает старый (на сервере). */
 async function masterKeyResendCode() {
+  const generation = mkViewGeneration;
   const resend = document.getElementById('mk-view-resend-btn');
   if (resend) resend.disabled = true;
   const err = document.getElementById('mk-view-err');
   try {
     const res = await j('/api/masterkey/view/resend', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) });
+    if (generation !== mkViewGeneration) return;
     if (err) err.textContent = '';
     if (res.resent) {
       toast('Новый код отправлен в Telegram — предыдущий больше не действует', true);
       scheduleNoCodeHint(true);
     }
   } catch (error) {
+    if (generation !== mkViewGeneration) return;
     if (resend) resend.disabled = false;
     if (err) err.textContent = error.message;
   }
@@ -1192,6 +1205,7 @@ function hideMasterKeyResult() {
 }
 
 async function masterKeyViewStart() {
+  const generation = mkViewGeneration;
   const pass = (document.getElementById('mk-view-pass')?.value || '').trim();
   const err = document.getElementById('mk-view-err');
   if (err) err.textContent = '';
@@ -1203,6 +1217,7 @@ async function masterKeyViewStart() {
   if (btn) btn.disabled = true;
   try {
     const res = await j('/api/masterkey/view', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password: pass }) });
+    if (generation !== mkViewGeneration) return;
     mkViewChannel = res.channel;
     const step1 = document.getElementById('mk-view-step1');
     const step2 = document.getElementById('mk-view-confirm-step');
@@ -1226,6 +1241,7 @@ async function masterKeyViewStart() {
     // таймеры продолжают считать от исходной отправки, код не дублем.
     scheduleNoCodeHint(res.resent !== false);
   } catch (error) {
+    if (generation !== mkViewGeneration) return;
     // 403 «каналов подтверждения нет» — не ошибка поля ввода, а вердикт:
     // закрываем окно просмотра и показываем отдельную модалку с «Ок»
     if (error.status === 403) {
@@ -1235,11 +1251,12 @@ async function masterKeyViewStart() {
       err.textContent = error.message || 'Не удалось начать просмотр';
     }
   } finally {
-    if (btn) btn.disabled = false;
+    if (generation === mkViewGeneration && btn) btn.disabled = false;
   }
 }
 
 async function masterKeyViewConfirm() {
+  const generation = mkViewGeneration;
   const code = (document.getElementById('mk-view-code')?.value || '').trim();
   const err = document.getElementById('mk-view-err');
   if (err) err.textContent = '';
@@ -1251,6 +1268,7 @@ async function masterKeyViewConfirm() {
   if (btn) btn.disabled = true;
   try {
     const res = await j('/api/masterkey/view/confirm', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code }) });
+    if (generation !== mkViewGeneration) return;
     mkKeyValue = res.key;
     hideNoCodeHint();
     const step2 = document.getElementById('mk-view-confirm-step');
@@ -1269,11 +1287,12 @@ async function masterKeyViewConfirm() {
     const codeInput = document.getElementById('mk-view-code');
     if (codeInput) codeInput.value = '';
   } catch (error) {
+    if (generation !== mkViewGeneration) return;
     if (err) err.textContent = error.message || 'Неверный код';
     const codeInput = document.getElementById('mk-view-code');
     if (codeInput) { codeInput.value = ''; codeInput.focus(); }
   } finally {
-    if (btn) btn.disabled = false;
+    if (generation === mkViewGeneration && btn) btn.disabled = false;
   }
 }
 
@@ -2245,7 +2264,11 @@ async function runUpdateCheck() {
   if (button) button.disabled = true;
   try {
     const result = await j('/api/update/check', { method: 'POST' });
-    toast(result.available ? 'Найдено обновление' : 'Установлена актуальная версия', true);
+    toast(result.error || (result.update_available ? 'Найдено обновление панели' : 'Установлена актуальная версия панели'), !result.error);
+    if (result.mobile_app) {
+      const mobile = result.mobile_app;
+      toast(mobile.ok ? (mobile.updated ? 'APK приложения обновлён до ' + mobile.version : 'Сохранён актуальный APK ' + mobile.version) : mobile.error, !!mobile.ok);
+    }
     await loadUpdateState();
   } catch (error) { toast(error.message, false); }
   finally { applyUpdateAction(updateState); }
@@ -2256,7 +2279,7 @@ async function renderUpdates() {
   updateState = state;
   const status = updateBadgeText(state);
   document.getElementById('settings-content').innerHTML = section('Обновления', 'Используется только существующий встроенный механизм обновлений.', [
-    settingRow({ id: 'set-update-enabled', type: 'toggle', title: 'Автоматическая проверка', desc: 'Проверять наличие новых версий в фоне.', value: !!monitor.update?.enabled }),
+    settingRow({ id: 'set-update-enabled', type: 'toggle', title: 'Автоматическая проверка', desc: 'Проверять новые версии панели и обновлять APK приложения для выдачи через Web и Telegram.', value: !!monitor.update?.enabled }),
     settingRow({ id: 'set-update-status', type: 'badge', title: 'Текущая версия', desc: state.last_error || 'Состояние встроенного updater.', value: status.text, tone: status.tone }),
   ], `<div class="set-inline-actions"><button type="button" id="set-update-action">Проверить</button></div>`);
   bindToggle('set-update-enabled', enabled => patchMonitor('update', { enabled }));

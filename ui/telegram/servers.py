@@ -200,19 +200,32 @@ async def build_server_card(server_id):
 
 
 async def hostkey_confirm(query, server_id):
+    import time
+    from core.ssh import probe_host_key
+    from state import HOST_KEY_CONFIRM_STATE
     server = find_server(server_id)
     if not server:
         await query.edit_message_text("Сервер не найден.")
         return
 
+    user_id = query.from_user.id
+    HOST_KEY_CONFIRM_STATE.pop(user_id, None)
+    try:
+        presented = await asyncio.to_thread(probe_host_key, server)
+    except Exception:
+        await query.edit_message_text("Не удалось получить SSH-ключ сервера без авторизации.")
+        return
+    HOST_KEY_CONFIRM_STATE[user_id] = {
+        "server_id": server_id, "host": server["host"], "port": server.get("port", 22),
+        "fingerprint": presented["fingerprint"], "expires_at": time.monotonic() + 300,
+    }
     stored = (server.get("host_key") or {}).get("fingerprint") or "не закреплён"
     text = (
         f"🛡 Принять текущий host key сервера «{server['name']}»?\n\n"
         f"Закреплён: {stored}\n"
-        "Bot4VPS подключится без сверки и заменит сохранённый ключ "
-        "на предъявленный сейчас.\n\n"
-        "Продолжайте, только если сервер переустановлен или его ключ "
-        "законно изменился."
+        f"Предъявлен: {presented['fingerprint']}\n\n"
+        "SSH-авторизация не отправлялась. Сверьте новый отпечаток через "
+        "консоль сервера или панель провайдера. Будет принят именно этот ключ."
     )
     keyboard = [
         [InlineKeyboardButton("✅ Принять", callback_data=f"hostkey_accept:{server_id}")],
@@ -222,6 +235,8 @@ async def hostkey_confirm(query, server_id):
 
 
 async def perform_hostkey_accept(query, server_id):
+    import time
+    from state import HOST_KEY_CONFIRM_STATE
     from core.ssh import accept_new_host_key
 
     server = find_server(server_id)
@@ -229,11 +244,18 @@ async def perform_hostkey_accept(query, server_id):
         await query.edit_message_text("Сервер не найден.")
         return
 
+    pending = HOST_KEY_CONFIRM_STATE.pop(query.from_user.id, None)
+    if (not pending or pending["server_id"] != server_id
+            or pending["host"] != server["host"] or pending["port"] != server.get("port", 22)
+            or pending["expires_at"] < time.monotonic()):
+        await query.edit_message_text("Подтверждение истекло или сервер изменился. Получите отпечаток заново.")
+        return
+
     await query.edit_message_text(
         f"🛡 Подключаюсь к {server['name']} и принимаю текущий ключ..."
     )
     try:
-        record = await asyncio.to_thread(accept_new_host_key, server)
+        record = await asyncio.to_thread(accept_new_host_key, server, pending["fingerprint"])
     except Exception as e:
         await query.edit_message_text(
             f"❌ Не удалось принять host key.\nПричина: {str(e)[:300]}"

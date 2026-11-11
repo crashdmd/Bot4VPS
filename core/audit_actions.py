@@ -193,6 +193,7 @@ class AuditAction(str, Enum):
 
     # --- Секреты (ui/web/routers/masterkey.py, core/secretbox.py) ---
     SECRET_MASTERKEY_CREATE = "secret.masterkey_create"
+    SECRET_MASTERKEY_VIEW = "secret.masterkey_view"
     SECRET_MASTERKEY_UNLOCK = "secret.masterkey_unlock"
     # ``secret.masterkey_rotate`` из карты §8.2 в словаре нет намеренно:
     # операции «перевыпустить ключ, перешифровав существующие данные» в коде
@@ -329,6 +330,7 @@ ACTION_TITLES: dict[str, str] = {
     AuditAction.MOBILE_DEVICE_PAIR.value: "Привязка телефона",
     AuditAction.MOBILE_DEVICE_REVOKE.value: "Отзыв доступа телефона",
     AuditAction.SECRET_MASTERKEY_CREATE.value: "Создание мастер-ключа",
+    AuditAction.SECRET_MASTERKEY_VIEW.value: "Просмотр мастер-ключа",
     AuditAction.SECRET_MASTERKEY_UNLOCK.value: "Восстановление мастер-ключа",
     AuditAction.SECRET_ENCRYPT_ALL.value: "Шифрование всех секретов",
     AuditAction.TLS_ENABLE.value: "Включение HTTPS",

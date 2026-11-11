@@ -6,6 +6,7 @@ import tarfile
 from pathlib import Path, PurePosixPath
 
 from .errors import BackupError, ErrorCode
+from .archive_format import open_backup_tar
 from .ids import validate_id
 from .time_utils import normalize_utc_offset, parse_utc_timestamp
 from .validation import normalize_exclusions
@@ -123,10 +124,10 @@ def validate_manifest(manifest: dict, *, expected_backup_id: str | None = None, 
     if not isinstance(manifest, dict):
         raise BackupError(ErrorCode.MANIFEST_INVALID, "manifest.json должен содержать JSON object")
     manifest_version = manifest.get("manifest_version")
-    if manifest_version not in {1, 2}:
+    if manifest_version not in {1, 2, 3}:
         raise BackupError(
             ErrorCode.MANIFEST_VERSION_UNSUPPORTED,
-            "Поддерживаются manifest_version 1 и 2",
+            "Поддерживаются manifest_version 1, 2 и 3 (собственные копии Bot4VPS)",
         )
     manifest_keys = set(manifest)
     if manifest_keys != _MANIFEST_KEYS and manifest_keys != _MANIFEST_KEYS - {"label"}:
@@ -144,6 +145,8 @@ def validate_manifest(manifest: dict, *, expected_backup_id: str | None = None, 
         raise BackupError(ErrorCode.MANIFEST_INVALID, "completed_at не может быть раньше created_at")
     if manifest.get("type") not in _ALLOWED_TYPES or manifest.get("purpose") not in _ALLOWED_PURPOSES or manifest.get("mode") not in _ALLOWED_MODES:
         raise BackupError(ErrorCode.MANIFEST_INVALID, "Некорректные type/purpose/mode manifest")
+    if manifest_version == 3 and manifest["type"] != "bot4vps":
+        raise BackupError(ErrorCode.MANIFEST_INVALID, "Manifest v3 предназначен только для собственных копий Bot4VPS")
     if expected_backup_id and manifest.get("backup_id") != expected_backup_id:
         raise BackupError(ErrorCode.MANIFEST_INVALID, "backup_id manifest не совпадает с операцией")
     if expected_type and manifest.get("type") != expected_type:
@@ -216,12 +219,12 @@ def validate_manifest(manifest: dict, *, expected_backup_id: str | None = None, 
     else:
         source = _require_exact_keys(
             manifest.get("source"),
-            _BOT_SOURCE_KEYS_V2 if manifest_version == 2 else _BOT_SOURCE_KEYS,
+            _BOT_SOURCE_KEYS_V2 if manifest_version >= 2 else _BOT_SOURCE_KEYS,
             "source",
         )
     if source.get("kind") != manifest["type"]:
         raise BackupError(ErrorCode.MANIFEST_INVALID, "source.kind не соответствует type")
-    if manifest_version == 2:
+    if manifest_version >= 2:
         try:
             normalized_offset = normalize_utc_offset(source.get("utc_offset"))
         except ValueError as exc:
@@ -522,7 +525,8 @@ def _inspect_archive(archive_path: str | Path) -> tuple[dict, BackupError | None
     raw_manifest: bytes | None = None
     manifest_error: BackupError | None = None
     try:
-        with tarfile.open(archive_path, mode="r:*") as archive:
+        with open_backup_tar(archive_path) as archive:
+            self_container = archive.self_container
             for member in archive:
                 members.append(_member_metadata(member))
                 if _manifest_logical_name(member.name):
@@ -584,6 +588,14 @@ def _inspect_archive(archive_path: str | Path) -> tuple[dict, BackupError | None
                     ErrorCode.MANIFEST_INVALID,
                     "manifest.json должен быть JSON object",
                 )
+    # Container semantics are mandatory even on the optional-manifest import
+    # path; a corrupt/foreign manifest must not fall back to an ordinary TAR.
+    if self_container:
+        if manifest_error is not None:
+            raise manifest_error
+        if manifest is None or manifest.get("manifest_version") != 3:
+            raise BackupError(ErrorCode.MANIFEST_INVALID, "Контейнер Bot4VPS требует manifest v3")
+        validate_manifest(manifest, expected_type="bot4vps")
     return {"manifest": manifest, "members": members}, manifest_error
 
 

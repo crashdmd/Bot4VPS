@@ -2257,9 +2257,19 @@ async function onSshHostKeyAccept() {
   const context = captureContext();
   if (busy || !context) return;
   const { serverId } = context;
+  const path = `/api/servers/${encodeURIComponent(serverId)}/quick-setup/ssh/hostkey`;
+  let fingerprint;
+  setBusy(true, context);
+  try {
+    const preview = await requestForContext(context, path + '/preview');
+    fingerprint = preview.host_key?.fingerprint;
+    if (!preview.ok || !fingerprint) throw new Error(preview.message || preview.error || 'Не удалось получить SSH-ключ');
+  } catch (e) { showContextToast(context, e.message || 'Ошибка получения SSH-ключа', false); return; }
+  finally { setBusy(false, context); }
+  if (!contextIsCurrent(context)) return;
   const approved = await confirmAction({
     title: 'Принять текущий host key?',
-    message: 'Bot4VPS подключится к серверу без сверки и заменит сохранённый SSH host key на предъявленный сейчас. Продолжайте, только если вы уверены, что сервер переустановлен или его ключ законно изменился.',
+    message: `Предъявлен ключ ${fingerprint}. Пароль и SSH-авторизация не отправлялись. Сверьте отпечаток через консоль сервера или панель провайдера. Принять именно этот ключ?`,
     confirmText: 'Принять',
     cancelText: 'Отмена',
     danger: true,
@@ -2269,8 +2279,8 @@ async function onSshHostKeyAccept() {
   setBusy(true, context);
   try {
     const r = await requestForContext(context,
-      `/api/servers/${encodeURIComponent(serverId)}/quick-setup/ssh/hostkey/accept`,
-      { method: 'POST' });
+      path + '/accept',
+      { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ expected_fingerprint: fingerprint }) });
     showContextToast(context, r.ok
       ? `Новый host key принят: ${r.host_key?.fingerprint || '?'}`
       : (r.message || r.error || 'Ошибка'), r.ok);

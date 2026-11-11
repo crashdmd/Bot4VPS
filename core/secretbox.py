@@ -206,8 +206,9 @@ def _load_fernet() -> Fernet:
 
 # Каталоги/файлы скана — отдельные константы, чтобы тесты патчили их
 # (по образцу KEY_FILE), не трогая прод-конфиги.
-SCAN_CONFIG_FILE = Path("config.json")
-SCAN_SERVERS_FILE = Path("servers.json")
+from core.install_paths import runtime_file
+SCAN_CONFIG_FILE = runtime_file("config.json")
+SCAN_SERVERS_FILE = runtime_file("servers.json")
 SCAN_BACKUP_DIR = Path("backup")
 SCAN_TASKS_DIR = Path("logs/tasks")
 
@@ -580,7 +581,27 @@ def master_key_state() -> dict:
     return {"state": "ok", "encrypted_fields": scan["fields"]}
 
 
+def audit_master_key_view(*, success: bool, reason: str = "read") -> None:
+    """Only fixed outcome metadata; never include exception text or credentials."""
+    from core import audit
+    from core.actor import get_actor
+    from core.audit_actions import AuditAction, AuditResult
+    audit.record(AuditAction.SECRET_MASTERKEY_VIEW,
+                 result=AuditResult.OK if success else AuditResult.FAILED,
+                 params={"source": get_actor().type, "stage": reason})
+
+
 def read_master_key() -> str:
+    try:
+        key = _read_master_key_for_view()
+    except Exception:
+        audit_master_key_view(success=False)
+        raise
+    audit_master_key_view(success=True)
+    return key
+
+
+def _read_master_key_for_view() -> str:
     """Прочитать мастер-ключ для операции «Показать» (клиент/CLI).
 
     Возвращает только при живом ключе; состояние mismatch/missing

@@ -47,6 +47,18 @@ STATE_DB_EXCLUSIONS: tuple[str, ...] = _state_db_exclusions()
 # source. External Backup Manager storage is not below install_path by contract
 # and therefore is never traversed in the first place.
 BOT4VPS_INSTALL_EXCLUSIONS = (
+    # Root-only legacy updater copies are not runtime restore material.
+    'backup/update_backup_*', 'backup/update_backup_*/**',
+    ".local-build", ".local-build/**", ".local-archives", ".local-archives/**",
+    ".claude", ".claude/**", ".idea", ".idea/**", ".pytest_cache", ".pytest_cache/**",
+    "servers.json.hostkey-bak",
+    "tests", "tests/**", ".agents", ".agents/**", ".codex", ".codex/**", ".aws", ".aws/**",
+    "ui/Bot4VPS-Mobile/.gradle", "ui/Bot4VPS-Mobile/.gradle/**",
+    "ui/Bot4VPS-Mobile/.kotlin", "ui/Bot4VPS-Mobile/.kotlin/**",
+    "ui/Bot4VPS-Mobile/.build-env", "ui/Bot4VPS-Mobile/.build-env/**",
+    "ui/Bot4VPS-Mobile/.signing", "ui/Bot4VPS-Mobile/.signing/**",
+    "ui/Bot4VPS-Mobile/.singning", "ui/Bot4VPS-Mobile/.singning/**",
+    "ui/Bot4VPS-Mobile/app/build", "ui/Bot4VPS-Mobile/app/build/**",
     # VCS-метаданные транспорта установки, а не состояние панели: обновления
     # не используют git в install_path. Кроме лишних мегабайт в каждом
     # архиве, git clone с ЛОКАЛЬНОГО пути (install.sh с REPO-путём) хардлин-
@@ -54,8 +66,8 @@ BOT4VPS_INSTALL_EXCLUSIONS = (
     # (hardlinks запрещены в archive v1) и автоматический self-backup падает.
     ".git",
     ".git/**",
-    "venv/**",
-    ".venv/**",
+    "venv", "venv/**",
+    ".venv", ".venv/**",
     "__pycache__",
     "__pycache__/**",
     "**/__pycache__",
@@ -96,6 +108,7 @@ BOT4VPS_INSTALL_EXCLUSIONS = (
     # содержат, и восстанавливать их нельзя.
     "data/backup/maintenance_state.json",
     "data/backup/inventory-index-jobs.json",
+    "data/backup/self_restore", "data/backup/self_restore/**",
     # Межпроцессное состояние проверки ключей и Telegram-бота также пишется
     # атомарной заменой и не должно ни срывать сборку, ни возвращаться из
     # старого архива поверх текущего состояния.
@@ -182,6 +195,12 @@ def iter_source_entries(source: Path, *, install_source: bool) -> Iterator[tuple
             metadata = path.lstat()
         except (FileNotFoundError, PermissionError, OSError) as exc:
             raise BackupError(ErrorCode.SOURCE_PERMISSION_DENIED, "Не удалось прочитать source Bot4VPS") from exc
+        if install_source and path.parent == source and path.name in {"config.json", "servers.json", "monitor.json"} and path.is_symlink():
+            # Root-owned compatibility aliases; actual JSON is in data/runtime/.
+            expected = source / "data/runtime" / path.name
+            if path.resolve() != expected.resolve():
+                raise BackupError(ErrorCode.SOURCE_PERMISSION_DENIED, "Неверная ссылка рабочего JSON")
+            return
         relative = path.relative_to(root_parent).as_posix()
         policy_relative = path.relative_to(source).as_posix() if path != source else ""
         is_directory = stat.S_ISDIR(metadata.st_mode)

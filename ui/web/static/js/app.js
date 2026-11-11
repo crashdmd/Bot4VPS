@@ -4,7 +4,7 @@ import { loadEvents, EVENTS_LIMIT, openEventDetail, applyEventsSnapshot, initSys
 import { loadServers, loadQueues, loadHistory, loadGroupsAndKeys,
   bindServerUI, stopWatchers, openServer, closeGroupsPanel, lastServerTab,
   startSshProbeLoop, stopSshProbeLoop,
-} from './servers.js?v=20261001-mobile-charts-v1';
+} from './servers.js?v=20261109-hostkey-v1';
 import { loadScripts, bindScriptsUI } from './scripts.js?v=20261001-mobile-charts-v1';
 import { loadWireguard, bindWireguardUI, stopWgTimers, openWgServerById } from './wireguard.js?v=20261001-mobile-charts-v1';
 import { loadDocker, bindDockerUI, stopDockerTimers, openDockerServerById } from './docker.js?v=20261001-mobile-charts-v1';
@@ -18,7 +18,7 @@ import { j, esc } from './api.js';
 import { resumeBackgroundTasks } from './taskmodal.js?v=20260914-v3';
 import { initAuth, bindAuthUI } from './auth.js';
 import { initSetup, bindSetupUI } from './setup.js?v=20260910-setup-v4';
-import { bindGlobalSearch } from './search.js?v=20261108-mobile-ui-v3';
+import { bindGlobalSearch } from './search.js?v=20261110-mobile-security-v3';
 import { bindBackupUI, loadBackups, stopBackupTimers } from './backup.js?v=20261001-handbook-v3';
 import {
   openMetricsPage, closeMetricsView, bindMetricsUI, metricsFromUrl,
@@ -27,7 +27,7 @@ import {
   loadAudit, resetAuditPage, auditFromUrl, openAuditRecord, bindAuditUI, refreshAudit,
 } from './audit.js?v=20261001-mobile-charts-v1';
 
-const QUICK_SETUP_MODULE_URL = './quick_setup.js?v=20261001-handbook-v3';
+const QUICK_SETUP_MODULE_URL = './quick_setup.js?v=20261109-hostkey-v1';
 const quickSetupModule = import(QUICK_SETUP_MODULE_URL).catch(error => {
   console.error('[quick-setup] module unavailable:', error);
   return null;
@@ -51,7 +51,7 @@ async function openQuickSetupFromCard(serverId) {
 
 // Settings — отдельная подсистема. Загружаем её лениво, чтобы ошибка нового
 // модуля не останавливала Dashboard, Servers и остальные страницы.
-const settingsModule = import('./settings.js?v=20261108-mobile-ui-v3')
+const settingsModule = import('./settings.js?v=20261111-mobile-source')
   .catch(error => {
     console.error('[settings] module unavailable:', error);
     return null;

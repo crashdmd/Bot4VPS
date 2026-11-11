@@ -15,6 +15,7 @@ import os
 import sys
 
 from core.actor import Actor, set_actor
+from core.backup.errors import BackupError
 
 from . import ops, systemd_ops
 
@@ -248,15 +249,15 @@ def _ssh_hostkey_flow() -> None:
         pause()
         return
     server = servers[int(raw) - 1]
-    if not confirm(
-        f"Принять текущий host key сервера «{server.get('name', '?')}»?",
-        default=False,
-    ):
-        return
     try:
-        from core.ssh import accept_new_host_key
+        from core.ssh import accept_new_host_key, probe_host_key
 
-        record = accept_new_host_key(server)
+        presented = probe_host_key(server)
+        print(f"\nПредъявлен: {presented['type']} {presented['fingerprint']}")
+        print("SSH-авторизация не отправлялась. Сверьте отпечаток через консоль сервера или панель провайдера.")
+        if not confirm(f"Принять именно этот ключ сервера «{server.get('name', '?')}»?", default=False):
+            return
+        record = accept_new_host_key(server, presented["fingerprint"])
     except Exception as exc:
         print(f"\n✖ Не удалось: {exc}")
         pause()
@@ -909,6 +910,22 @@ def journal_menu() -> None:
     print()
     print("Bot4VPS journal (Ctrl+C — назад в меню)")
     print("─" * 36)
+    from core.local_privileges import separated, request
+    if separated():
+        import time
+        cursor = None
+        try:
+            while True:
+                result = request("journal.read", cursor=cursor)
+                cursor = result["cursor"]
+                for line in result["lines"]:
+                    print(line)
+                time.sleep(2)
+        except KeyboardInterrupt:
+            print("\n● Возврат в меню")
+        except Exception as exc:
+            print("\n⚠ " + str(exc))
+        return
     proc = systemd_ops.journal_follow()
     try:
         proc.wait()
@@ -1252,6 +1269,11 @@ def _print_restore_stage(operation: dict) -> None:
     print(f"  … {label}")
 
 
+def _print_restore_error(message: str) -> None:
+    """Сохранить абзацы безопасной ошибки Backup, включая инструкцию отката."""
+    print("\n".join(f"  {line}" if line else "" for line in str(message)[:2048].splitlines()))
+
+
 def _print_operation_failure(operation: dict) -> None:
     status = operation.get("status")
     if status == "cancelled":
@@ -1261,7 +1283,7 @@ def _print_operation_failure(operation: dict) -> None:
     message = error.get("message") if isinstance(error, dict) else None
     print(f"\n✖ Восстановление не завершено (статус: {status}).")
     if message:
-        print(f"  {str(message).splitlines()[0][:300]}")
+        _print_restore_error(message)
     restore = operation.get("restore") or {}
     protective = restore.get("protective_backup_id")
     if protective:
@@ -1323,7 +1345,8 @@ def _recovery_archive_flow() -> None:
         raise
     except Exception as exc:
         message = str(exc).strip() or exc.__class__.__name__
-        print(f"\n✖ Подготовка не удалась:\n  {message.splitlines()[0][:200]}")
+        print("\n✖ Подготовка не удалась:")
+        _print_restore_error(exc.safe_message if isinstance(exc, BackupError) else message.splitlines()[0][:200])
         pause()
         return
     prepared_id = prepared["operation_id"]
@@ -1367,7 +1390,8 @@ def _recovery_archive_flow() -> None:
         raise
     except Exception as exc:
         message = str(exc).strip() or exc.__class__.__name__
-        print(f"\n✖ Применение не удалось:\n  {message.splitlines()[0][:200]}")
+        print("\n✖ Применение не удалось:")
+        _print_restore_error(exc.safe_message if isinstance(exc, BackupError) else message.splitlines()[0][:200])
         print("  Состояние операции — пункт «Диагностика» этого раздела.")
         pause()
         return
@@ -1504,6 +1528,18 @@ def main_menu() -> None:
 
 
 def main() -> int:
+    from core.local_privileges import separated
+    from core.install_paths import get_install_path
+    from pathlib import Path
+    if os.geteuid() == 0 and get_install_path() == Path('/opt/bot4vps'):
+        if not separated():
+            from core.migration.privilege_migration import enforce_application_user
+            enforce_application_user()
+        import pwd
+        account = pwd.getpwnam('bot4vps')
+        os.setgroups([])
+        os.setgid(account.pw_gid)
+        os.setuid(account.pw_uid)
     # Self-heal: команда bot4vps — часть ui/cli, при запуске меню
     # гарантируем её наличие (не-фатально: под не-root просто пропускаем).
     try:
@@ -1511,7 +1547,8 @@ def main() -> int:
         ensure_cli_command()
     except Exception:
         pass
-    if os.geteuid() != 0:
+    from core.local_privileges import separated
+    if os.geteuid() != 0 and not separated():
         print("Требуются права root. Запустите: sudo bot4vps")
         return 1
     # Актор для аудита — один раз на сеанс меню: тип cli, роль NULL.

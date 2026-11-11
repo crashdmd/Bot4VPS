@@ -204,11 +204,7 @@ async def api_settings_backup_password_forgot(body: BackupPasswordForgotBody):
     if not verify_password(body.password, web.get("password_hash", "")):
         raise HTTPException(400, "Неверный пароль")
 
-    two_fa = False
-    try:
-        two_fa = totp_enabled()
-    except Exception:
-        two_fa = False
+    two_fa = totp_enabled()
 
     if two_fa:
         # Пароль уже проверен; вторым фактором станет код из приложения,

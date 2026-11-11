@@ -254,6 +254,9 @@ class LocalApiFirewall:
         On failure the remaining journal is retained. The caller must stop a
         candidate listener and may call sync(old_port) to roll back a change.
         """
+        from core.local_privileges import separated, request
+        if separated():
+            return request("firewall.sync", port=port)
         if port is not None and (type(port) is not int or not 1 <= port <= 65535):
             raise ValueError("Некорректный порт API")
         if port is None and not self.path.exists():

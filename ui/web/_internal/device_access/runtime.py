@@ -105,8 +105,10 @@ async def apply_mobile_settings(app, cfg):
             return {"ok": True, "running": False, "restart_required": False,
                     "message": "API выключен. " + message}
 
-        same_socket = old is not None and all(old.config.get(k, d) == cfg[k] for k, d in (("host", "0.0.0.0"), ("port", 8444)))
-        # Binding a different interface on the same port can overlap the old bind.
+        # A changed public address can renew the certificate. Restart even
+        # on the same port so the listener loads its new TLS context.
+        same_socket = old is not None and all(old.config.get(k, d) == cfg[k] for k, d in (("host", "0.0.0.0"), ("port", 8444), ("public_url", "")))
+        # Replacing a listener on the same port requires stopping its old bind.
         old_stopped = False
         candidate = None
         try:

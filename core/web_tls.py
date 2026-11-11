@@ -464,6 +464,16 @@ def launch(params: dict, action: str = "enable", config: dict | None = None) -> 
         # перезапускается этой же операцией.
         audit_op=_audit_launch(action, params),
     )
+    from core.local_privileges import separated, launch_task
+    if separated():
+        try:
+            pid = launch_task("tls")
+        except Exception as exc:
+            write_state(status="failed", finished_at=datetime.now().isoformat(), error=str(exc), pid=None)
+            finalize_config()
+            raise
+        write_state(pid=pid)
+        return pid
     cmd = [sys.executable, "-m", "core.web_tls"]
     ts = datetime.now().strftime("%Y%m%d%H%M%S")
     try:
@@ -738,6 +748,9 @@ def _atomic_write(path: Path, data: bytes, mode: int = 0o600) -> None:
 
 def find_certbot() -> str | None:
     """Путь до certbot: системный → venv/bin/certbot."""
+    from core.local_privileges import separated
+    if separated():
+        return "root-helper"
     found = shutil.which("certbot")
     if found:
         return found
@@ -755,7 +768,8 @@ def install_certbot() -> str | None:
         return None
     try:
         r = subprocess.run(
-            [str(pip), "install", "--quiet", "certbot"],
+            [str(pip), "install", "--quiet", "--require-hashes",
+             "-r", str(APP_DIR / "requirements-certbot.txt")],
             capture_output=True, text=True, timeout=600)
         if r.returncode != 0:
             return None
@@ -783,6 +797,14 @@ def _certbot_cmd(email: str | None, domain: str, force: bool = False) -> list[st
 def run_certbot(certbot: str, email: str | None, domain: str,
                 force: bool = False) -> tuple[bool, str, str]:
     """Выпустить/перевыпустить сертификат. Возвращает (ok, stdout, stderr)."""
+    from core.local_privileges import separated, request
+    if separated():
+        import base64
+        result = request("tls.certbot", domain=domain, email=email, force=bool(force))
+        if result["ok"]:
+            _atomic_write(CERT_FILE, base64.b64decode(result["cert"], validate=True))
+            _atomic_write(KEY_FILE, base64.b64decode(result["key"], validate=True))
+        return result["ok"], result["stdout"], result["stderr"]
     try:
         r = subprocess.run(
             [certbot] + _certbot_cmd(email, domain, force),
@@ -796,6 +818,10 @@ def run_certbot(certbot: str, email: str | None, domain: str,
 
 def copy_le_certificate(domain: str) -> None:
     """Копия live-сертификата Let's Encrypt в keys/web/ (0600, атомарно)."""
+    from core.local_privileges import separated
+    if separated():
+        validate_pair(CERT_FILE, KEY_FILE)
+        return
     live = LE_LIVE_ROOT / domain
     src_cert = live / "fullchain.pem"
     src_key = live / "privkey.pem"
@@ -862,13 +888,19 @@ def _renew_le_if_due(domain: str | None) -> None:
     if days > RENEW_THRESHOLD_DAYS:
         return
 
+    from core.local_privileges import separated
+    if separated():
+        # A user runner survives the restart and uses certonly for this domain;
+        # it never renews unrelated certificates or their root hooks.
+        launch({"mode": "letsencrypt", "domain": domain, "force": False}, action="renew")
+        return
     certbot = find_certbot()
     if not certbot:
         _tls_event(
             "critical",
             "Не найден certbot для автопродления сертификата",
             "Сертификату панели осталось %d дн. Установите certbot "
-            "(apt install certbot либо venv/bin/pip install certbot) и "
+            "(apt install certbot либо venv/bin/pip install --require-hashes -r requirements-certbot.txt) и "
             "нажмите «Перевыпустить»: Настройки → Безопасность → HTTPS." % days,
         )
         return
@@ -967,6 +999,10 @@ async def tls_renew_job(_context=None) -> None:
 
 def _atomic_write_unit(text: str) -> None:
     """Атомарная запись юнита: tmp в каталоге юнита -> fsync -> replace."""
+    from core.local_privileges import separated, configure_unit
+    if separated():
+        configure_unit(text)
+        return
     UNIT_PATH.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp_name = tempfile.mkstemp(
         dir=str(UNIT_PATH.parent), prefix="bot4vps.service.", suffix=".tmp"
@@ -986,6 +1022,9 @@ def _atomic_write_unit(text: str) -> None:
 
 
 def _systemctl(*args: str, timeout: int = 90) -> subprocess.CompletedProcess:
+    from core.local_privileges import separated, systemctl
+    if separated():
+        return systemctl(*args, timeout=timeout)
     return subprocess.run(
         ["systemctl", *args], capture_output=True, text=True, timeout=timeout
     )
@@ -1062,6 +1101,8 @@ def _rollback(unit_backup: str, reason_title: str, reason_hint: str) -> None:
         if r.returncode != 0:
             _log("restart при откате не удался: %s" % (r.stderr or "").strip()[:300])
             raise RuntimeError(r.stderr or "systemctl restart failed")
+        from core.local_privileges import commit_unit
+        commit_unit()
         # Прежняя схема должна ответить; если нет — юнит уже восстановлен,
         # сервис перезапущен (следующий старт поднимет его).
         old_state = unit_tls_state()
@@ -1109,7 +1150,7 @@ def _prepare_assets(params: dict, log: bool = True) -> tuple[str, str]:
             return "", {
                 "title": "Не удалось установить certbot",
                 "hint": "Установите вручную: apt install certbot (или "
-                        "venv/bin/pip install certbot), либо используйте "
+                        "venv/bin/pip install --require-hashes -r requirements-certbot.txt), либо используйте "
                         "self-signed/свой сертификат",
             }
         if log:
@@ -1259,6 +1300,8 @@ def _apply() -> int:
     _log("сервис перезапущен, ждём health (%s://127.0.0.1:%d)"
          % (new_state["scheme"], port))
     if _health_ok(new_state, port, HEALTH_TIMEOUT):
+        from core.local_privileges import commit_unit
+        commit_unit()
         write_state(status="done", finished_at=datetime.now().isoformat())
         _log("готово: панель работает по %s" % new_state["scheme"].upper())
         return 0

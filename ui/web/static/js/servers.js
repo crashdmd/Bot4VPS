@@ -997,17 +997,25 @@ export function renderConnWarning(warning) {
 async function acceptHostKeyFromCard() {
   const id = currentOpenServerId();
   if (!id) { toast('Сервер не выбран', false); return; }
+  const path = '/api/servers/' + encodeURIComponent(id) + '/quick-setup/ssh/hostkey';
+  let fingerprint;
+  try {
+    const preview = await j(path + '/preview');
+    fingerprint = preview.host_key?.fingerprint;
+    if (!preview.ok || !fingerprint) throw new Error(preview.message || preview.error || 'Не удалось получить SSH-ключ');
+    if (currentOpenServerId() !== id) return;
+  } catch (e) { toast(e.message || 'Ошибка получения SSH-ключа', false); return; }
   const approved = await confirmAction({
     title: 'Принять текущий host key?',
-    message: 'Bot4VPS подключится к серверу без сверки и заменит сохранённый SSH host key на предъявленный сейчас. Продолжайте, только если вы уверены, что сервер переустановлен или его ключ законно изменился.',
+    message: `Предъявлен ключ ${fingerprint}. Пароль и SSH-авторизация не отправлялись. Сверьте отпечаток через консоль сервера или панель провайдера. Принять именно этот ключ?`,
     confirmText: 'Принять',
     cancelText: 'Отмена',
     danger: true,
     confirmFirst: true,
   });
-  if (!approved) return;
+  if (!approved || currentOpenServerId() !== id) return;
   try {
-    const r = await j('/api/servers/' + encodeURIComponent(id) + '/quick-setup/ssh/hostkey/accept', { method: 'POST' });
+    const r = await j(path + '/accept', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ expected_fingerprint: fingerprint }) });
     toast(r.ok
       ? `Новый host key принят: ${r.host_key?.fingerprint || '?'}`
       : (r.message || r.error || 'Ошибка'), r.ok);

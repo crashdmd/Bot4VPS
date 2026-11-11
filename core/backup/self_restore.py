@@ -39,6 +39,8 @@ from core.install_paths import get_install_path
 from core.version import APP_VERSION
 
 from .errors import BackupError, ErrorCode
+from .archive_format import copy_tar_payload, open_backup_tar
+from .self_restore_version import require_self_restore_compatible
 from .models import OperationStatus, TERMINAL_STATUSES
 from .restore_apply import (
     RESTORE_MODE_MERGE,
@@ -127,7 +129,7 @@ def inspect_self_restore_archive(archive_path, plan: dict) -> dict:
             unit_member = str(entry.get("name"))
             break
     try:
-        with tarfile.open(str(archive_path), "r:gz") as tar:
+        with open_backup_tar(archive_path) as tar:
             for name in ("payload/manifest.json", "manifest.json"):
                 try:
                     member = tar.getmember(name)
@@ -185,7 +187,7 @@ def _unit_port(unit_text: str | None) -> str | None:
 def self_restore_prepare_warnings(inspected: dict) -> list[str]:
     """Предупреждения prepare: версия кода, режим юнита, порт.
 
-    Архив побеждает (restore — не миграция): предупреждение, а не отказ.
+    Совместимость архитектуры отдельно проверяется по core/version.py.
     """
     warnings: list[str] = []
     version = inspected.get("version")
@@ -223,6 +225,7 @@ def prepare_warnings_for(
     resolved_import,
     decrypted_archive,
     plan: dict,
+    full_plan: dict | None = None,
 ) -> list[str]:
     """Предупреждения prepare для bot4vps-цели: версия, режим юнита, порт.
 
@@ -243,9 +246,10 @@ def prepare_warnings_for(
 
     if is_encrypted_file(archive):
         return []
-    return self_restore_prepare_warnings(
-        inspect_self_restore_archive(archive, plan)
-    )
+    inspected = inspect_self_restore_archive(archive, plan)
+    if full_plan is not None:
+        inspected["version"] = require_self_restore_compatible(archive, full_plan)
+    return self_restore_prepare_warnings(inspected)
 
 
 # --------------------------------------------------------------------------- #
@@ -349,6 +353,11 @@ def _launch_runner(job: dict) -> int:
     extraction перезаписывает core/backup/self_restore_runner.py, а Python
     читает исходник скрипта лениво.
     """
+    from core.local_privileges import separated, launch_task
+    if separated():
+        path = Path(job["state_file"]).parent / "job.json"
+        _write_json_atomic(path, job)
+        return launch_task("self_restore", str(path))
     work_dir = Path(tempfile.mkdtemp(prefix="bot4vps_self_restore_"))
     src = Path(__file__).with_name(RUNNER_NAME)
     dst = work_dir / RUNNER_NAME
@@ -374,6 +383,28 @@ def _launch_runner(job: dict) -> int:
     return proc.pid
 
 
+def _share_restore_archive(job):
+    """Publish PrivateTmp inputs before persisting metadata for retry/adoption."""
+    archive = Path(job["archive"])
+    shared = Path(job["state_file"]).parent / "archive.tar.gz"
+    if archive == shared:
+        return
+    # Copy instead of linking: the caller may own a decrypted temporary file
+    # which is removed immediately after handing off to the detached runner.
+    fd, temporary = tempfile.mkstemp(dir=shared.parent, prefix=".archive-")
+    try:
+        with os.fdopen(fd, "wb") as output:
+            copy_tar_payload(archive, output)
+            output.flush()
+            os.fsync(output.fileno())
+        os.chmod(temporary, 0o600)
+        os.replace(temporary, shared)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
+    job.update(archive=str(shared), cleanup_archive=True)
+
+
 def _state_heartbeat_age(state: dict) -> float | None:
     try:
         updated = datetime.fromisoformat(str(state.get("updated_at") or ""))
@@ -394,6 +425,7 @@ def apply_self_restore(
     warnings: list[str],
     protective_result,
     backup_filename: str | None,
+    full_plan: dict | None = None,
 ) -> dict:
     """Локальное применение: раннер вне процесса + финализация по его state.
 
@@ -412,9 +444,11 @@ def apply_self_restore(
             "Архив восстановления не найден",
         )
 
+    version = require_self_restore_compatible(archive_file, full_plan or plan)
     _prune_finished_state_dirs(manager)
 
     inspected = inspect_self_restore_archive(archive_file, plan)
+    inspected["version"] = version
     warnings.extend(self_restore_prepare_warnings(inspected))
 
     state_dir = state_dir_for(manager.data_root, operation_id)
@@ -454,6 +488,16 @@ def apply_self_restore(
         state_file=state_file,
         go_file=go_file,
     )
+    _share_restore_archive(job)
+    # Check the published runner input as well as the caller-owned snapshot.
+    require_self_restore_compatible(job["archive"], full_plan or plan)
+    from core.local_privileges import separated
+    if separated():
+        from .separated_restore import prepare
+        try:
+            job["separated_restore"] = prepare(job["archive"], plan)
+        except (ValueError, RuntimeError) as exc:
+            raise BackupError(ErrorCode.RESTORE_PRECHECK_FAILED, str(exc)) from exc
     manager.operations.attach_restore_metadata(
         operation_id,
         "self_restore",
@@ -468,7 +512,7 @@ def apply_self_restore(
     manager.operations.update_stage(operation_id, "self_restore_launch")
     try:
         _launch_runner(job)
-    except OSError as exc:
+    except (OSError, RuntimeError) as exc:
         # Раннер не стартовал: сервис не останавливался, дерево не тронуто —
         # чистый отказ ДО мутационной границы.
         raise BackupError(
