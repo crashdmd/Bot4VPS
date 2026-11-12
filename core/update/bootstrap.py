@@ -9,6 +9,7 @@ import argparse
 from contextlib import nullcontext
 import hashlib
 import json
+import os
 import re
 import shutil
 import sys
@@ -127,6 +128,10 @@ def extract_verified(archive: Path, destination: Path, payload: dict) -> Path:
     match = re.search(r'^APP_VERSION\s*=\s*[\'"]([^\'"]+)[\'"]\s*$', version_source, re.MULTILINE)
     if match is None or match.group(1) != payload["version"] or not (source / "bot.py").is_file():
         raise ValueError("Версия или состав исходников не совпадает с релизом")
+    # copytree preserves these modes when installing under a private root
+    # staging directory; the installed service still needs to traverse code.
+    for directory, _, _ in os.walk(source):
+        os.chmod(directory, 0o755)
     return source
 
 

@@ -573,8 +573,8 @@ def _migrate(start, *, automatic=False):
                 raise ValueError("Drop-in меняет границу привилегий; перенесите эти настройки в фиксированный unit: " + str(path))
             journal["system_files"][str(path)] = backup_file(path)
     paths = []
-    # Code is protected individually. Cache/build/signing files retain their
-    # existing modes; stripping world-read from private secrets is never undone.
+    # Only distributed code is made readable by the application user.
+    # Cache/build/signing files retain their existing private modes.
     if __package__:
         from .code_snapshots import CODE_PATHS, IGNORED
     else:
@@ -627,7 +627,9 @@ def _migrate(start, *, automatic=False):
         os.chown(APP, 0, 0)
         for path in paths:
             os.chown(path, 0, 0)
-            path.chmod(stat.S_IMODE(path.stat().st_mode) & ~0o022)
+            # Legacy updaters inherit UMask=0077 and deliver 0700/0600 code.
+            # Removing write bits alone leaves the new non-root service blind.
+            path.chmod(0o755 if path.is_dir() or path.stat().st_mode & 0o111 else 0o644)
         for name in RUNTIME:
             (APP / name).mkdir(mode=0o700, exist_ok=True)
         runtime = APP / "data/runtime"

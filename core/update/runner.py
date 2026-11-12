@@ -213,11 +213,13 @@ def _extract_tar(tar_path: Path, dest_dir: Path) -> Path:
                     continue
                 with open(target, "wb") as f:
                     shutil.copyfileobj(extracted, f)
-                if m.mode & 0o111:  # сохранить exec-биты (git archive хранит)
-                    os.chmod(target, m.mode)
-            # symlinks в архивах исходников GitHub не бывает; пропускаем
+                os.chmod(target, 0o755 if m.mode & 0o111 else 0o644)
     if not any(new_dir.iterdir()):
         raise RuntimeError("Архив пуст")
+    # Source directories are copied with their modes. A systemd UMask=0077
+    # must not make installed code inaccessible to the application user.
+    for directory, _, _ in os.walk(new_dir):
+        os.chmod(directory, 0o755)
     return new_dir
 
 
