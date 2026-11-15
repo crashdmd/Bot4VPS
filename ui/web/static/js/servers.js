@@ -1,6 +1,6 @@
 import { j, esc } from './api.js';
 import { ansiToHtml } from './ansi.js';
-import { toast, showPage, bindPasswordToggles, parseEmoji, confirmAction, formatServerDateTime, serverDateTimeParts, serverDayDifference, serverNow, infoModal } from './ui.js';
+import { fitServerTables, toast, showPage, bindPasswordToggles, parseEmoji, confirmAction, formatServerDateTime, serverDateTimeParts, serverDayDifference, serverNow, infoModal } from './ui.js';
 import { state, setServers, setGroups, setKeys, setOpenServer, setPage, setServerGroupTab, setServerSort, setServerQuery as updateServerQuery } from './state.js';
 import { WIREGUARD_ICON, DOCKER_ICON, XUI_ICON } from './icons.js?v=20260905-brandicons-v3';
 import { openTerminal, closeTerminal } from './terminal.js?v=20260905-glassblue-v2';
@@ -575,6 +575,7 @@ export function renderServers() {
     return;
   }
   el.innerHTML = renderServersTable(list);
+  fitServerTables();
   // Сравниваем исходные строки, а не сериализацию DOM: она может иначе
   // экранировать HTML и содержать временную подсветку кнопки копирования.
   el.querySelectorAll('tbody tr[data-sid]').forEach((row, index) => {
@@ -785,11 +786,11 @@ async function renderQuickActions(id) {
   if (!qa) return;
 
   // Несколько источников могут запросить обновление одновременно (openServer,
-  // watcher задачи, refreshAfterServiceChange). Собираем кнопки вне DOM и
-  // публикуем только результат последнего вызова, чтобы stale-render не дописал
-  // дубли после своих await.
+  // watcher задачи, refreshAfterServiceChange). Сразу создаём весь список;
+  // до ответа о сервисах их кнопки недоступны. Высота блока не меняется,
+  // а результат устаревшего запроса не заменяет действия нового сервера.
   const revision = ++quickActionsRevision;
-  let fragment = document.createDocumentFragment();
+  const fragment = document.createDocumentFragment();
   const addAction = (text, icon, cls, fn, styles) => {
     const b = document.createElement('button');
     b.innerHTML = icon ? `${icon} ${text}` : text;
@@ -813,7 +814,17 @@ async function renderQuickActions(id) {
       if (button?.isConnected) button.disabled = false;
     }
   });
-  if (revision !== quickActionsRevision) return;
+  const serviceButtons = [
+    addAction('WireGuard', WIREGUARD_ICON, 'secondary', null),
+    addAction('Docker', DOCKER_ICON, 'secondary', null),
+    addAction('3x-ui', XUI_ICON, 'secondary', null),
+  ];
+  serviceButtons.forEach(button => { button.disabled = true; });
+
+  addAction('Запустить скрипт', '▶', 'secondary',
+    () => import('./scripts.js?v=20261001-mobile-charts-v1').then(m => m.openRunModal(id, null)));
+  addAction('Удалить сервер', '🗑', '', deleteServer,
+    { background: 'rgba(255, 59, 92, 0.1)', color: '#ff5c7c' });
   qa.replaceChildren(fragment);
 
   const [wireGuardResult, dockerResult, xuiResult] = await Promise.allSettled([
@@ -829,39 +840,17 @@ async function renderQuickActions(id) {
   const xuiInstalled = xuiResult.status === 'fulfilled'
     && xuiResult.value === true;
 
-  fragment = document.createDocumentFragment();
-
-  // 2. WireGuard
-  if (wireGuardInstalled) {
-    addAction('Панель управления WireGuard', WIREGUARD_ICON, 'secondary', () => openWireGuardServer(id));
-  } else {
-    addAction('Установить WireGuard', WIREGUARD_ICON, 'secondary', () => confirmInstallWireGuard(id));
-  }
-
-  // 3. Docker
-  if (dockerInstalled) {
-    addAction('Панель управления Docker', DOCKER_ICON, 'secondary', () => openDockerServer(id));
-  } else {
-    addAction('Установить Docker', DOCKER_ICON, 'secondary', () => confirmInstallDocker(id));
-  }
-
-  // 4. 3x-ui
-  if (xuiInstalled) {
-    addAction('Панель управления 3x-ui', XUI_ICON, 'secondary', () => openXuiServer(id));
-  } else {
-    addAction('Установить 3x-ui', XUI_ICON, 'secondary', () => confirmInstallXui(id));
-  }
-
-  // 5. Запустить скрипт
-  addAction('Запустить скрипт', '▶', 'secondary',
-    () => import('./scripts.js?v=20261001-mobile-charts-v1').then(m => m.openRunModal(id, null)));
-
-  // 6. Удалить сервер
-  addAction('Удалить сервер', '🗑', '', deleteServer,
-    { background: 'rgba(255, 59, 92, 0.1)', color: '#ff5c7c' });
-
-  if (revision !== quickActionsRevision) return;
-  qa.appendChild(fragment);
+  const resolveService = (button, installed, name, icon, open, install) => {
+    button.innerHTML = `${icon} ${installed ? 'Панель управления' : 'Установить'} ${name}`;
+    button.onclick = installed ? open : install;
+    button.disabled = false;
+  };
+  resolveService(serviceButtons[0], wireGuardInstalled, 'WireGuard', WIREGUARD_ICON,
+    () => openWireGuardServer(id), () => confirmInstallWireGuard(id));
+  resolveService(serviceButtons[1], dockerInstalled, 'Docker', DOCKER_ICON,
+    () => openDockerServer(id), () => confirmInstallDocker(id));
+  resolveService(serviceButtons[2], xuiInstalled, '3x-ui', XUI_ICON,
+    () => openXuiServer(id), () => confirmInstallXui(id));
 }
 
 
@@ -1720,15 +1709,15 @@ export async function loadQueues() {
         <h4 style="margin:0 0 .3rem">${esc(run.emoji || '')} ${esc(run.name)}</h4>
         <div class="row" style="color:var(--muted);font-size:.82rem">⏳ выполняется</div>
         <div class="actions" style="margin-top:.5rem">
-          <button type="button" class="secondary" data-task-log="${esc(run.id)}" style="font-size:.8rem">📄 Лог</button>
-          <button type="button" class="danger" data-task-cancel="${esc(run.id)}" style="font-size:.8rem">✕ Отменить</button>
+          <button type="button" class="secondary" data-task-log="${esc(run.id)}">📄 Лог</button>
+          <button type="button" class="danger" data-task-cancel="${esc(run.id)}">✕ Отменить</button>
         </div>
       </div>` : '';
       const queueCards = (q.queue || []).map(t => `<div class="card" style="margin-bottom:.5rem;min-height:0">
         <h4 style="margin:0 0 .3rem">${esc(t.emoji || '')} ${esc(t.name)}</h4>
         <div class="row" style="color:var(--muted);font-size:.82rem">⏸ в очереди</div>
         <div class="actions" style="margin-top:.5rem">
-          <button type="button" class="danger" data-task-cancel="${esc(t.id)}" style="font-size:.8rem">✕ Отменить</button>
+          <button type="button" class="danger" data-task-cancel="${esc(t.id)}">✕ Отменить</button>
         </div>
       </div>`).join('');
       return `<div class="card" style="margin-bottom:1rem"><h3>${esc(q.server_name)}</h3>

@@ -739,5 +739,9 @@ if __name__ == "__main__":
         rollback(json.loads((ROOT_STATE / "migration.json").read_text()))
     elif args.refresh_helper:
         refresh_helper()
+        # The updater executes this after installing the verified new helper;
+        # repair existing installations immediately, before the next boot.
+        subprocess.run(["/usr/bin/python3", "-I", str(HELPER_HOME / "daemon.py"), "--prepare-runtime"],
+                       check=True, timeout=30, cwd="/", env={"PATH": "/usr/sbin:/usr/bin:/sbin:/bin"})
     else:
         migrate(start=not args.no_start, automatic=args.automatic)

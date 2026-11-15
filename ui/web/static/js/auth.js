@@ -45,6 +45,7 @@ function clearSavedLogin() {
 
 function showLogin() {
   authed = false;
+  startQrLogin();
   // Скрываем интерфейс панели: логин — отдельный экран, без «задника»
   document.body.classList.remove('boot');
   document.body.classList.add('login-open');
@@ -82,6 +83,7 @@ function showLogin() {
 
 function hideLogin() {
   authed = true;
+  stopLoginWatch();
   document.body.classList.remove('boot', 'login-open');
   const ov = document.getElementById('login-overlay');
   if (ov) ov.classList.remove('open');
@@ -93,6 +95,11 @@ function hideLogin() {
  * оверлей логина и вернёт false — boot() остановится до перезагрузки после входа.
  */
 export async function initAuth() {
+  const url = new URL(location.href);
+  if (new URLSearchParams(url.hash.slice(1)).has('access-recovery')) {
+    // Discard obsolete recovery links; they never grant browser access.
+    history.replaceState(null, '', url.pathname + url.search);
+  }
   try {
     const me = await j('/api/me');
     // Тему сервера применяем до решения о логине — и для экрана входа,
@@ -113,18 +120,26 @@ export async function initAuth() {
 // переключаем форму на поле кода, не трогая введённый логин/пароль.
 let otpStep = false;
 
-function enterOtpStep() {
+function enterOtpStep(mobile = false, channel = 'totp') {
+  document.getElementById('li-qr').hidden = true;
+  document.getElementById('li-qr-status').textContent = 'Завершите подтверждение входа. Новый QR-код появится после возврата к форме авторизации.';
+  document.getElementById('li-totp-fields').hidden = mobile;
+  document.getElementById('li-use-totp').hidden = !mobile;
+  document.getElementById('li-mobile-status').textContent = mobile ? 'Подтвердите вход в Bot4VPS Mobile. Запрос содержит браузер, IP-адрес и время входа.' : channel === 'telegram' ? 'Код входа отправлен в Telegram. Введите его здесь.' : 'Введите код из приложения-аутентификатора.';
+  document.querySelector('#li-totp-fields label').textContent = channel === 'telegram' ? 'Код из Telegram' : 'Код из приложения';
   otpStep = true;
   document.getElementById('li-creds')?.setAttribute('hidden', '');
   document.getElementById('li-recover')?.setAttribute('hidden', '');
   const wrap = document.getElementById('li-otp-wrap');
   if (wrap) wrap.hidden = false;
   const go = document.getElementById('li-go');
-  if (go) go.textContent = 'Подтвердить';
+  if (go) { go.textContent = 'Подтвердить'; go.hidden = mobile; }
   setTimeout(() => document.getElementById('li-otp')?.focus(), 50);
 }
 
 function leaveOtpStep() {
+  stopLoginWatch();
+  j('/api/login/cancel', { method: 'POST' }).then(startQrLogin).catch(() => {});
   otpStep = false;
   document.getElementById('li-creds')?.removeAttribute('hidden');
   const recover = document.getElementById('li-recover');
@@ -134,7 +149,7 @@ function leaveOtpStep() {
   const otp = document.getElementById('li-otp');
   if (otp) otp.value = '';
   const go = document.getElementById('li-go');
-  if (go) go.textContent = 'Войти';
+  if (go) { go.textContent = 'Войти'; go.hidden = false; }
   setTimeout(() => document.getElementById('li-pass')?.focus(), 50);
 }
 
@@ -180,6 +195,7 @@ export async function doLogin() {
   const password = document.getElementById('li-pass')?.value || '';
   const err = document.getElementById('li-err');
   if (err) err.textContent = '';
+  stopLoginWatch();
   try {
     const data = await j('/api/login', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -187,12 +203,14 @@ export async function doLogin() {
     });
     // Пароль верен, но включена 2FA: сессии ещё нет — просим код
     if (data && data.otp_required) {
-      enterOtpStep();
+      enterOtpStep(data.mobile_required, data.channel);
+      watchLogin(data.id, false);
       return;
     }
     finishLogin(username, password);
   } catch (e) {
     if (err) err.textContent = e.message || 'Ошибка входа';
+    startQrLogin();
   }
 }
 
@@ -343,7 +361,117 @@ function cancelRecovery() {
   recoverError('');
 }
 
+let loginWatch = null;
+let qrRequest = null;
+let qrRetryTimer = null;
+let qrErrorMessage = '';
+const mobileLogin = window.matchMedia('(max-width:760px)');
+function stopLoginWatch() {
+  clearTimeout(qrRetryTimer);
+  qrRetryTimer = null;
+  qrRequest?.abort();
+  qrRequest = null;
+  if (!loginWatch) return;
+  clearTimeout(loginWatch.timer);
+  loginWatch.controller.abort();
+  loginWatch = null;
+}
+function retryQrLogin() {
+  clearTimeout(qrRetryTimer);
+  qrRetryTimer = setTimeout(() => {
+    qrRetryTimer = null;
+    startQrLogin();
+  }, 5000);
+}
+function transientQrError(error) {
+  return !error.status || error.status === 429 || error.status >= 500;
+}
+function watchLogin(id, qr) {
+  stopLoginWatch();
+  const view = { id, qr, controller: new AbortController() };
+  loginWatch = view;
+  async function poll() {
+    if (loginWatch !== view) return;
+    try {
+      const result = await j('/api/login/status', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id }), signal: view.controller.signal });
+      if (loginWatch !== view) return;
+      if (result.ok) { finishLogin(result.user, ''); return; }
+      if (qr && result.state === 'expired') { startQrLogin(); return; }
+      if (result.state !== 'pending') {
+        stopLoginWatch();
+        document.getElementById('li-err').textContent = 'Запрос отклонён или уже завершён. Начните вход заново.';
+        return;
+      }
+    } catch (error) {
+      if (loginWatch !== view) return;
+      if (qr && (error.status === 404 || error.status === 410)) { startQrLogin(); return; }
+      stopLoginWatch();
+      const label = document.getElementById(qr ? 'li-qr-status' : 'li-mobile-status');
+      label.textContent = error.message || 'Запрос истёк. Начните вход заново.';
+      if (qr) {
+        document.getElementById('li-qr').hidden = true;
+        if (transientQrError(error)) retryQrLogin();
+      }
+      return;
+    }
+    view.timer = setTimeout(poll, 2000);
+  }
+  view.timer = setTimeout(poll, 1000);
+}
+async function startQrLogin() {
+  if (authed || otpStep || mobileLogin.matches) return;
+  stopLoginWatch();
+  const label = document.getElementById('li-qr-status');
+  if (!label) return;
+  try {
+    const controller = new AbortController();
+    qrRequest = controller;
+    const result = await j('/api/login/qr', { method: 'POST', signal: controller.signal });
+    if (qrRequest !== controller || otpStep || mobileLogin.matches) return;
+    qrRequest = null;
+    const img = document.getElementById('li-qr');
+    const paired = result.trusted_device ?? result.available;
+    document.getElementById('li-qr-wrap').hidden = !paired;
+    document.querySelector('#login-overlay .login-card')?.classList.toggle('has-qr', !!paired);
+    img.hidden = !result.available;
+    const err = document.getElementById('li-err');
+    if (qrErrorMessage && err.textContent === qrErrorMessage) err.textContent = '';
+    qrErrorMessage = '';
+    label.textContent = result.hint || '';
+    if (result.available) { img.src = result.qr; watchLogin(result.id, true); }
+  } catch (error) {
+    if (error.name !== 'AbortError' && !otpStep) {
+      label.textContent = error.message;
+      qrErrorMessage = error.message || 'Не удалось проверить доступность QR-входа.';
+      document.getElementById('li-err').textContent = qrErrorMessage;
+      if (transientQrError(error)) retryQrLogin();
+    }
+  }
+}
+
 export function bindAuthUI() {
+  mobileLogin.addEventListener('change', () => {
+    if (authed || otpStep) return;
+    if (!mobileLogin.matches) { startQrLogin(); return; }
+    // Password confirmation uses the same watcher; only pause QR login here.
+    if (loginWatch && !loginWatch.qr) return;
+    stopLoginWatch();
+    document.getElementById('li-qr-wrap').hidden = true;
+    document.querySelector('#login-overlay .login-card')?.classList.remove('has-qr');
+  });
+  document.getElementById('li-use-totp')?.addEventListener('click', () => {
+    document.getElementById('li-totp-fields').hidden = false;
+    document.getElementById('li-use-totp').hidden = true;
+    document.getElementById('li-go').hidden = false;
+    document.getElementById('li-otp').focus();
+  });
+  window.addEventListener('pagehide', () => {
+    if (!loginWatch) return;
+    stopLoginWatch();
+    fetch('/api/login/cancel', { method: 'POST', credentials: 'same-origin', keepalive: true }).catch(() => {});
+  });
+
   document.getElementById('li-go')?.addEventListener('click', doLogin);
   document.getElementById('li-recover')?.addEventListener('click', recoverPassword);
   document.getElementById('li-recover-go')?.addEventListener('click', confirmRecovery);

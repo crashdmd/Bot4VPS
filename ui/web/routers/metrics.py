@@ -49,6 +49,9 @@ def _availability() -> dict:
 async def api_metrics_overview(
     range_: Optional[str] = Query(None, alias="range"),
     sparkline_points: Optional[int] = Query(None, ge=1),
+    match_timeline: bool = False,
+    from_: Optional[str] = Query(None, alias="from"),
+    to: Optional[str] = None,
 ):
     """Список серверов со спарклайнами (§10.1): один запрос на весь экран.
 
@@ -68,9 +71,14 @@ async def api_metrics_overview(
             _availability(),
             range_key=range_ or DEFAULT_RANGE,
             points=sparkline_points,
+            match_timeline=match_timeline,
+            since=parse_ts(from_, None),
+            until=parse_ts(to, None),
         )
     except HTTPException:
         raise
+    except ValueError as e:
+        return err(e, code=400)
     except Exception as e:
         return err(e)
 

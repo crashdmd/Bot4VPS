@@ -26,7 +26,7 @@ import { state, setPage, setMetricsRange } from './state.js';
 // `chart.js` дважды (с `?v=` и без) и держит **два** экземпляра модуля, а
 // незаверсионированный ещё и кэширует навсегда — правка рисунка не доехала бы
 // до пользователя.
-import { renderTimeline, renderSpark, destroyChart, resultColor, normalizeGaps, selectMark } from './chart.js?v=20261001-mobile-charts-v1';
+import { renderTimeline, renderSpark, destroyChart, resultColor, normalizeGaps, selectMark, SERIES_COLORS } from './chart.js?v=20261001-mobile-charts-v1';
 
 const RANGE_KEY = 'bot4vps_metrics_range';
 const REFRESH_MS = 60000;
@@ -67,6 +67,9 @@ let zoomWindow = null;
 let timer = null;
 let auditRefreshTimer = null;
 let availabilityRefreshTimer = null;
+let previewRefreshTimer = null;
+let selectedPreviewWindow = null;
+let overviewRequest = 0;
 let availabilityListenerBound = false;
 // Значения раскрытой строки берём у самой легенды: overview и timeline могут
 // агрегировать разные наборы точек, а пользователю важны числа на одном экране.
@@ -233,6 +236,7 @@ function syncDateInputLimits() {
 }
 
 function clearDateInputs() {
+  selectedPreviewWindow = null;
   if (dateInput()) dateInput().value = '';
   if (dateToInput()) dateToInput().value = '';
   syncDateInputLimits();
@@ -242,6 +246,8 @@ function pickDateRange() {
   const fromValue = dateInput()?.value || '';
   const toValue = dateToInput()?.value || '';
   if (!fromValue) {
+    selectedPreviewWindow = null;
+    loadMetrics({ keepWindow: true });
     if (toValue && dateToInput()) dateToInput().value = '';
     resetZoom({ clearDates: false, closeCustom: false });
     return;
@@ -255,6 +261,8 @@ function pickDateRange() {
   if (dateInput()) dateInput().value = win.start.value;
   if (dateToInput()) dateToInput().value = win.hasEnd ? win.end.value : '';
   setMetricsRangeUI('custom');
+  selectedPreviewWindow = { from: win.from, to: win.to };
+  loadMetrics({ keepWindow: true });
   if (state.metricsOpenServerId) {
     applyZoom(win);
     return;
@@ -326,6 +334,7 @@ function windowFor(at) {
     const to = Math.min(Number(zoomWindow.to), now);
     if (to - from >= 60) return { from: Math.floor(from), to: Math.ceil(to), centered: false };
   }
+  if (!centered && selectedPreviewWindow) return { ...selectedPreviewWindow, centered: false };
   if (!centered) return { from: now - span, to: now, centered: false };
   let from = moment - span / 2;
   let to = moment + span / 2;
@@ -346,11 +355,15 @@ function windowFor(at) {
 
 export async function loadMetrics({ keepWindow = false } = {}) {
   const range = state.metricsRange || storedRange();
+  const requestId = ++overviewRequest;
   if (!keepWindow) lastOverview = null;
   try {
-    const data = await j(`/api/metrics/overview?range=${encodeURIComponent(range)}`);
+    const bounds = selectedPreviewWindow ? `&from=${selectedPreviewWindow.from}&to=${selectedPreviewWindow.to}` : '';
+    const data = await j(`/api/metrics/overview?range=${encodeURIComponent(range)}&match_timeline=true${bounds}`);
+    if (requestId !== overviewRequest) return;
     lastOverview = data;
   } catch (e) {
+    if (requestId !== overviewRequest) return;
     const box = document.getElementById('metrics-list');
     const detail = takeDetail();
     if (box) {
@@ -491,7 +504,7 @@ function renderList() {
           <span class="metrics-disk-value" title="системный раздел">${esc(values.disk)}</span>
         </div>
         <div class="metrics-spark" data-spark="${esc(server.server_id)}"
-             title="форма, не масштаб: числа — слева, подсказка — в графике"></div>
+             title="Миниатюра графика за выбранный период"></div>
         <div class="metrics-chev">${open ? '▾' : '›'}</div>
       </div>`;
   }).join('');
@@ -510,14 +523,18 @@ function renderList() {
     const host = box.querySelector(`[data-spark="${CSS.escape(server.server_id)}"]`);
     if (!host) continue;
     const spark = server.sparkline || {};
-    // Спарклайн ряда — форма, а не масштаб: три ряда с разными единицами
-    // (load без потолка, проценты) масштабируются каждый по себе, а числа
-    // рядом и в подсказке графика. Общая шкала здесь врала бы.
+    // The preview keeps the selected period, independently of detail zoom.
     renderSpark(host, [
-      { points: spark.load1 || [], color: 'var(--accent)' },
-      { points: spark.ram_pct || [], color: '#f472b6' },
-      { points: spark.disk_max_pct || [], color: '#fb923c' },
-    ], { stepSeconds: step, span: RANGES[state.metricsRange], gaps: normalizeGaps(server.gaps) });
+      { name: 'load1', points: spark.load1 || [], color: SERIES_COLORS.load1,
+        gaps: server.sparkline_gaps?.load1 || server.gaps },
+      { name: 'ram_pct', points: spark.ram_pct || [], color: SERIES_COLORS.ram_pct,
+        gaps: server.sparkline_gaps?.ram_pct || server.gaps },
+      { name: 'disk_max_pct', points: spark.disk_max_pct || [], color: SERIES_COLORS.disk_max_pct,
+        gaps: server.sparkline_gaps?.disk_max_pct || server.disk_gaps || server.gaps },
+    ], { matchTimeline: true, cpuCount: server.last?.cpu_count,
+      from: server.sparkline_from ?? lastOverview.from, to: server.sparkline_to ?? lastOverview.to,
+      stepSeconds: step, span: RANGES[state.metricsRange], gaps: normalizeGaps(server.gaps),
+      offlineTimestamps: server.sparkline_offline });
   }
 }
 
@@ -780,7 +797,9 @@ function applyZoom({ from, to }) {
 }
 
 function resetZoom({ clearDates = true, closeCustom = true } = {}) {
+  const hadSelectedWindow = !!selectedPreviewWindow;
   if (clearDates) clearDateInputs();
+  if (clearDates && hadSelectedWindow) loadMetrics({ keepWindow: true });
   if (closeCustom) setMetricsRangeUI(state.metricsRange || storedRange());
   if (!state.metricsOpenServerId) return;
   zoomWindow = null;
@@ -928,7 +947,7 @@ export async function openMetricsPage({ serverId = null, auditId = null, at = nu
   // так что «что открыто» и «что в адресе» снова совпадают.
   const range = state.metricsRange || storedRange();
   setMetricsRange(range);
-  setMetricsRangeUI(range);
+  setMetricsRangeUI(selectedPreviewWindow ? 'custom' : range);
   syncDateInputLimits();
   await loadMetrics({ keepWindow: true });
   if (serverId) {
@@ -958,6 +977,9 @@ export function stopMetricsPolling() {
  * видно «Загрузка истории…» — это правда.
  */
 export function closeMetricsView() {
+  overviewRequest += 1;
+  if (previewRefreshTimer) clearTimeout(previewRefreshTimer);
+  previewRefreshTimer = null;
   stopMetricsPolling();
   if (auditRefreshTimer) {
     clearTimeout(auditRefreshTimer);
@@ -1029,8 +1051,15 @@ export function applyMetricsFrame(frame) {
   };
   server.status = 'ok';
   server.sparkline = server.sparkline || { load1: [], ram_pct: [], disk_max_pct: [] };
-  push(server.sparkline.load1, frame.load1, 3);
-  push(server.sparkline.ram_pct, frame.ram_pct, 1);
+  if (!lastOverview.match_timeline) {
+    push(server.sparkline.load1, frame.load1, 3);
+    push(server.sparkline.ram_pct, frame.ram_pct, 1);
+  } else if (!previewRefreshTimer) {
+    previewRefreshTimer = setTimeout(() => {
+      previewRefreshTimer = null;
+      if (state.page === 'metrics') loadMetrics({ keepWindow: true }).catch(() => {});
+    }, 500);
+  }
   refreshOpenRow();
   if (state.metricsOpenServerId === frame.server_id) {
     openServerChart(frame.server_id).catch(() => {});

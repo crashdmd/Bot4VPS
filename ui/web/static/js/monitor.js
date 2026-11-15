@@ -614,6 +614,8 @@ export function initSystemMonitor() {
 
   systemHistory = { cpu: [], ram: [], disk: [], netRx: [], netTx: [] };
   renderSystemWidgets();
+  if (!document.querySelector('#system-basic-info .info-row')) renderBasicInfo({ loading: true });
+  if (!document.querySelector('#system-services .service-item')) renderServices({ loading: true });
   updateSystemData();
   // renderMonitor рисуется только по SSE-снапшоту, а он приходит не сразу —
   // тянем конфиг сами, чтобы блок не висел с заглушкой при первом заходе.
@@ -917,7 +919,7 @@ function renderBasicInfo(data) {
     </div>
     <div class="info-row">
       <span class="info-label">Uptime</span>
-      <span class="info-value">${formatUptime(data.uptime_seconds || 0)}</span>
+      <span class="info-value">${data.loading ? '—' : formatUptime(data.uptime_seconds || 0)}</span>
     </div>
   `;
 
@@ -954,11 +956,12 @@ function renderServices(data) {
     let cls = 'err';
     if (r.ok) cls = 'ok';
     else if (r.off) cls = 'off';
+    if (data.loading) cls = 'pending';
     return `
     <div class="service-item">
       <span class="service-name">${esc(r.name)}</span>
       <span class="service-status ${cls}">
-        <span class="svc-dot ${cls}"></span>${esc(r.label)}
+        <span class="svc-dot ${data.loading ? '' : cls}"></span>${esc(data.loading ? '—' : r.label)}
       </span>
     </div>`;
   }).join('');

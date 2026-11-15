@@ -24,8 +24,9 @@ def private_web_request(request) -> bool:
 
     With Web auth enabled, the router's normal authenticated session grants
     access automatically for public IP/DNS too. Without Web auth, retain the
-    private network/host restrictions to prevent DNS rebinding. A legacy
-    configured origin adds a local DNS option; it never disables IP access.
+    private network/host restrictions to prevent DNS rebinding. The reserved
+    .local namespace is local too; arbitrary public DNS names remain blocked.
+    A legacy configured origin adds a DNS option; it never disables IP access.
     """
     if request.scope.get("state", {}).get("mobile_device_id") or request.headers.get("x-bot4vps-mobile-session"):
         return False
@@ -39,6 +40,7 @@ def private_web_request(request) -> bool:
     if not _private_address(request.client.host):
         return False
     origin = f"{request.url.scheme}://{request.url.netloc}"
-    host = urlsplit(origin).hostname or ""
+    host = (urlsplit(origin).hostname or "").lower().rstrip(".")
     allowed = os.environ.get("BOT4VPS_MOBILE_API_WEB_ORIGIN", "").rstrip("/")
-    return host == "localhost" or _private_address(host) or bool(allowed and origin == allowed)
+    local_name = host == "localhost" or (host.endswith(".local") and len(host) > len(".local"))
+    return local_name or _private_address(host) or bool(allowed and origin == allowed)

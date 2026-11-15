@@ -11,7 +11,7 @@
 // Клиентская валидация — ТОЛЬКО мгновенная подсказка (как docker.js §25):
 // авторитет — impl/validation.py, бэкенд проверяет всё повторно.
 import { j, esc } from './api.js';
-import { toast, showPage, confirmAction, infoModal } from './ui.js';
+import { fitServerTables, toast, showPage, confirmAction, infoModal } from './ui.js';
 import { ansiToHtml } from './ansi.js';
 import { openTaskModal } from './taskmodal.js?v=20260914-v3';
 import { statusFilterBtn, statusFilterHidden, bindStatusFilter } from './statusfilter.js?v=20260915-v1';
@@ -219,7 +219,7 @@ function xuiRowCells(s) {
       <td class="server-host-cell wg-endpoint-cell xui-panel-cell" data-label="Панель">${xuiPanelCell(s)}</td>`;
   }
   // не установлен: объединённая область с центрированным «Установить»
-  const action = `<button type="button" class="wg-row-action" data-install="${esc(s.id)}">🟢 Установить</button>`;
+  const action = `<button type="button" class="wg-row-action" data-install="${esc(s.id)}"><span class="svc-btn-emoji">🟢 </span>Установить</button>`;
   return `${name}${status}
     <td colspan="2" class="wg-row-action-cell">${action}</td>`;
 }
@@ -294,7 +294,7 @@ function renderXuiServers() {
   // Класс wg-server-table включает готовую мобильную раскладку (карточками)
   // и мобильные твики ячеек — общие css не трогаем, паттерн WG переиспользуем.
   el.innerHTML = `<div class="server-table-wrap">
-    <table class="server-table wg-server-table">
+    <table class="server-table wg-server-table xui-server-table">
       <thead><tr>
         ${xuiSortHeader('name', 'Имя сервера')}
         ${xuiSortHeader('status', 'Статус', statusFilterBtn('xui'))}
@@ -304,6 +304,7 @@ function renderXuiServers() {
       <tbody>${rows || `<tr><td colspan="4" class="wg-empty-row">${statusFilterHidden('xui', XUI_STATUS_FILTERS).size ? 'Все серверы скрыты фильтром статуса' : 'Нет серверов'}</td></tr>`}</tbody>
     </table>
   </div>`;
+  fitServerTables();
   bindStatusFilter('xui', XUI_STATUS_FILTERS, () => loadXui());
 }
 
@@ -404,8 +405,7 @@ function wizardShell(serverName) {
   <div class="modal" style="width:min(680px,100%)">
     <div class="section-head" style="margin-bottom:.6rem">
       <h3 style="margin:0">Установка 3x-ui — <span id="xui-wiz-server">${esc(serverName)}</span></h3>
-      <button type="button" id="xui-wiz-bg" class="hidden" title="Свернуть окно: установка продолжится в фоне, уведомлю по завершении"
-              style="padding:.2rem .55rem;font-size:.78rem">в фон ↓</button>
+      <button type="button" id="xui-wiz-bg" class="hidden" title="Свернуть окно: установка продолжится в фоне, уведомлю по завершении">в фон ↓</button>
     </div>
     <div class="tabs-hint" id="xui-wiz-steptitle" style="margin:0 0 .6rem"></div>
     <div id="xui-wiz-step1"></div>
@@ -1697,7 +1697,7 @@ function fakesiteUsageRows(site, rows) {
     return `<div class="info-row"><span class="info-label">${esc(label)}</span>
       <span class="info-value mono" style="display:flex;align-items:center;gap:.35rem;min-width:0">
         <span style="overflow-wrap:anywhere">${esc(text)}</span>
-        <button type="button" class="secondary" data-fakesite-copy="${esc(text)}" title="Копировать" style="padding:.13rem .32rem;line-height:1">⧉</button>
+        <button type="button" class="secondary" data-fakesite-copy="${esc(text)}" title="Копировать">⧉</button>
       </span></div>`;
   }).join('');
 }

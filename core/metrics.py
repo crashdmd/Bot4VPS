@@ -614,8 +614,34 @@ def _sparklines(since: int, until: int, bucket: int, step: str) -> dict:
     return data
 
 
+def _preview_points(points, limit):
+    """Keep actual extrema, never average a peak away in a small preview."""
+    if len(points) <= limit:
+        return points
+    buckets = max(1, (limit - 2) // 2)
+    inside = points[1:-1]
+    selected = [points[0]]
+    for index in range(buckets):
+        chunk = inside[index * len(inside) // buckets:(index + 1) * len(inside) // buckets]
+        if not chunk:
+            continue
+        low = min(range(len(chunk)), key=lambda i: chunk[i][1])
+        high = max(range(len(chunk)), key=lambda i: chunk[i][1])
+        selected.extend(chunk[i] for i in sorted({low, high}))
+    return selected + [points[-1]]
+
+
+def _preview_gaps(points, nominal, declared):
+    """Preserve timeline breaks before thinning the actual sample points."""
+    stamps = [int(point[0]) for point in points]
+    deltas = sorted(b - a for a, b in zip(stamps, stamps[1:]) if b > a)
+    step = max(nominal, deltas[len(deltas) // 2] if deltas else 0)
+    return _triples(declared + _gaps(stamps, step))
+
+
 def overview(servers, availability=None, *, range_key: str = DEFAULT_RANGE,
-             points: Optional[int] = None, now=None) -> dict:
+             points: Optional[int] = None, now=None, match_timeline=False,
+             since=None, until=None) -> dict:
     """Данные списка «Мониторинг серверов» (§10.1) — одним ответом.
 
     ``servers`` и ``availability`` передаются снаружи: серверы приходят из
@@ -632,15 +658,20 @@ def overview(servers, availability=None, *, range_key: str = DEFAULT_RANGE,
     if window is None:
         raise ValueError(f"range: {range_key}")
     availability = availability or {}
-    until = int(now if now is not None else time.time())
-    since = until - window
+    moment = int(now if now is not None else time.time())
+    until = min(int(until), moment) if until is not None else moment
+    since = int(since) if since is not None else until - window
+    if since >= until:
+        raise ValueError("from: ожидается начало раньше конца периода")
+    window = until - since
     # Шаг выбирается по длине окна, а не по наличию точек: дольше ретенции
     # сырых проб в БД их нет, и «дырка» в начале такого окна была бы не
     # пропуском сбора, а отсутствием самого ряда — разными вещами.
     step = "raw" if window <= AUTO_RAW_LIMIT else "hour"
     bucket = bucket_seconds(window, points)
     interval = sample_interval()
-    sparks = _sparklines(since, until, bucket, step)
+    sparks = {} if match_timeline else _sparklines(since, until, bucket, step)
+    preview_limit = min(MAX_SPARKLINE_POINTS, max(4, _int_or_none(points) or 180))
 
     items = []
     for server in servers:
@@ -678,11 +709,29 @@ def overview(servers, availability=None, *, range_key: str = DEFAULT_RANGE,
                 "disk_max_pct": spark["disk_max_pct"],
             },
             "status": _status(sample["ts"] if sample else None, online, until, interval),
-            "gaps": _triples(
+            "gaps": [] if match_timeline else _triples(
                 _gaps(spark["buckets"], bucket, since=since, until=until, now=until)
                 + _availability_gaps(server_id, since=since, until=until, now=until)
             ),
         })
+        if match_timeline:
+            timeline = series(server_id, since=since, until=until, step=step,
+                              now=moment, line_context=True)
+            item = items[-1]
+            item["sparkline"] = {name: _preview_points(timeline["series"][name], preview_limit)
+                                 for name in ("load1", "ram_pct", "disk_max_pct")}
+            item["gaps"] = _triples(timeline["gaps"])
+            item["disk_gaps"] = _triples(timeline["disk_gaps"])
+            item["sparkline_gaps"] = {
+                name: _preview_gaps(timeline["series"][name],
+                                    interval if step == "raw" else HOUR,
+                                    timeline["disk_gaps"] if name == "disk_max_pct" else timeline["gaps"])
+                for name in ("load1", "ram_pct", "disk_max_pct")
+            }
+            item["sparkline_from"] = timeline["from"]
+            item["sparkline_to"] = timeline["to"]
+            item["sparkline_offline"] = [int(ts) for ts, value in timeline["raw_values"].items()
+                                         if value.get("source") == "offline"]
     return {
         "range": str(range_key),
         # step и границы — добавка к §10.1: ответ описывает сам себя, и UI
@@ -690,7 +739,8 @@ def overview(servers, availability=None, *, range_key: str = DEFAULT_RANGE,
         "step": step,
         "from": since,
         "to": until,
-        "sparkline_seconds": bucket,
+        "sparkline_seconds": (interval if step == "raw" else HOUR) if match_timeline else bucket,
+        "match_timeline": bool(match_timeline),
         "servers": items,
     }
 

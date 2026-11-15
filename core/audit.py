@@ -172,6 +172,7 @@ def record(
     params: Optional[Mapping[str, Any]] = None,
     actor: Optional[Actor] = None,
     ts: Optional[int] = None,
+    record_id: Optional[str] = None,
 ) -> str:
     """Записать пометку аудита и вернуть её id ("" — записать не удалось).
 
@@ -183,7 +184,7 @@ def record(
     try:
         who = actor or get_actor()
         row = {
-            "id": uuid.uuid4().hex,
+            "id": record_id or uuid.uuid4().hex,
             "ts": int(ts if ts is not None else time.time()),
             "actor_type": who.type,
             "actor_id": who.id,
@@ -205,8 +206,7 @@ def record(
                 else None
             ),
         }
-        state_db.insert_audit(row)
-        return row["id"]
+        return row["id"] if state_db.insert_audit(row) else ""
     except Exception as exc:  # аудит не ломает записываемое действие
         print(f"[{NAME}] запись не удалась: {exc}", flush=True)
         return ""

@@ -1,0 +1,585 @@
+/* Общий каркас всех расцветок. Палитры определяются в layout.css. */
+:root,:root[data-theme]{
+  --radius:16px;
+  --radius-md:14px;
+  --radius-lg:20px;
+  --side:224px;
+  --top-height:60px;
+  --workspace-header-gap:.875rem;
+  --workspace-content-pad-y:1.4rem;
+  --shadow-side:none;
+  --shadow-top:none;
+  --control-font-size:13px;
+  --control-height:32px;
+  --control-radius:8px;
+  --control-padding:.65rem;
+  --nav-font-size:14px;
+  --list-row-height:44px;
+  --server-row-height:var(--list-row-height);
+  --body-font-size:.875rem;
+  --caption-font-size:.8rem;
+  --table-header-background:linear-gradient(var(--field),var(--field)) var(--bg-base);
+  --settings-button-font-size:var(--control-font-size);
+  --settings-button-height:var(--control-height);
+}
+
+/* Каркас: отдельная навигационная панель и компактная рабочая строка. */
+:root .side{
+  top:14px;
+  height:calc(100dvh - 28px);
+  overflow-y:auto;
+  margin:14px 0 14px 14px;
+  padding:1.1rem .7rem .7rem;
+  border:1px solid var(--border);
+  border-radius:18px;
+  background:var(--panel);
+  backdrop-filter:none;
+  gap:.4rem;
+}
+:root .side .logo{padding:.35rem .5rem 1.2rem;gap:.6rem}
+:root .logo-icon{width:34px;height:34px;border-radius:10px;background:var(--panel);box-shadow:none}
+:root .logo-icon img{width:30px;height:30px}
+:root .logo-title{font-size:1.05rem;letter-spacing:-.025em}
+:root .logo-subtitle{font-size:.65rem;color:var(--text-muted)}
+:root .side .nav-section{margin-top:1rem}
+:root .side .nav-section:first-child{margin-top:0}
+:root .side .nav-label{padding:.2rem .65rem .55rem;font-size:.62rem;letter-spacing:.12em;color:var(--text-muted)}
+:root .side nav :is(button,.nav-link),
+:root #page-settings #settings-nav button,
+:root .settings-nav button{
+  color:var(--text);
+  border:1px solid transparent;
+  border-radius:10px;
+  padding:.52rem .7rem;
+  font-size:var(--nav-font-size);
+  font-weight:400;
+  grid-template-columns:minmax(0,1fr);
+  animation:none;
+  box-shadow:none;
+}
+:root .side nav :is(button,.nav-link):hover,
+:root #page-settings #settings-nav button:hover,
+:root .settings-nav button:hover{background:var(--card-hover);border-color:transparent;transform:none;color:var(--text)}
+:root .side nav button.on,
+:root #page-settings #settings-nav button.on,
+:root .settings-nav button.on{background:var(--accent-fill,var(--accent));color:var(--accent-fill-text,#fff);border-color:var(--accent);box-shadow:none}
+:root .side nav button::before,
+:root .settings-nav button::before{left:-1px;width:3px;background:var(--accent);border-radius:2px}
+:root .settings-nav :is(strong,small){font-weight:400}
+:root .settings-nav strong{font-size:inherit}
+:root .settings-nav button.on small{color:inherit}
+:root .settings-nav-icon{display:none}
+:root .side .nav-bottom{padding-top:.65rem}
+:root .side .foot{padding:.5rem .6rem .1rem}
+:root .top{margin:var(--workspace-header-gap) 1.1rem 0;padding:0 1rem;border:1px solid var(--border);border-radius:14px;backdrop-filter:none;background:linear-gradient(var(--panel),var(--panel)) var(--bg-base)}
+:root .top .search{border:0;background:var(--field);border-radius:8px;padding-block:.5rem}
+:root .top .header-clock{font-variant-numeric:tabular-nums}
+:root .top .profile{border-radius:11px;background:var(--accent-soft);color:var(--accent);font-weight:500}
+:root .top .profile:hover{transform:none;box-shadow:0 0 0 2px var(--border-hover)}
+:root .icon-btn{color:var(--text-muted);border-radius:9px}
+:root .icon-btn svg{stroke:currentColor}
+:root .content{padding:var(--workspace-content-pad-y) 1.1rem;max-width:1584px}
+:root .page{animation:none}
+/* Высота обзора учитывает отступ шапки и оба отступа контента. */
+:root #page-dashboard.on{
+  height:var(--workspace-list-height,calc(100dvh - var(--top-height) - var(--workspace-header-gap) - 2 * var(--workspace-content-pad-y)));
+}
+
+/* Иерархия: крупные спокойные заголовки и отдельные рабочие поверхности. */
+:root .section-head{margin-bottom:1.2rem;align-items:center}
+:root .section-head-main{flex:1 1 22rem;min-width:0}
+:root .section-head h1,
+:root .dash-greeting{font-size:1.85rem;font-weight:500;letter-spacing:-.045em;line-height:1.25}
+:root .dash-greeting #dash-user-name{color:var(--accent)}
+:root .dash-subtitle{font-size:.82rem;margin-top:.4rem;margin-bottom:1.3rem;color:var(--text-muted)}
+:root .section-sub,
+:root .metrics-lead,
+:root .backup-lead{margin:.35rem 0 0;max-width:44rem;color:var(--text-muted);font-size:var(--caption-font-size);font-weight:400;line-height:1.5}
+:root .card{padding:1.1rem;border:1px solid var(--border);border-radius:16px;box-shadow:none;backdrop-filter:none;background:var(--panel)}
+:root .card:hover{background:var(--panel);border-color:var(--border-hover);box-shadow:none}
+:root .card.clickable:hover{transform:translateY(-2px);box-shadow:var(--shadow-md)}
+:root .card h3{font-weight:500;font-size:1rem;letter-spacing:-.02em}
+:root .dash-cols{gap:1.2rem}
+:root .dash-col-right{gap:1.2rem}
+:root .dash-widget-head{padding-bottom:.7rem;border-bottom:1px solid var(--border);margin-bottom:.75rem}
+:root .dash-srv{border:1px solid var(--border);border-radius:12px;background:var(--field);box-shadow:none}
+:root .dash-srv:hover{background:var(--accent-soft);border-color:var(--border-hover)}
+:root .dash-srv-name{font-weight:500}
+:root .dash-sys-tile{background:var(--field);border:1px solid var(--border);border-radius:12px}
+:root .dash-ev{background:transparent;border-color:var(--border);border-radius:9px}
+:root .dash-ev:hover{background:var(--field)}
+:root .dash-update-notice{background:var(--accent-soft);border-color:var(--border-hover);border-radius:12px}
+:root .empty{color:var(--text-muted)}
+:root .search-result-item,
+:root .dropdown-item[data-event-id]{box-sizing:border-box;min-height:var(--list-row-height);padding:5px .65rem}
+:root .search-result-title,
+:root .dropdown-item-title{font-size:var(--control-font-size);font-weight:500;line-height:1.3}
+:root .search-result-subtitle,
+:root .dropdown-item-text{font-size:12px;line-height:1.3;color:var(--text-muted)}
+:root .dropdown-item-title{margin-bottom:0}
+
+/* Элементы управления: чёткий контур, небольшие радиусы, без свечения. */
+:root :is(button,.btn){box-shadow:none;letter-spacing:0;font-weight:400;transition:background var(--transition-fast),color var(--transition-fast),border-color var(--transition-fast),transform var(--transition-fast)}
+:root :is(button,.btn):hover{box-shadow:none}
+:root button.secondary,
+:root .btn.secondary{background:var(--panel);border-color:var(--field-border);color:var(--text)}
+:root button.secondary:hover,
+:root .btn.secondary:hover{background:var(--field);border-color:var(--border-hover)}
+:root .content :is(button,.btn),
+:root .modal :is(button,.btn){border-radius:8px}
+/* Действия имеют общий размер. Навигация, ссылки, раскрытие дерева и
+   кнопки внутри графиков сохраняют геометрию своего элемента. */
+:root :is(.content,.modal,.side-panel-content,.login-card,.setup-card) :is(button,.btn):not(:where(
+  .tabs button,[role="tab"],.settings-nav button,.settings-menu-toggle,
+  .backup-target,.backup-catalog-entry,.backup-catalog-toggle,
+  [class*="tree-toggle"],.server-column-sort,.server-host-visibility,
+  .server-host-reveal,.server-host-copy,.server-status-open,
+  .wg-imported-indicator,.badge,.status-filter-btn,
+  .stack-copy-warn,.srv-events-toggle,.modest-link,.qs-detail-link,
+  .qs-list-remove,.af-emoji-pop button,.chart button,.CodeMirror button,
+  .term-in button,.term-keys button
+)){
+  box-sizing:border-box;
+  height:auto;min-height:var(--control-height);max-height:none;
+  padding:.35rem var(--control-padding);
+  font-size:var(--control-font-size);font-weight:400;line-height:1.15;
+  border-radius:var(--control-radius);
+}
+:root :is(.content,.modal,.side-panel-content,.login-card) :is(.eye,.modal-close,.icon-btn,.set-help,.set-help-close,.mon-ip-copy):not(.mobile-apk-check){
+  width:var(--control-height);height:var(--control-height);min-width:var(--control-height);padding:0;
+}
+:root :is(button,.btn):focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+:root :is(.content,.modal,.side-panel-content,.login-card,.setup-card) input:where(:not([type="checkbox"],[type="radio"],[type="range"],[type="button"],[type="submit"],[type="file"])):not(:where(.term-in input,.CodeMirror input)),
+:root :is(.content,.modal,.side-panel-content,.login-card,.setup-card) select{
+  box-sizing:border-box;min-width:0;height:var(--control-height);min-height:var(--control-height);
+  padding:.35rem .65rem;font-size:var(--control-font-size);font-weight:400;
+  border:1px solid var(--field-border);border-radius:var(--control-radius);
+  color:var(--text);background-color:var(--field);
+}
+:root :is(.content,.modal,.side-panel-content,.login-card,.setup-card) select{padding-right:2rem}
+:root :is(.content,.modal,.side-panel-content,.login-card,.setup-card) textarea:not(:where(.CodeMirror textarea,.term-in textarea)){
+  box-sizing:border-box;padding:.55rem .65rem;border-radius:var(--control-radius);
+  border-color:var(--field-border);font-size:var(--control-font-size);line-height:1.5;
+}
+:root input[type="file"]::file-selector-button{min-height:var(--control-height);padding:0 var(--control-padding);border-radius:var(--control-radius);font-size:var(--control-font-size);font-weight:400}
+/* Выбранная вкладка выделена собственной рамкой без общей нижней линии;
+   её поверхность
+   слегка приподнята за счёт заливки и светлой верхней грани. */
+:root .tabs{gap:.3rem;padding-top:1px;align-items:stretch;border-bottom:0}
+:root .tabs button{
+  box-sizing:border-box;min-height:36px;height:auto;padding:.45rem .8rem;
+  border:1px solid transparent;
+  border-radius:8px;background:transparent;color:var(--text-muted);
+  font-size:var(--nav-font-size);font-weight:400;line-height:1.35;
+  transform:none;box-shadow:none;
+}
+:root .tabs button:hover{background:var(--field);border-color:var(--border);color:var(--text);transform:none;box-shadow:none}
+:root .tabs button.on{
+  background:linear-gradient(180deg,color-mix(in srgb,var(--panel) 88%,var(--accent-soft)),var(--accent-soft));
+  color:var(--accent);border-color:var(--border-hover);
+  box-shadow:inset 0 1px 0 color-mix(in srgb,var(--text) 8%,transparent);
+  font-weight:400;
+}
+:root .tabs button:focus-visible{outline-offset:-3px}
+:root .server-group-count{font-weight:400}
+:root input:focus,
+:root select:focus,
+:root textarea:focus{box-shadow:0 0 0 3px var(--accent-soft);border-color:var(--accent)}
+:root .server-table-wrap{border-radius:14px;background:var(--panel)}
+:root .server-table th{background:var(--field);font-weight:500;letter-spacing:.045em;font-size:.68rem;padding-block:.8rem}
+:root .server-table td{padding-block:.85rem}
+@media(min-width:641px){
+  :root .server-table-wrap{max-height:var(--server-list-max-height,40.5rem)}
+  :root .server-table tbody tr{height:var(--server-row-height)}
+  :root .server-table tbody td{padding-block:5px}
+}
+:root .server-name-cell strong{font-weight:500}
+:root .server-table-row:hover{background:var(--field)}
+:root .svc-table th{background:var(--field);color:var(--text-muted)}
+/* Закреплённые заголовки закрывают прокручиваемые строки даже в стеклянной теме. */
+:root :is(.server-table,.scripts-table,.svc-table,.task-history-table,.ssl-table,.faq-table) thead th,
+:root .server-table thead{background:var(--table-header-background)}
+:root .svc-widget{background:var(--field);border:1px solid var(--border);border-radius:12px}
+/* Одни и те же поверхности у системных, сервисных и файловых блоков. */
+:root :is(.info-block,.sys-widget,.svc-card,.scripts-table-shell,.events-wrap,.backup-target-panel,.backup-target-workarea){
+  background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);box-shadow:none;
+}
+:root :is(.info-block,.sys-widget,.svc-card){padding:1rem}
+:root :is(.info-block h2,.svc-card h2,.svc-card h3,.backup-target-heading h2,.qs-section-title){font-size:1rem;font-weight:500;letter-spacing:-.02em}
+:root .backup-target strong{font-size:var(--nav-font-size);font-weight:400}
+/* Firewall: размеры полей заданы в самой строке, подписи находятся над
+   ними, а кнопки выровнены по нижней границе полей. */
+:root #qs-sec-firewall .qs-port-form:has(#qs-fw-source){
+  display:grid;grid-template-columns:minmax(8rem,13rem) 5.5rem 4rem max-content max-content;
+  align-items:end;justify-content:start;gap:.35rem;width:100%;overflow:visible;
+}
+:root #qs-sec-firewall .qs-port-form:has(#qs-fw-source)>label{min-width:0;width:100%;margin:0}
+:root #qs-sec-firewall .qs-port-form:has(#qs-fw-source) :is(input,select){width:100%;min-width:0}
+:root #qs-sec-firewall .qs-port-form:has(#qs-fw-source)>button{align-self:end}
+/* Содержимое секций не задаёт минимальную ширину всему правому столбцу. */
+:root #qs-body>.qs-panel{min-width:0;max-width:100%}
+:root .qs-row{grid-template-columns:minmax(8rem,12rem) minmax(0,1fr) auto;min-width:0}
+:root .qs-row-value{min-width:0}
+:root .qs-setting-control{flex-wrap:wrap}
+@container settings-content (max-width:30rem){
+  :root .qs-row{grid-template-columns:minmax(0,1fr);gap:.35rem}
+  :root .qs-row-actions{justify-content:flex-start}
+  :root #qs-sec-firewall .qs-port-form:has(#qs-fw-source){grid-template-columns:repeat(2,minmax(0,1fr));row-gap:1.4rem;padding-bottom:0}
+  :root #qs-sec-firewall .qs-port-form:has(#qs-fw-source)>label:first-child{grid-column:1/-1}
+}
+/* Компактная верхняя строка WireGuard без ограничения высоты содержимого. */
+:root #page-wireguard-server .svc-top-grid{gap:.85rem}
+:root #page-wireguard-server .svc-top-grid>.svc-card{min-width:0;padding:.85rem}
+:root #page-wireguard-server .svc-top-grid h2{margin-bottom:.55rem}
+:root #page-wireguard-server .svc-top-grid .info-row{padding:.25rem 0;font-size:var(--control-font-size);gap:.5rem;min-width:0}
+:root #page-wireguard-server .svc-top-grid .info-value{min-width:0;overflow-wrap:anywhere}
+:root #page-wireguard-server .svc-top-grid .icon-copy{width:24px;min-width:24px;height:24px;min-height:24px;padding:0;flex-shrink:0}
+:root #page-wireguard-server .svc-top-grid .svc-stat-card{padding:.55rem .6rem;background:var(--field);border-radius:var(--control-radius)}
+:root #page-wireguard-server .svc-top-grid .svc-stat-val{font-weight:500}
+:root :is(.sw-label,.mon-cfg-title,.info-label,.backup-profile-label,.backup-telegram-heading){font-weight:400}
+:root #page-monitor .mon-blocks{gap:.85rem}
+:root #page-monitor .mon-col{gap:.85rem}
+:root #page-monitor .mon-blocks .info-block{min-width:0;padding:.85rem}
+:root #page-monitor .mon-blocks h2{margin-bottom:.55rem}
+:root #page-monitor .mon-blocks .info-row{padding:.25rem 0;gap:.5rem;font-size:var(--control-font-size)}
+:root #page-monitor .mon-cfg{gap:.55rem}
+:root #page-monitor .mon-blocks>.info-block:has(#monitor-cfg){display:flex;flex-direction:column}
+:root #page-monitor #monitor-cfg{flex:1;min-height:0}
+:root #page-monitor .mon-cfg-item{display:flex;flex-direction:column;justify-content:center;flex:1;min-height:0}
+:root #page-monitor .mon-cfg-item+.mon-cfg-item{padding-top:.55rem}
+:root #page-monitor :is(.mon-cfg-title,.mon-cfg-state){font-size:var(--control-font-size)}
+:root #page-monitor .mon-cfg-state{margin-bottom:.35rem}
+:root #page-monitor .mon-blocks .info-value{min-width:0;overflow-wrap:anywhere}
+:root #page-monitor .service-item{padding:.3rem 0;gap:.5rem;border-color:var(--border);font-size:var(--control-font-size)}
+:root #page-monitor .service-name{font-weight:400}
+:root .backup-row-actions{min-width:0;flex-wrap:wrap}
+:root :is(.info-row,.mon-cfg-item+.mon-cfg-item,.svc-table td){border-bottom-color:var(--border)}
+:root .mon-cfg-item+.mon-cfg-item{border-top-color:var(--border)}
+:root :is(.scripts-table,.svc-table,.file-row,.info-row){font-size:var(--body-font-size)}
+:root :is(.scripts-table th,.svc-table th){font-weight:500;font-size:.75rem}
+:root :is(.actions,.svc-card-actions,.svc-toolbar){gap:.5rem}
+:root .svc-action b{font-size:var(--nav-font-size);font-weight:400}
+:root .svc-action span{font-size:.75rem}
+:root :is(.scripts-name-main,.metrics-name strong,.file-name){font-weight:500}
+:root .metrics-row{padding:.35rem .7rem}
+:root .metrics-name{gap:.1rem;line-height:1.4}
+:root .scripts-search-wrap input{padding-left:2.35rem}
+:root .scripts-table tbody tr{height:var(--list-row-height)}
+:root .scripts-table td{height:var(--list-row-height);padding-block:5px}
+:root .scripts-name-main{font-size:13px;line-height:1.15}
+:root .scripts-file-name{margin-top:.1rem;font-size:12px;line-height:1.3}
+:root :is(.file-row,.docker-library-project){box-sizing:border-box;min-height:var(--list-row-height);padding:5px .75rem}
+:root .file-row{gap:.5rem;font-size:13px}
+:root .docker-library-project-name{font-size:13px;font-weight:500;line-height:1.3}
+:root .docker-library-project-meta{margin-top:0;font-size:12px;line-height:1.3}
+:root .backup-target-bot .backup-target-mark{background:transparent}
+:root .backup-target-mark img{display:block;width:30px;height:30px;object-fit:contain}
+/* Обычные строки истории имеют тот же размер, что остальные списки.
+   Длинный текст растягивает строку; мобильные карточки сохраняют высоту по содержимому. */
+:root .task-history-table{font-size:var(--control-font-size)}
+:root .task-history-name{font-weight:500}
+:root .task-history-actions button{vertical-align:middle}
+@media(min-width:641px){
+  :root .task-history-table tbody tr{height:var(--list-row-height)}
+  :root .task-history-table td{padding-block:5px}
+}
+@media(max-width:640px){
+  :root #page-servers .server-table-wrap,
+  :root #page-servers .server-table thead,
+  :root #page-servers .server-table th{background:transparent}
+  :root #page-servers .server-table thead{padding:0 .7rem .45rem;border:0;border-bottom:1px solid var(--border);border-radius:0;box-shadow:none}
+  :root .task-history-table tbody tr{height:auto;padding:.5rem .7rem}
+}
+
+.mobile-connection-change{z-index:1000000}
+.mobile-connection-change>.modal{width:min(640px,calc(100vw - 2rem));max-width:640px}
+.mobile-change-grid{display:grid;grid-template-columns:minmax(0,200px) minmax(0,1fr);gap:1.25rem;margin:1rem 0;align-items:center}
+.mobile-change-qr img{display:block;width:100%;max-width:200px;height:auto;padding:.4rem;background:#fff;border-radius:8px;box-sizing:border-box}
+.mobile-change-qr strong{overflow-wrap:anywhere}
+.mobile-change-state [data-timer]{display:block;font-size:2rem;font-variant-numeric:tabular-nums;margin:.75rem 0}
+@media(max-width:600px){.mobile-change-grid{grid-template-columns:1fr;gap:1rem}.mobile-change-qr img{max-width:180px;margin:auto}}
+/* Высоту обзора сервера задаёт список действий. Системные сведения
+   занимают соседний блок той же высоты с более плотными строками. */
+:root .srv-overview-grid{grid-template-columns:repeat(2,minmax(0,1fr));align-items:stretch}
+:root .srv-system-card{contain:size;display:flex;flex-direction:column;min-width:0;min-height:0}
+:root .srv-system-card #srv-info{display:flex;flex-direction:column;justify-content:space-between;flex:1;min-height:0}
+:root .srv-system-card .info-row{padding:.2rem 0;gap:.5rem;font-size:var(--control-font-size);line-height:1.35;min-width:0}
+:root .srv-system-card .info-value{min-width:0;overflow-wrap:anywhere}
+:root .srv-actions-card{align-self:start;min-width:0;height:fit-content}
+:root #srv-quick-actions{height:auto;min-height:0}
+:root .badge,
+:root .set-badge{box-shadow:none;font-weight:400}
+:root .set-badge.warn{color:var(--warn);border-color:var(--warn)}
+:root #page-settings .set-badge{display:block;flex-shrink:0;max-width:100%;white-space:normal;overflow-wrap:anywhere;line-height:1.35;text-align:center}
+:root #page-settings .set-form-title>div{min-width:0;flex:1 1 auto}
+:root #totp-body .set-desc{grid-column:auto;grid-row:auto;margin:0}
+:root #page-settings .set-form-title>.set-badge{max-width:50%}
+:root .set-switch{position:relative;align-items:center;flex-shrink:0}
+:root .set-switch-track{box-sizing:border-box;width:2.3rem;height:1.2rem;padding:.15rem;flex-shrink:0;background:var(--field-border)}
+:root .set-switch-track span{width:.9rem;height:.9rem}
+:root .set-switch input:checked+.set-switch-track span{transform:translateX(1.1rem)}
+:root .set-switch input:focus-visible+.set-switch-track{outline:2px solid var(--accent);outline-offset:3px}
+:root .set-switch:has(input:disabled){opacity:.5;cursor:not-allowed}
+
+/* Настройки: меню отделено от секций, вложенные карточки не дублируют рамки. */
+:root .settings-layout{grid-template-columns:15rem minmax(0,1fr);gap:1.2rem}
+:root .settings-side{top:1rem;background:var(--panel);border-radius:16px;padding:.85rem;box-shadow:none}
+:root .settings-side-eyebrow{color:var(--text-muted);font-size:.6rem;letter-spacing:.12em}
+:root .settings-side h1{font-size:1.25rem;line-height:1.35;margin:.3rem 0 .2rem}
+:root .settings-side-head{padding-bottom:.75rem}
+:root #page-settings .settings-menu-toggle{display:none}
+:root #settings-content>.set-section{display:grid;gap:.8rem;background:transparent;border:0;padding:0}
+:root #settings-content>.set-section>.set-section-head{margin-bottom:0}
+:root .set-section-head{margin-bottom:.8rem;gap:.75rem;align-items:center}
+:root .set-section-head h2{font-size:1.2rem;letter-spacing:-.025em;line-height:1.35}
+:root .set-section-head p{color:var(--text-muted)}
+:root .set-form-card,
+:root .set-about{background:var(--panel);border-radius:16px;box-shadow:none}
+:root .set-about-mark{background:transparent;box-shadow:none}
+:root .set-about-mark img{display:block;width:100%;height:100%;object-fit:contain}
+:root .set-list{padding:.4rem;background:var(--panel);border:1px solid var(--border);border-radius:16px}
+:root .set-list:empty{display:none}
+:root .set-update-actions{padding-bottom:.7rem}
+:root .set-theme-choices{justify-content:flex-end;flex-wrap:wrap}
+:root #page-settings .set-theme-choices button[aria-pressed="true"]{background:var(--accent-fill,var(--accent));color:var(--accent-fill-text,#fff);border-color:var(--accent)}
+:root #page-settings .set-theme-choices button[aria-pressed="true"]:hover{background:var(--accent-fill-hover,var(--accent-hover));color:var(--accent-fill-text,#fff);border-color:var(--accent)}
+:root .set-row:has(.set-theme-choices){flex-wrap:wrap}
+:root .set-row:has(.set-theme-choices)>.set-copy{flex:1 1 13rem}
+:root .set-row:has(.set-theme-choices)>.set-ctrl{min-width:0;max-width:100%;flex:0 1 auto}
+:root .set-row{border-radius:10px}
+:root .set-form-title h3{letter-spacing:-.02em}
+:root .set-kicker{font-size:.6rem;letter-spacing:.12em}
+:root .set-cat-grid{gap:.5rem}
+:root .set-cat-grid::after{display:none}
+:root .set-cat-grid .set-row{background:var(--panel);border:1px solid var(--border)}
+:root .set-cat-grid .set-row:hover{background:var(--field)}
+:root .set-tls-paths{background:var(--field);border-radius:12px}
+:root .mobile-app-card{background:var(--panel);border-color:var(--border)}
+:root .mobile-app-mark{background:var(--panel);border-color:var(--border);border-radius:12px}
+:root .mobile-setup-grid>.set-form-card{padding:.85rem;border-radius:16px}
+:root .mobile-devices-card{border-radius:16px}
+:root .mobile-device{display:grid;grid-template-columns:minmax(0,1fr) 10rem minmax(0,1fr);align-items:center;gap:.75rem;padding:.45rem 0}
+:root .mobile-device-heading{min-width:0}
+:root .mobile-device-heading strong{min-width:0}
+:root .mobile-device-role{display:flex;justify-content:center;align-items:center;min-height:30px}
+:root #page-settings .mobile-device-role .set-badge{display:inline-block;white-space:nowrap;font-size:.7rem;margin:0}
+:root .mobile-device-role [data-primary]{white-space:nowrap;font-size:.75rem;min-height:30px;padding:.3rem .5rem}
+:root .mobile-device-actions{justify-self:end;text-align:right}
+:root .mobile-device-actions .set-form-actions{justify-content:flex-end}
+@media(max-width:600px){
+  :root .mobile-device{grid-template-columns:minmax(0,1fr) 9rem;gap:.5rem}
+  :root .mobile-device-actions{grid-column:1 / -1}
+}
+:root .mobile-quick-guide{background:var(--panel);border-radius:12px}
+:root .mobile-empty{background:var(--field);border:1px dashed var(--border-hover);border-radius:10px}
+
+/* Диалоги, уведомления, справочник и экран входа используют тот же язык. */
+:root .modal{background:var(--panel);border:1px solid var(--border);border-radius:20px;box-shadow:var(--shadow-modal);backdrop-filter:none}
+:root .dropdown-menu{background:var(--panel);border:1px solid var(--border);border-radius:14px;box-shadow:var(--shadow-lg)}
+:root .profile-menu,:root #notifications-dropdown{background:linear-gradient(var(--panel),var(--panel)) var(--bg-base)}
+:root .side-panel{background:var(--panel);box-shadow:var(--shadow-lg)}
+:root #groups-panel{
+  top:calc(var(--top-height) + var(--workspace-header-gap) + 12px);right:14px;bottom:auto;
+  width:min(540px,calc(100vw - 28px));height:auto;
+  background:var(--bg-base);
+  max-height:calc(100dvh - var(--top-height) - var(--workspace-header-gap) - 26px);
+  border:1px solid var(--border);border-radius:20px;overflow:hidden;
+}
+:root #groups-panel:not(.open){visibility:hidden}
+:root #groups-panel.open,
+:root #groups-panel.open .side-panel-content{animation:none}
+:root #groups-panel .side-panel-content{padding:1.1rem;background:transparent}
+:root #groups-panel .grp-panel-title{font-size:1.25rem;font-weight:500;letter-spacing:-.025em;margin-right:2.5rem}
+:root #groups-panel .grp-section-title{font-size:1rem;font-weight:500}
+:root #groups-panel :is(.groups-list,.groups-display-list){gap:0}
+:root #groups-panel :is(.group-row,.group-display-row){border:0;border-bottom:1px solid var(--border);border-radius:0;background:transparent;padding:.55rem 0;gap:.5rem}
+:root #groups-panel :is(.group-row,.group-display-row):last-child{border-bottom:0}
+:root #groups-panel :is(.group-row,.groups-create){display:grid;grid-template-columns:minmax(0,1fr) 3.25rem 1.5rem 32px 32px;align-items:center;gap:.5rem}
+:root #groups-panel .groups-create{margin-top:.6rem}
+:root #groups-panel .groups-create #grp-new-name{min-width:0;width:100%}
+:root #groups-panel .grp-ssl-label{font-size:13px}
+:root #groups-panel .grp-ssl-label input{margin:0}
+:root #groups-panel #grp-create{grid-column:3/-1;justify-self:stretch}
+:root #groups-panel .group-display-row{padding:.3rem 0}
+:root #groups-panel .group-display-label{font-size:13px;font-weight:400;gap:.4rem}
+:root #groups-panel .group-display-row .drag-handle{font-size:14px}
+:root #groups-panel .grp-section+.grp-section{margin-top:1rem;padding-top:.85rem}
+:root #groups-panel .grp-name{font-weight:400}
+:root #groups-panel-close{
+  display:flex;align-items:center;justify-content:center;
+  top:14px;right:14px;width:32px;height:32px;min-height:32px;padding:0;
+  border:1px solid var(--border);border-radius:8px;background:transparent;color:var(--text);
+  font-size:16px;line-height:1;box-shadow:none;transform:none;
+}
+:root #groups-panel-close:hover{background:var(--field);border-color:var(--border-hover);color:var(--text);transform:none}
+:root .chart-tip{background:var(--panel);color:var(--text);border-color:var(--border);box-shadow:var(--shadow-md)}
+:root .chart-axis-label{fill:var(--text-muted)}
+:root #login-overlay .login-card{background:var(--panel);border-radius:24px;backdrop-filter:none;border:1px solid var(--border);box-shadow:var(--shadow-lg)}
+:root #login-overlay .login-title{letter-spacing:-.035em;font-weight:500}
+:root #login-overlay .login-logo{border-radius:18px;box-shadow:none;background:var(--field)}
+
+/* Первичная настройка прокручивается целиком: короткий экран или клавиатура
+   не должны сжимать форму и поля ввода. */
+:root :is(#setup-overlay,#setup-stub-overlay,#setup-expired-overlay){
+  overflow-y:auto;align-items:flex-start;
+  padding:max(1rem,env(safe-area-inset-top)) 1rem max(1rem,env(safe-area-inset-bottom));
+}
+:root :is(#setup-overlay,#setup-stub-overlay,#setup-expired-overlay) .login-card{
+  flex-shrink:0;max-height:none;margin:auto 0;
+}
+:root #setup-overlay :is(.setup-logo-side,.setup-form-side,.login-form){min-width:0}
+:root #setup-overlay .login-form> *{flex-shrink:0}
+:root #setup-overlay .login-title{line-height:1.25;overflow-wrap:anywhere}
+:root #setup-overlay .login-subtitle{font-size:.9rem;line-height:1.5;margin:.4rem 0 .8rem}
+:root #setup-overlay .login-label{font-size:.875rem;line-height:1.4}
+:root #setup-overlay .login-input{
+  width:100%;height:44px;min-height:44px;font-size:16px;
+}
+:root #setup-overlay .login-pw{width:100%;max-width:none}
+:root #setup-overlay .login-pw input{padding-right:3rem}
+:root #setup-overlay .login-pw .eye{width:44px;height:44px;min-height:44px;right:.125rem}
+:root #setup-overlay .login-submit{
+  min-height:44px;font-size:1rem;line-height:1.35;white-space:normal;
+}
+:root :is(#setup-overlay,#setup-stub-overlay,#setup-expired-overlay) :is(.login-setup-warning,.login-setup-note){
+  font-size:.875rem;line-height:1.5;overflow-wrap:anywhere;
+}
+@media(max-width:768px){
+  :root #setup-overlay .login-card,
+  :root #setup-overlay .login-card.with-existing{
+    width:min(480px,100%);grid-template-columns:minmax(0,1fr);
+    gap:1rem;padding:1.25rem 1rem;
+  }
+  :root #setup-overlay .setup-logo-side{gap:.75rem}
+  :root #setup-overlay .login-logo{width:64px;height:64px;margin:0 auto}
+  :root #setup-overlay .login-logo img{width:48px;height:48px}
+}
+:root .faq-header{background:transparent;border:0;box-shadow:none;backdrop-filter:none}
+:root .faq-toc{background:var(--panel);border-radius:16px;box-shadow:none}
+:root .faq-article{background:var(--panel);border:1px solid var(--border);border-radius:16px;box-shadow:none}
+:root .faq-article h2{font-weight:500;letter-spacing:-.025em}
+
+@media(max-width:1100px){
+  :root,:root[data-theme]{--side:208px}
+  :root .top{margin-inline:.8rem;padding-inline:.8rem}
+  :root .content{padding-inline:.8rem}
+  :root .metrics-values{flex-wrap:wrap;min-width:0}
+  :root .metrics-values span{min-width:0;white-space:normal;overflow-wrap:anywhere}
+}
+@media(max-width:860px){
+  :root #page-dashboard.on{height:auto;min-height:0}
+}
+/* В низком окне карточки сохраняют естественную высоту. */
+@media(max-height:680px){
+  :root #page-dashboard.on{height:auto;min-height:0}
+  :root #dash-servers{overflow-y:visible}
+}
+@media(max-width:760px){
+  :root .settings-layout{grid-template-columns:1fr;gap:.8rem}
+  :root .settings-side{padding:.65rem}
+  :root .settings-side-head{padding-bottom:.55rem}
+  :root .set-section-head{align-items:flex-start}
+  :root .mobile-devices-head h3{font-size:.95rem}
+  /* На телефоне раздел выбирается из всплывающего меню. */
+  :root #page-settings .settings-side-head{display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center;gap:.35rem .75rem;border-bottom:0;padding-bottom:0}
+  :root #page-settings .settings-side-eyebrow{grid-column:1/-1}
+  :root #page-settings .settings-side-head h1{grid-column:1;grid-row:2;margin:0}
+  :root #page-settings .settings-menu-toggle{
+    display:flex;align-items:center;justify-content:space-between;gap:.75rem;
+    grid-column:2;grid-row:2;width:100%;height:auto;min-height:48px;max-height:none;margin-top:0;
+    padding:.55rem .7rem;text-align:left;border:1px solid var(--border);
+    border-radius:10px;background:var(--field);color:var(--text);font-size:.875rem;transform:none;
+  }
+  :root #page-settings .settings-menu-toggle>span{flex:1;min-width:0;text-align:left}
+  :root #page-settings #settings-menu-title{display:block;white-space:normal;overflow-wrap:anywhere}
+  :root #page-settings .settings-menu-toggle small{
+    display:block;margin-top:.15rem;font-size:.68rem;line-height:1.3;color:var(--text-muted);
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  }
+  :root #page-settings .settings-menu-toggle svg{flex-shrink:0;transition:transform var(--transition-fast)}
+  :root #page-settings .settings-menu-toggle[aria-expanded="true"] svg{transform:rotate(180deg)}
+  :root #page-settings #settings-nav{
+    display:none;position:fixed;inset:var(--settings-menu-top,8rem) auto auto var(--settings-menu-left,.75rem);margin:0;transform:none;
+    width:var(--settings-menu-width,calc(100% - 1.5rem));max-height:var(--settings-menu-max-height,calc(100dvh - 9rem));
+    padding:.4rem;overflow-x:hidden;overflow-y:auto;overscroll-behavior:contain;
+    border:1px solid var(--border);border-radius:12px;
+    background:var(--bg-base);color:var(--text);box-shadow:var(--shadow-md);z-index:60;
+  }
+  :root #page-settings #settings-nav:popover-open{display:grid;gap:.15rem}
+  :root #page-settings #settings-nav.is-open{display:grid;gap:.15rem}
+  :root #page-settings #settings-nav::backdrop{background:transparent}
+  :root #page-settings #settings-nav button{
+    display:grid;grid-template-columns:minmax(0,1fr);width:100%;min-width:0;
+    height:auto;min-height:48px;max-height:none;white-space:normal;
+  }
+  :root #page-settings #settings-nav small{display:block;color:var(--text-muted)}
+  :root #page-settings #settings-nav :is(strong,small){white-space:normal;overflow-wrap:anywhere}
+  :root #page-settings #settings-nav button.on small{color:inherit}
+  :root #page-settings .mobile-app-heading{display:grid;grid-template-columns:auto minmax(0,1fr);gap:.5rem}
+  :root #page-settings .mobile-app-heading .mobile-apk-check{grid-column:1/-1;justify-self:center;align-self:center;margin-left:0}
+}
+@media(max-width:768px){
+  :root,:root[data-theme]{--workspace-header-gap:0px;--workspace-content-pad-y:1rem}
+  :root .faq-header{background:var(--bg-base);background-image:var(--bg-gradient);background-attachment:fixed}
+  :root #page-dashboard.on{height:auto;min-height:0}
+  :root .layout{padding-bottom:0}
+  :root .side{top:0;left:0;margin:0;height:100dvh;border-radius:0 18px 18px 0;padding:1rem .8rem;width:min(260px,85vw);background:var(--bg-base)}
+  :root .top{top:0;margin:0;border:0;border-bottom:1px solid var(--border);border-radius:0;padding-inline:.8rem}
+  :root .content{padding:1rem .75rem}
+  :root .section-head h1,
+  :root .dash-greeting{font-size:1.6rem}
+  :root .card{padding:.9rem}
+  :root .server-table td{padding-block:.5rem}
+  :root .srv-overview-grid{grid-template-columns:minmax(0,1fr)}
+  :root .srv-system-card{contain:none}
+  /* Поля 16px не вызывают увеличение страницы при вводе на iPhone.
+     Меню настроек сохраняет ранее выбранную компактность. */
+  :root :is(.content,.modal,.side-panel-content,.login-card,.setup-card) input:where(:not([type="checkbox"],[type="radio"],[type="range"],[type="button"],[type="submit"],[type="file"])):not(:where(#page-settings input,.term-in input,.CodeMirror input)),
+  :root :is(.content,.modal,.side-panel-content,.login-card,.setup-card) select:not(:where(#page-settings select)){font-size:16px;min-height:38px;height:38px}
+  :root :is(.content,.modal,.side-panel-content,.login-card) :is(.actions,.svc-card-actions,.svc-toolbar,.mon-cfg-actions,.file-actions,.backup-tab-actions,.scripts-head-actions) :is(button,.btn):not(:where(#page-settings button,#page-settings .btn)){min-height:38px}
+  :root .section-head:has(.section-head-main){flex-wrap:wrap;gap:.75rem}
+  :root .section-head-main{flex-basis:100%}
+  :root :is(.servers-page-actions,.scripts-head-actions){margin-left:0;justify-content:flex-start}
+}
+
+/* На компьютере списки заканчиваются у нижней границы главного меню.
+   Короткие списки сохраняют естественную высоту; длинные прокручиваются внутри. */
+@media(min-width:769px){
+  :root .content{padding-bottom:14px}
+  :root [data-workspace-list]{max-height:var(--workspace-list-height);overflow-y:auto;overscroll-behavior:contain}
+  :root :is(.events-wrap,.task-history-wrap,.audit-wrap)[data-workspace-list]{height:var(--workspace-list-height)}
+  :root .scripts-table-shell[data-workspace-list]{display:flex;flex-direction:column;overflow:hidden}
+  :root .scripts-table-shell[data-workspace-list] .scripts-table-wrap{min-height:0;overflow-y:auto;flex:0 1 auto}
+  :root .scripts-table-shell[data-workspace-list] .scripts-table-footer{flex-shrink:0}
+  :root #metrics-list[data-workspace-list]> *{flex-shrink:0}
+  :root .backup-layout[data-workspace-list]{height:var(--workspace-list-height);overflow:hidden}
+  :root .audit-foot{margin-top:0;margin-bottom:.6rem}
+}
+
+/* Мобильные шапки всех сервисов: фон и вертикаль ячеек не меняют сетку. */
+@media(max-width:640px){
+  :root :is(#page-wireguard,#page-docker,#page-xui) .server-table-wrap{background:transparent}
+  :root :is(#page-wireguard,#page-docker,#page-xui) .server-table thead,
+  :root :is(#page-wireguard,#page-docker,#page-xui) .server-table th{background:transparent}
+  :root :is(#page-wireguard,#page-docker,#page-xui) .server-table td{padding-block:0;align-self:center}
+  :root :is(#page-wireguard,#page-docker,#page-xui) .server-name-cell{align-self:center}
+  :root #page-xui .xui-server-table thead th:nth-child(4){display:flex}
+  :root #page-xui .xui-server-table thead th:nth-child(4) .server-host-heading,
+  :root #page-xui .xui-server-table thead th:nth-child(4) .server-host-visibility{justify-content:flex-end}
+  :root :is(#page-wireguard,#page-docker,#page-xui) .wg-row-action-cell{
+    display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:4px;max-width:100%;
+  }
+  :root :is(#page-wireguard,#page-docker,#page-xui) .wg-row-action{font-size:.72rem;line-height:1.15;padding:.35rem .45rem}
+  :root #page-xui .wg-row-action .svc-btn-emoji{display:none}
+  :root #page-wireguard .wg-migration-help{display:inline-flex;align-items:center;justify-content:center;width:24px;min-width:24px;height:28px;min-height:28px;padding:0}
+  :root #page-wireguard .wg-migration-help-label{display:none}
+}
+
+@media(max-width:640px){
+  :root #page-wireguard .wg-endpoint-cell .server-host-content{display:flex;width:100%;min-width:0}
+  :root #page-wireguard .wg-endpoint-cell :is(.server-host-value,.server-host-reveal){flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis}
+  :root #page-wireguard .wg-endpoint-cell .server-host-copy{flex-shrink:0;width:20px;min-width:20px;height:28px;min-height:28px;padding:0}
+  :root #page-xui .xui-server-table tbody tr{grid-template-columns:repeat(3,minmax(0,1fr));gap:.25rem .4rem}
+  :root #page-xui .xui-server-table td.wg-status-cell{grid-column:2;grid-row:1;justify-self:center;align-self:center}
+  :root #page-xui .xui-server-table td.xui-panel-cell{grid-column:1/-1;grid-row:2;padding-inline:0;max-width:100%}
+}

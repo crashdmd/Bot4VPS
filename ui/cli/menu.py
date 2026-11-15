@@ -197,7 +197,7 @@ def web_menu() -> None:
             continue
         elif choice == "4":
             _web_change_password_flow()
-        elif choice == "5":
+        elif choice == "5" and ops.web_totp_enabled():
             _web_reset_totp_flow()
         elif choice == "6":
             masterkey_menu()
@@ -500,7 +500,7 @@ def _web_change_password_flow() -> None:
 
 
 def _web_reset_totp_flow() -> None:
-    """Аварийный сброс 2FA: путь при потере телефона (веб требует код)."""
+    """Explicit owner confirmation before destructive console 2FA reset."""
     print()
     print("Двухфакторная аутентификация будет выключена:")
     print("вход в Web вернётся к паролю без кода из приложения.")

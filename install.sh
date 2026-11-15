@@ -260,22 +260,34 @@ issue_setup_code() {
 # если администратор ещё не задан, выдаётся код первичной установки —
 # по нему Web-мастер предложит создать свой логин и пароль.
 setup_web_auth() {
-    local web_port="$1"
+    SETUP_CODE=""
     app_python <<'PY'
 from core.config import set_web_auth
 set_web_auth(True)
 PY
-    if admin_exists; then
-        echo "  Пароль администратора уже задан — используйте его для входа."
-    else
+    if ! admin_exists; then
         issue_setup_code
-        echo
+    fi
+}
+
+# Адрес и код показываем вместе, после всех шагов установки и проверок.
+print_web_access() {
+    local web_port="$1"
+    local scheme="${2:-http}"
+    echo
+    echo -e "${CYAN}── Настройка Web UI ───────────────────${NC}"
+    echo "  Web UI:   ${scheme}://$(detect_ip):${web_port}/"
+    echo
+    if [[ -n "${SETUP_CODE:-}" ]]; then
         echo -e "${GREEN}  Код первичной установки: ${SETUP_CODE}${NC}"
-        echo "  Действителен 10 минут. Откройте http://$(detect_ip):${web_port}/"
-        echo "  и введите код, затем задайте свой логин и пароль администратора."
+        echo "  Действителен 10 минут. Откройте панель Bot4VPS и введите код,"
+        echo "  затем задайте свой логин и пароль администратора."
         echo "  Если код истёк — перевыпустите: bot4vps → Восстановление →"
         echo "  Код первичной установки."
+    else
+        echo "  Пароль администратора уже задан — используйте его для входа."
     fi
+    echo
 }
 
 # TLS_ARGS: аргументы ExecStart после --port N (пусто = HTTP, как раньше).
@@ -700,9 +712,6 @@ report_web_status() {
     # зависит сообщение о сертификате — схема лишь говорит, что панель
     # слушает TLS сама (proxy терминирует HTTPS снаружи, панель — http).
     local tls_mode="${3:-}"
-    local host_ip
-    host_ip=$(detect_ip)
-
     echo
     local listening=false local_ok=false
 
@@ -745,9 +754,6 @@ report_web_status() {
             ;;
     esac
 
-    echo
-    echo "  Web UI:   ${scheme}://${host_ip}:${port}/"
-    echo
     if $local_ok; then
         echo -e "${YELLOW}⚠ Web UI запущен на порту ${port}, внешний доступ с этого хоста не подтверждается автоматически.${NC}"
         echo "  Если UI не открывается из браузера — проверьте firewall/security group"
@@ -878,6 +884,7 @@ PY
     report_web_status "$WEB_PORT" "${WEB_SCHEME:-http}" "${WEB_TLS_MODE:-}"
     echo "  Настройки Telegram — в Web UI (Настройки → Telegram)."
     echo "  Токен и allowed_users из config.json используются как есть."
+    print_web_access "$WEB_PORT" "${WEB_SCHEME:-http}"
 }
 
 # ─────────────────────────────────────────────
@@ -988,8 +995,7 @@ do_install() {
         update_tg_config "$BOT_TOKEN" "$USER_ID"
         ok "Токен, User ID и telegram_enabled=true записаны в config.json"
     else
-        echo
-        echo -e "${CYAN}── Настройка Web UI ───────────────────${NC}"
+        info "Подготавливаю авторизацию Web UI..."
         setup_web_auth "$WEB_PORT"
         # Сертификат — до записи юнита: TLS_ARGS попадает в ExecStart,
         # LE-проверке нужен только порт 80 (панель его не слушает).
@@ -1049,8 +1055,6 @@ do_install() {
             # || true: сбой Web не должен обрывать установку под set -e
             # до подсказок ниже (Telegram-онбординг)
             report_web_status "$WEB_PORT" "${WEB_SCHEME:-http}" "${WEB_TLS_MODE:-}" || true
-        else
-            echo "  Web UI:   ${WEB_SCHEME:-http}://$(detect_ip):${WEB_PORT}/"
         fi
         # Данные пережили переустановку, но юнит — источник правды:
         # оставшийся в config HTTPS-режим сам не поднимается.
@@ -1082,6 +1086,9 @@ PY
         echo "  Telegram-бот настроен (telegram_enabled=true)."
         echo "  Напишите боту /start"
         echo "  Позже Web UI можно включить: $0 enable-web"
+    fi
+    if [[ "$MODE_NAME" == "web+tg" ]]; then
+        print_web_access "$WEB_PORT" "${WEB_SCHEME:-http}"
     fi
 }
 

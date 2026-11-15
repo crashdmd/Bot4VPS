@@ -386,6 +386,16 @@ def firewall(params):
     return LocalFirewall(ROOT_STATE / "mobile-firewall.json").sync(value)
 
 
+def staged_mobile_firewall(params):
+    fields(params, ("port",))
+    value = params["port"]
+    if value is not None:
+        port(value)
+    from firewall import LocalApiFirewall as LocalFirewall
+    # A separate journal keeps the permanent API rule during confirmation.
+    return LocalFirewall(ROOT_STATE / "mobile-stage-firewall.json").sync(value)
+
+
 def web_firewall(params):
     ensure_idle()
     fields(params, ("port", "opening"))
@@ -640,6 +650,10 @@ def update(params):
            "health_mode": "web" if settings["mode"] == "web" else "service", "health_timeout": 120,
            "dev_no_systemd": False, "privilege_separation": True,
            "backup_root": str(ROOT_STATE / "code-backups")}
+    if legacy:
+        # The root broker already resolved the published tag. Persist that
+        # immutable result in the protected job instead of querying it again.
+        job["legacy_release"] = old
     shutil.copyfile(protected(HELPER_HOME / "release_verify.py"), work / "release_verify.py")
     atomic(work / "job.json", json.dumps(job).encode())
     name = "bot4vps-update-" + uuid.uuid4().hex
@@ -654,10 +668,71 @@ def update(params):
 
 
 OPERATIONS = {"service.control": service_control, "unit.configure": configure, "unit.validate": validate_unit, "unit.commit": commit_transport, "setup.code": setup,
-              "firewall.sync": firewall, "firewall.web": web_firewall, "tls.certbot": certbot,
+              "firewall.sync": firewall, "firewall.stage": staged_mobile_firewall, "firewall.web": web_firewall, "tls.certbot": certbot,
               "task.launch": launch, "update.install": update, "installation.remove": remove_installation,
               "code.validate": code_validate, "code.restore": code_restore, "code.checkpoint": code_checkpoint,
               "host.timezone": timezone, "journal.read": read_journal, "restore.finish": finish_restore}
+
+
+def repair_config_backup_ownership():
+    """Repair only fixed configuration copies, without following links.
+
+    This runs from the trusted helper during upgrade and boot. Validate every
+    descriptor before changing ownership; foreign owners and links are refused.
+    """
+    if os.geteuid() != 0:
+        raise ValueError("Исправление владельцев конфигурации требует root")
+    account = pwd.getpwnam(USER)
+    protected(APP, directory=True)
+    descriptors = []
+    files = []
+    try:
+        base = os.open(APP, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        descriptors.append(base)
+        try:
+            data = os.open("data", os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=base)
+        except FileNotFoundError:
+            return 0
+        descriptors.append(data)
+        try:
+            runtime = os.open("runtime", os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=data)
+        except FileNotFoundError:
+            return 0
+        descriptors.append(runtime)
+        for descriptor in (data, runtime):
+            if os.fstat(descriptor).st_uid not in (0, account.pw_uid):
+                raise ValueError("Недопустимый владелец каталога конфигурации")
+        try:
+            backup = os.open("config-backup", os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=data)
+        except FileNotFoundError:
+            return 0
+        descriptors.append(backup)
+        if os.fstat(backup).st_uid not in (0, account.pw_uid):
+            raise ValueError("Недопустимый владелец резервной конфигурации")
+        for name in os.listdir(backup):
+            if not ((name.startswith("config_") or name.startswith("corrupt_config_")) and name.endswith(".json")):
+                continue
+            info = os.stat(name, dir_fd=backup, follow_symlinks=False)
+            if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or info.st_uid not in (0, account.pw_uid):
+                raise ValueError("Недопустимый файл резервной конфигурации")
+            descriptor = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=backup)
+            descriptors.append(descriptor)
+            opened = os.fstat(descriptor)
+            if (opened.st_dev, opened.st_ino, opened.st_uid, opened.st_nlink, opened.st_mode) != (info.st_dev, info.st_ino, info.st_uid, info.st_nlink, info.st_mode):
+                raise ValueError("Файл резервной конфигурации изменился во время проверки")
+            files.append(descriptor)
+        os.fchown(backup, account.pw_uid, account.pw_gid)
+        os.fchmod(backup, 0o700)
+        for descriptor in files:
+            os.fchown(descriptor, account.pw_uid, account.pw_gid)
+            os.fchmod(descriptor, 0o600)
+            os.fsync(descriptor)
+        if files:
+            os.fsync(backup)
+        return len(files)
+    finally:
+        for descriptor in reversed(descriptors):
+            os.close(descriptor)
 
 
 def prepare_runtime():
@@ -688,6 +763,9 @@ def prepare_runtime():
             os.close(child)
     finally:
         os.close(parent)
+    repaired = repair_config_backup_ownership()
+    if repaired:
+        print("[CONFIG] Владельцы и права резервных копий конфигурации проверены", flush=True)
 
 
 def handle_connection(connection, account):
@@ -710,8 +788,8 @@ def handle_connection(connection, account):
             if operation not in OPERATIONS:
                 raise ValueError("Операция не разрешена")
             journal(uid, operation, "started")
-            independent = operation in ("firewall.sync", "journal.read") or (operation == "setup.code" and params.get("action") == "read")
-            lock_name = "firewall.lock" if operation == "firewall.sync" else "read.lock" if independent else "control.lock"
+            independent = operation in ("firewall.sync", "firewall.stage", "journal.read") or (operation == "setup.code" and params.get("action") == "read")
+            lock_name = "firewall.lock" if operation in ("firewall.sync", "firewall.stage") else "read.lock" if independent else "control.lock"
             with (ROOT_STATE / lock_name).open("a") as lock:
                 deadline = time.monotonic() + 2
                 while True:

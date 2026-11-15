@@ -263,7 +263,8 @@ button{font-family:inherit;font-size:inherit}
   line-height:1;
 }
 
-.side nav{display:flex;flex-direction:column;gap:0.25rem}
+.side nav,
+#page-settings #settings-nav{display:flex;flex-direction:column;gap:0.15rem}
 
 .side .nav-section{
   margin-top:1.5rem;
@@ -275,26 +276,32 @@ button{font-family:inherit;font-size:inherit}
   font-size:0.7rem;
   text-transform:uppercase;
   letter-spacing:0.08em;
-  font-weight:600;
+  font-weight:400;
   color:var(--text-dim);
   padding:0 0.75rem 0.5rem;
 }
 
-.side nav :is(button, .nav-link){
+.side nav :is(button, .nav-link),
+#page-settings #settings-nav button{
   width:100%;
   text-align:left;
   background:transparent;
   border:none;
   color:var(--text-muted);
-  padding:0.7rem 0.8rem;
+  padding:0.5rem 0.7rem;
   border-radius:var(--radius-sm);
   cursor:pointer;
   font-size:0.9rem;
+  font-weight:400;
   line-height:1.3;
+  height:auto;
+  min-height:0;
+  max-height:none;
   transition:all var(--transition-fast);
   display:flex;
   align-items:center;
-  gap:0.65rem;
+  justify-content:flex-start;
+  gap:0.55rem;
   position:relative;
   /* Длинные названия («Журнал уведомлений») переносим, а не обрезаем */
   white-space:normal;
@@ -305,22 +312,24 @@ button{font-family:inherit;font-size:inherit}
 @keyframes navItemIn{
   from{opacity:0;transform:translateX(-.5rem)}
 }
-.side .nav-section button:nth-child(1){animation-delay:.04s}
-.side .nav-section button:nth-child(2){animation-delay:.08s}
-.side .nav-section button:nth-child(3){animation-delay:.12s}
-.side .nav-section button:nth-child(4){animation-delay:.16s}
-.side .nav-section button:nth-child(5){animation-delay:.2s}
-.side .nav-section button:nth-child(6){animation-delay:.24s}
-.side .nav-section button:nth-child(7){animation-delay:.28s}
-.side .nav-section button:nth-child(8){animation-delay:.32s}
+.side .nav-section button:nth-child(1),#page-settings #settings-nav button:nth-child(1){animation-delay:.04s}
+.side .nav-section button:nth-child(2),#page-settings #settings-nav button:nth-child(2){animation-delay:.08s}
+.side .nav-section button:nth-child(3),#page-settings #settings-nav button:nth-child(3){animation-delay:.12s}
+.side .nav-section button:nth-child(4),#page-settings #settings-nav button:nth-child(4){animation-delay:.16s}
+.side .nav-section button:nth-child(5),#page-settings #settings-nav button:nth-child(5){animation-delay:.2s}
+.side .nav-section button:nth-child(6),#page-settings #settings-nav button:nth-child(6){animation-delay:.24s}
+.side .nav-section button:nth-child(7),#page-settings #settings-nav button:nth-child(7){animation-delay:.28s}
+.side .nav-section button:nth-child(8),#page-settings #settings-nav button:nth-child(8){animation-delay:.32s}
 .side .nav-section button:nth-child(9){animation-delay:.36s}
 .side .nav-link{animation-delay:.4s;text-decoration:none}
-.side nav :is(button, .nav-link):focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.side nav :is(button, .nav-link):focus-visible,
+#page-settings #settings-nav button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .side .nav-bottom button{animation-delay:.42s}
 @media(prefers-reduced-motion:reduce){
-  .side nav :is(button, .nav-link){animation:none}
+  .side nav :is(button, .nav-link),#page-settings #settings-nav button{animation:none}
 }
 .side nav :is(button, .nav-link) .icon{
+  display:none;
   font-size:1.1rem;
   width:20px;
   text-align:center;
@@ -329,7 +338,8 @@ button{font-family:inherit;font-size:inherit}
   line-height:1.3;
   transition:transform var(--transition-base);
 }
-.side nav :is(button, .nav-link):hover{
+.side nav :is(button, .nav-link):hover,
+#page-settings #settings-nav button:hover{
   /* var вместо прибитого белого: в light-теме белый hover был невидим */
   background:var(--card-hover);
   color:var(--text);
@@ -340,7 +350,8 @@ button{font-family:inherit;font-size:inherit}
 }
 /* Индикатор активного пункта: вертикальная пилюля у левого края,
    вырастает на активном (currentColor — цвет текста активной кнопки) */
-.side nav button::before{
+.side nav button::before,
+#page-settings #settings-nav button::before{
   content:"";
   position:absolute;
   left:0;
@@ -352,15 +363,24 @@ button{font-family:inherit;font-size:inherit}
   transform:scaleY(0);
   transition:transform var(--transition-base);
 }
-.side nav button.on::before{transform:scaleY(1)}
-.side nav button.on{
+.side nav button.on::before,#page-settings #settings-nav button.on::before{transform:scaleY(1)}
+.side nav button.on,
+#page-settings #settings-nav button.on{
   background:var(--accent-fill, var(--accent));
   color:var(--accent-fill-text, #fff);
-  font-weight:600;
+  font-weight:400;
   box-shadow:0 2px 8px rgba(74,124,255,0.4);
 }
-[data-theme="light"] .side nav button.on{
+[data-theme="light"] .side nav button.on,
+[data-theme="light"] #page-settings #settings-nav button.on{
   box-shadow:0 2px 8px rgba(74,124,255,0.18);
+}
+[data-theme="light"] .side nav :is(button, .nav-link):not(.on),
+[data-theme="light"] #page-settings #settings-nav button:not(.on){
+  color:var(--text);
+}
+[data-theme="light"] .side .nav-label{
+  color:var(--text-muted);
 }
 .side nav button.on .icon{opacity:1}
 
@@ -457,7 +477,9 @@ button{font-family:inherit;font-size:inherit}
   margin-left:auto;
 }
 .task-dock{
-  display:flex;
+  /* Три постоянных места: ширина плашки не зависит от числа задач. */
+  display:grid;
+  grid-template-columns:repeat(3,minmax(0,1fr));
   align-items:center;
   gap:.35rem;
   flex:1 1 420px;
@@ -471,7 +493,6 @@ button{font-family:inherit;font-size:inherit}
   grid-template-rows:1fr 1fr;
   align-items:center;
   column-gap:.35rem;
-  flex:1 1 0;
   min-width:0;
   height:42px;
   padding:.3rem .45rem;
@@ -756,6 +777,10 @@ button{font-family:inherit;font-size:inherit}
 
 /* Content */
 .content{padding:1.5rem;max-width:1600px;margin:0 auto;width:100%}
+/* Смена высоты вкладок настроек не должна сдвигать центрированный контент. */
+@media(min-width:761px){
+  html:has(#page-settings.on){scrollbar-gutter:stable}
+}
 
 /* Page transitions */
 .page{

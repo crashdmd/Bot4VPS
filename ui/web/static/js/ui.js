@@ -429,6 +429,61 @@ export function plural(n, one, few, many) {
   return many;
 }
 
+/** Общая нижняя граница рабочих списков совпадает с навигацией. */
+export function workspaceListHeight(element) {
+  const side = document.querySelector('.side');
+  const bottom = side && window.innerWidth > 768
+    ? Math.min(window.innerHeight - 14, side.getBoundingClientRect().bottom)
+    : window.innerHeight - 14;
+  return Math.max(0, bottom - element.getBoundingClientRect().top - window.scrollY);
+}
+
+export function fitServerTables() {
+  const page = document.querySelector('.page.on');
+  if (!page) return;
+  const lists = page.querySelectorAll('.server-table-wrap, .events-wrap, .task-history-wrap, .audit-wrap, .scripts-table-shell, #file-list, #metrics-list, .backup-layout');
+  lists.forEach(list => {
+    // Мобильные списки сохраняют отдельную раскладку и обычную прокрутку страницы.
+    if (window.innerWidth <= 768) {
+      list.removeAttribute('data-workspace-list');
+      list.style.removeProperty('--workspace-list-height');
+      list.style.removeProperty('--server-list-max-height');
+      return;
+    }
+    if (!list.offsetParent) return;
+    const height = workspaceListHeight(list);
+    if (height < 96) {
+      list.removeAttribute('data-workspace-list');
+      list.style.removeProperty('--workspace-list-height');
+      return;
+    }
+    list.setAttribute('data-workspace-list', '');
+    list.style.setProperty('--workspace-list-height', `${height}px`);
+    list.style.removeProperty('--server-list-max-height');
+  });
+  if (page.id === 'page-dashboard') {
+    const fit = window.innerWidth > 860 && window.innerHeight > 680;
+    if (fit) page.style.setProperty('--workspace-list-height', `${workspaceListHeight(page)}px`);
+    else page.style.removeProperty('--workspace-list-height');
+  }
+}
+
+let listGeometryPending = false;
+function scheduleListGeometry() {
+  if (listGeometryPending) return;
+  listGeometryPending = true;
+  requestAnimationFrame(() => { listGeometryPending = false; fitServerTables(); });
+}
+window.addEventListener('resize', scheduleListGeometry);
+document.fonts?.ready.then(scheduleListGeometry);
+// Переключение вкладок, фильтры, новые строки и раскрытие элементов меняют
+// доступное место. Изменения style не наблюдаем: замер не запускает сам себя.
+const listContent = document.querySelector('.content');
+if (listContent) new MutationObserver(scheduleListGeometry).observe(listContent, {
+  subtree: true, childList: true, characterData: true, attributes: true,
+  attributeFilter: ['class', 'hidden'],
+});
+
 export function showPage(name, { onShow } = {}) {
   document.querySelectorAll('.page').forEach(p =>
     p.classList.toggle('on', p.id === 'page-' + name));
@@ -442,11 +497,14 @@ export function showPage(name, { onShow } = {}) {
     head?.classList.toggle('on', !!active);
   });
   if (onShow) onShow(name);
+  fitServerTables();
 }
+
+const TWEMOJI_OPTIONS = { base: '/static/vendor/twemoji/14.0.2/assets/', folder: 'svg', ext: '.svg' };
 
 export function parseEmoji(element) {
   if (typeof twemoji !== 'undefined') {
-    twemoji.parse(element || document.body);
+    twemoji.parse(element || document.body, TWEMOJI_OPTIONS);
   }
 }
 
@@ -458,7 +516,7 @@ export function initEmojiObserver() {
     mutations.forEach((mutation) => {
       mutation.addedNodes.forEach((node) => {
         if (node.nodeType === 1) { // Element node
-          twemoji.parse(node);
+          twemoji.parse(node, TWEMOJI_OPTIONS);
         }
       });
     });

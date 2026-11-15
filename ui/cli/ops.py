@@ -416,17 +416,21 @@ def web_change_password(new_password: str) -> None:
 
 
 def web_totp_enabled() -> bool:
-    from ui.web.security import totp_enabled
+    from ui.web.security import second_factor_enabled
 
-    return totp_enabled()
+    return second_factor_enabled()
 
 
 def web_reset_totp() -> None:
-    """Аварийный сброс 2FA из консоли: единственный путь при потере
-    телефона (веб-отключение требует код из приложения)."""
+    """Emergency console reset after loss of the authenticator."""
     from ui.web.security import clear_totp_secret
-
     clear_totp_secret(via="cli")
+
+
+def web_recovery_code() -> str:
+    """Inactive retained implementation; issuance always fails closed."""
+    from ui.web._internal.auth_flows import AuthFlows
+    return AuthFlows().issue_cli_access()
 
 
 # ==================================================================
@@ -525,6 +529,7 @@ def masterkey_create_new() -> dict:
     if isinstance(raw.get("web"), dict) and raw["web"].get("totp_secret"):
         web = dict(raw["web"])
         web.pop("totp_secret", None)
+        web["two_factor_enabled"] = False
         updates["web"] = web
         cleared.append("2FA")
     if updates:

@@ -35,8 +35,8 @@ async def _json(send, status: int, data: dict, error: str | None = None):
 
 
 class ApiOnlyApp:
-    def __init__(self, app, access: MobileAccess):
-        self.app, self.access = app, access
+    def __init__(self, app, access: MobileAccess, endpoint=None):
+        self.app, self.access, self.endpoint = app, access, endpoint
 
     async def __call__(self, scope, receive, send):
         kind, path = scope["type"], scope.get("path", "")
@@ -53,6 +53,10 @@ class ApiOnlyApp:
                 await send({"type": "websocket.close", "code": 4403})
             else:
                 await _json(send, 400, {"detail": "Для мобильного API требуется HTTPS"})
+            return
+        if kind == "http" and path in ("/api/mobile/connection-change/confirm", "/api/mobile/connection-change/preview"):
+            from .connection_change import confirm_on_endpoint
+            await confirm_on_endpoint(self.app, self.access, self.endpoint, scope, receive, send)
             return
         if kind == "http" and path in _PROTOCOL:
             await self._protocol(scope, receive, send)
@@ -163,7 +167,7 @@ class ApiOnlyApp:
                     if started:
                         await send({"type": "http.response.body", "body": b"", "more_body": False})
                     else:
-                        await _json(send, 403, {"detail": "Доступ телефона отозван"})
+                        await _json(send, 403, {"detail": "Доступ телефона отозван", "mobile_device_revoked": True}, "revoked")
         finally:
             watcher.cancel()
             request.cancel()
@@ -188,12 +192,21 @@ class ApiOnlyApp:
             if not isinstance(data, dict):
                 raise AccessDenied(400, "Неверный запрос привязки")
             return data
+        body = {}
         try:
             await asyncio.to_thread(self.access.rate_limit, str((scope.get("client") or ("unknown",))[0]))
             body = await asyncio.wait_for(read(), timeout=5)
             path = scope["path"]
             if path.endswith("/pair"):
-                result = await asyncio.to_thread(self.access.pair, body.get("code"), body.get("public_key"), body.get("masterkey_device_public_key"))
+                from .runtime import _lock
+                from .connection_change import active
+                async with _lock(self.app):
+                    if active(self.app) or not getattr(self.app.state, "mobile_api_enabled", True):
+                        raise AccessDenied(409, "Привязка недоступна во время изменения подключения")
+                    result = await asyncio.to_thread(self.access.pair, body.get("code"), body.get("public_key"), body.get("masterkey_device_public_key"),
+                        name=body.get("name"),
+                        ip=(scope.get("client") or (None,))[0],
+                        agent=next((value.decode("latin-1") for key, value in scope.get("headers", []) if key.lower() == b"user-agent"), ""))
                 from core import audit
                 from core.actor import Actor
                 await asyncio.to_thread(audit.record, audit.AuditAction.MOBILE_DEVICE_PAIR, result=audit.AuditResult.OK,
@@ -205,7 +218,15 @@ class ApiOnlyApp:
                 result = await asyncio.to_thread(self.access.handshake, body.get("device_id"), body.get("challenge_id"), body.get("signature"))
             await _json(send, 200, result)
         except AccessDenied as exc:
-            await _json(send, exc.status, {"detail": str(exc)}, "pairing")
+            device_id = body.get("device_id")
+            revoked = (scope["path"] in ("/api/mobile/challenge", "/api/mobile/handshake")
+                       and exc.status == 403 and isinstance(device_id, str)
+                       and 1 <= len(device_id) <= 128
+                       and not await asyncio.to_thread(self.access.device_exists, device_id))
+            await _json(send, exc.status,
+                        {"detail": "Доступ этого телефона отозван в панели. Создайте новую привязку." if revoked else str(exc),
+                         **({"mobile_device_revoked": True} if revoked else {})},
+                        "revoked" if revoked else "pairing")
         except (ValueError, TypeError, asyncio.TimeoutError):
             await _json(send, 400, {"detail": "Неверный запрос привязки"})
 
@@ -227,6 +248,13 @@ class ApiListener:
 
     async def stop(self):
         self.server.should_exit = True
+        if self.task.done():
+            # Consume a terminated task's error and release its socket. Its
+            # original failure must not prevent recovery on the saved port.
+            with suppress(asyncio.CancelledError, Exception):
+                self.task.result()
+            self.sock.close()
+            return
         try:
             await asyncio.wait_for(asyncio.shield(self.task), 5)
         except asyncio.TimeoutError:
@@ -252,7 +280,7 @@ async def start_api_listener(app, web: dict):
     from .identity import configured_identity
     identity = await asyncio.to_thread(configured_identity, config)
     cert, key = identity["cert_path"], identity["key_path"]
-    api = ApiOnlyApp(app, MobileAccess())
+    api = ApiOnlyApp(app, MobileAccess(), config)
     graceful = {"timeout_graceful_shutdown": 3} if "timeout_graceful_shutdown" in inspect.signature(uvicorn.Config).parameters else {}
     settings = uvicorn.Config(api, host=host, port=port, lifespan="off", proxy_headers=False,
         access_log=False, ssl_certfile=cert, ssl_keyfile=key, **graceful)

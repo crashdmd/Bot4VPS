@@ -9,7 +9,7 @@
 import { j, esc } from './api.js';
 import { openTaskModal } from './taskmodal.js?v=20260914-v3';
 import { statusFilterBtn, statusFilterHidden, bindStatusFilter } from './statusfilter.js?v=20260915-v1';
-import { toast, showPage, serverDateTimeParts, serverDayDifference, infoModal } from './ui.js';
+import { fitServerTables, toast, showPage, serverDateTimeParts, serverDayDifference, infoModal } from './ui.js';
 import { ansiToHtml } from './ansi.js';
 
 const SID = 'docker';
@@ -331,6 +331,7 @@ function renderDockerServers() {
       <tbody>${renderDockerRows()}</tbody>
     </table>
   </div>`;
+  fitServerTables();
   bindStatusFilter('docker', DK_STATUS_FILTERS, renderDockerServers);
 }
 
@@ -1767,7 +1768,7 @@ async function refreshStackFiles() {
       return `<div class="row" style="gap:.4rem;align-items:center">
         <span class="mono" style="flex:1">${f.is_compose ? '🧩 ' : '📄 '}${esc(f.path)}</span>
         <span class="hint">${Number(f.size) || 0} Б</span>
-        <button type="button" class="secondary" data-file-edit="${esc(f.path)}" title="${actionTitle}" style="padding:.2rem .5rem">${actionIcon}</button>
+        <button type="button" class="secondary" data-file-edit="${esc(f.path)}" title="${actionTitle}">${actionIcon}</button>
       </div>`;
     }).join('');
     listEl.querySelectorAll('[data-file-edit]').forEach(b =>
@@ -2033,7 +2034,7 @@ function renderRunModalList(container, items, removeCallback) {
   el.innerHTML = items.map((item, idx) =>
     `<div class="row" style="gap:.4rem;margin-top:.2rem">
       <span style="flex:1;font-family:monospace">${esc(item)}</span>
-      <button type="button" class="secondary" data-idx="${idx}" style="padding:.2rem .5rem">✕</button>
+      <button type="button" class="secondary" data-idx="${idx}">✕</button>
     </div>`
   ).join('');
   el.querySelectorAll('[data-idx]').forEach(b => {

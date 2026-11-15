@@ -139,8 +139,8 @@ def create_web_admin(username: str, password: str) -> None:
 # Двухфакторная аутентификация (TOTP)
 #
 # Секрет хранится в config.json -> web.totp_secret, зашифрованный
-# enc1: (core.secretbox) — как Telegram Bot Token. Пустого поля/отсутствия
-# ключа достаточно: 2FA «выключена» = секрета нет.
+# enc1: (core.secretbox) — как Telegram Bot Token. Сохранение нового секрета
+# включает 2FA; отключение удаляет секрет. Legacy-секрет без флага означает 2FA.
 # ------------------------------------------------------------------
 
 def get_totp_secret() -> str:
@@ -151,6 +151,8 @@ def get_totp_secret() -> str:
 
     stored = get_web_config().get("totp_secret")
     if stored is None or stored == "":
+        if totp_enabled():
+            raise HTTPException(503, "Секрет 2FA отсутствует. Восстановите временный доступ через CLI.")
         return ""
     try:
         if not isinstance(stored, str):
@@ -168,16 +170,56 @@ def get_totp_secret() -> str:
         raise HTTPException(
             503,
             "Секрет двухфакторной аутентификации недоступен или повреждён. "
-            "Вход заблокирован. Восстановите мастер-ключ или сбросьте 2FA "
+            "Вход заблокирован. Восстановите мастер-ключ или получите временный доступ "
             "через консоль Bot4VPS на сервере.",
         ) from None
 
 
-def totp_enabled() -> bool:
-    """Настроенность 2FA не зависит от возможности расшифровать её секрет."""
+def totp_registered() -> bool:
+    """Наличие секрета, независимо от включённости второго фактора."""
     from core.config import get_web_config
     stored = get_web_config().get("totp_secret")
     return stored is not None and stored != ""
+
+
+def totp_enabled() -> bool:
+    """Legacy secrets remain enabled until the owner explicitly disables 2FA."""
+    from core.config import get_web_config
+    web = get_web_config()
+    if web.get("two_factor_channel") == "telegram":
+        return False
+    if "two_factor_enabled" in web:
+        # Inconsistent records fail closed even when the secret is missing.
+        return web["two_factor_enabled"] is not False
+    return totp_registered()
+
+
+def second_factor_channel() -> str | None:
+    from core.config import get_web_config
+    web = get_web_config()
+    if web.get("two_factor_channel") == "telegram" and web.get("two_factor_enabled") is True:
+        return "telegram"
+    return "totp" if totp_enabled() else None
+
+
+def second_factor_enabled() -> bool:
+    return second_factor_channel() is not None
+
+
+def set_two_factor_enabled(enabled: bool, *, via="settings", expected_version=None) -> None:
+    if not enabled:
+        clear_totp_secret(via=via, expected_version=expected_version)
+        return
+    from core import config
+    from core.json_store import locked
+    from core.audit_actions import AuditAction
+    with locked(config.CONFIG_FILE.with_name(config.CONFIG_FILE.name + ".lock"), config._CONFIG_LOCK):
+        if expected_version is not None and expected_version != auth_version():
+            raise HTTPException(409, "Учётные данные изменились — начните заново")
+        if enabled and not get_totp_secret():
+            raise HTTPException(409, "Сначала зарегистрируйте TOTP")
+        config.patch_web_config({"two_factor_enabled": bool(enabled)})
+    _audit_web(AuditAction.WEB_2FA_ENABLE if enabled else AuditAction.WEB_2FA_DISABLE, via=via)
 
 
 def make_totp_secret() -> str:
@@ -235,19 +277,39 @@ def verify_totp_code(code: str, secret: str) -> bool:
         return False
 
 
-def set_totp_secret(secret: str) -> None:
+def set_totp_secret(secret: str, *, enabled=True, expected_version=None, device_id=None) -> tuple[str, str]:
     """Активировать 2FA: секрет на диск только в зашифрованном виде."""
-    from core.config import patch_web_config
+    from core import config
+    from core.json_store import locked
     from core.secretbox import encrypt
-
-    patch_web_config({"totp_secret": encrypt(secret)})
+    stored = encrypt(secret)
+    with locked(config.CONFIG_FILE.with_name(config.CONFIG_FILE.name + ".lock"), config._CONFIG_LOCK):
+        if expected_version is not None and expected_version != auth_version():
+            raise HTTPException(409, "Учётные данные изменились — начните заново")
+        web = config.get_web_config()
+        removed = list(web.get("totp_removed_generations") or [])
+        previous = web.get("totp_secret")
+        if isinstance(previous, str) and previous and previous != stored:
+            generation = hashlib.sha256(previous.encode()).hexdigest()[:24]
+            removed = [item for item in removed if item != generation] + [generation]
+        config.patch_web_config({"totp_secret": stored, "two_factor_enabled": bool(enabled),
+                                 "two_factor_channel": "totp", "totp_device_id": device_id if enabled else None,
+                                 "totp_source": "mobile" if device_id else "external",
+                                 **({"mobile_primary_device_id": device_id, "mobile_primary_policy": 1} if device_id and enabled else {}),
+                                 "totp_removed_generations": removed[-100:]}, remove=("device_unlink_auth",))
+        version = auth_version()
 
     from core.audit_actions import AuditAction
 
-    _audit_web(AuditAction.WEB_2FA_ENABLE)
+    if enabled:
+        _audit_web(AuditAction.WEB_2FA_ENABLE)
+    else:
+        _audit_web("web.totp_register")
+    return version, hashlib.sha256(stored.encode()).hexdigest()[:24]
 
 
-def clear_totp_secret(*, via: str = "settings") -> None:
+def clear_totp_secret(*, via: str = "settings", expected_version=None, with_version=False,
+                      fallback_telegram=False, preserve_sessions=False):
     """Выключить 2FA (консольный аварийный сброс или отключение по коду).
 
     ``via`` — каким входом: ``settings`` (отключение по коду из приложения),
@@ -255,12 +317,35 @@ def clear_totp_secret(*, via: str = "settings") -> None:
     нового мастер-ключа: секрет становится нерасшифровываемым и снимается
     вместе с остальными enc1-значениями).
     """
-    from core.config import patch_web_config
-    patch_web_config({}, remove=("totp_secret",))
+    from core import config
+    from core.json_store import locked
+    import hashlib
+    with locked(config.CONFIG_FILE.with_name(config.CONFIG_FILE.name + ".lock"), config._CONFIG_LOCK):
+        web = config.get_web_config()
+        if expected_version is not None and expected_version != auth_version(web):
+            raise HTTPException(409, "Учётные данные изменились — начните заново")
+        removed = list(web.get("totp_removed_generations") or [])
+        stored = web.get("totp_secret")
+        generation = None
+        if isinstance(stored, str) and stored:
+            generation = hashlib.sha256(stored.encode()).hexdigest()[:24]
+            removed = [g for g in removed if g != generation] + [generation]
+        telegram = False
+        if fallback_telegram:
+            from .app import _recovery_available
+            telegram = _recovery_available()
+        patch = {"two_factor_enabled": telegram, "two_factor_channel": "telegram" if telegram else None,
+                 "totp_removed_generations": removed[-100:]}
+        if preserve_sessions:
+            patch["device_unlink_auth"] = {"credentials": _credential_fingerprint({**web, **patch}), "version": auth_version(web),
+                                           "channel": patch["two_factor_channel"]}
+        config.patch_web_config(patch, remove=("totp_secret", "totp_device_id") + (() if preserve_sessions else ("device_unlink_auth",)))
+        version = auth_version()
 
     from core.audit_actions import AuditAction
 
-    _audit_web(AuditAction.WEB_2FA_DISABLE, via=via)
+    _audit_web(AuditAction.WEB_2FA_ENABLE if telegram else AuditAction.WEB_2FA_DISABLE, via=via)
+    return (generation, version) if with_version else generation
 
 
 # ------------------------------------------------------------------
@@ -490,20 +575,47 @@ def set_request_actor(request: Request) -> Actor:
     return actor
 
 
+def telegram_delivery_fingerprint():
+    from core.config import _read_config_raw
+    raw = _read_config_raw()
+    data = [raw.get("telegram_enabled", True), raw.get("bot_token"), raw.get("allowed_users") or []]
+    return hashlib.sha256(json.dumps(data, ensure_ascii=False).encode()).hexdigest()
+
+
+def _credential_fingerprint(web):
+    data = [web.get("username") or "admin", web.get("password_hash") or "", bool(web.get("auth_enabled"))]
+    if web.get("two_factor_channel") == "telegram":
+        data.append(telegram_delivery_fingerprint())
+    return hashlib.sha256(json.dumps(data, ensure_ascii=False).encode()).hexdigest()
+
+
 def auth_version(web=None) -> str:
     """Отпечаток текущей учётки: смена пароля/логина/2FA отзывает куки."""
     if web is None:
         from core.config import get_web_config
         web = get_web_config()
+    continuity = web.get("device_unlink_auth")
+    if (isinstance(continuity, dict) and not web.get("totp_secret")
+            and continuity.get("credentials") == _credential_fingerprint(web)
+            and continuity.get("channel") == web.get("two_factor_channel")
+            and web.get("two_factor_enabled") is (web.get("two_factor_channel") == "telegram")
+            and isinstance(continuity.get("version"), str)):
+        return continuity["version"]
     data = [web.get("username") or "admin", web.get("password_hash") or "",
-            web.get("totp_secret") or "", bool(web.get("auth_enabled"))]
+            web.get("totp_secret") or "", bool(web.get("auth_enabled")),
+            web.get("two_factor_enabled", bool(web.get("totp_secret")))]
+    if web.get("two_factor_channel") == "telegram":
+        data.extend(["telegram", telegram_delivery_fingerprint()])
     return hashlib.sha256(json.dumps(data, ensure_ascii=False).encode()).hexdigest()
 
 
 def session_valid(session: dict) -> bool:
     from core.config import get_web_config
     web = get_web_config()
+    # Телефон подтверждает создание веб-сеанса, но не владеет его сроком жизни.
+    # Отзыв устройства закрывает Mobile API и незавершённые подтверждения отдельно.
     return bool(session.get("user") and session.get("user") == web.get("username")
+                and "recovery_until" not in session
                 and secrets.compare_digest(str(session.get("auth_version") or ""), auth_version(web)))
 
 
@@ -524,6 +636,7 @@ def establish_web_session(request: Request, username: str, *, expected_version=N
     version = auth_version()
     if expected_version is not None and not secrets.compare_digest(expected_version, version):
         raise HTTPException(401, "Учётные данные изменились — войдите заново")
+    request.session.clear()
     request.session["user"] = username
     request.session[ROLE_SESSION_KEY] = ActorRole.ADMIN.value
     request.session["auth_version"] = expected_version or version
@@ -546,7 +659,12 @@ async def require_auth(request: Request) -> None:
         return
     if session_valid(request.session):
         return
-    request.session.clear()
+    # Anonymous requests may carry a browser-bound second-factor challenge.
+    # An unrelated 401 must not erase it while the phone is confirming login.
+    two_factor_deadline = request.session.get("two_factor_expires")
+    pending_two_factor = (request.session.get("two_factor_flow") and isinstance(two_factor_deadline, (int, float)) and two_factor_deadline > time.time())
+    if request.session.get("user") and not pending_two_factor:
+        request.session.clear()
     raise HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Требуется авторизация",

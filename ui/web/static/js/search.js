@@ -164,8 +164,8 @@ function renderResults(box, results) {
     <div class="search-result-item" data-type="${r.type}" data-id="${r.data.id || r.data.page || ''}">
       <span style="font-size:1.25rem">${r.icon}</span>
       <div style="flex:1">
-        <div style="font-weight:600;font-size:0.9rem">${esc(r.title)}</div>
-        <div style="font-size:0.75rem;color:var(--text-dim)">${esc(r.subtitle)}</div>
+        <div class="search-result-title">${esc(r.title)}</div>
+        <div class="search-result-subtitle">${esc(r.subtitle)}</div>
       </div>
     </div>
   `).join('');
@@ -195,7 +195,7 @@ function renderResults(box, results) {
         const cat = searchResults.find(r => r.type === 'settings' && r.data.id === id);
         setPage('settings');
         showPage('settings');
-        import('./settings.js?v=20261111-mobile-source').then(m => {
+        import('./settings.js?v=20261114-primary-phone-v1').then(m => {
           m.selectSettingsCategory?.(id);
         });
       }

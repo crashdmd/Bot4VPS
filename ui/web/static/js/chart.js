@@ -230,6 +230,15 @@ function loadPercent(value, cpuCount) {
   return Math.max(0, load) / cpus * 100;
 }
 
+function timelineLoadMax(points, cpuCount, from, to) {
+  if (cpuCount) return 100;
+  let maximum = 1;
+  for (const [ts, value] of points) {
+    if (ts >= from && ts <= to && Number.isFinite(value)) maximum = Math.max(maximum, value);
+  }
+  return Math.ceil(maximum * 1.15 * 10) / 10;
+}
+
 function displayLoad(value, cpuCount) {
   const percent = loadPercent(value, cpuCount);
   if (percent == null) return null;
@@ -771,13 +780,7 @@ export function renderTimeline(host, data, opts = {}) {
   const x = ts => pad.left + ((Number(ts) - from) / span) * plotW;
 
   const percentMax = 100;
-  let loadMax = cpuCount ? 100 : 1;
-  if (!cpuCount) {
-    for (const [, value] of visiblePoints.load1) {
-      if (Number.isFinite(value)) loadMax = Math.max(loadMax, Number(value));
-    }
-    loadMax = Math.ceil(loadMax * 1.15 * 10) / 10;
-  }
+  const loadMax = timelineLoadMax(points.load1, cpuCount, from, to);
 
   const yPct = value => pad.top + (1 - Math.min(percentMax, Math.max(0, value)) / percentMax) * plotH;
   const yLoad = value => pad.top + (1 - Math.min(loadMax, Math.max(0, value)) / loadMax) * plotH;
@@ -1521,10 +1524,15 @@ export function renderSpark(host, seriesList, opts = {}) {
   const height = Math.max(20, opts.height || 32);
   const step = Number(opts.stepSeconds) > 0 ? Number(opts.stepSeconds) : pickStep(opts.span || 86400);
   const gaps = normalizeGaps(opts.gaps);
+  const matching = opts.matchTimeline === true;
+  const cpuCount = finite(opts.cpuCount) > 0 ? Number(opts.cpuCount) : null;
+  const offline = new Set(opts.offlineTimestamps || []);
 
   const drawn = [];
   for (const item of seriesList) {
-    const points = cleanPoints(item.points);
+    const clean = cleanPoints(item.points);
+    const points = matching && item.name === 'load1' && cpuCount
+      ? clean.map(([ts, value]) => [ts, Math.min(100, loadPercent(value, cpuCount))]) : clean;
     if (!points.length) continue;
     let min = Infinity;
     let max = -Infinity;
@@ -1540,16 +1548,23 @@ export function renderSpark(host, seriesList, opts = {}) {
     return;
   }
 
-  const first = Math.min(...drawn.map(entry => entry.points[0][0]));
-  const last = Math.max(...drawn.map(entry => entry.points[entry.points.length - 1][0]));
-  const span = Math.max(1, last - first - 1);
+  const first = matching && finite(opts.from) !== null ? Number(opts.from)
+    : Math.min(...drawn.map(entry => entry.points[0][0]));
+  const last = matching && finite(opts.to) !== null ? Number(opts.to)
+    : Math.max(...drawn.map(entry => entry.points[entry.points.length - 1][0]));
+  const span = Math.max(1, last - first - (matching ? 0 : 1));
   const x = ts => ((Number(ts) - first) / span) * (width - 2) + 1;
 
   const parts = [];
   for (const entry of drawn) {
     const range = entry.max - entry.min;
-    const y = value => (range > 0 ? height - 3 - ((value - entry.min) / range) * (height - 6) : height / 2);
-    const segments = splitSegments(entry.points, step, gaps);
+    const maximum = entry.item.name === 'load1'
+      ? timelineLoadMax(entry.points, cpuCount, first, last) : 100;
+    const y = matching
+      ? value => height - 3 - (Math.min(maximum, Math.max(0, value)) / maximum) * (height - 6)
+      : value => (range > 0 ? height - 3 - ((value - entry.min) / range) * (height - 6) : height / 2);
+    const segments = splitSegments(entry.points, matching ? Infinity : step, normalizeGaps(entry.item.gaps || gaps),
+      matching ? (_previousTs, ts) => offline.has(Number(ts)) : undefined);
     for (const segment of segments) {
       if (segment.length === 1) {
         parts.push(`<circle cx="${x(segment[0][0]).toFixed(1)}" cy="${y(segment[0][1]).toFixed(1)}" r="1.4" style="fill:${entry.item.color}"/>`);

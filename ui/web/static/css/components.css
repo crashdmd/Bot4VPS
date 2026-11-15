@@ -1148,3 +1148,46 @@ body.login-open .layout{display:none}
   #login-overlay .login-logo{width:72px;height:72px}
   #login-overlay .login-logo img{width:52px;height:52px}
 }
+
+/* Two login columns; a paired trusted device adds the central QR column. */
+#login-overlay .login-card.login-unified{width:min(920px,calc(100vw - 32px));max-width:1160px;max-height:94dvh;overflow-y:auto}
+#login-overlay .login-card.login-unified.has-qr{width:min(1160px,calc(100vw - 32px))}
+#login-overlay .login-heading{display:flex;align-items:center;justify-content:center;gap:18px;margin-bottom:32px;text-align:left}
+#login-overlay .login-heading .login-logo{width:60px;height:60px;margin:0;flex-shrink:0}
+#login-overlay .login-heading .login-logo img{width:44px;height:44px}
+#login-overlay .login-heading .login-subtitle{margin:.35rem 0 0}
+#login-overlay .login-options{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:32px;align-items:stretch;text-align:left}
+#login-overlay .has-qr .login-options{grid-template-columns:repeat(3,minmax(0,1fr))}
+#login-overlay .login-options>section{min-width:0}
+#login-overlay .login-options h4{margin:0 0 16px;font-size:1.1rem;color:var(--text)}
+#login-overlay .login-service-pane .login-heading{justify-content:flex-start;gap:12px;margin-bottom:18px}
+#login-overlay .login-service-pane .login-heading .login-logo{width:44px;height:44px}
+#login-overlay .login-service-pane .login-heading .login-logo img{width:32px;height:32px}
+#login-overlay .login-service-pane .login-title{font-size:1.15rem}
+#login-overlay .login-heading.login-mobile-heading{display:none;justify-content:flex-start;gap:12px;margin-bottom:24px}
+#login-overlay .login-mobile-heading .login-logo{width:44px;height:44px}
+#login-overlay .login-mobile-heading .login-logo img{width:32px;height:32px}
+#login-overlay .login-mobile-heading .login-title{font-size:1.15rem}
+#login-overlay .login-service-pane>p{font-size:.86rem;line-height:1.6;color:var(--text-muted);margin:0 0 18px}
+#login-overlay .login-features{list-style:none;padding:0;margin:0;display:grid;gap:12px}
+#login-overlay .login-features li{padding-left:14px;border-left:2px solid var(--accent)}
+#login-overlay .login-features strong{display:block;font-size:.86rem;font-weight:600}
+#login-overlay .login-features span{display:block;margin-top:3px;font-size:.8rem;line-height:1.45;color:var(--text-muted)}
+#login-overlay .login-auth-pane,#login-overlay .login-qr-pane{border-left:1px solid var(--border);padding-left:32px}
+#login-overlay .login-qr-pane{text-align:center}
+#login-overlay .login-qr-pane img{width:min(220px,100%);border-radius:12px;background:white;padding:12px;box-sizing:border-box}
+#login-overlay .login-options [hidden]{display:none!important}
+#login-overlay .login-qr-pane p{font-size:.85rem;line-height:1.5;color:var(--text-muted)}
+#login-overlay #li-qr-status:empty{display:none}
+#login-overlay .login-qr-steps{margin:0 0 18px;padding-left:20px;text-align:left;font-size:.82rem;line-height:1.5;color:var(--text-muted)}
+#login-overlay .login-qr-steps li+li{margin-top:4px}
+@media(max-width:760px){
+  #login-overlay .login-card.login-unified,
+  #login-overlay .login-card.login-unified.has-qr{width:min(440px,calc(100vw - 32px))}
+  #login-overlay .login-options,#login-overlay .has-qr .login-options{grid-template-columns:minmax(0,1fr);gap:0}
+  #login-overlay .login-service-pane,#login-overlay .login-qr-pane{display:none}
+  #login-overlay .login-auth-pane{padding:0;border:0}
+  #login-overlay .login-heading.login-mobile-heading{display:flex}
+}
+
+.mobile-security-dialog [hidden] { display: none !important; }

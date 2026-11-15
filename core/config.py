@@ -276,11 +276,16 @@ def _atomic_write_bytes(path: Path, data: bytes) -> None:
     права строже, чем у обычных файлов каталога backup/.
     """
     path.parent.mkdir(parents=True, exist_ok=True)
+    # A root-invoked maintenance command must not create root-owned history
+    # inside the service user's directory. Existing files retain their owner.
+    metadata = path.stat() if path.exists() else path.parent.stat()
     temp_path = None
     try:
         with tempfile.NamedTemporaryFile(dir=path.parent, prefix=path.name + ".", suffix=".tmp", delete=False) as tmp:
             temp_path = Path(tmp.name)
             tmp.write(data)
+            if metadata and (os.fstat(tmp.fileno()).st_uid, os.fstat(tmp.fileno()).st_gid) != (metadata.st_uid, metadata.st_gid):
+                os.fchown(tmp.fileno(), metadata.st_uid, metadata.st_gid)
             tmp.flush()
             os.fsync(tmp.fileno())
         os.replace(temp_path, path)

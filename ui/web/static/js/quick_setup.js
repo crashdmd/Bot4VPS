@@ -2377,7 +2377,7 @@ function promptQsAddPubkey(freeKeys = []) {
     'Добавить SSH-ключ',
     `<div class="qs-f2b-uninstall-choice">
       <p>Вставьте ваш публичный ключ:</p>
-      <textarea id="qs-addpub-key" rows="3" placeholder="ssh-ed25519 AAAA… comment" style="width:100%;max-width:36rem;font-family:ui-monospace,monospace;font-size:.8rem"></textarea>
+      <textarea id="qs-addpub-key" rows="3" placeholder="ssh-ed25519 AAAA… comment" style="width:100%;max-width:36rem;font-family:ui-monospace,monospace"></textarea>
       <p class="qs-muted" id="qs-addpub-warn"></p>
       ${freeKeysHtml}
       <div class="qs-section-actions">

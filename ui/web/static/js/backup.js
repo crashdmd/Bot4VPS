@@ -1,5 +1,5 @@
 import { j, esc } from './api.js?v=20260821-telegram-health-v1';
-import { toast, showPage, confirmAction, infoModal, showTelegramHealthDialog, plural, formatServerTime, serverNow, serverDateTimeParts, bindPasswordToggles } from './ui.js';
+import { workspaceListHeight, toast, showPage, confirmAction, infoModal, showTelegramHealthDialog, plural, formatServerTime, serverNow, serverDateTimeParts, bindPasswordToggles } from './ui.js';
 import { setPage } from './state.js';
 import { openBackupPasswordModal, openPasswordConfirmModal } from './backup-password.js?v=20260911-bpw-v16';
 
@@ -446,10 +446,7 @@ function syncLayoutHeight() {
   if (!layout) return;
   layout.style.height = '';
   if (stackedLayout() || !layout.offsetParent) return;
-  const content = layout.closest('.content');
-  const bottom = content ? (parseFloat(getComputedStyle(content).paddingBottom) || 0) : 0;
-  const top = layout.getBoundingClientRect().top + window.scrollY;
-  const available = Math.floor(window.innerHeight - top - bottom);
+  const available = Math.floor(workspaceListHeight(layout));
   if (available >= MIN_LAYOUT_HEIGHT) layout.style.height = `${available}px`;
 }
 
@@ -768,7 +765,7 @@ function renderTargets() {
   if (!host) return;
   const botSelected = selectedTarget === BOT_TARGET ? ' selected' : '';
   const bot = `<button type="button" class="backup-target backup-target-bot${botSelected}" data-backup-target="${BOT_TARGET}">
-    <span class="backup-target-mark">B4</span><span><strong>Bot4VPS</strong><small>Системный backup</small></span>
+    <span class="backup-target-mark"><img src="/static/logo.png?v=20260905-logo-v2" alt=""></span><span><strong>Bot4VPS</strong><small>Системный backup</small></span>
   </button><div class="backup-target-separator" role="separator"></div>`;
   const servers = snapshot.servers.map(server => {
     const selected = String(selectedTarget) === String(server.id) ? ' selected' : '';

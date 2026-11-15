@@ -44,7 +44,7 @@ def _write(path: Path, data: bytes):
             os.unlink(temporary)
 
 
-def server_identity(public_url: str = "") -> dict:
+def server_identity(public_url: str = "", *, additional_urls=()) -> dict:
     IDENTITY_DIR.mkdir(mode=0o700, parents=True, exist_ok=True)
     IDENTITY_DIR.chmod(0o700)
     with locked(IDENTITY_DIR / ".identity.lock", _LOCK):
@@ -61,10 +61,16 @@ def server_identity(public_url: str = "") -> dict:
             _write(key_path, key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption()))
         now = datetime.now(timezone.utc)
         host = urlsplit(public_url).hostname or "localhost"
-        try:
-            san = x509.IPAddress(ipaddress.ip_address(host))
-        except ValueError:
-            san = x509.DNSName(host.encode("idna").decode("ascii"))
+        names = []
+        for value in (host, *(urlsplit(url).hostname for url in additional_urls)):
+            if not value:
+                continue
+            try:
+                san = x509.IPAddress(ipaddress.ip_address(value))
+            except ValueError:
+                san = x509.DNSName(value.encode("idna").decode("ascii"))
+            if san not in names:
+                names.append(san)
         renew = not cert_path.exists()
         if not renew:
             cert = x509.load_pem_x509_certificate(cert_path.read_bytes())
@@ -72,13 +78,13 @@ def server_identity(public_url: str = "") -> dict:
             expected = key.public_key().public_bytes(serialization.Encoding.DER, serialization.PublicFormat.SubjectPublicKeyInfo)
             if current != expected:
                 raise ValueError("Ключ и сертификат API не соответствуют друг другу.")
-            renew = cert.not_valid_after_utc <= now + timedelta(days=30) or san not in cert.extensions.get_extension_for_class(x509.SubjectAlternativeName).value
+            renew = cert.not_valid_after_utc <= now + timedelta(days=30) or any(san not in cert.extensions.get_extension_for_class(x509.SubjectAlternativeName).value for san in names)
         if renew:
             name = x509.Name([x509.NameAttribute(x509.NameOID.COMMON_NAME, "Bot4VPS Mobile API")])
             cert = (x509.CertificateBuilder().subject_name(name).issuer_name(name).public_key(key.public_key())
                 .serial_number(x509.random_serial_number()).not_valid_before(now - timedelta(minutes=5))
                 .not_valid_after(now + timedelta(days=3650))
-                .add_extension(x509.SubjectAlternativeName([san]), critical=False)
+                .add_extension(x509.SubjectAlternativeName(names), critical=False)
                 .add_extension(x509.BasicConstraints(ca=False, path_length=None), critical=True)
                 .sign(key, hashes.SHA256()))
             _write(cert_path, cert.public_bytes(serialization.Encoding.PEM))
@@ -92,7 +98,7 @@ def server_identity(public_url: str = "") -> dict:
 def configured_identity(config: dict) -> dict:
     cert, key = config.get("cert_path"), config.get("key_path")
     if not cert and not key:
-        return server_identity(config.get("public_url", ""))
+        return server_identity(config.get("public_url", ""), additional_urls=config.get("_additional_urls", ()))
     if not cert or not key:
         raise ValueError("Мобильный API: укажите оба пути своего сертификата или оставьте оба пустыми")
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)

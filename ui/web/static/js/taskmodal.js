@@ -40,7 +40,7 @@ function createModal(watch) {
   <div class="modal" style="width:min(680px,100%)" role="dialog" aria-modal="true" aria-labelledby="task-progress-title">
     <div class="section-head" style="margin-bottom:.6rem">
       <h3 id="task-progress-title" style="margin:0">${esc(opts.title || opts.taskName || watch.task?.name || 'Задача')}</h3>
-      <button type="button" class="secondary" id="task-progress-tasks" style="padding:.2rem .55rem;font-size:.78rem">Перейти в меню задач</button>
+      <button type="button" class="secondary" id="task-progress-tasks">Перейти в меню задач</button>
     </div>
     <div class="tabs-hint" id="task-progress-steptitle" style="margin:0 0 .6rem">Ожидание очереди…</div>
     <div id="task-progress-log">

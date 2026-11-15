@@ -247,17 +247,17 @@ export async function loadFiles() {
     el.innerHTML = items.map(f => {
       const dlQs = new URLSearchParams({ root: fileRoot, name: f.name });
       const editBtn = f.editable
-        ? `<button type="button" class="secondary" style="padding:.2rem .45rem" data-edit="${esc(f.name)}" title="Редактировать">✏️</button>`
+        ? `<button type="button" class="secondary" data-edit="${esc(f.name)}" title="Редактировать">✏️</button>`
         : '';
       const viewBtn = fileRoot === 'keys'
-        ? `<button type="button" class="secondary" style="padding:.2rem .45rem" data-viewkey="${esc(f.name)}" title="Показать">👁</button>`
+        ? `<button type="button" class="secondary" data-viewkey="${esc(f.name)}" title="Показать">👁</button>`
         : '';
       return `<div class="file-row">
         <span>${iconFor(f.name)} ${esc(f.name)}${f.size != null ? ' · ' + fmtSize(f.size) : ''}</span>
         <span style="display:flex;gap:.3rem;flex-shrink:0">
           ${viewBtn}${editBtn}
-          <a class="btn secondary" style="padding:.2rem .45rem;text-decoration:none" href="/api/files/download?${dlQs}" title="Скачать">⬇</a>
-          <button type="button" class="secondary" style="padding:.2rem .45rem" data-del="${esc(f.name)}" title="Удалить">🗑</button>
+          <a class="btn secondary" style="text-decoration:none" href="/api/files/download?${dlQs}" title="Скачать">⬇</a>
+          <button type="button" class="secondary" data-del="${esc(f.name)}" title="Удалить">🗑</button>
         </span></div>`;
     }).join('');
     el.querySelectorAll('[data-edit]').forEach(b => b.onclick = () =>

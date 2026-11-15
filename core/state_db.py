@@ -767,6 +767,8 @@ def insert_hourly(rows: Sequence[dict]) -> int:
 def insert_audit(record: dict) -> bool:
     """Записать raw-пометку и обновить её производную operation-проекцию."""
     def work(conn: sqlite3.Connection) -> bool:
+        if conn.execute("SELECT 1 FROM audit_records WHERE id = ?", (record["id"],)).fetchone():
+            return True
         conn.execute(_insert_sql("audit_records", AUDIT_COLUMNS, replace=False), _row(record, AUDIT_COLUMNS))
         from core.audit_operations import incorporate
 

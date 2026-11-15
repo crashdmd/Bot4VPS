@@ -331,7 +331,12 @@ class OperationStore:
         return self._sorted(records)
 
     def list_all(self) -> list[dict]:
-        return self._sorted(self.list() + self.list_active())
+        # Переход в историю переносит запись между двумя каталогами. Читаем
+        # их под теми же блокировками и в том же порядке, что и transition:
+        # иначе завершившаяся между чтениями операция исчезает из ответа.
+        with self.running.locked():
+            with self.history.locked():
+                return self._sorted(self.list() + self.list_active())
 
     def find_by_request_id(
         self,

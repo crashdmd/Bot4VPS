@@ -15,6 +15,7 @@ import secrets
 import threading
 import time
 import uuid
+import weakref
 from pathlib import Path
 
 from cryptography.exceptions import InvalidSignature
@@ -27,6 +28,21 @@ PAIR_TTL = 600
 CHALLENGE_TTL = 30
 SESSION_TTL = 900
 ACCESS_HEADER = b"x-bot4vps-mobile-session"
+_ACCESS_INSTANCES = weakref.WeakSet()
+_ACCESS_INSTANCES_LOCK = threading.RLock()
+
+
+def invalidate_device_sessions(path, device_id):
+    target = Path(path).resolve()
+    with _ACCESS_INSTANCES_LOCK:
+        instances = list(_ACCESS_INSTANCES)
+    for access in instances:
+        if access.store.path.resolve() != target:
+            continue
+        with access._lock:
+            for name in ("_sessions", "_challenges", "_masterkey_challenges", "_masterkey_enrollments"):
+                pending = getattr(access, name)
+                setattr(access, name, {k: v for k, v in pending.items() if v.get("device_id") != device_id})
 
 
 @dataclass(frozen=True)
@@ -87,6 +103,8 @@ class MobileAccess:
         self._rates: dict = {}
         self._masterkey_challenges: dict = {}
         self._masterkey_enrollments: dict = {}
+        with _ACCESS_INSTANCES_LOCK:
+            _ACCESS_INSTANCES.add(self)
 
     def masterkey_public_key(self, device_id: str) -> str | None:
         row = next((r for r in self.store.read() if r.get("kind") == "device" and r.get("id") == device_id), None)
@@ -211,7 +229,7 @@ class MobileAccess:
             except (InvalidSignature, ValueError, KeyError) as exc:
                 raise AccessDenied() from exc
 
-    def issue_pairing_code(self, name: str, *, status_token: str | None = None) -> str:
+    def issue_pairing_code(self, name: str, *, status_token: str | None = None, web_binding=None) -> str:
         code = secrets.token_urlsafe(32)
         now = self.clock()
         def create(rows):
@@ -222,11 +240,17 @@ class MobileAccess:
                       "name": name.strip()[:80] or "Телефон", "expires": now + PAIR_TTL}
             if status_token:
                 invite["status_hash"] = hashlib.sha256(status_token.encode()).hexdigest()
+            if web_binding:
+                invite["web_binding"] = dict(web_binding)
             return rows + [invite]
         self.store.mutate(create)
         return code
 
-    def pair(self, code: str, public_key: str, masterkey_device_public_key: str | None = None) -> dict:
+    def pair(self, code: str, public_key: str, masterkey_device_public_key: str | None = None, *, ip=None, agent="", name=None) -> dict:
+        if name is not None:
+            if not isinstance(name, str) or len(name) > 80 or any(ord(c) < 32 or ord(c) == 127 for c in name):
+                raise AccessDenied(400, "Некорректное имя телефона")
+            name = name.strip() or None
         if not isinstance(code, str) or not 40 <= len(code) <= 64:
             raise AccessDenied(403, "Код привязки недействителен или истёк")
         key = _public_key(public_key)
@@ -244,6 +268,7 @@ class MobileAccess:
         if masterkey_device_public_key is not None:
             device["masterkey_device_public_key"] = masterkey_device_public_key
         def enroll(rows):
+            from .primary import migrate, assign
             # Strictly one use, including retries with the same phone key.
             # Consumption and enrollment share the atomic storage transaction.
             invite = next((r for r in rows if r.get("kind") == "invite" and
@@ -252,11 +277,27 @@ class MobileAccess:
                 raise AccessDenied(403, "Код привязки уже использован, недействителен или истёк. Создайте новый код в веб-панели.")
             if sum(r.get("kind") == "device" for r in rows) >= 32:
                 raise AccessDenied(409, "Достигнут лимит привязанных телефонов")
-            device["name"] = invite.get("name", "Телефон")
+            migrate(rows)
+            device["name"] = name or invite.get("name", "Телефон")
             if invite.get("status_hash"):
                 device.update(status_hash=invite["status_hash"], status_expires=invite["expires"])
+            if not any(row.get("kind") == "device" for row in rows):
+                if invite.get("web_binding"):
+                    device["first_pairing_web"] = {**invite["web_binding"], "expires": invite["expires"]}
+                assign(device["id"])
+            else:
+                from .primary import current
+                primary = current(rows)
+                if primary:
+                    from ..auth_flows import AuthFlows
+                    AuthFlows(self.store.path, clock=self.clock)._notice(rows, primary, "device_connected",
+                        target_device_id=device["id"], target_name=device["name"], ip=ip, agent=agent[:256],
+                        message="К панели подключён новый телефон: " + device["name"])
             return [r for r in rows if r is not invite and (r.get("kind") != "invite" or r.get("expires", 0) > now)] + [device]
-        self.store.mutate(enroll)
+        from core import config
+        from core.json_store import locked
+        with locked(config.CONFIG_FILE.with_name(config.CONFIG_FILE.name + ".lock"), config._CONFIG_LOCK):
+            self.store.mutate(enroll)
         return {"device_id": device["id"], "name": device["name"]}
 
     def pairing_status(self, token: str) -> dict:
@@ -273,9 +314,27 @@ class MobileAccess:
                     return {"state": "pending"}
         return {"state": "expired"}
 
+    def reconcile_primary(self):
+        from .primary import migrate
+        from core import config
+        from core.json_store import locked
+        with locked(config.CONFIG_FILE.with_name(config.CONFIG_FILE.name + ".lock"), config._CONFIG_LOCK):
+            return migrate(self.store.read())
+
     def devices(self) -> list:
-        return [{k: row[k] for k in ("id", "name", "created") if k in row}
-                for row in self.store.read() if row.get("kind") == "device"]
+        primary = self.reconcile_primary()
+        rows = self.store.read()
+        return sorted([{**{k: row[k] for k in ("id", "name", "created") if k in row},
+                        "is_primary": row["id"] == primary}
+                       for row in rows if row.get("kind") == "device"], key=lambda row: row.get("created", 0))
+
+    def primary_device_id(self) -> str | None:
+        return next((row["id"] for row in self.devices() if row["is_primary"]), None)
+
+    def totp_setup_allowed(self, device_id: str) -> bool:
+        devices = self.devices()
+        primary = next((row["id"] for row in devices if row["is_primary"]), None)
+        return device_id == primary
 
     def device_exists(self, device_id: str) -> bool:
         return any(r.get("kind") == "device" and r.get("id") == device_id for r in self.store.read())
@@ -285,8 +344,16 @@ class MobileAccess:
         def remove(rows):
             nonlocal removed
             removed = next((r for r in rows if r.get("kind") == "device" and r.get("id") == device_id), None)
+            if removed:
+                from ..auth_flows import AuthFlows
+                flows = AuthFlows(self.store.path, clock=self.clock)
+                flows._unlinked_notice(rows, device_id)
+                flows._primary_unlinked(rows, device_id)
             return [r for r in rows if r is not removed]
-        self.store.mutate(remove)
+        from core import config
+        from core.json_store import locked
+        with locked(config.CONFIG_FILE.with_name(config.CONFIG_FILE.name + ".lock"), config._CONFIG_LOCK):
+            self.store.mutate(remove)
         with self._lock:
             self._sessions = {k: v for k, v in self._sessions.items() if v["device_id"] != device_id}
         return {"id": removed["id"], "name": removed.get("name")} if removed else None
@@ -364,8 +431,6 @@ def main():
     pair = sub.add_parser("pair", help="Создать одноразовый код на 10 минут")
     pair.add_argument("--name", default="Телефон")
     sub.add_parser("list", help="Показать привязанные телефоны")
-    revoke = sub.add_parser("revoke", help="Отозвать доступ телефона")
-    revoke.add_argument("device_id")
     args = parser.parse_args()
     access = MobileAccess()
     if args.command == "pair":
@@ -380,9 +445,6 @@ def main():
     elif args.command == "list":
         for device in access.devices():
             print(f"{device['id']}  {device.get('name', 'Телефон')}")
-    else:
-        access.revoke(args.device_id)
-        print("Доступ телефона отозван")
 
 
 if __name__ == "__main__":

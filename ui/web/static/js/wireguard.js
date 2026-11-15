@@ -13,7 +13,7 @@
 import { j, esc } from './api.js';
 import { openTaskModal } from './taskmodal.js?v=20260914-v3';
 import { statusFilterBtn, statusFilterHidden, bindStatusFilter } from './statusfilter.js?v=20260915-v1';
-import { toast, showPage, serverDateTimeParts, serverDayDifference, infoModal } from './ui.js';
+import { fitServerTables, toast, showPage, serverDateTimeParts, serverDayDifference, infoModal } from './ui.js';
 
 const SID = 'wireguard';
 const timers = {};                  // taskId -> polling-интервал
@@ -355,7 +355,7 @@ function wgRowCells(s) {
   // объединённая область с центрированным действием.
   const action = stateKey === 'classic'
     ? `<button type="button" class="wg-row-action" data-migrate="${esc(s.id)}"><span class="svc-btn-emoji">♻️ </span>Миграция</button>
-       <button type="button" class="faq-help-link" data-wg-help="import" aria-label="Подробнее о миграции конфигурации WireGuard">ⓘ Подробнее</button>`
+       <button type="button" class="faq-help-link wg-migration-help" data-wg-help="import" title="Подробнее о миграции конфигурации WireGuard" aria-label="Подробнее о миграции конфигурации WireGuard"><span aria-hidden="true">ⓘ</span><span class="wg-migration-help-label"> Подробнее</span></button>`
     : `<button type="button" class="wg-row-action" data-install="${esc(s.id)}"><span class="svc-btn-emoji">🟢 </span>Установить</button>`;
   return `${name}${status}
     <td colspan="3" class="wg-row-action-cell">${action}</td>`;
@@ -451,6 +451,7 @@ function renderWgServers() {
       <tbody>${renderWgRows()}</tbody>
     </table>
   </div>`;
+  fitServerTables();
   bindStatusFilter('wireguard', WG_STATUS_FILTERS, renderWgServers);
 }
 

@@ -14,9 +14,10 @@ Bot4VPS Web UI
 Авторизация по умолчанию выключена (локальный режим). Включается флагом
 ``web.auth_enabled`` в config.json — после этого все /api-роуты (кроме
 login/me/logout/recover/totp) закрываются зависимостью require_auth.
-При включённой 2FA (web.totp_secret) вход двухшаговый: пароль →
+При включённой 2FA (web.two_factor_enabled) вход двухшаговый: пароль →
 ``/api/login`` отвечает ``otp_required`` БЕЗ сессии, сессию создаёт
-только ``/api/login/otp`` с кодом из приложения-аутентификатора.
+``/api/login/otp`` с TOTP либо подписанное подтверждение телефона. QR-вход
+является отдельным способом аутентификации доверенным устройством.
 """
 from __future__ import annotations
 
@@ -62,9 +63,13 @@ from .security import (
     set_web_auth,
     set_web_password,
     set_totp_secret,
+    set_two_factor_enabled,
+    totp_registered,
     setup_expired_active,
     setup_wizard_active,
     totp_enabled,
+    second_factor_enabled,
+    second_factor_channel,
     totp_provisioning_uri,
     verify_password,
     verify_totp_code,
@@ -450,6 +455,11 @@ async def lifespan(_app: FastAPI):
     if tg_retry_masterkey or backup_retry_masterkey:
         masterkey_watchdog = asyncio.create_task(_masterkey_watchdog())
 
+    # Reconcile persisted unlink deadlines before starting any mobile listener.
+    from ._internal.auth_flows import AuthFlows, unlink_worker
+    await asyncio.to_thread(AuthFlows().reconcile)
+    from ._internal.device_access.access import MobileAccess
+    await asyncio.to_thread(MobileAccess().reconcile_primary)
     try:
         from core.config import get_web_config
         from ._internal.device_access.runtime import boot_mobile_api
@@ -457,9 +467,15 @@ async def lifespan(_app: FastAPI):
     except Exception as exc:
         print(f"[API] Мобильный API не запущен: {exc}", flush=True)
 
+    unlink_task = asyncio.create_task(unlink_worker())
+    from ._internal.device_access.runtime import mobile_api_watchdog
+    mobile_api_task = asyncio.create_task(mobile_api_watchdog(_app))
     try:
         yield
     finally:
+        unlink_task.cancel()
+        mobile_api_task.cancel()
+        await asyncio.gather(unlink_task, mobile_api_task, return_exceptions=True)
         try:
             from ._internal.device_access.runtime import stop_mobile_api
             await stop_mobile_api(_app)
@@ -518,7 +534,12 @@ from core.web_tls import unit_tls_state as _unit_tls_state  # noqa: E402
 
 _tls_unit_state = _unit_tls_state()
 _tls_https_only = _tls_unit_state["ssl"] or _tls_unit_state["proxy"]
+app.state.auth_https_required = _tls_https_only
 
+from ._internal.browser_continuity import BrowserContinuityMiddleware
+# SessionMiddleware wraps this layer, so an approved continuation updates
+# both the request's authorization and its outgoing session cookie.
+app.add_middleware(BrowserContinuityMiddleware)
 app.add_middleware(
     SessionMiddleware,
     # Пустой secret_key бывает только в аварийном режиме (битый
@@ -536,6 +557,8 @@ app.add_middleware(
 # Аварийный гейт — ПОСЛЕДНИМ (в стеке Starlette выполняется первым):
 # при повреждённом config.json все API, кроме статической страницы,
 # статики и health, закрываются до сессий, CORS и роутеров.
+from .routers.device_auth import AuthTransportMiddleware
+app.add_middleware(AuthTransportMiddleware)
 app.add_middleware(EmergencyGateMiddleware)
 # Гейт первичной настройки — ещё позже = ещё раньше в стеке: состояния
 # мастера/заглушки закрывают API до того, как до них дойдёт очередь
@@ -570,6 +593,8 @@ app.include_router(audit.router, dependencies=_AUTH)
 app.include_router(update.router, dependencies=_AUTH)
 app.include_router(settings.router, dependencies=_AUTH)
 from .routers import mobile_access as mobile_access_router, mobile_app as mobile_app_router
+from .routers import device_auth
+app.include_router(device_auth.router)
 app.include_router(mobile_access_router.router)
 app.include_router(mobile_app_router.router)
 app.include_router(tls.router, dependencies=_AUTH)
@@ -826,6 +851,7 @@ async def api_me(request: Request):
 _LOGIN_WINDOW = 15 * 60
 _LOGIN_MAX_FAILURES = 10
 _login_failures: dict[str, list[float]] = {}
+_login_telegram_sent: dict[str, float] = {}
 
 
 def _login_wait_seconds(ip: str) -> int | None:
@@ -851,89 +877,84 @@ def _login_register_failure(ip: str) -> None:
 async def api_login(request: Request, body: LoginBody):
     if not auth_enabled():
         return {"ok": True, "auth_enabled": False}
-    ip = request.client.host if request.client else "unknown"
+    ip = _client_ip(request) or "unknown"
     wait = _login_wait_seconds(ip)
     if wait is not None:
-        raise HTTPException(
-            429,
-            "Слишком много неудачных попыток входа с этого адреса — "
-            "повторите через %d мин" % max(1, wait // 60),
-            headers={"Retry-After": str(wait)},
-        )
+        raise HTTPException(429, "Слишком много попыток входа", headers={"Retry-After": str(wait)})
     from core.config import get_web_config
-    web = get_web_config()
-    if body.username == web.get("username") and verify_password(
-        body.password, web.get("password_hash", "")
-    ):
-        _login_failures.pop(ip, None)
-        if totp_enabled():
-            # Пароль верен, но сессии ещё нет: ждём код из приложения.
-            # Полусессия запрещена — до подтверждения OTP пользователь
-            # для require_auth анонимен. Pending живёт 5 минут.
-            global _pending_otp
-            _pending_otp = None
-            get_totp_secret()  # Настроенная, но повреждённая 2FA блокирует вход.
-            _pending_otp = {
-                "username": body.username,
-                "expires_at": time.monotonic() + _OTP_TTL_SECONDS,
-                "auth_version": auth_version(web),
-                "attempts": 0,
-            }
-            return {"ok": False, "otp_required": True}
-        establish_web_session(request, body.username, expected_version=auth_version(web))
-        return {"ok": True, "user": body.username}
-    _login_register_failure(ip)
-    raise HTTPException(401, "Неверный логин или пароль")
+    from ._internal.auth_flows import AuthFlows, browser_id
+    web = await asyncio.to_thread(get_web_config)
+    valid = body.username == web.get("username") and await asyncio.to_thread(
+        verify_password, body.password, web.get("password_hash", ""))
+    if not valid:
+        _login_register_failure(ip)
+        from core import audit
+        from core.actor import Actor
+        await asyncio.to_thread(audit.record, "web.login_attempt", result="failed",
+                                actor=Actor.web(None, ip=ip), params={"method": "password"})
+        raise HTTPException(401, "Неверный логин или пароль")
+    _login_failures.pop(ip, None)
+    flows = AuthFlows()
+    if second_factor_enabled():
+        channel = second_factor_channel()
+        if channel == "totp":
+            get_totp_secret()  # A damaged configured factor fails closed.
+        else:
+            if not _recovery_available():
+                raise HTTPException(503, "Telegram для второго фактора недоступен. Включите бота или восстановите доступ через консоль")
+            sent_at = _login_telegram_sent.get(ip)
+            if sent_at is not None and time.monotonic() - sent_at < 30:
+                raise HTTPException(429, "Код уже отправлялся. Повторите вход через 30 секунд", headers={"Retry-After": "30"})
+        row = await asyncio.to_thread(flows.create_login, browser_id(request), "password", body.username,
+                                     ip=ip, agent=request.headers.get("user-agent", ""), expected_version=auth_version(web), factor_channel=channel)
+        request.session["auth_login"] = row["id"]
+        if channel == "telegram":
+            from .telegram_otp import send_telegram_code
+            from .security import telegram_delivery_fingerprint
+            delivery = telegram_delivery_fingerprint()
+            _login_telegram_sent[ip] = time.monotonic()
+            if len(_login_telegram_sent) > 1000:
+                cutoff = time.monotonic() - 30
+                for key in [key for key, value in _login_telegram_sent.items() if value < cutoff]:
+                    _login_telegram_sent.pop(key, None)
+            try:
+                pending = await send_telegram_code("Вход в веб-панель Bot4VPS", "Введите код в том браузере, где указали логин и пароль. Никому не передавайте код.", clock=time.time)
+                await asyncio.to_thread(flows.attach_login_telegram, row["id"], browser_id(request), pending, delivery)
+            except Exception:
+                await asyncio.to_thread(flows.cancel_login, browser_id(request))
+                request.session.pop("auth_login", None)
+                raise HTTPException(503, "Не удалось отправить код входа в Telegram. Повторите позже") from None
+        return {"ok": False, "otp_required": True, "mobile_required": bool(row["devices"]) if channel == "totp" else False,
+                "id": row["id"], "channel": channel}
+    await asyncio.to_thread(flows.cancel_login, browser_id(request))
+    establish_web_session(request, body.username, expected_version=auth_version(web))
+    await asyncio.to_thread(flows.new_ip_notice, ip, request.headers.get("user-agent", ""))
+    return {"ok": True, "user": body.username}
 
 
 class OtpBody(BaseModel):
     code: str
 
 
-# Жизнь ожидания кода и лимит попыток ввода (6 цифр = 10⁶ комбинаций,
-# поэтому 5 попыток и окно ±1 шаг 30 с — как у recovery-кода)
-_OTP_TTL_SECONDS = 300.0
-_OTP_MAX_ATTEMPTS = 5
-# {username, expires_at, attempts} — одноразовый «пропуск» на второй шаг
-_pending_otp: dict | None = None
-
-
 @app.post("/api/login/otp")
 async def api_login_otp(request: Request, body: OtpBody):
-    """Шаг 2 входа при включённой 2FA: код из приложения-аутентификатора.
-
-    Сессия создаётся ТОЛЬКО здесь: первый шаг сознательно без неё.
-    """
-    global _pending_otp
-    if not auth_enabled():
-        return {"ok": True, "auth_enabled": False}
-    pending = _pending_otp
-    if not pending or time.monotonic() > pending["expires_at"]:
-        _pending_otp = None
+    from ._internal.auth_flows import AuthFlows, browser_id
+    flow_id = request.session.get("auth_login")
+    if not flow_id:
         raise HTTPException(400, "Войдите заново: код не запрашивался или истёк")
-    if pending.get("auth_version") != auth_version():
-        _pending_otp = None
-        raise HTTPException(400, "Учётные данные изменились — войдите заново")
-    if pending["attempts"] >= _OTP_MAX_ATTEMPTS:
-        _pending_otp = None
-        raise HTTPException(400, "Попытки исчерпаны — войдите заново")
-
-    secret = get_totp_secret()
-    if not verify_totp_code(body.code, secret):
-        pending["attempts"] += 1
-        remaining = _OTP_MAX_ATTEMPTS - pending["attempts"]
-        if remaining <= 0:
-            _pending_otp = None
-            raise HTTPException(400, "Неверный код. Попытки исчерпаны — войдите заново")
-        raise HTTPException(400, f"Неверный код (осталось попыток: {remaining})")
-
-    _pending_otp = None
-    establish_web_session(request, pending["username"], expected_version=pending["auth_version"])
-    return {"ok": True, "user": pending["username"]}
+    flows = AuthFlows()
+    browser = browser_id(request)
+    await asyncio.to_thread(flows.login_totp, flow_id, browser, body.code)
+    row = await asyncio.to_thread(flows.login_status, flow_id, browser, consume=True)
+    establish_web_session(request, row["username"], expected_version=row["version"])
+    await asyncio.to_thread(flows.new_ip_notice, row.get("ip"), row.get("agent", ""), notify=False)
+    return {"ok": True, "user": row["username"]}
 
 
 @app.post("/api/logout")
 async def api_logout(request: Request):
+    from ._internal.auth_flows import AuthFlows, browser_id
+    await asyncio.to_thread(AuthFlows().cancel_login, browser_id(request))
     request.session.clear()
     return {"ok": True}
 
@@ -1134,23 +1155,13 @@ async def _send_recovery_code() -> dict:
         raise HTTPException(429, "Код уже отправлен — повторите чуть позже")
     _last_recover_at = now
 
-    # 6 цифр, без ведущих нулей в уме: randbelow честно даёт 000000-999999
-    code = f"{secrets.randbelow(1_000_000):06d}"
-    text = (
-        "🔐 <b>Восстановление доступа к панели Bot4VPS</b>\n\n"
-        f"Код подтверждения: <code>{code}</code>\n"
-        "Действует 10 минут.\n\n"
+    from .telegram_otp import send_telegram_code
+    _pending_recovery = await send_telegram_code(
+        "Восстановление доступа к панели Bot4VPS",
         "Введите код на экране входа вместе с новым паролем. "
         "Если вы не запрашивали восстановление — просто игнорируйте: "
-        "пока код не введён, пароль не меняется."
+        "пока код не введён, пароль не меняется.",
     )
-    await _send_recovery_message(text)
-    # Pending сохраняем только после успешной доставки кода
-    _pending_recovery = {
-        "code": code,
-        "expires_at": now + _RECOVERY_TTL_SECONDS,
-        "attempts": 0,
-    }
     return {"ok": True, "resent": True}
 
 
@@ -1204,7 +1215,8 @@ async def api_recover_confirm(request: Request, body: RecoverConfirmBody):
         _pending_recovery = None
         raise HTTPException(400, "Попытки исчерпаны — запросите новый код")
 
-    if body.code.strip() != pending["code"]:
+    from .telegram_otp import check_telegram_code
+    if not check_telegram_code(pending, body.code, now=time.monotonic()):
         pending["attempts"] += 1
         remaining = _RECOVERY_MAX_ATTEMPTS - pending["attempts"]
         if remaining <= 0:
@@ -1531,9 +1543,6 @@ async def api_auth_disable_confirm(request: Request, body: AuthDisableConfirmBod
 # только с действующим кодом (защита от «кликнул и снял фактор»).
 # ------------------------------------------------------------------
 
-# Секрет, ожидающий подтверждения кодом: {secret, expires_at}
-_pending_totp_setup: dict | None = None
-_TOTP_SETUP_TTL_SECONDS = 600.0
 
 
 def _require_totp_session(request: Request) -> None:
@@ -1548,28 +1557,29 @@ def _require_totp_session(request: Request) -> None:
 @app.get("/api/auth/totp")
 async def api_totp_status(request: Request):
     _require_totp_session(request)
-    return {"enabled": totp_enabled()}
+    from ._internal.auth_flows import AuthFlows
+    from core.config import get_web_config
+    from ._internal.device_access.access import MobileAccess
+    access = MobileAccess()
+    devices = await asyncio.to_thread(access.devices)
+    return {"enabled": second_factor_enabled(), "registered": totp_registered(), "channel": second_factor_channel(),
+            "primary_device_id": await asyncio.to_thread(access.primary_device_id),
+            "trusted_devices": devices, "telegram_available": _recovery_available(),
+            "mobile_available": bool((get_web_config().get("mobile_api") or {}).get("enabled"))}
 
 
 @app.post("/api/auth/totp/setup")
 async def api_totp_setup(request: Request):
     """Шаг 1 включения: новый секрет + QR. Активации ещё нет."""
-    global _pending_totp_setup
     _require_totp_session(request)
-
-    from core.config import get_web_config
-    username = get_web_config().get("username", "admin")
-    secret = make_totp_secret()
-    uri = totp_provisioning_uri(secret, username)
-    _pending_totp_setup = {
-        "secret": secret,
-        "expires_at": time.monotonic() + _TOTP_SETUP_TTL_SECONDS,
-    }
-    return {
-        "secret": secret,
-        "uri": uri,
-        "qr": _totp_qr_data_url(uri),
-    }
+    from ._internal.auth_flows import AuthFlows, browser_id
+    result = await asyncio.to_thread(AuthFlows().setup_totp, browser_id(request), expected_version=request.session.get("auth_version"))
+    if result.get("reuse"):
+        request.session.pop("totp_setup", None)
+        return result
+    request.session["totp_setup"] = result["id"]
+    result["qr"] = await asyncio.to_thread(_totp_qr_data_url, result["uri"])
+    return result
 
 
 def _totp_qr_data_url(uri: str) -> str:
@@ -1597,31 +1607,32 @@ class TotpCodeBody(BaseModel):
 @app.post("/api/auth/totp/enable")
 async def api_totp_enable(request: Request, body: TotpCodeBody):
     """Шаг 2 включения: код из приложения подтверждает секрет."""
-    global _pending_totp_setup
     _require_totp_session(request)
-
-    pending = _pending_totp_setup
-    if not pending or time.monotonic() > pending["expires_at"]:
-        _pending_totp_setup = None
-        raise HTTPException(400, "Настройка не начиналась или истекла — начните заново")
-    if not verify_totp_code(body.code, pending["secret"]):
-        raise HTTPException(400, "Неверный код — сверьте время в приложении и попробуйте ещё раз")
-
-    _pending_totp_setup = None
-    set_totp_secret(pending["secret"])
-    refresh_web_session(request)
-    return {"ok": True, "enabled": True}
+    from ._internal.auth_flows import AuthFlows, browser_id
+    flow_id = request.session.get("totp_setup")
+    if flow_id:
+        version = await asyncio.to_thread(AuthFlows().confirm_totp, flow_id, browser_id(request), body.code, enabled=True)
+        request.session["auth_version"] = version
+        request.session.pop("totp_setup", None)
+    elif totp_registered():
+        if not await asyncio.to_thread(verify_totp_code, body.code, get_totp_secret()):
+            raise HTTPException(400, "Неверный код")
+        set_two_factor_enabled(True, expected_version=request.session.get("auth_version"))
+    else:
+        raise HTTPException(400, "Сначала начните настройку TOTP")
+    return {"ok": True, "enabled": totp_enabled()}
 
 
 @app.post("/api/auth/totp/disable")
 async def api_totp_disable(request: Request, body: TotpCodeBody):
-    """Отключение — только с действующим кодом из приложения."""
+    """Отключение по коду; доверенный телефон использует отдельный подписанный flow."""
     _require_totp_session(request)
 
     if not totp_enabled():
         raise HTTPException(400, "Двухфакторная аутентификация не включена")
-    if not verify_totp_code(body.code, get_totp_secret()):
+    if not await asyncio.to_thread(verify_totp_code, body.code, get_totp_secret()):
         raise HTTPException(400, "Неверный код")
-    clear_totp_secret()
-    refresh_web_session(request)
+    from ._internal.auth_flows import AuthFlows
+    version = await asyncio.to_thread(AuthFlows().disable_totp, expected_version=request.session.get("auth_version"))
+    request.session["auth_version"] = version
     return {"ok": True, "enabled": False}

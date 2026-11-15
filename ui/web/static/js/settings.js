@@ -6,9 +6,27 @@ import { NOTIFY_ICON } from './icons.js?v=20260924-notify-icon-v1';
 
 let account = { auth_enabled: false, username: 'admin' };
 let selectedCategory = 'common';
+const CATEGORY_KEY = 'bot4vps_settings_category';
+try { selectedCategory = sessionStorage.getItem(CATEGORY_KEY) || 'common'; } catch (_) {}
+let categoryRenderVersion = 0;
 let updateState = null;
 let portPollTimer = null;
 let mobileSettingsModule = null;
+export async function resumePendingMobileConnectionChange() {
+  try { if (!sessionStorage.getItem('bot4vps_pending_mobile_connection_change')) return; }
+  catch (_) { return; }
+  const mobile = await import('./_internal/device_access/panel.js?v=20261114-primary-phone-v1');
+  mobile.resumePendingMobileConnectionChange();
+}
+export async function resumeRequiredPrimarySelection() {
+  const mobile = await import('./_internal/device_access/panel.js?v=20261114-primary-phone-v1');
+  try { await mobile.resumeRequiredPrimarySelection(); }
+  catch (error) {
+    // The private pairing endpoint can be unavailable on older panels or
+    // outside the local network when Web authorization is disabled.
+    if (![401, 403, 404].includes(error.status)) toast(error.message, false);
+  }
+}
 const numberTimers = new Map();
 
 const THEME_KEY = 'bot4vps_theme';
@@ -111,8 +129,9 @@ const categories = [
 {
   categories.splice(categories.findIndex(item => item.id === 'web') + 1, 0, {
     id: 'mobile', icon: '▣', title: 'Мобильное приложение', subtitle: 'Подключение и телефоны',
-    render: async () => {
-      const mobile = await import('./_internal/device_access/panel.js?v=20261111-mobile-source-v3');
+    render: async renderVersion => {
+      const mobile = await import('./_internal/device_access/panel.js?v=20261114-primary-phone-v1');
+      if (renderVersion !== categoryRenderVersion) return;
       mobileSettingsModule = mobile;
       await mobile.renderMobileAccess(document.getElementById('settings-content'), {
         onOpenSecurity: () => selectSettingsCategory('web'),
@@ -184,13 +203,84 @@ function rowControl(spec) {
 }
 
 function section(title, lead, rows, extra = '') {
-  return `<section class="set-section"><div class="set-section-head"><h2>${esc(title)}</h2>${lead ? `<p>${esc(lead)}</p>` : ''}</div><div class="set-list">${rows.join('')}</div>${extra}</section>`;
+  const list = rows.length ? `<div class="set-list">${rows.join('')}</div>` : '';
+  return `<section class="set-section"><div class="set-section-head"><h2>${esc(title)}</h2>${lead ? `<p>${esc(lead)}</p>` : ''}</div>${list}${extra}</section>`;
 }
 
 function renderNav() {
   const nav = document.getElementById('settings-nav');
   if (!nav) return;
-  nav.innerHTML = categories.map(c => `<button type="button" data-settings-category="${c.id}" class="${c.id === selectedCategory ? 'on' : ''}"><span class="settings-nav-icon">${c.icon}</span><span><strong>${esc(c.title)}</strong><small>${esc(c.subtitle)}</small></span></button>`).join('');
+  if (!nav.querySelector('[data-settings-category]')) {
+    nav.innerHTML = categories.map(c => `<button type="button" data-settings-category="${c.id}"><span class="settings-nav-icon">${c.icon}</span><span><strong>${esc(c.title)}</strong><small>${esc(c.subtitle)}</small></span></button>`).join('');
+  }
+  nav.querySelectorAll('[data-settings-category]').forEach(button => {
+    const active = button.dataset.settingsCategory === selectedCategory;
+    button.classList.toggle('on', active);
+    if (active) button.setAttribute('aria-current', 'page');
+    else button.removeAttribute('aria-current');
+  });
+  const category = categories.find(item => item.id === selectedCategory) || categories[0];
+  const title = document.getElementById('settings-menu-title');
+  const subtitle = document.getElementById('settings-menu-subtitle');
+  if (title) title.textContent = category.title;
+  if (subtitle) subtitle.textContent = category.subtitle;
+  document.getElementById('settings-menu-toggle')?.setAttribute('aria-label', `Раздел настроек: ${category.title}. Выбрать другой раздел`);
+}
+
+const mobileSettingsNav = window.matchMedia('(max-width:760px)');
+
+function positionSettingsMenu() {
+  if (!mobileSettingsNav.matches) return;
+  const nav = document.getElementById('settings-nav');
+  const toggle = document.getElementById('settings-menu-toggle');
+  if (!nav || !toggle) return;
+  const rect = toggle.getBoundingClientRect();
+  const margin = 12;
+  const gap = 4;
+  const width = Math.min(Math.max(rect.width, 260), window.innerWidth - margin * 2);
+  const left = Math.max(margin, Math.min(rect.right - width, window.innerWidth - width - margin));
+  const below = window.innerHeight - rect.bottom - gap - margin;
+  const above = rect.top - gap - margin;
+  const opensAbove = below < 160 && above > below;
+  const maxHeight = Math.max(0, Math.min(448, opensAbove ? above : below));
+  nav.style.setProperty('--settings-menu-width', `${width}px`);
+  nav.style.setProperty('--settings-menu-left', `${left}px`);
+  nav.style.setProperty('--settings-menu-max-height', `${maxHeight}px`);
+  const height = nav.getBoundingClientRect().height || maxHeight;
+  nav.style.setProperty('--settings-menu-top', `${opensAbove ? rect.top - gap - height : rect.bottom + gap}px`);
+}
+
+function closeSettingsMenu(returnFocus = false) {
+  const nav = document.getElementById('settings-nav');
+  const toggle = document.getElementById('settings-menu-toggle');
+  const wasOpen = toggle?.getAttribute('aria-expanded') === 'true';
+  if (nav?.showPopover && nav.matches(':popover-open')) nav.hidePopover();
+  nav?.classList.remove('is-open');
+  toggle?.setAttribute('aria-expanded', 'false');
+  if (returnFocus && wasOpen) toggle?.focus({ preventScroll: true });
+}
+
+function syncSettingsMenu() {
+  closeSettingsMenu();
+  const nav = document.getElementById('settings-nav');
+  if (mobileSettingsNav.matches && nav.showPopover) nav.setAttribute('popover', 'auto');
+  else nav.removeAttribute('popover');
+}
+
+function toggleSettingsMenu() {
+  if (!mobileSettingsNav.matches) return;
+  const nav = document.getElementById('settings-nav');
+  const toggle = document.getElementById('settings-menu-toggle');
+  if (toggle.getAttribute('aria-expanded') === 'true') {
+    closeSettingsMenu(true);
+    return;
+  }
+  positionSettingsMenu();
+  if (nav.showPopover) nav.showPopover();
+  else nav.classList.add('is-open');
+  toggle.setAttribute('aria-expanded', 'true');
+  positionSettingsMenu();
+  nav.querySelector('[aria-current="page"]')?.focus({ preventScroll: true });
 }
 
 function setContentLoading() {
@@ -204,16 +294,20 @@ function clearNumberTimers() {
 }
 
 async function openCategory(id) {
+  closeSettingsMenu(true);
+  const renderVersion = ++categoryRenderVersion;
   mobileSettingsModule?.stopMobileAccess();
   mobileSettingsModule?.closeMobilePairCode();
   clearNumberTimers();
   const category = categories.find(item => item.id === id) || categories[0];
   selectedCategory = category.id;
+  try { sessionStorage.setItem(CATEGORY_KEY, selectedCategory); } catch (_) {}
   renderNav();
   setContentLoading();
   try {
-    await category.render();
+    await category.render(renderVersion);
   } catch (error) {
+    if (renderVersion !== categoryRenderVersion) return;
     const content = document.getElementById('settings-content');
     if (content) content.innerHTML = `<div class="set-error"><strong>Не удалось загрузить раздел</strong><span>${esc(error.message || error)}</span><button type="button" class="secondary" id="settings-retry">Повторить</button></div>`;
     document.getElementById('settings-retry')?.addEventListener('click', () => openCategory(category.id));
@@ -577,12 +671,13 @@ function bindTelegramFixLink() {
   document.getElementById('set-notify-tg-fix')?.addEventListener('click', () => openCategory('telegram'));
 }
 
-async function renderNotifications() {
+async function renderNotifications(renderVersion = categoryRenderVersion) {
   const [cfg, notify, tg] = await Promise.all([
     j('/api/monitor/config'),
     j('/api/notifications/categories'),
     j('/api/telegram/status').catch(() => null),
   ]);
+  if (renderVersion !== categoryRenderVersion) return;
   const categories = notify.categories || {};
   const channelOn = notify.telegram_channel !== false;
   // Статус Telegram — не повод не открыть раздел: без него просто молчим.
@@ -680,8 +775,9 @@ async function renderNotifications() {
 
 // «Параметры» — только часовой пояс и тема: всё про уведомления переехало в
 // отдельный раздел выше, «Уведомления».
-async function renderParameters() {
+async function renderParameters(renderVersion = categoryRenderVersion) {
   const timezoneMetadata = await j('/api/settings/timezone');
+  if (renderVersion !== categoryRenderVersion) return;
   const content = document.getElementById('settings-content');
   content.innerHTML = section('Параметры', 'Часовой пояс и оформление панели.', [
     settingRow({ id: 'set-timezone', type: 'select', title: 'Часовой пояс сервера', desc: 'Меняет часовую зону локального хоста Bot4VPS.', descId: 'set-timezone-desc', value: timezoneMetadata.timezone, groups: timezoneMetadata.options, controlClass: 'set-timezone-select' }),
@@ -1371,7 +1467,118 @@ function bindMasterKeyUI() {
 // ---------------- Двухфакторная аутентификация (TOTP) ----------------
 // Состояние карточки: {enabled} или {unavailable} (авторизация выключена).
 
+const TWO_FACTOR_STORAGE = 'bot4vps_two_factor_flow';
+let twoFactorFlow = null;
+try {
+  const saved = JSON.parse(sessionStorage.getItem(TWO_FACTOR_STORAGE) || 'null');
+  if (saved && typeof saved.id === 'string' && /^[A-Za-z0-9_-]{1,128}$/.test(saved.id) && typeof saved.enabled === 'boolean') twoFactorFlow = saved;
+} catch (_) {}
+let twoFactorTimer = null;
+
+function saveTwoFactorFlow() {
+  try {
+    if (twoFactorFlow) sessionStorage.setItem(TWO_FACTOR_STORAGE, JSON.stringify({ id: twoFactorFlow.id, enabled: twoFactorFlow.enabled, channel: twoFactorFlow.channel }));
+    else sessionStorage.removeItem(TWO_FACTOR_STORAGE);
+  } catch (_) {}
+}
+
+function chooseTotpMethod(enabled, state) {
+  const body = document.getElementById('totp-body');
+  if (!body) return;
+  const devices = state.trusted_devices || [];
+  const available = devices.some(d => d.is_primary || enabled) && state.mobile_available;
+  body.innerHTML = `<p class="set-desc">${enabled ? 'Какое приложение использовать для 2FA?' : 'Как подтвердить отключение 2FA?'}</p>
+    <div class="set-form-actions"><button type="button" id="totp-method-mobile" ${available ? '' : 'disabled'}>Bot4VPS Mobile</button>
+      <button type="button" class="secondary" id="totp-method-external">${enabled ? 'Сторонний аутентификатор' : 'Ввести TOTP-код'}</button>
+      ${enabled ? `<button type="button" class="secondary" id="totp-method-telegram" ${state.telegram_available ? '' : 'disabled'}>Telegram</button>` : ''}</div>
+    <p class="set-desc">${available ? 'Запрос подтверждает главный телефон. Сканировать QR-код не нужно.' : devices.length ? 'Для подтверждения на телефоне включите мобильный API панели.' : 'Доверенных телефонов пока нет. Можно использовать любое стороннее приложение-аутентификатор.'}</p>
+    ${state.enabled || !enabled ? '<div class="set-form-actions"><button type="button" class="secondary" id="totp-method-cancel">Отмена</button></div>' : ''}`;
+  document.getElementById('totp-method-mobile').onclick = () => chooseTotpDevice(enabled, devices);
+  document.getElementById('totp-method-external').onclick = enabled ? openTotpSetup : renderTotpDisableForm;
+  document.getElementById('totp-method-telegram')?.addEventListener('click', () => startTelegramFactor(true));
+  document.getElementById('totp-method-cancel')?.addEventListener('click', loadTotp);
+}
+
+function chooseTotpDevice(enabled, devices) {
+  const primary = devices.find(device => device.is_primary);
+  if (primary) { sendTotpPhoneRequest(enabled, primary); return; }
+  const body = document.getElementById('totp-body');
+  if (!body) return;
+  if (!enabled || !devices.length) {
+    body.innerHTML = '<p class="set-desc">Сначала назначьте главный телефон в настройках мобильного приложения.</p><button type="button" class="secondary" id="totp-device-cancel">Назад</button>';
+    document.getElementById('totp-device-cancel').onclick = loadTotp;
+    return;
+  }
+  body.innerHTML = `<p class="set-desc">Главный телефон ещё не назначен. Выберите его для настройки 2FA: только он получит код этой панели.</p>
+    <label>Главный телефон<select id="totp-device">${devices.map(d => `<option value="${esc(d.id)}">${esc(d.name || 'Телефон')}</option>`).join('')}</select></label>
+    <div class="set-form-actions"><button type="button" id="totp-device-confirm">Продолжить</button><button type="button" class="secondary" id="totp-device-cancel">Отмена</button></div>`;
+  document.getElementById('totp-device-cancel').onclick = loadTotp;
+  document.getElementById('totp-device-confirm').onclick = () => {
+    const device = devices.find(d => d.id === document.getElementById('totp-device')?.value);
+    if (device) sendTotpPhoneRequest(enabled, device);
+  };
+}
+
+async function sendTotpPhoneRequest(enabled, device) {
+  const accepted = await confirmAction({
+    title: enabled ? 'Включить 2FA?' : 'Отключить 2FA?',
+    message: enabled ? `Запрос будет отправлен на главный телефон «${device.name || 'Телефон'}». После подтверждения приложение сохранит код и включит 2FA.`
+      : `Подтвердите запрос на главном телефоне «${device.name || 'Телефон'}». 2FA отключится, а связанный код Bot4VPS удалится при синхронизации.`,
+    confirmText: 'Отправить запрос', danger: !enabled
+  });
+  if (!accepted || twoFactorFlow) return;
+  const button = document.getElementById('totp-device-confirm') || document.getElementById('totp-method-mobile');
+  if (button) button.disabled = true;
+  try {
+    const result = await j('/api/auth/two-factor/mobile', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ device_id: device.id, enabled }) });
+    twoFactorFlow = { id: result.id, enabled }; saveTwoFactorFlow();
+    renderTwoFactorWaiting(); pollTwoFactor(twoFactorFlow);
+  } catch (error) { toast(error.message, false); if (button) button.disabled = false; }
+}
+
+function renderTwoFactorWaiting(error = '') {
+  const body = document.getElementById('totp-body');
+  if (!body || !twoFactorFlow) return;
+  body.innerHTML = `<p class="set-desc">Подтвердите ${twoFactorFlow.enabled ? 'включение' : 'отключение'} 2FA в Bot4VPS на главном телефоне.</p>
+    ${error ? `<p class="set-desc" role="status">${esc(error)}</p>` : ''}
+    <div class="set-form-actions"><button type="button" class="secondary" id="totp-mobile-cancel">Отменить запрос</button></div>`;
+  document.getElementById('totp-mobile-cancel').onclick = async () => {
+    const current = twoFactorFlow;
+    if (!current) return;
+    try {
+      await j('/api/auth/two-factor/cancel', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: current.id }) });
+      if (twoFactorFlow !== current) return;
+      clearTimeout(twoFactorTimer); twoFactorFlow = null; saveTwoFactorFlow(); await loadTotp();
+    } catch (error) { toast(error.message, false); pollTwoFactor(current); }
+  };
+}
+
+async function pollTwoFactor(current) {
+  if (!current || current !== twoFactorFlow || current.polling) return;
+  clearTimeout(twoFactorTimer); current.polling = true;
+  let delay = 2000;
+  try {
+    const result = await j('/api/auth/two-factor/status', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: current.id }) });
+    if (current !== twoFactorFlow) return;
+    if (result.ok || result.state === 'rejected') {
+      twoFactorFlow = null; saveTwoFactorFlow();
+      toast(result.ok ? (result.enabled ? 'Двухфакторная аутентификация включена' : '2FA отключена. Связанный код будет удалён с телефонов при синхронизации.') : 'Запрос отклонён', !!result.ok);
+      await loadTotp(); return;
+    }
+  } catch (error) {
+    if (current !== twoFactorFlow) return;
+    if ([401, 403, 404, 410].includes(error.status)) {
+      twoFactorFlow = null; saveTwoFactorFlow(); toast(error.message, false); await loadTotp(); return;
+    }
+    if (current.channel === 'telegram') renderTelegramFactor(error.message);
+    else renderTwoFactorWaiting(error.message || 'Проверьте связь с панелью. Результат будет проверен повторно.');
+    delay = 5000;
+  } finally { current.polling = false; }
+  if (current === twoFactorFlow) twoFactorTimer = setTimeout(() => pollTwoFactor(current), delay);
+}
+
 async function loadTotp() {
+  if (twoFactorFlow) { if (twoFactorFlow.channel === 'telegram') renderTelegramFactor(); else renderTwoFactorWaiting(); pollTwoFactor(twoFactorFlow); return; }
   let state;
   try {
     state = await j('/api/auth/totp');
@@ -1390,27 +1597,65 @@ async function loadTotp() {
     return;
   }
   if (state.enabled) {
-    badge.textContent = 'Включена';
+    const telegram = state.channel === 'telegram';
+    const primary = (state.trusted_devices || []).find(device => device.is_primary);
+    badge.textContent = telegram ? 'Включена · Telegram' : 'Включена';
     badge.className = 'set-badge ok';
     body.innerHTML = `
-      <p class="set-desc">Вход требует пароль <b>и</b> код из приложения-аутентификатора. Потеряли телефон? Сбросьте 2FA в консоли на сервере: bot4vps → 2. Безопасность → 4. Сбросить двухфакторную аутентификацию.</p>
-      <div class="set-form-actions"><button type="button" class="secondary" id="totp-disable-btn">Отключить</button></div>`;
-    document.getElementById('totp-disable-btn')?.addEventListener('click', renderTotpDisableForm);
+      <p class="set-desc">Вход требует пароль и подтверждение на доверенном телефоне либо TOTP-код. При утрате TOTP отключение можно подтвердить доверенным телефоном. Если доступных факторов нет, используйте сброс 2FA в консоли.</p>
+      <p class="set-desc">${telegram ? 'Коды входа отправляются в Telegram.' : primary ? `Главный телефон: ${esc(primary.name)}. Код панели выдаётся только ему.` : 'Используется сторонний аутентификатор либо TOTP, настроенный ранее. Главный телефон выбирается при настройке второго фактора через Bot4VPS Mobile.'}</p>
+      <div class="set-form-actions"><button type="button" class="secondary" id="totp-disable-btn">Отключить</button><button type="button" class="secondary" id="totp-replace-btn">Заменить TOTP</button><button type="button" class="secondary" id="totp-use-telegram" ${state.telegram_available && !telegram ? '' : 'disabled'}>Использовать Телеграм</button></div>`;
+    if (telegram) body.querySelector('p').textContent = 'Вход требует пароль и одноразовый код из Telegram. При недоступности бота восстановите доступ через консоль.';
+    document.getElementById('totp-disable-btn')?.addEventListener('click', () => telegram ? startTelegramFactor(false) : chooseTotpMethod(false, state));
+    document.getElementById('totp-replace-btn')?.addEventListener('click', () => telegram ? chooseTotpMethod(true, state) : renderTotpReplaceForm());
+    document.getElementById('totp-use-telegram')?.addEventListener('click', () => startTelegramFactor(true));
     return;
   }
   badge.textContent = 'Выключена';
   badge.className = 'set-badge';
-  body.innerHTML = `
-    <p class="set-desc">Второй фактор помимо пароля: одноразовый код из приложения (Google Authenticator, Aegis, 2FAS). Без него пароль сам по себе вход не откроет.</p>
+  body.innerHTML = `<p class="set-desc">Добавьте второй фактор для защиты входа в панель.</p>
     <div class="set-form-actions"><button type="button" id="totp-enable-btn">Включить</button></div>`;
-  document.getElementById('totp-enable-btn')?.addEventListener('click', openTotpSetup);
+  document.getElementById('totp-enable-btn').onclick = () => chooseTotpMethod(true, state);
+}
+
+async function startTelegramFactor(enabled) {
+  if (twoFactorFlow) return;
+  try {
+    const result = await j('/api/auth/two-factor/telegram', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled }) });
+    twoFactorFlow = { id: result.id, enabled, channel: 'telegram' }; saveTwoFactorFlow();
+    renderTelegramFactor(); pollTwoFactor(twoFactorFlow);
+  } catch (error) { toast(error.message, false); }
+}
+
+function renderTelegramFactor(error = '') {
+  const body = document.getElementById('totp-body');
+  const current = twoFactorFlow;
+  if (!body || !current) return;
+  body.innerHTML = `<p class="set-desc">Введите код из Telegram для ${current.enabled ? 'включения' : 'отключения'} второго фактора. Прежние настройки действуют до подтверждения.</p><label>Код из Telegram<input id="totp-telegram-code" inputmode="numeric" maxlength="6" autocomplete="one-time-code"></label><p class="err-hint" role="alert">${esc(error)}</p><div class="set-form-actions"><button type="button" id="totp-telegram-confirm">Подтвердить</button><button type="button" class="secondary" id="totp-telegram-cancel">Отмена</button></div>`;
+  document.getElementById('totp-telegram-code')?.focus();
+  document.getElementById('totp-telegram-confirm').onclick = async event => {
+    event.currentTarget.disabled = true;
+    const code = document.getElementById('totp-telegram-code').value.trim();
+    try {
+      await j('/api/auth/two-factor/telegram/confirm', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: current.id, code }) });
+      twoFactorFlow = null; saveTwoFactorFlow(); await loadTotp();
+      toast(current.enabled ? 'Второй фактор переключён на Telegram' : 'Двухфакторная аутентификация отключена', true);
+    } catch (error) { if (twoFactorFlow === current) renderTelegramFactor(error.message); }
+  };
+  document.getElementById('totp-telegram-cancel').onclick = async event => {
+    event.currentTarget.disabled = true;
+    try {
+      await j('/api/auth/two-factor/cancel', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: current.id }) });
+      twoFactorFlow = null; saveTwoFactorFlow(); await loadTotp();
+    } catch (error) { if (twoFactorFlow === current) renderTelegramFactor(error.message); }
+  };
 }
 
 function renderTotpDisableForm() {
   const body = document.getElementById('totp-body');
   if (!body) return;
   body.innerHTML = `
-    <p class="set-desc">Отключение требует действующий код из приложения — защита от случайного клика.</p>
+    <p class="set-desc">Отключение удалит TOTP этого сервиса. Bot4VPS на привязанных телефонах удалит связанный код при синхронизации. Введите действующий код для подтверждения.</p>
     <label>Код из приложения<input id="totp-disable-code" inputmode="numeric" maxlength="6" autocomplete="one-time-code" placeholder="000000"></label>
     <div class="set-form-actions"><button type="button" class="secondary" id="totp-disable-confirm">Отключить</button><button type="button" class="secondary" id="totp-disable-cancel">Отмена</button></div>`;
   document.getElementById('totp-disable-cancel')?.addEventListener('click', loadTotp);
@@ -1431,13 +1676,32 @@ async function confirmTotpDisable() {
 async function openTotpSetup() {
   try {
     const data = await j('/api/auth/totp/setup', { method: 'POST' });
+    if (data.reuse) { toast('2FA уже включена. Обновляем состояние.', true); await loadTotp(); return; }
+    showTotpSetup(data);
+  } catch (error) { toast(error.message, false); }
+}
+
+function showTotpSetup(data) {
     document.getElementById('totp-qr').src = data.qr;
     document.getElementById('totp-secret').textContent = data.secret || '';
     document.getElementById('totp-code').value = '';
     document.getElementById('totp-setup-err').textContent = '';
     document.getElementById('totp-setup-modal')?.classList.add('open');
     setTimeout(() => document.getElementById('totp-code')?.focus(), 50);
-  } catch (error) { toast(error.message, false); }
+}
+
+async function renderTotpReplaceForm() {
+  const state = await j('/api/auth/totp');
+  const body = document.getElementById('totp-body');
+  body.innerHTML = `<p class="set-desc">Замена создаст новый TOTP-секрет. Старые приложения-аутентификаторы перестанут принимать коды только после подтверждения нового секрета. Состояние 2FA сохраняется.</p><label>Пароль администратора<input type="password" id="totp-replace-password" autocomplete="current-password"></label>${state.enabled ? '<label>Текущий TOTP-код<input id="totp-replace-code" inputmode="numeric" maxlength="6" autocomplete="one-time-code"></label>' : ''}<div class="set-form-actions"><button type="button" id="totp-replace-confirm">Настроить новый TOTP</button><button type="button" class="secondary" id="totp-replace-cancel">Отмена</button></div>`;
+  document.getElementById('totp-replace-cancel').onclick = loadTotp;
+  document.getElementById('totp-replace-confirm').onclick = async () => {
+    try {
+      const data = await j('/api/auth/totp/setup/replace', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: document.getElementById('totp-replace-password').value, code: document.getElementById('totp-replace-code')?.value || '' }) });
+      showTotpSetup(data);
+    } catch (error) { toast(error.message, false); }
+  };
 }
 
 function closeTotpSetup() {
@@ -1456,7 +1720,7 @@ async function confirmTotpSetup() {
   }
   if (btn) btn.disabled = true;
   try {
-    await j('/api/auth/totp/enable', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code }) });
+    const result = await j('/api/auth/totp/enable', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code }) });
     closeTotpSetup();
     toast('Двухфакторная аутентификация включена', true);
     await loadTotp();
@@ -1493,8 +1757,8 @@ function bindTotpUI() {
       if (e.key === 'Enter') confirmTotpSetup();
     };
     // Автоподтверждение как на экране входа: 6-я цифра отправляет код.
-    // В setup это безопасно: неверный код не жжёт попытки и не трогает
-    // pending-секрет — просто ждём следующий код.
+    // Сервер ограничивает настройку пятью попытками; неверный код
+    // не активирует секрет.
     codeInput.oninput = () => {
       if ((codeInput.value || '').length >= 6) confirmTotpSetup();
     };
@@ -1511,19 +1775,20 @@ const TLS_MODE_LABELS = {
 
 let tlsState = null;   // последний ответ /api/settings/web/tls
 
-async function renderWeb() {
+async function renderWeb(renderVersion = categoryRenderVersion) {
   const [web, tls] = await Promise.all([
     j('/api/settings/web'),
     j('/api/settings/web/tls').catch(() => null),
     loadAccount(),
   ]);
+  if (renderVersion !== categoryRenderVersion) return;
   tlsState = tls;
   const portValue = web.port ?? location.port ?? 8000;
   const portReason = web.changeable ? 'Изменение перезапустит Bot4VPS и перенаправит браузер.' : (web.reason || 'Смена порта недоступна в этой среде.');
   const content = document.getElementById('settings-content');
   // Порт + HTTPS — одна карточка «Сеть и доступ» в правом столбце;
   // «Пароль резервных копий» уехал вниз на его прежнее полноширинное место.
-  const netCard = `<div class="set-form-card"><div class="set-form-title"><div><h3>🌐 Сеть и доступ</h3><p>Порт панели и шифрование трафика (HTTPS).</p></div><span id="set-tls-state" class="set-badge">${tls ? '…' : 'Недоступно'}</span></div>
+  const netCard = `<div class="set-form-card set-network-card"><div class="set-form-title"><div><h3>🌐 Сеть и доступ</h3><p>Порт панели и шифрование трафика (HTTPS).</p></div><span id="set-tls-state" class="set-badge">${tls ? '…' : 'Недоступно'}</span></div>
       <div id="set-tls-body" class="set-tls-body">${tls ? '' : '<p class="set-desc">Состояние HTTPS недоступно.</p>'}</div>
     </div>`;
   content.innerHTML = section('Безопасность', 'Вход в панель, 2FA, мастер-ключ и сетевой доступ Web-панели.', [], `
@@ -1827,9 +2092,9 @@ function tlsObtainFlow() {
         <h3>Получить сертификат</h3>
         <p class="set-desc">Панель сама создаст или получит сертификат и включит HTTPS.</p>
         <div class="set-tls-choices">
-          <button type="button" data-mode="self-signed"><b>Самоподписанный</b><small>Сгенерировать на этом сервере. Браузер будет предупреждать о нём, но трафик шифруется.</small></button>
-          <button type="button" data-mode="letsencrypt"><b>Let's Encrypt</b><small>Бесплатный доверенный сертификат. Нужен домен, указывающий на этот сервер, и свободный порт 80.</small></button>
-          <button type="button" data-mode="proxy"><b>Настроить HTTPS за прокси</b><small>Сертификат устанавливается и обновляется на reverse proxy, Bot4VPS работает за ним по HTTP.</small></button>
+          <div class="set-tls-choice"><button type="button" data-mode="self-signed">Самоподписанный</button><small>Сгенерировать на этом сервере. Браузер будет предупреждать о нём, но трафик шифруется.</small></div>
+          <div class="set-tls-choice"><button type="button" data-mode="letsencrypt">Let's Encrypt</button><small>Бесплатный доверенный сертификат. Нужен домен, указывающий на этот сервер, и свободный порт 80.</small></div>
+          <div class="set-tls-choice"><button type="button" data-mode="proxy">Настроить HTTPS за прокси</button><small>Сертификат устанавливается и обновляется на reverse proxy, Bot4VPS работает за ним по HTTP.</small></div>
         </div>
         <div class="set-form-actions"><button type="button" class="secondary" id="set-tls-obtain-cancel">Отмена</button></div>
       </div>`;
@@ -2161,8 +2426,9 @@ async function tgCheckHealth() {
   }
 }
 
-async function renderTelegram() {
+async function renderTelegram(renderVersion = categoryRenderVersion) {
   const data = await j('/api/telegram/status');
+  if (renderVersion !== categoryRenderVersion) return;
   const status = formatTgStatus(data);
   document.getElementById('settings-content').innerHTML = section('Telegram', 'Управление ботом и данными получателя.', [], `
     <div class="set-form-card"><div class="set-form-title"><div><h3>Telegram-бот <button type="button" class="faq-help-link" id="tg-bot-help" aria-label="Подробнее: Telegram-бот">Подробнее</button></h3><p>Сервис работает в одном процессе с Web UI.</p></div><span id="tg-status-line" class="set-badge ${status.tone}">${esc(status.text)}</span></div>
@@ -2265,29 +2531,28 @@ async function runUpdateCheck() {
   try {
     const result = await j('/api/update/check', { method: 'POST' });
     toast(result.error || (result.update_available ? 'Найдено обновление панели' : 'Установлена актуальная версия панели'), !result.error);
-    if (result.mobile_app) {
-      const mobile = result.mobile_app;
-      toast(mobile.ok ? (mobile.updated ? 'APK приложения обновлён до ' + mobile.version : 'Сохранён актуальный APK ' + mobile.version) : mobile.error, !!mobile.ok);
-    }
     await loadUpdateState();
   } catch (error) { toast(error.message, false); }
   finally { applyUpdateAction(updateState); }
 }
 
-async function renderUpdates() {
+async function renderUpdates(renderVersion = categoryRenderVersion) {
   const [monitor, state] = await Promise.all([j('/api/monitor/config'), j('/api/update/state')]);
+  if (renderVersion !== categoryRenderVersion) return;
   updateState = state;
   const status = updateBadgeText(state);
   document.getElementById('settings-content').innerHTML = section('Обновления', 'Используется только существующий встроенный механизм обновлений.', [
     settingRow({ id: 'set-update-enabled', type: 'toggle', title: 'Автоматическая проверка', desc: 'Проверять новые версии панели и обновлять APK приложения для выдачи через Web и Telegram.', value: !!monitor.update?.enabled }),
     settingRow({ id: 'set-update-status', type: 'badge', title: 'Текущая версия', desc: state.last_error || 'Состояние встроенного updater.', value: status.text, tone: status.tone }),
-  ], `<div class="set-inline-actions"><button type="button" id="set-update-action">Проверить</button></div>`);
+    `<div class="set-inline-actions set-update-actions"><button type="button" id="set-update-action">Проверить</button></div>`,
+  ]);
   bindToggle('set-update-enabled', enabled => patchMonitor('update', { enabled }));
   applyUpdateAction(state);
 }
 
-async function renderData() {
+async function renderData(renderVersion = categoryRenderVersion) {
   const limits = await j('/api/settings/history');
+  if (renderVersion !== categoryRenderVersion) return;
   document.getElementById('settings-content').innerHTML = section('История и данные', 'Лимиты применяются сразу. Старые записи сверх лимита удаляются.', [
     settingRow({ id: 'set-history-tasks', type: 'number', title: 'История задач', desc: 'Максимальное количество сохранённых задач.', value: limits.tasks, min: 1, max: 10000 }),
     settingRow({ id: 'set-history-events', type: 'number', title: 'Журнал событий', desc: 'Максимальное количество сохранённых событий.', value: limits.events, min: 1, max: 10000 }),
@@ -2310,9 +2575,10 @@ async function clearHistory(kind) {
   } catch (error) { toast(error.message, false); }
 }
 
-async function renderAbout() {
+async function renderAbout(renderVersion = categoryRenderVersion) {
   const ping = await j('/api/ping');
-  document.getElementById('settings-content').innerHTML = `<section class="set-about"><div class="set-about-mark">B4</div><div><span class="set-kicker">SERVER CONTROL PLANE</span><h2>Bot4VPS</h2><p>Telegram-бот и Web UI для управления VPS и домашними серверами через SSH.</p><div class="set-about-version">Версия <strong>${esc(ping.version || '—')}</strong></div><div class="set-inline-actions"><button type="button" class="secondary" id="set-about-changelog">Описание версии</button><a class="btn secondary" href="https://github.com/crashdmd/Bot4VPS" target="_blank" rel="noopener noreferrer">GitHub ↗</a></div><div class="set-about-author">Автор — <a href="https://github.com/crashdmd" target="_blank" rel="noopener noreferrer">crashdmd</a></div></div></section>`;
+  if (renderVersion !== categoryRenderVersion) return;
+  document.getElementById('settings-content').innerHTML = `<section class="set-about"><div class="set-about-mark"><img src="/static/logo.png?v=20260905-logo-v2" alt="Логотип Bot4VPS"></div><div><span class="set-kicker">SERVER CONTROL PLANE</span><h2>Bot4VPS</h2><p>Telegram-бот и Web UI для управления VPS и домашними серверами через SSH.</p><div class="set-about-version">Версия <strong>${esc(ping.version || '—')}</strong></div><div class="set-inline-actions"><button type="button" class="secondary" id="set-about-changelog">Описание версии</button><a class="btn secondary" href="https://github.com/crashdmd/Bot4VPS" target="_blank" rel="noopener noreferrer">GitHub ↗</a></div><div class="set-about-author">Автор — <a href="https://github.com/crashdmd" target="_blank" rel="noopener noreferrer">crashdmd</a></div></div></section>`;
   document.getElementById('set-about-changelog')?.addEventListener('click', showHistoryModal);
 }
 
@@ -2326,6 +2592,8 @@ export async function loadSettings() {
 }
 
 export function stopSettingsTimers() {
+  closeSettingsMenu();
+  categoryRenderVersion++;
   clearInterval(portPollTimer);
   portPollTimer = null;
   clearNumberTimers();
@@ -2338,6 +2606,29 @@ export function bindSettingsUI() {
   const nav = document.getElementById('settings-nav');
   if (nav && !nav.dataset.bound) {
     nav.dataset.bound = '1';
+    syncSettingsMenu();
+    mobileSettingsNav.addEventListener('change', syncSettingsMenu);
+    window.addEventListener('resize', () => {
+      if (document.getElementById('settings-menu-toggle')?.getAttribute('aria-expanded') === 'true') positionSettingsMenu();
+    });
+    document.addEventListener('scroll', event => {
+      if (nav.contains(event.target)) return;
+      if (document.getElementById('settings-menu-toggle')?.getAttribute('aria-expanded') === 'true') {
+        const rect = document.getElementById('settings-menu-toggle').getBoundingClientRect();
+        if (rect.bottom < 0 || rect.top > window.innerHeight) closeSettingsMenu();
+        else positionSettingsMenu();
+      }
+    }, { capture: true, passive: true });
+    document.getElementById('settings-menu-toggle')?.addEventListener('click', toggleSettingsMenu);
+    nav.addEventListener('toggle', event => {
+      document.getElementById('settings-menu-toggle')?.setAttribute('aria-expanded', String(event.newState === 'open'));
+    });
+    document.addEventListener('click', event => {
+      if (!event.target.closest('#settings-nav, #settings-menu-toggle')) closeSettingsMenu();
+    });
+    document.addEventListener('keydown', event => {
+      if (event.key === 'Escape') closeSettingsMenu(true);
+    });
     nav.addEventListener('click', event => {
       const button = event.target.closest('[data-settings-category]');
       if (button) openCategory(button.dataset.settingsCategory);

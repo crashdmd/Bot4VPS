@@ -75,6 +75,7 @@ export function clearQuickSetupServer() {
 
 export function setPage(page) {
   state.page = page;
+  try { sessionStorage.setItem('bot4vps_page', page); } catch (_) {}
   try { localStorage.setItem('bot4vps_page', page); } catch (_) {}
 }
 export function setServerTab(tab) {

@@ -56,6 +56,7 @@ def atomic_write_json(path: Path, data: Any) -> None:
     """Атомарно записать JSON: tmp + fsync + os.replace + fsync каталога."""
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
+    metadata = path.stat() if path.exists() else None
     temp_path: Optional[Path] = None
     try:
         with tempfile.NamedTemporaryFile(
@@ -69,6 +70,8 @@ def atomic_write_json(path: Path, data: Any) -> None:
             temp_path = Path(tmp.name)
             json.dump(data, tmp, ensure_ascii=False, indent=2)
             tmp.write("\n")
+            if metadata and (os.fstat(tmp.fileno()).st_uid, os.fstat(tmp.fileno()).st_gid) != (metadata.st_uid, metadata.st_gid):
+                os.fchown(tmp.fileno(), metadata.st_uid, metadata.st_gid)
             tmp.flush()
             os.fsync(tmp.fileno())
         os.replace(temp_path, path)
@@ -146,7 +149,7 @@ class JsonDocumentStore:
         try:
             with self.path.open("r", encoding="utf-8") as f:
                 raw = json.load(f)
-        except (OSError, json.JSONDecodeError) as exc:
+        except json.JSONDecodeError as exc:
             print(
                 f"[{self.name}] Не удалось прочитать {self.path}: {exc}. "
                 "Файл перенесён в карантин.",
@@ -186,7 +189,7 @@ class JsonDocumentStore:
         try:
             with self.path.open("r", encoding="utf-8") as f:
                 raw = json.load(f)
-        except (OSError, json.JSONDecodeError) as exc:
+        except json.JSONDecodeError as exc:
             print(
                 f"[{self.name}] Не удалось прочитать {self.path}: {exc}. "
                 "Файл перенесён в карантин, очередь считается пустой.",

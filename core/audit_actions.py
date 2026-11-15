@@ -183,6 +183,8 @@ class AuditAction(str, Enum):
     WEB_AUTH_ENABLE = "web.auth_enable"
     WEB_AUTH_DISABLE = "web.auth_disable"
     WEB_LOGIN = "web.login"
+    WEB_LOGIN_ATTEMPT = "web.login_attempt"
+    WEB_LOGIN_DECISION = "web.login_decision"
     WEB_OPEN = "web.open"
     WEB_2FA_ENABLE = "web.2fa_enable"
     WEB_2FA_DISABLE = "web.2fa_disable"
@@ -190,6 +192,14 @@ class AuditAction(str, Enum):
     MOBILE_PAIR_CODE = "mobile_api.pair_code"
     MOBILE_DEVICE_PAIR = "mobile_api.device_pair"
     MOBILE_DEVICE_REVOKE = "mobile_api.device_revoke"
+    MOBILE_UNLINK_START = "mobile_api.unlink_start"
+    MOBILE_UNLINK_ATTEMPT = "mobile_api.unlink_attempt"
+    MOBILE_UNLINK_CONFIRMATION = "mobile_api.unlink_confirmation"
+    MOBILE_UNLINK_CANCEL = "mobile_api.unlink_cancel"
+    MOBILE_UNLINK_PROTECTION = "mobile_api.unlink_protection"
+    WEB_TOTP_REGISTER = "web.totp_register"
+    WEB_RECOVERY_ISSUE = "web.recovery_issue"
+    WEB_RECOVERY_LOGIN = "web.recovery_login"
 
     # --- Секреты (ui/web/routers/masterkey.py, core/secretbox.py) ---
     SECRET_MASTERKEY_CREATE = "secret.masterkey_create"
@@ -322,13 +332,23 @@ ACTION_TITLES: dict[str, str] = {
     AuditAction.WEB_AUTH_ENABLE.value: "Включение защиты панели",
     AuditAction.WEB_AUTH_DISABLE.value: "Отключение защиты панели",
     AuditAction.WEB_LOGIN.value: "Вход в панель",
+    AuditAction.WEB_LOGIN_ATTEMPT.value: "Попытка входа в панель",
+    AuditAction.WEB_LOGIN_DECISION.value: "Подтверждение входа телефоном",
     AuditAction.WEB_OPEN.value: "Открытие панели",
     AuditAction.WEB_2FA_ENABLE.value: "Включение 2FA",
     AuditAction.WEB_2FA_DISABLE.value: "Выключение 2FA",
     AuditAction.MOBILE_API_SETTINGS.value: "Настройки мобильного приложения",
     AuditAction.MOBILE_PAIR_CODE.value: "Создание кода привязки телефона",
     AuditAction.MOBILE_DEVICE_PAIR.value: "Привязка телефона",
-    AuditAction.MOBILE_DEVICE_REVOKE.value: "Отзыв доступа телефона",
+    AuditAction.MOBILE_DEVICE_REVOKE.value: "Отвязка телефона",
+    AuditAction.MOBILE_UNLINK_START.value: "Начало отвязки телефона",
+    AuditAction.MOBILE_UNLINK_ATTEMPT.value: "Попытка отвязки телефона",
+    AuditAction.MOBILE_UNLINK_CONFIRMATION.value: "Подтверждение отвязки телефона",
+    AuditAction.MOBILE_UNLINK_CANCEL.value: "Отмена отвязки телефона",
+    AuditAction.MOBILE_UNLINK_PROTECTION.value: "Защита от отвязки телефона",
+    AuditAction.WEB_TOTP_REGISTER.value: "Регистрация TOTP",
+    AuditAction.WEB_RECOVERY_ISSUE.value: "Выдача временного доступа через CLI",
+    AuditAction.WEB_RECOVERY_LOGIN.value: "Вход по временному коду CLI",
     AuditAction.SECRET_MASTERKEY_CREATE.value: "Создание мастер-ключа",
     AuditAction.SECRET_MASTERKEY_VIEW.value: "Просмотр мастер-ключа",
     AuditAction.SECRET_MASTERKEY_UNLOCK.value: "Восстановление мастер-ключа",

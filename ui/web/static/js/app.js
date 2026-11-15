@@ -18,7 +18,7 @@ import { j, esc } from './api.js';
 import { resumeBackgroundTasks } from './taskmodal.js?v=20260914-v3';
 import { initAuth, bindAuthUI } from './auth.js';
 import { initSetup, bindSetupUI } from './setup.js?v=20260910-setup-v4';
-import { bindGlobalSearch } from './search.js?v=20261110-mobile-security-v3';
+import { bindGlobalSearch } from './search.js?v=20261114-two-factor-device-v1';
 import { bindBackupUI, loadBackups, stopBackupTimers } from './backup.js?v=20261001-handbook-v3';
 import {
   openMetricsPage, closeMetricsView, bindMetricsUI, metricsFromUrl,
@@ -51,7 +51,7 @@ async function openQuickSetupFromCard(serverId) {
 
 // Settings — отдельная подсистема. Загружаем её лениво, чтобы ошибка нового
 // модуля не останавливала Dashboard, Servers и остальные страницы.
-const settingsModule = import('./settings.js?v=20261111-mobile-source')
+const settingsModule = import('./settings.js?v=20261114-primary-phone-v1')
   .catch(error => {
     console.error('[settings] module unavailable:', error);
     return null;
@@ -99,6 +99,13 @@ function clearMetricsLocation() {
   url.searchParams.delete('at');
   url.searchParams.delete('from');
   url.searchParams.delete('to');
+  history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
+}
+
+function clearHistoryLocation() {
+  const url = new URL(window.location.href);
+  if (url.searchParams.get('page') !== 'history') return;
+  for (const key of ['page', 'tab', 'record', 'group']) url.searchParams.delete(key);
   history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
 }
 
@@ -151,18 +158,22 @@ function bindHistoryTabs() {
   setHistoryTab(historyTab());
 }
 
+let navigationVersion = 0;
+
 function onNav(page) {
+  navigationVersion++;
   if (state.page === 'quick-setup' && page !== 'quick-setup') {
     clearQuickSetupServer();
     clearQuickSetupLocation();
   }
-  if (state.page === 'metrics' && page !== 'metrics') clearMetricsLocation();
   // Старые адреса страниц ведут на свою вкладку «Истории».
   let tab = null;
   if (page === 'events' || page === 'queues') {
     tab = page;
     page = 'history';
   }
+  if (page !== 'metrics') clearMetricsLocation();
+  if (page !== 'history') clearHistoryLocation();
   // Переход из марки графика: «История» открывается сразу на аудите.
   if (page === 'history' && !tab && auditFromUrl()) tab = 'actions';
   setPage(page);
@@ -365,15 +376,16 @@ window.addEventListener('bot4vps:open-settings-category', async event => {
 });
 
 async function restoreSession() {
-  await loadGroupsAndKeys();
-  await refreshAll();
-
+  const restoreVersion = navigationVersion;
   let page = 'servers';
   let serverId = null;
   try {
     page = localStorage.getItem('bot4vps_page') || 'servers';
     serverId = localStorage.getItem('bot4vps_server_id');
   } catch (_) {}
+  // Каждая вкладка браузера восстанавливает собственный раздел.
+  try { page = sessionStorage.getItem('bot4vps_page') || page; } catch (_) {}
+  if (!document.getElementById(`page-${page}`)) page = 'servers';
 
   const query = new URLSearchParams(window.location.search);
   if (query.has('panel_page')) {
@@ -383,6 +395,10 @@ async function restoreSession() {
     url.searchParams.delete('panel_page');
     history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
   }
+  await loadGroupsAndKeys();
+  await refreshAll();
+  // Клик во время загрузки важнее сохранённой ранее страницы.
+  if (navigationVersion !== restoreVersion) return;
   let quickSetupServerId = null;
   if (query.get('page') === 'quick-setup') {
     quickSetupServerId = (query.get('server_id') || '').trim() || null;
@@ -589,7 +605,9 @@ async function boot() {
   // подхватываем молчаливые ватчеры — финал придёт тостом, активная страница
   // сервиса обновится сама.
   resumeBackgroundTasks();
+  await (await settingsModule)?.resumePendingMobileConnectionChange();
   await restoreSession();
+  await (await settingsModule)?.resumeRequiredPrimarySelection();
   // Если восстановили «Настройки», onNav уже загрузил активную категорию.
 
   // Инициализируем глобальный наблюдатель за эмодзи

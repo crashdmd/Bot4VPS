@@ -62,9 +62,16 @@ def execute(job_file):
         regression_data = None
         if legacy:
             target_version(job['action'], job['target_version'])
-            old = resolve(job['action'], job['target_version'])
-            payload = {'version': old['version'], 'commit': old['commit'], 'archive': None}
-            runner._verified_release = lambda _: {'legacy': True, 'payload': payload, 'archive_url': old['archive_url']}
+            def legacy_verified(current):
+                # Only the root-owned job supplies this record. Older jobs
+                # resolve inside runner.main's error handling, so HTTP errors
+                # finish the operation instead of leaving "downloading".
+                old = current.get('legacy_release') or resolve(current['action'], current['target_version'])
+                if old['version'] != current['target_version']:
+                    raise ValueError('Версия защищённого старого релиза не совпадает с целью')
+                return {'legacy': True, 'payload': {'version': old['version'], 'commit': old['commit'], 'archive': None},
+                        'archive_url': old['archive_url']}
+            runner._verified_release = legacy_verified
         else:
             payload = verify_envelope(job["release_envelope"], job["target_version"])
         original_write = runner._write_state
