@@ -140,6 +140,7 @@ function closeDockerDialog(val) {
 /** Состояние Docker на сервере. «Не проверен» не существует (как в WG):
  *  пустой кэш = «не установлен» (актуализация — забота фоновой проверки). */
 function dkState(st) {
+  if (st && st.error) return 'unknown';
   return st && st.installed ? 'installed' : 'absent';
 }
 
@@ -235,6 +236,7 @@ function dkStatusCell(st) {
 function dkRowCells(s) {
   const st = s.status || {};
   const name = `<td class="server-name-cell" data-label="Имя сервера"><strong>${esc(s.name || '—')}</strong></td>`;
+  if (st.error) return `${name}<td class="dk-status-cell"><span class="badge ssl-warn">⚠️ Ошибка проверки</span></td><td colspan="2" class="svc-offline-cell">${esc(st.error)}</td>`;
   // Недоступный сервер: колонки сервиса не показываем — работа невозможна
   // (строка некликабельна). Причина — оффлайн или закрытый SSH-порт.
   const blocked = serviceBlocked(s);
@@ -266,6 +268,7 @@ function dkRowCells(s) {
 
 /** Статус строки для фильтра (см. DK_STATUS_FILTERS). */
 function dkFilterKey(s) {
+  if ((s || {}).status?.error) return 'unknown';
   if (serviceBlocked(s)) return 'blocked';
   const st = s.status || {};
   if (dkState(st) !== 'installed') return 'absent';
@@ -273,6 +276,7 @@ function dkFilterKey(s) {
 }
 
 const DK_STATUS_FILTERS = [
+  { key: 'unknown', label: '⚠️ Ошибка проверки' },
   { key: 'running', label: '🟢 Запущен' },
   { key: 'stopped', label: '🔴 Демон остановлен' },
   { key: 'absent', label: '⚪ Не установлен' },
@@ -521,6 +525,15 @@ function renderServerDetail(st) {
   const widgetsEl = document.getElementById('docker-srv-widgets');
   if (!body) return;
   const s = st || {};
+  if (s.error) {
+    if (widgetsEl) widgetsEl.innerHTML = '';
+    const actionsEl = document.getElementById('docker-srv-actions');
+    if (actionsEl) actionsEl.innerHTML = '';
+    const badge = document.getElementById('docker-srv-badge');
+    if (badge) badge.innerHTML = '<span class="badge ssl-warn">Ошибка проверки</span>';
+    body.innerHTML = `<div class="empty">${esc(s.error)}</div>`;
+    return;
+  }
   if (!s.installed) {
     if (widgetsEl) widgetsEl.innerHTML = '';
     const actionsEl = document.getElementById('docker-srv-actions');

@@ -166,7 +166,7 @@ async def _get_state(server_id: str) -> Dict[str, Any]:
     try:
         return await integrator.call(SERVICE_ID, server_id, "get_state") or {}
     except Exception as e:
-        return {"installed": False, "error": str(e)}
+        return {"installed": None, "error": str(e)}
 
 
 async def _get_status(server_id: str) -> Dict[str, Any]:
@@ -321,7 +321,7 @@ async def _server_card(
 
     if not st.get("installed"):
         err = st.get("error")
-        lines = [f"🐳 Docker · {name}", "", "⚪ Docker не установлен"]
+        lines = [f"🐳 Docker · {name}", "", "⚠️ Ошибка проверки" if err else "⚪ Docker не установлен"]
         if err:
             lines += ["", f"⚠️ {err}"]
         rows = [
@@ -329,6 +329,8 @@ async def _server_card(
             [InlineKeyboardButton("🔄 Синхронизировать", callback_data=_svc_cb("sync", SERVICE_ID, server_id, src=src))],
             [InlineKeyboardButton("⬅️ Назад", callback_data=back_callback)],
         ]
+        if err:
+            rows = rows[1:]
         await _edit(query, "\n".join(lines), InlineKeyboardMarkup(rows))
         return
 

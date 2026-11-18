@@ -16,6 +16,7 @@ from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel
 
 from ..deps import err, task_brief
+from ..uploads import read_limited_upload
 
 router = APIRouter(tags=["services"])
 
@@ -48,6 +49,8 @@ async def _sync_after(sid: str, server_id: str) -> dict:
     from core import integrator
     try:
         data = await integrator.sync(sid, server_id)
+        if isinstance(data, dict) and (data.get('error') or 'installed' in data and data['installed'] is None):
+            return {'sync_ok': False, 'sync_error': str(data.get('error') or 'Не удалось подтвердить актуальное состояние сервиса'), 'status': data}
         return {"sync_ok": True, "status": data}
     except Exception as e:
         print(f"[WEB] sync failed after mutation {sid}/{server_id}: {e}", flush=True)
@@ -491,7 +494,8 @@ async def api_service_stack_zip(
     try:
         from core import integrator
         from core.integrator import StepError
-        data = await file.read()
+        from services.docker.impl.compose_store import MAX_PROJECT_TOTAL_SIZE
+        data = await read_limited_upload(file, MAX_PROJECT_TOTAL_SIZE, "ZIP-архив слишком большой (лимит 50 МБ)")
         try:
             info = await integrator.call(sid, server_id, "import_stack_zip", name, data)
         except StepError as e:
@@ -1130,32 +1134,28 @@ async def api_service_db_import(
 ):
     """Загрузить .db/.dump с устройства для восстановления базы сервиса.
 
-    Файл кладём в data/tmp (одна задача = один файл, задача удаляет его),
+    Файл кладём в закрытый временный файл (до 24 часов для повтора),
     затем — enqueue db_import с local_path. База подменяется с бэкапом
     и авторестартом панели (контракт do_db_import)."""
-    import os
-    import secrets
+    import asyncio
     from pathlib import Path
     try:
         name = file.filename or "import.db"
         if Path(name).suffix.lower() not in (".db", ".dump"):
             raise HTTPException(400, "Поддерживаются файлы .db и .dump")
-        data = await file.read()
+        data = await read_limited_upload(file, 5 * 1024 * 1024, "Максимальный размер — 5 МБ")
         if not data:
             raise HTTPException(400, "Файл пуст")
-        if len(data) > 5 * 1024 * 1024:
-            raise HTTPException(400, "Максимальный размер — 5 МБ")
-        tmp_dir = Path("data") / "tmp"
-        tmp_dir.mkdir(parents=True, exist_ok=True)
-        # имя генерируем сами: содержимое важнее пользовательского имени,
-        # в local_path допускаем только basename без каталогов
-        local = f"xui-db-import-{secrets.token_hex(8)}.bin"
-        (tmp_dir / local).write_bytes(data)
+        from core.db_import_uploads import save_upload
+        local_path = await asyncio.to_thread(save_upload, data)
         from core import integrator
-        task = await integrator.enqueue(
-            sid, server_id, "db_import", {"local_path": str(tmp_dir / local)},
-            src="web",
-        )
+        try:
+            task = await integrator.enqueue(
+                sid, server_id, "db_import", {"local_path": str(local_path)}, src="web",
+            )
+        except BaseException:
+            local_path.unlink(missing_ok=True)
+            raise
         from core.task_manager import task_manager
         return {
             "ok": True,

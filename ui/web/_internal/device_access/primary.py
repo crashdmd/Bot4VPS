@@ -40,7 +40,7 @@ def assign(device_id, *, selection_pending=False):
 def require(rows, device_id):
     from fastapi import HTTPException
     if current(rows) != device_id:
-        raise HTTPException(403, 'Это действие доступно только главному телефону')
+        raise HTTPException(403, 'Это действие доступно только основному телефону')
 
 
 def require_factor_authority(rows, device_id, flow):
@@ -51,4 +51,4 @@ def require_factor_authority(rows, device_id, flow):
             and flow.get('primary_before') is None and flow.get('device_id') == device_id):
         require(rows, device_id)
     if 'primary_before' in flow and flow['primary_before'] != selected:
-        raise HTTPException(409, 'Главный телефон изменился — начните запрос заново')
+        raise HTTPException(409, 'Основной телефон изменился — начните запрос заново')

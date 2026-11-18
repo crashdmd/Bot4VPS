@@ -9,6 +9,7 @@ let dockerProject = '';
 let dockerDir = '';
 let libraryDialogMode = '';
 let pendingProjectZip = null;
+let pendingKeyUpload = null;
 
 function fmtSize(n) {
   if (n == null) return '';
@@ -61,7 +62,7 @@ function renderTabHint() {
   const el = document.getElementById('file-tab-hint');
   if (!el) return;
   if (fileRoot === 'keys') {
-    el.textContent = 'SSH-ключи панели. Ключ, которым подключается сервер, удалить нельзя.';
+    el.textContent = 'SSH-ключи панели. Используемый ключ нельзя удалить или заменить. Для загрузки другого ключа укажите новое имя.';
   } else {
     el.textContent = dockerProject
       ? 'Файлы Compose-проекта. Основной compose-файл защищён от удаления.'
@@ -352,6 +353,11 @@ function openLibraryDialog(mode, options = {}) {
     label.textContent = 'Имя ключа';
     input.placeholder = 'my-key';
     submit.textContent = 'Создать';
+  } else if (mode === 'key-upload') {
+    title.textContent = 'Загрузить SSH-ключ с новым именем';
+    label.textContent = 'Новое имя ключа';
+    input.placeholder = 'my-key-2';
+    submit.textContent = 'Загрузить';
   } else if (mode === 'folder') {
     title.textContent = 'Создать папку';
     label.textContent = 'Название';
@@ -379,6 +385,7 @@ function closeLibraryDialog() {
   document.getElementById('docker-library-warn').textContent = '';
   libraryDialogMode = '';
   pendingProjectZip = null;
+  pendingKeyUpload = null;
 }
 
 async function submitLibraryDialog() {
@@ -387,6 +394,15 @@ async function submitLibraryDialog() {
   const name = (input?.value || '').trim();
   if (!name) { warn.textContent = 'Укажите имя.'; return; }
   try {
+    if (libraryDialogMode === 'key-upload') {
+      if (!pendingKeyUpload) { warn.textContent = 'Выберите файл ключа заново.'; return; }
+      if (await uploadLocalFile('keys', pendingKeyUpload, name)) {
+        closeLibraryDialog();
+        toast('SSH-ключ загружен', true);
+        await loadFiles();
+      }
+      return;
+    }
     if (libraryDialogMode === 'project') {
       const d = await j('/api/files/docker/projects', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -438,6 +454,23 @@ async function submitLibraryDialog() {
   } catch (e) {
     warn.textContent = e.message;
   }
+}
+
+async function uploadLocalFile(root, file, name = '') {
+  const fd = new FormData();
+  fd.append('file', file);
+  const qs = new URLSearchParams({ root });
+  if (name) qs.set('name', name);
+  const response = await fetch('/api/files/upload?' + qs, { method: 'POST', body: fd });
+  const { text, data } = await parseFetchResponse(response);
+  const message = typeof data.detail === 'string' ? data.detail : (data.detail?.message || text);
+  if (root === 'keys' && response.status === 409) {
+    pendingKeyUpload = file;
+    openLibraryDialog('key-upload', { name, warn: message });
+    return false;
+  }
+  if (!response.ok) throw new Error(message);
+  return true;
 }
 
 async function parseFetchResponse(response) {
@@ -534,14 +567,12 @@ export function bindFilesUI() {
   document.getElementById('upload-file')?.addEventListener('change', async e => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const fd = new FormData();
-    fd.append('file', file);
+    const root = fileRoot;
     try {
-      const response = await fetch('/api/files/upload?root=' + encodeURIComponent(fileRoot), { method: 'POST', body: fd });
-      const { text, data } = await parseFetchResponse(response);
-      if (!response.ok) throw new Error(data.detail || text);
-      toast('OK', true);
-      loadFiles();
+      if (await uploadLocalFile(root, file)) {
+        toast(root === 'keys' ? 'SSH-ключ загружен' : 'Файл загружен', true);
+        await loadFiles();
+      }
     } catch (err) { toast(err.message, false); }
     e.target.value = '';
   });

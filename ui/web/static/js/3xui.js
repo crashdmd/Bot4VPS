@@ -34,7 +34,6 @@ const genPort = () => 10000 + Math.floor(Math.random() * 55000);
 
 // ---------------- состояние ----------------
 let statusMap = {};        // id -> {name, host, status}
-let xuiTimers = {};        // taskId -> polling-интервал
 let wizardCtx = null;      // открытый визард {serverId, resolve, arch}
 let xuiSort = { key: 'name', descending: false };
 let xuiUrlRevealed = new Set();   // id серверов с раскрытым URL панели
@@ -70,10 +69,7 @@ function xuiServerIpv4(id) {
 }
 
 export function stopXuiTimers() {
-  Object.values(xuiTimers).forEach(clearInterval);
-  xuiTimers = {};
-  // ватчеры сняты (уход с xui*/смена карточки) — лок больше не снимется
-  // колбэком задачи, сбрасываем вручную
+  // Общий модуль задач продолжает сопровождение при уходе со страницы.
   xuiCardBusy = false;
   document.getElementById('xui-srv-body')?.classList.remove('xui-card-busy');
 }
@@ -159,6 +155,7 @@ const XUI_BLOCKED_NOTE = {
 
 function xuiStatusCell(s) {
   const st = s.status || {};
+  if (st.error) return `<span class="badge ssl-warn" title="${esc(st.error)}">Ошибка проверки</span>`;
   return st.installed
     ? '<span class="badge on" title="Установлен">Установлен</span>'
     : '<span class="badge off svc-badge-absent" title="Не установлен">Не установлен</span>';
@@ -213,6 +210,7 @@ function xuiRowCells(s) {
       </span></td>`;
   }
   const status = `<td class="wg-status-cell" data-label="Статус">${xuiStatusCell(s)}</td>`;
+  if (st.error) return `${name}${status}<td colspan="2" class="svc-offline-cell">${esc(st.error)}</td>`;
   if (st.installed) {
     return `${name}${status}
       <td class="wg-version-cell" data-label="Версия">${esc(st.version || '—')}</td>
@@ -228,11 +226,13 @@ function xuiRowCells(s) {
 
 /** Статус строки для фильтра (см. XUI_STATUS_FILTERS). */
 function xuiFilterKey(s) {
+  if ((s || {}).status?.error) return 'unknown';
   if (serviceBlocked(s)) return 'blocked';
   return (s || {}).status?.installed ? 'installed' : 'absent';
 }
 
 const XUI_STATUS_FILTERS = [
+  { key: 'unknown', label: '⚠️ Ошибка проверки' },
   { key: 'installed', label: 'Установлен' },
   { key: 'absent', label: 'Не установлен' },
   { key: 'blocked', label: '⛔ Недоступен (оффлайн/SSH)' },
@@ -955,6 +955,13 @@ function renderXuiServerDetail(st) {
   const bbr = s.bbr || {};
   const geo = s.geo || {};
 
+  if (s.error) {
+    const badge = document.getElementById('xui-srv-badge');
+    if (badge) badge.innerHTML = '<span class="badge ssl-warn">Ошибка проверки</span>';
+    body.innerHTML = `<div class="empty">${esc(s.error)}</div>`;
+    return;
+  }
+
   const badgeEl = document.getElementById('xui-srv-badge');
   if (badgeEl) {
     badgeEl.innerHTML = s.installed
@@ -1047,10 +1054,8 @@ function renderXuiServerDetail(st) {
   const accCard = `
     <div class="info-block svc-card xui-stack-card">
       <h2>Аккаунт панели</h2>
-      <button type="button" class="svc-action" data-xui-acc="username">
-        <b>Сменить логин</b><span>имя для входа в панель</span></button>
-      <button type="button" class="svc-action" data-xui-acc="password">
-        <b>Сменить пароль</b><span>новый пароль — генератор или свой</span></button>
+      <button type="button" class="svc-action" data-xui-acc="credentials">
+        <b>Сменить логин и пароль</b><span>данные для входа; пароль — генератор или свой</span></button>
       <button type="button" class="svc-action" data-xui-acc="port">
         <b>Сменить порт</b><span>порт, на котором слушает панель</span></button>
       <button type="button" class="svc-action" data-xui-acc="path">
@@ -1181,28 +1186,47 @@ function bindXuiCardUI() {
  *  полёте (xuiCardBusy): сразу тост «команда отправлена», кнопки карточки
  *  блокируются до результата — по завершении тост с output и рефреш. */
 const XUI_ACTION_TITLES = {
-  unit_action: 'Команда юниту отправлена',
-  set_autostart: 'Команда отправлена',
-  set_bbr: 'Команда отправлена',
-  update_geo: 'Команда отправлена',
-  change_username: 'Команда отправлена',
-  change_password: 'Команда отправлена',
-  change_port: 'Команда отправлена',
-  change_path: 'Команда отправлена',
+  unit_action: 'Управление сервисом 3x-ui',
+  set_autostart: 'Изменение автозагрузки',
+  set_bbr: 'Изменение BBR',
+  update_geo: 'Загрузка geoip/geosite и применение',
+  change_credentials: 'Проверяем CLI и меняем логин и пароль…',
+  change_port: 'Смена порта и настройка firewall',
+  change_path: 'Изменение адреса панели',
 };
-async function cardAction(action, params = {}) {
+
+function showCardWait(serverId, label) {
+  const started = Date.now();
+  const element = document.createElement('div');
+  element.className = 'tabs-hint'; element.setAttribute('role', 'status');
+  const update = () => {
+    if (xuiServerId !== serverId) { element.remove(); return; }
+    const card = document.getElementById('xui-srv-body');
+    if (card && !element.isConnected) card.insertBefore(element, card.firstChild);
+    element.textContent = `${label} — ${Math.floor((Date.now() - started) / 1000)} с. Ожидаем ответ сервера…`;
+  };
+  update();
+  const timer = setInterval(update, 1000);
+  return () => { clearInterval(timer); element.remove(); };
+}
+
+async function cardAction(action, params = {}, onError = null) {
   if (!xuiServerId || xuiCardBusy) return;
   xuiCardBusy = true;
+  const serverId = xuiServerId;
   const card = document.getElementById('xui-srv-body');
   if (card) card.classList.add('xui-card-busy');  // кнопки неактивны до результата
-  toast(XUI_ACTION_TITLES[action] || 'Команда отправлена', true);
+  const stopWait = showCardWait(serverId, XUI_ACTION_TITLES[action] || 'Выполнение операции');
   try {
-    const r = await j(`${srvBase(xuiServerId)}/action/${encodeURIComponent(action)}`, {
+    const r = await j(`${srvBase(serverId)}/action/${encodeURIComponent(action)}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ params }),
     });
+    if (r?.success === false) throw new Error(r.error || r.output || 'Операция завершилась с ошибкой');
     if (r && r.output) toast(r.output, true);
+    if (r?.sync_ok === false) toast(`Операция выполнена, но состояние сервиса не удалось обновить: ${r.sync_error || 'повторите проверку карточки'}`, false);
+    if (serverId !== xuiServerId) return true;
     // разблокируем сразу по ответу действия — рефреш /state по SSH может
     // идти ещё ~10с (fin), кнопки не должны висеть всё это время;
     // карточку обновит этот же запрос в фоне + live-poll 3с
@@ -1220,12 +1244,19 @@ async function cardAction(action, params = {}) {
       };
       renderXuiServerDetail(xuiCardState);
     }
-    refreshXuiServerDetailAfterMutation(xuiServerId);
+    refreshXuiServerDetailAfterMutation(serverId);
+    return true;
   } catch (e) {
     toast(e.message || String(e), false);
-    xuiCardBusy = false;
-    const c = document.getElementById('xui-srv-body');
-    if (c) c.classList.remove('xui-card-busy');
+    if (onError) onError(e.message || String(e));
+    if (serverId === xuiServerId) {
+      xuiCardBusy = false;
+      const c = document.getElementById('xui-srv-body');
+      if (c) c.classList.remove('xui-card-busy');
+    }
+    return false;
+  } finally {
+    stopWait();
   }
 }
 
@@ -1299,7 +1330,7 @@ function openXuiModal({
   bg.addEventListener('keydown', e => {
     if (e.key === 'Escape') { e.preventDefault(); close(); }
   });
-  bg.querySelector('#xui-card-modal-ok').onclick = () => { onOk(close); };
+  bg.querySelector('#xui-card-modal-ok').onclick = () => onOk(close);
   if (bind) bind(bg);
   return bg;
 }
@@ -1324,44 +1355,48 @@ const restartBox = (checked = true) => `
 
 function accAction(kind) {
   const st = xuiCardState || {};
-  if (kind === 'username') {
+  if (kind === 'credentials') {
     openXuiModal({
-      title: 'Смена логина панели',
+      title: 'Смена логина и пароля панели',
       bodyHtml: `
-        <label class="row">Новый логин</label>
-        <input id="xui-modal-field" autocomplete="off" style="width:100%"/>
+        <label class="row" for="xui-modal-username">Логин</label>
+        <input id="xui-modal-username" autocomplete="off" style="width:100%"/>
         <div class="tabs-hint" style="margin:.3rem 0 0">3-32 символа, латиница/цифры/точка/дефис/подчёркивание</div>
-        ${restartBox()}`,
-      okText: 'Сменить логин',
-      onOk: close => {
-        const v = modalField();
-        if (!RE_USER.test(v)) { modalWarn('Логин: 3-32 симв., латиница/цифры/._-'); return; }
-        cardAction('change_username', { username: v, restart: modalRestart() });
-        close();
-      },
-    });
-  } else if (kind === 'password') {
-    openXuiModal({
-      title: 'Смена пароля панели',
-      bodyHtml: `
-        <label class="row">Новый пароль <span class="hint">генерируется, можно ввести свой</span></label>
+        <label class="row" for="xui-modal-password">Пароль <span class="hint">генерируется, можно ввести свой</span></label>
         <div class="actions" style="margin:0;display:flex;gap:.4rem">
-          <input id="xui-modal-field" autocomplete="off" style="flex:1"/>
+          <input id="xui-modal-password" autocomplete="new-password" style="flex:1"/>
           <button type="button" class="secondary" id="xui-modal-regen" title="Перегенерировать">🎲</button>
         </div>
-        <div class="tabs-hint" style="margin:.3rem 0 0">Минимум 8 символов.</div>
+        <div class="tabs-hint" style="margin:.3rem 0 0">Минимум 8 символов, максимум 72 байта UTF-8. Оба поля обязательны.</div>
         ${restartBox()}`,
-      okText: 'Сменить пароль',
+      okText: 'Сменить логин и пароль',
       bind: bg => {
-        const f = bg.querySelector('#xui-modal-field');
+        const f = bg.querySelector('#xui-modal-password');
         f.value = genPassword();
         bg.querySelector('#xui-modal-regen').onclick = () => { f.value = genPassword(); };
+        bg.querySelector('#xui-modal-username').focus();
       },
-      onOk: close => {
-        const v = modalField();
-        if (v.length < 8) { modalWarn('Пароль: минимум 8 символов'); return; }
-        cardAction('change_password', { password: v, restart: modalRestart() });
-        close();
+      onOk: async close => {
+        const bg = document.getElementById('xui-card-modal');
+        const username = String(bg.querySelector('#xui-modal-username').value).trim();
+        const password = String(bg.querySelector('#xui-modal-password').value);
+        if (!RE_USER.test(username)) { modalWarn('Логин: 3-32 симв., латиница/цифры/._-'); return; }
+        if (password.length < 8) { modalWarn('Пароль: минимум 8 символов'); return; }
+        if (new TextEncoder().encode(password).length > 72) { modalWarn('Пароль: максимум 72 байта UTF-8'); return; }
+        const ok = bg.querySelector('#xui-card-modal-ok');
+        if (ok.disabled) return;
+        const restart = modalRestart();
+        ok.disabled = true;
+        ok.textContent = 'Проверка CLI и применение…';
+        modalWarn('');
+        let error = '';
+        const success = await cardAction('change_credentials', { username, password, restart }, text => { error = text; });
+        if (success) close();
+        else {
+          ok.disabled = false;
+          ok.textContent = 'Сменить логин и пароль';
+          modalWarn(error || 'Запрос не отправлен. Дождитесь завершения текущей операции.');
+        }
       },
     });
   } else if (kind === 'port') {
@@ -1840,17 +1875,19 @@ async function fakesiteActionMenu() {
  *  провале. Кнопка блокируется на время (не enqueue — только чтение). */
 async function exportDbModal() {
   if (!xuiServerId || xuiCardBusy) return;
+  const serverId = xuiServerId;
   const ok = await confirmAction({
     title: 'Экспорт базы данных',
     message: 'Скачает файл .db — резервную копию вашей текущей базы данных на ваше устройство.',
     confirmText: 'Скачать', cancelText: 'Отмена',
   });
   if (!ok) return;
-  xuiCardBusy = true;
+  if (xuiServerId === serverId) xuiCardBusy = true;
   const card = document.getElementById('xui-srv-body');
-  card?.classList.add('xui-card-busy');
+  if (xuiServerId === serverId) card?.classList.add('xui-card-busy');
+  const stopWait = showCardWait(serverId, 'Подготовка и скачивание копии базы');
   try {
-    const r = await fetch(`${srvBase(xuiServerId)}/db-export`);
+    const r = await fetch(`${srvBase(serverId)}/db-export`);
     if (!r.ok) {
       let msg = 'Экспорт не удался';
       try { const e = await r.json(); msg = e.detail || e.error || msg; } catch (_) {}
@@ -1869,8 +1906,11 @@ async function exportDbModal() {
   } catch (e) {
     toast(e.message || String(e), false);
   } finally {
-    xuiCardBusy = false;
-    card?.classList.remove('xui-card-busy');
+    stopWait();
+    if (xuiServerId === serverId) {
+      xuiCardBusy = false;
+      card?.classList.remove('xui-card-busy');
+    }
   }
 }
 
@@ -1878,6 +1918,7 @@ async function exportDbModal() {
  *  (остановка панели, замена базы, migrate, авторестарт). */
 function importDbModal() {
   if (!xuiServerId || xuiCardBusy) return;
+  const serverId = xuiServerId;
   const input = document.createElement('input');
   input.type = 'file';
   input.accept = '.db,.dump';
@@ -1892,23 +1933,48 @@ function importDbModal() {
     });
     if (!go) return;
     // файл уже выбран — upload+enqueue, карточку блокируем как на задачу
-    xuiCardBusy = true;
+    if (xuiServerId === serverId) xuiCardBusy = true;
     const card = document.getElementById('xui-srv-body');
-    card?.classList.add('xui-card-busy');
+    if (xuiServerId === serverId) card?.classList.add('xui-card-busy');
+    const stopWait = showCardWait(serverId, 'Загрузка файла импорта');
     try {
       const fd = new FormData();
       fd.append('file', file, file.name);
-      const r = await j(`${srvBase(xuiServerId)}/db-import`, { method: 'POST', body: fd });
+      const r = await j(`${srvBase(serverId)}/db-import`, { method: 'POST', body: fd });
       toast('Импорт базы в очереди', true);
-      if (r.task) watchXuiTask(r.task.id, 'db_import');
-      else { xuiCardBusy = false; card?.classList.remove('xui-card-busy'); }
+      if (r.task) openCardTaskProgress(r.task.id, serverId, 'db_import');
+      else throw new Error('Сервер не вернул задачу импорта. Проверьте меню задач перед повторной загрузкой.');
     } catch (e) {
       toast(e.message || String(e), false);
-      xuiCardBusy = false;
-      card?.classList.remove('xui-card-busy');
+      if (xuiServerId === serverId) {
+        xuiCardBusy = false;
+        card?.classList.remove('xui-card-busy');
+      }
+    } finally {
+      stopWait();
     }
   };
   input.click();
+}
+
+function openCertProgress(taskId, serverId, action) {
+  const name = statusMap[serverId]?.name;
+  const renewing = action === 'cert_renew';
+  const taskName = renewing ? 'Продление сертификата' : 'Выпуск сертификата';
+  openTaskModal({
+    taskId, title: name ? `${taskName} — ${name}` : taskName,
+    taskName, serverName: name,
+    doneLabel: renewing ? 'Сертификат продлён' : 'Сертификат выпущен',
+    onDone: async () => {
+      if (xuiServerId === serverId) {
+        xuiCardBusy = false;
+        document.getElementById('xui-srv-body')?.classList.remove('xui-card-busy');
+      }
+      if (xuiServerId === serverId && document.getElementById('page-xui-server')?.classList.contains('on')) {
+        await refreshXuiServerDetailAfterMutation(serverId);
+      } else await loadXui();
+    },
+  });
 }
 
 function openFakesiteInstallProgress(taskId, serverId) {
@@ -1945,8 +2011,9 @@ async function enqueueCardTask(action, params, msg) {
   const serverId = xuiServerId;
   const card = document.getElementById('xui-srv-body');
   if (card) card.classList.add('xui-card-busy');
+  const stopWait = showCardWait(serverId, 'Отправка операции в очередь');
   try {
-    const r = await j(`${srvBase(xuiServerId)}/enqueue/${encodeURIComponent(action)}`, {
+    const r = await j(`${srvBase(serverId)}/enqueue/${encodeURIComponent(action)}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ params }),
@@ -1955,33 +2022,46 @@ async function enqueueCardTask(action, params, msg) {
     toast(msg || 'Команда отправлена', true);
     if (r.task) {
       if (action === 'fakesite_install') openFakesiteInstallProgress(r.task.id, serverId);
-      else watchXuiTask(r.task.id, action);
+      else if (['cert_renew', 'cert_issue_domain', 'cert_issue_ip'].includes(action)) {
+        openCertProgress(r.task.id, serverId, action);
+      }
+      else openCardTaskProgress(r.task.id, serverId, action);
     } else {
-      xuiCardBusy = false;
-      card?.classList.remove('xui-card-busy');
+      throw new Error('Сервер не вернул задачу. Проверьте меню задач перед повторным запуском.');
     }
   } catch (e) {
     toast(e.message || String(e), false);
-    xuiCardBusy = false;
-    card?.classList.remove('xui-card-busy');
+    if (serverId === xuiServerId) {
+      xuiCardBusy = false;
+      card?.classList.remove('xui-card-busy');
+    }
+  } finally {
+    stopWait();
   }
 }
 
-function watchXuiTask(taskId, action) {
-  const tick = async () => {
-    let t;
-    try { t = await j('/api/tasks/' + encodeURIComponent(taskId)); }
-    catch (_) { return; }
-    if (!t.is_done) return;
-    clearInterval(xuiTimers[taskId]); delete xuiTimers[taskId];
-    // финал задачи — карточка снова активна
-    xuiCardBusy = false;
-    document.getElementById('xui-srv-body')?.classList.remove('xui-card-busy');
-    if (action === 'remove') {
-      if (t.success) {
-        toast('3x-ui удалён', true);
+const XUI_TASK_PROGRESS = {
+  update: ['Обновление 3x-ui', '3x-ui обновлён'],
+  remove: ['Удаление 3x-ui', '3x-ui удалён'],
+  db_import: ['Импорт базы 3x-ui', 'База 3x-ui восстановлена'],
+  cert_remove: ['Отзыв и удаление сертификата', 'Сертификат отозван и удалён'],
+  fakesite_remove: ['Удаление SelfSNI', 'SelfSNI удалён'],
+};
+
+function openCardTaskProgress(taskId, serverId, action) {
+  const [taskName, doneLabel] = XUI_TASK_PROGRESS[action] || ['Операция 3x-ui', 'Операция выполнена'];
+  const serverName = statusMap[serverId]?.name;
+  openTaskModal({
+    taskId, taskName, serverName, doneLabel,
+    title: serverName ? `${taskName} — ${serverName}` : taskName,
+    onDone: async t => {
+      if (xuiServerId === serverId) {
+        xuiCardBusy = false;
+        document.getElementById('xui-srv-body')?.classList.remove('xui-card-busy');
+      }
+      if (action === 'remove' && t.success && xuiServerId === serverId) {
         const returnToServer = xuiEntryContext === 'server' && xuiServerId;
-        const sid = xuiServerId;
+        const sid = serverId;
         stopXuiLivePoll();
         xuiServerId = null;
         xuiCardState = null;
@@ -1994,33 +2074,13 @@ function watchXuiTask(taskId, action) {
         } else {
           backToXuiList();
         }
-      } else {
-        toast(t.error || 'Удаление 3x-ui завершилось с ошибкой', false);
+        return;
       }
-      return;
-    }
-    const refresh = xuiServerId && document.getElementById('page-xui-server')?.classList.contains('on')
-      ? refreshXuiServerDetailAfterMutation(xuiServerId)
-      : loadXui();
-    if (action === 'fakesite_remove' && t.success) {
-      await refresh;
-      toast('SelfSNI удалён', true);
-    } else {
-      // при провале показываем причину: t.error — заголовок, output — вывод
-      // команды на сервере (acme.sh и т.п.); без него «код 1» бесполезен
-      let failMsg = t.error || `${t.name || 'Задача'} завершилась с ошибкой`;
-      if (!t.success && t.result?.output) {
-        const tail = String(t.result.output).trim().split('\n').slice(-4).join('\n');
-        if (tail && tail !== failMsg) failMsg += `\n${tail}`;
-      }
-      toast(t.success
-        ? `${t.emoji || '✅'} ${t.name || 'Задача'} — выполнена`
-        : failMsg, t.success);
-    }
-  };
-  if (xuiTimers[taskId]) clearInterval(xuiTimers[taskId]);
-  tick();
-  xuiTimers[taskId] = setInterval(tick, 1500);
+      if (xuiServerId === serverId && document.getElementById('page-xui-server')?.classList.contains('on')) {
+        await refreshXuiServerDetailAfterMutation(serverId);
+      } else await loadXui();
+    },
+  });
 }
 
 // ---------------- логи юнита ----------------

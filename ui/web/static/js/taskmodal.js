@@ -10,6 +10,7 @@ let clockTimer = null;
 const STATUS_LABELS = {
   queued: 'В очереди', running: 'Выполняется', success: 'Выполнено',
   success_warn: 'Выполнено с предупреждениями', failed: 'Ошибка', cancelled: 'Отменена',
+  unavailable: 'Состояние неизвестно',
 };
 
 /** opts: {taskId, title?, taskName?, serverName?, cancellable?, onTasks?(),
@@ -20,15 +21,16 @@ export function openTaskModal(opts) {
   const watch = watchers.get(taskId) || startWatcher(taskId, opts);
   watch.opts = { ...watch.opts, ...opts };
   if (foreground && foreground !== watch) {
-    if (foreground.done) dispose(foreground); else background(foreground);
+    if (foreground.done || foreground.unavailable) dispose(foreground); else background(foreground);
   }
   foreground = watch;
   watch.background = false;
   if (!watch.modal) createModal(watch);
   if (!watch.modal.isConnected) document.body.insertBefore(watch.modal, document.getElementById('confirm-modal'));
   if (watch.task) renderTask(watch);
+  if (watch.unavailable) renderUnavailable(watch);
   updateDock(watch);
-  watch.modal.querySelector(watch.done ? '#task-progress-close' : '#task-progress-bg').focus();
+  watch.modal.querySelector(watch.done || watch.unavailable ? '#task-progress-close' : '#task-progress-bg').focus();
   tick(watch);
 }
 
@@ -57,7 +59,7 @@ function createModal(watch) {
       <button type="button" id="task-progress-close" class="hidden" style="margin-left:auto">Закрыть</button>
     </div>
   </div>`;
-  const close = () => { if (watch.done) dispose(watch); else background(watch); };
+  const close = () => { if (watch.done || watch.unavailable) dispose(watch); else background(watch); };
   el.addEventListener('keydown', e => {
     if (e.key === 'Escape') { e.preventDefault(); close(); }
   });
@@ -110,7 +112,7 @@ function dispose(watch) {
 function elapsed(watch) {
   if (!watch.task || watch.task.status === 'queued') return 0;
   return (watch.baseElapsed ?? (Number(watch.task?.elapsed_seconds ?? watch.task?.duration_seconds) || 0))
-    + (!watch.done && watch.task.status === 'running' && watch.receivedAt
+    + (!watch.done && !watch.unavailable && watch.task.status === 'running' && watch.receivedAt
       ? Math.max(0, (Date.now() - watch.receivedAt) / 1000) : 0);
 }
 
@@ -123,7 +125,7 @@ function updateClock() {
     if (watch.parts) watch.parts.time.textContent = timeLabel(watch);
     if (watch.task && watch.modal) renderHeading(watch);
   }
-  if (![...watchers.values()].some(watch => !watch.done) && clockTimer) {
+  if (![...watchers.values()].some(watch => !watch.done && !watch.unavailable) && clockTimer) {
     clearInterval(clockTimer); clockTimer = null;
   }
 }
@@ -171,7 +173,7 @@ function updateDock(watch) {
     watch.pill.hidden = !watch.background;
     const name = watch.opts.taskName || watch.task?.name || watch.opts.title || 'Задача';
     const server = watch.opts.serverName || watch.task?.server_name || 'Сервер';
-    const status = watch.task?.status || 'queued';
+    const status = watch.unavailable ? 'unavailable' : watch.task?.status || 'queued';
     watch.parts.name.textContent = name; watch.parts.server.textContent = server;
     watch.parts.time.textContent = timeLabel(watch);
     watch.pill.dataset.status = status;
@@ -203,7 +205,7 @@ export async function resumeBackgroundTasks() {
 }
 
 async function cancelTask(watch) {
-  if (watch.done || watch.cancelling || watch.cancelRequested) return;
+  if (watch.done || watch.unavailable || watch.cancelling || watch.cancelRequested) return;
   watch.cancelling = true; updateCancelButton(watch);
   try {
     const approved = await confirmAction({
@@ -211,7 +213,7 @@ async function cancelTask(watch) {
       message: 'Задача в очереди не будет запущена. Для уже выполняющейся задачи Bot4VPS перестанет её ждать, но команда на сервере может завершиться сама. Уже сделанные изменения не откатываются. Остальные задачи продолжат работу.',
       confirmText: 'Отменить',
     });
-    if (!approved || watch.done) return;
+    if (!approved || watch.done || watch.unavailable) return;
     await j(`/api/tasks/${encodeURIComponent(watch.taskId)}/cancel`, { method: 'POST' });
     watch.cancelRequested = true;
     if (!watch.done) toast('Запрошена отмена задачи', true);
@@ -223,12 +225,13 @@ async function cancelTask(watch) {
 function updateCancelButton(watch) {
   const button = watch.modal?.querySelector('#task-progress-cancel');
   if (!button) return;
-  button.classList.toggle('hidden', watch.done);
-  button.disabled = watch.done || watch.cancelling || watch.cancelRequested;
+  button.classList.toggle('hidden', watch.done || watch.unavailable);
+  button.disabled = watch.done || watch.unavailable || watch.cancelling || watch.cancelRequested;
   button.textContent = watch.cancelRequested ? 'Отмена запрошена…' : 'Отменить задачу';
 }
 
 function renderHeading(watch) {
+  if (watch.unavailable) { renderUnavailable(watch); return; }
   const t = watch.task;
   watch.modal.querySelector('#task-progress-title').textContent = watch.opts.title
     || `${watch.opts.taskName || t.name || 'Задача'}${t.server_name ? ` — ${t.server_name}` : ''}`;
@@ -272,12 +275,20 @@ function renderTask(watch) {
 }
 
 async function tick(watch) {
-  if (watch.busy || watch.done || !watchers.has(watch.taskId)) return;
+  if (watch.busy || watch.done || watch.unavailable || !watchers.has(watch.taskId)) return;
   watch.busy = true;
   let t;
   try { t = await j(`/api/tasks/${encodeURIComponent(watch.taskId)}?full_output=true`); }
   catch (error) {
-    if (error.status === 404 && watch.background) { dispose(watch); return; }
+    if (error.status === 404) {
+      if (watch.background) { dispose(watch); return; }
+      watch.baseElapsed = elapsed(watch);
+      watch.unavailable = true;
+      clearInterval(watch.timer);
+      renderUnavailable(watch);
+      updateDock(watch); updateClock();
+      return;
+    }
     if (watch.modal) watch.modal.querySelector('#task-progress-warn').textContent = 'Не удалось обновить лог. Повторяем подключение…';
     return;
   } finally { watch.busy = false; }
@@ -312,4 +323,18 @@ async function tick(watch) {
     else dispose(watch);
   }
   if (opts.resumed) document.dispatchEvent(new CustomEvent('bot4vps:task-done', { detail: t }));
+}
+
+function renderUnavailable(watch) {
+  if (!watch.modal) return;
+  watch.modal.querySelector('#task-progress-head').textContent = 'Состояние задачи неизвестно';
+  watch.modal.querySelector('#task-progress-steptitle').textContent = 'Задача не найдена';
+  watch.modal.querySelector('#task-progress-warn').textContent =
+    'Задача не найдена в панели: возможно, панель перезапущена или журнал очищен. '
+    + 'Проверьте меню задач и состояние сервиса перед новыми командами. Операция автоматически не повторяется.';
+  watch.modal.querySelector('#task-progress-bg').classList.add('hidden');
+  const close = watch.modal.querySelector('#task-progress-close');
+  close.classList.remove('hidden');
+  if (watch.modal.isConnected && watch.modal.contains(document.activeElement)) close.focus();
+  updateCancelButton(watch);
 }

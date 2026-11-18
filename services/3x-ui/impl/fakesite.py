@@ -19,7 +19,8 @@ from typing import Any, Callable, Dict, Iterable, Tuple
 from urllib.parse import quote
 
 from core.integrator import StepError
-from core.ssh import exec_sudo, exec_plain
+from core.cancel_flags import recovery_scope
+from core.ssh import exec_sudo, exec_plain, private_remote_directory, RemoteCleanupError
 
 from . import certs, templates
 from .validation import validate_domain
@@ -32,9 +33,6 @@ GITHUB_ARCHIVE_URL = f"https://codeload.github.com/{GITHUB_REPOSITORY}/tar.gz/re
 _SOURCE_UNAVAILABLE = "Источник шаблонов временно недоступен. Повторите попытку позже."
 _SOURCE_NOT_FOUND = "Источник шаблонов не найден. Возможно, репозиторий был удалён или перемещён."
 
-_TMP_ARCHIVE = "/tmp/bot4vps-selfsni-templates.tar.gz"
-_TMP_WORK = "/tmp/bot4vps-selfsni-template-work"
-_CONFIG_BACKUP = "/tmp/bot4vps-selfsni-nginx.previous"
 _OWNER_TEXT = "bot4vps-selfsni v1\n"
 _BRANCH_RE = re.compile(r"[A-Za-z0-9._/-]{1,128}\Z")
 _VERSION_RE = re.compile(r"nginx/(\d+)\.(\d+)\.(\d+)")
@@ -42,6 +40,19 @@ _VERSION_RE = re.compile(r"nginx/(\d+)\.(\d+)\.(\d+)")
 
 class TemplateSourceError(RuntimeError):
     """Exact user-facing GitHub source failure."""
+
+
+class FakesiteCleanupError(RuntimeError):
+    """SelfSNI завершён, но очистка workspace требует отдельной диагностики."""
+
+    def __init__(self, operation: str, result: dict, error: RemoteCleanupError):
+        self.operation = operation
+        self.result = dict(result)
+        self.state = dict(result)
+        self.verification_error = None
+        self.failure = None
+        action = "установлен" if operation == "install" else "удалён"
+        super().__init__(f"SelfSNI {action}, но временный каталог {error.directory} не очищен: {error}")
 
 
 def _probe(ssh, server: dict, command: str) -> str:
@@ -262,61 +273,52 @@ def _github_default_branch(ssh, server: dict) -> str:
     return branch
 
 
-def _prepare_template(ssh, server: dict, emit: Callable[[str], None]) -> Tuple[str, str]:
+def _prepare_template(ssh, server: dict, emit: Callable[[str], None],
+                      workspace: str) -> Tuple[str, str]:
     """Resolve current GitHub default branch and prepare one random template.
 
-    The archive is created and removed on the target.  The returned staging
-    directory is under /var/www so its later rename into /var/www/html is
-    atomic on normal installations.
+    The caller owns a private workspace on the document-root filesystem and
+    removes it on every exit, including download/extraction failures.
     """
     emit("Проверка источника шаблонов…")
     branch = _github_default_branch(ssh, server)
     archive_url = GITHUB_ARCHIVE_URL.format(branch=quote(branch, safe="/"))
     emit("Загрузка случайного шаблона с GitHub…")
-    _github_response(ssh, server, archive_url, output=_TMP_ARCHIVE, timeout=300)
+    archive = posixpath.join(workspace, "templates.tar.gz")
+    extract = posixpath.join(workspace, "extract")
+    stage = posixpath.join(workspace, "content")
+    _github_response(ssh, server, archive_url, output=archive, timeout=300)
 
     command = " ".join((
         "set -eu;",
-        f"rm -rf {_q(_TMP_WORK)};",
-        f"mkdir -p {_q(_TMP_WORK)}/extract;",
+        f"mkdir -m 700 {_q(extract)};",
         # Reject archive path traversal and archive links before extraction.
-        f"tar -tzf {_q(_TMP_ARCHIVE)} | while IFS= read -r p; do "
+        f"tar -tzf {_q(archive)} | while IFS= read -r p; do "
         "case \"/$p/\" in /*/../*|//*) exit 41;; esac; done;",
-        f"if tar -tvzf {_q(_TMP_ARCHIVE)} | awk 'substr($0,1,1) ~ /[lh]/ {{ exit 1 }}'; then :; else exit 42; fi;",
-        f"tar xzf {_q(_TMP_ARCHIVE)} --no-same-owner --no-same-permissions -C {_q(_TMP_WORK)}/extract;",
-        f"root=$(find {_q(_TMP_WORK)}/extract -mindepth 1 -maxdepth 1 -type d -print -quit);",
+        f"if tar -tvzf {_q(archive)} | awk 'substr($0,1,1) ~ /[lh]/ {{ exit 1 }}'; then :; else exit 42; fi;",
+        f"tar xzf {_q(archive)} --no-same-owner --no-same-permissions -C {_q(extract)};",
+        f"root=$(find {_q(extract)} -mindepth 1 -maxdepth 1 -type d -print -quit);",
         "test -n \"$root\";",
         "candidate=$(find \"$root\" -mindepth 1 -maxdepth 1 -type d ! -name assets "
         "-exec sh -c 'test -f \"$1/index.html\" && printf \"%s\\n\" \"$1\"' _ {} \\; | shuf -n1);",
         "test -n \"$candidate\";",
-        f"stage={_q(templates.FAKESITE_WEB_ROOT)}.bot4vps-selfsni-stage.$$;",
-        "mkdir -p \"$stage\";",
+        f"stage={_q(stage)};",
+        "mkdir -m 755 \"$stage\";",
         "cp -a \"$candidate\"/. \"$stage\"/;",
+        "chmod 755 \"$stage\";",
         f"printf {_q(_OWNER_TEXT)} > \"$stage/{templates.FAKESITE_OWNER_MARKER}\";",
-        f"rm -rf {_q(_TMP_WORK)} {_q(_TMP_ARCHIVE)};",
-        "printf '\\n__STAGE__%s\\n__TEMPLATE__%s\\n' \"$stage\" \"$(basename \"$candidate\")\";",
+        "printf '\\n__TEMPLATE__%s\\n' \"$(basename \"$candidate\")\";",
     ))
     out = _run(ssh, server, command, step="template_prepare",
                title="Подготовка случайного шаблона", timeout=300)
-    stage = template = ""
+    template = ""
     for line in out.splitlines():
-        if line.startswith("__STAGE__"):
-            stage = line[len("__STAGE__"):].strip()
-        elif line.startswith("__TEMPLATE__"):
+        if line.startswith("__TEMPLATE__"):
             template = line[len("__TEMPLATE__"):].strip()
-    valid_stage = stage.startswith(templates.FAKESITE_WEB_ROOT + ".bot4vps-selfsni-stage.")
-    if not valid_stage or not template or "/" in template or "\x00" in template:
-        _cleanup_template(ssh, server, stage)
+    if not template or "/" in template or "\x00" in template:
         raise StepError("template_prepare", -1, title="Подготовка шаблона",
                         detail="GitHub-архив не содержит подходящего шаблона")
     return stage, template
-
-
-def _cleanup_template(ssh, server: dict, stage: str = "") -> None:
-    paths = [_TMP_ARCHIVE, _TMP_WORK]
-    if stage.startswith(templates.FAKESITE_WEB_ROOT + ".bot4vps-selfsni-stage."):
-        paths.append(stage)
-    _probe(ssh, server, "rm -rf " + " ".join(_q(path) for path in paths))
 
 
 def _public_ipv4(ssh, server: dict) -> str:
@@ -425,19 +427,14 @@ def _ensure_certificate(ssh, server: dict, domain: str,
 def _write_remote_file(ssh, server: dict, dest: str, content: str, *, mode: int,
                        step: str, title: str) -> None:
     """Write through /tmp then install as root, following existing SFTP pattern."""
-    tmp = "/tmp/bot4vps_selfsni_" + posixpath.basename(dest)
-    sftp = ssh.open_sftp()
-    try:
-        with sftp.file(tmp, "w") as file:
-            file.write(content)
-    finally:
-        sftp.close()
-    _run(
-        ssh, server,
-        f"install -d -m 755 {_q(posixpath.dirname(dest))} && "
-        f"install -m {int(mode):o} {_q(tmp)} {_q(dest)} && rm -f {_q(tmp)}",
-        step=step, title=title,
-    )
+    from core.ssh import private_remote_upload
+    with private_remote_upload(ssh, server, content) as tmp:
+        _run(
+            ssh, server,
+            f"install -d -m 755 {_q(posixpath.dirname(dest))} && "
+            f"install -m {int(mode):o} {_q(tmp)} {_q(dest)}",
+            step=step, title=title,
+        )
 
 
 def _install_deploy_hook(ssh, server: dict) -> None:
@@ -455,24 +452,23 @@ nginx -t && systemctl reload nginx
     )
 
 
-def _save_previous_config(ssh, server: dict) -> bool:
+def _save_previous_config(ssh, server: dict, backup: str) -> bool:
     out = _run(
         ssh, server,
-        f"rm -f {_q(_CONFIG_BACKUP)}; "
+        "set -eu; "
         f"if test -f {_q(templates.FAKESITE_NGINX_CONF)}; then "
-        f"cp -p {_q(templates.FAKESITE_NGINX_CONF)} {_q(_CONFIG_BACKUP)}; echo yes; else echo no; fi",
+        f"cp -p {_q(templates.FAKESITE_NGINX_CONF)} {_q(backup)}; echo yes; else echo no; fi",
         step="nginx_config_backup", title="Сохранение конфигурации nginx",
     )
     return out.strip().endswith("yes")
 
 
-def _restore_previous_config(ssh, server: dict, existed: bool) -> None:
+def _restore_previous_config(ssh, server: dict, existed: bool, backup: str) -> None:
     if existed:
         _probe(ssh, server,
-               f"test -f {_q(_CONFIG_BACKUP)} && mv {_q(_CONFIG_BACKUP)} {_q(templates.FAKESITE_NGINX_CONF)}")
+               f"test -f {_q(backup)} && mv {_q(backup)} {_q(templates.FAKESITE_NGINX_CONF)}")
     else:
         _probe(ssh, server, f"rm -f {_q(templates.FAKESITE_NGINX_CONF)}")
-    _probe(ssh, server, f"rm -f {_q(_CONFIG_BACKUP)}")
 
 
 def _test_nginx(ssh, server: dict) -> None:
@@ -504,6 +500,7 @@ def _install_content(ssh, server: dict, stage: str,
                      previous: Dict[str, Any]) -> Dict[str, str]:
     """Move staged content into the document root without merging files."""
     root = templates.FAKESITE_WEB_ROOT
+    parent = posixpath.dirname(root)
     cached_backup = str((previous or {}).get("content_backup") or "").strip()
     command = " ".join((
         "set -eu;",
@@ -512,13 +509,20 @@ def _install_content(ssh, server: dict, stage: str,
         "retired=''; newbackup='';",
         "if test -e \"$root\"; then",
         "  if test -f \"$root/.bot4vps-selfsni-owner\"; then",
-        "    retired=\"/var/www/.bot4vps-selfsni-retired.$$\"; mv \"$root\" \"$retired\";",
+        f"    retired={_q(parent + '/.bot4vps-selfsni-retired.')}\"$$\"; mv \"$root\" \"$retired\";",
         "  else",
         "    test -z \"$backup\" || { echo 'current root is not Bot4VPS-owned' >&2; exit 63; };",
-        "    backup=\"/var/www/.bot4vps-selfsni-backup-$(date +%s)-$$\"; mv \"$root\" \"$backup\"; newbackup=\"$backup\";",
+        f"    backup={_q(parent + '/.bot4vps-selfsni-backup-')}\"$(date +%s)-$$\"; mv \"$root\" \"$backup\"; newbackup=\"$backup\";",
         "  fi;",
         "fi;",
-        "mv \"$stage\" \"$root\";",
+        "if mv \"$stage\" \"$root\"; then :; else",
+        "  failed=$?; restore=\"${retired:-$newbackup}\";",
+        "  if test -n \"$restore\" && test -e \"$restore\"; then",
+        "    if test ! -e \"$root\" && test ! -L \"$root\" && mv \"$restore\" \"$root\"; then",
+        "      echo 'Прежний каталог сайта восстановлен после ошибки установки контента' >&2;",
+        "    else printf 'Не удалось восстановить прежний сайт; он сохранён в %s\\n' \"$restore\" >&2; fi;",
+        "  fi; exit \"$failed\";",
+        "fi;",
         "printf '\\n__BACKUP__%s\\n__RETIRED__%s\\n__NEWBACKUP__%s\\n' \"$backup\" \"$retired\" \"$newbackup\";",
     ))
     out = _run(ssh, server, command, step="site_install", title="Установка сайта-заглушки")
@@ -530,7 +534,7 @@ def _install_content(ssh, server: dict, stage: str,
 
 
 def _finalize_content(ssh, server: dict, retired: str) -> None:
-    if retired.startswith("/var/www/.bot4vps-selfsni-retired."):
+    if retired.startswith(posixpath.dirname(templates.FAKESITE_WEB_ROOT) + "/.bot4vps-selfsni-retired."):
         _probe(ssh, server, f"rm -rf {_q(retired)}")
 
 
@@ -538,11 +542,11 @@ def _rollback_content(ssh, server: dict, result: Dict[str, str]) -> None:
     root = templates.FAKESITE_WEB_ROOT
     retired = str(result.get("retired") or "")
     new_backup = str(result.get("new_backup") or "")
-    if retired.startswith("/var/www/.bot4vps-selfsni-retired."):
+    if retired.startswith(posixpath.dirname(root) + "/.bot4vps-selfsni-retired."):
         _probe(ssh, server,
                f"if test -f {_q(_marker_path(root))}; then rm -rf {_q(root)}; fi; "
                f"test -e {_q(retired)} && mv {_q(retired)} {_q(root)}")
-    elif new_backup.startswith("/var/www/.bot4vps-selfsni-backup-"):
+    elif new_backup.startswith(posixpath.dirname(root) + "/.bot4vps-selfsni-backup-"):
         _probe(ssh, server,
                f"if test -f {_q(_marker_path(root))}; then rm -rf {_q(root)}; fi; "
                f"test -e {_q(new_backup)} && mv {_q(new_backup)} {_q(root)}")
@@ -552,93 +556,114 @@ def install(ssh, server: dict, domain: str, previous: Dict[str, Any],
             emit: Callable[[str], None] = lambda _line: None) -> Dict[str, Any]:
     """Full non-destructive SelfSNI installation on one target server."""
     domain = validate_domain(domain)
-    stage = ""
-    config_existed = False
-    content_result: Dict[str, str] = {}
+    emit("Проверка DNS домена…")
+    dns = validate_domain_points_here(ssh, server, domain)
+    emit("DNS: " + ", ".join(dns["a_records"]) + f" → {dns['server_ip']}")
+    parent = posixpath.dirname(templates.FAKESITE_WEB_ROOT)
+    _run(ssh, server, f"mkdir -p {_q(parent)}", step="template_workspace",
+         title="Подготовка каталога сайта")
+    # Контент переносится rename на той же ФС. Архив и резервная копия
+    # nginx остаются внутри каталога 0700, которым владеет только операция.
+    result = None
     try:
-        emit("Проверка DNS домена…")
-        dns = validate_domain_points_here(ssh, server, domain)
-        emit("DNS: " + ", ".join(dns["a_records"]) + f" → {dns['server_ip']}")
-        stage, selected_template = _prepare_template(ssh, server, emit)
-        certificate, certificate_key = _ensure_certificate(ssh, server, domain, emit)
-        emit("Проверка nginx…")
-        _ensure_nginx(ssh, server)
-        _install_deploy_hook(ssh, server)
+        with private_remote_directory(ssh, server, privileged=True, parent=parent) as workspace:
+            backup = posixpath.join(workspace, "nginx.previous")
+            stage, selected_template = _prepare_template(ssh, server, emit, workspace)
+            certificate, certificate_key = _ensure_certificate(ssh, server, domain, emit)
+            emit("Проверка nginx…")
+            _ensure_nginx(ssh, server)
+            _install_deploy_hook(ssh, server)
 
-        config_existed = _save_previous_config(ssh, server)
-        config = templates.fakesite_nginx_conf(
-            domain, certificate, certificate_key, selected_template,
-            datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-            modern_http2=_nginx_is_modern(ssh, server),
-        )
-        _write_remote_file(ssh, server, templates.FAKESITE_NGINX_CONF, config, mode=0o644,
-                           step="nginx_config", title="Запись конфигурации nginx")
-        try:
-            _test_nginx(ssh, server)
-        except Exception:
-            _restore_previous_config(ssh, server, config_existed)
-            raise
-
-        content_result = _install_content(ssh, server, stage, previous)
-        stage = ""  # moved into the final document root
-        try:
-            _apply_nginx(ssh, server)
-            _verify_listener(ssh, server)
-        except Exception:
-            _rollback_content(ssh, server, content_result)
-            _restore_previous_config(ssh, server, config_existed)
-            # Best effort: restore previously working nginx configuration.
+            config_existed = _save_previous_config(ssh, server, backup)
+            content_result: Dict[str, str] = {}
             try:
+                config = templates.fakesite_nginx_conf(
+                    domain, certificate, certificate_key, selected_template,
+                    datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                    modern_http2=_nginx_is_modern(ssh, server),
+                )
+                _write_remote_file(ssh, server, templates.FAKESITE_NGINX_CONF, config, mode=0o644,
+                                   step="nginx_config", title="Запись конфигурации nginx")
+                _test_nginx(ssh, server)
+                content_result = _install_content(ssh, server, stage, previous)
                 _apply_nginx(ssh, server)
-            except Exception:
-                pass
-            raise
-        _finalize_content(ssh, server, content_result.get("retired", ""))
-        _probe(ssh, server, f"rm -f {_q(_CONFIG_BACKUP)}")
-        return {
-            "present": True,
-            "domain": domain,
-            "dest": f"127.0.0.1:{templates.FAKESITE_PORT}",
-            "sport": templates.FAKESITE_PORT,
-            "sni": domain,
-            "xver": 1,
-            "certificate": certificate,
-            "certificate_key": certificate_key,
-            "template": selected_template,
-            "mode": "le",
-            "content_backup": content_result.get("backup") or None,
-        }
-    finally:
-        _cleanup_template(ssh, server, stage)
+                _verify_listener(ssh, server)
+            except BaseException:
+                with recovery_scope():
+                    if content_result:
+                        _rollback_content(ssh, server, content_result)
+                    _restore_previous_config(ssh, server, config_existed, backup)
+                    if content_result:
+                        # Best effort: restore previously working nginx configuration.
+                        try:
+                            _apply_nginx(ssh, server)
+                        except Exception:
+                            pass
+                raise
+            _finalize_content(ssh, server, content_result.get("retired", ""))
+            result = {
+                "present": True,
+                "domain": domain,
+                "dest": f"127.0.0.1:{templates.FAKESITE_PORT}",
+                "sport": templates.FAKESITE_PORT,
+                "sni": domain,
+                "xver": 1,
+                "certificate": certificate,
+                "certificate_key": certificate_key,
+                "template": selected_template,
+                "mode": "le",
+                "content_backup": content_result.get("backup") or None,
+            }
+    except RemoteCleanupError as error:
+        if result is not None and error.original_error is None:
+            raise FakesiteCleanupError("install", result, error) from error
+        raise
+    return result
+
 
 
 def remove(ssh, server: dict, previous: Dict[str, Any],
            emit: Callable[[str], None] = lambda _line: None) -> Dict[str, Any]:
     """Remove only managed nginx config and safely restore owned site content."""
-    config = templates.FAKESITE_NGINX_CONF
-    config_existed = _save_previous_config(ssh, server)
-    _run(ssh, server, f"rm -f {_q(config)}", step="nginx_remove_config",
-         title="Удаление конфигурации сайта-заглушки")
+    result = None
     try:
-        _test_nginx(ssh, server)
-    except Exception:
-        _restore_previous_config(ssh, server, config_existed)
+        with private_remote_directory(ssh, server, privileged=True) as workspace:
+            result = _remove(ssh, server, previous, emit, posixpath.join(workspace, "nginx.previous"))
+    except RemoteCleanupError as error:
+        if result is not None and error.original_error is None:
+            raise FakesiteCleanupError("remove", result, error) from error
         raise
-    _probe(ssh, server, f"rm -f {_q(_CONFIG_BACKUP)}")
+    return result
 
-    # A stopped nginx has no loaded configuration.  Do not start a user-owned
-    # stopped service merely because a config file was removed.
-    if _probe(ssh, server, "systemctl is-active nginx 2>/dev/null") == "active":
-        _run(ssh, server, "systemctl reload nginx", step="nginx_apply_remove",
-             title="Применение удаления конфигурации nginx")
+
+def _remove(ssh, server: dict, previous: Dict[str, Any],
+            emit: Callable[[str], None], backup_config: str) -> Dict[str, Any]:
+    config = templates.FAKESITE_NGINX_CONF
+    config_existed = _save_previous_config(ssh, server, backup_config)
+    try:
+        _run(ssh, server, f"rm -f {_q(config)}", step="nginx_remove_config",
+             title="Удаление конфигурации сайта-заглушки")
+        _test_nginx(ssh, server)
+        # A stopped nginx has no loaded configuration. Do not start it here.
+        if _probe(ssh, server, "systemctl is-active nginx 2>/dev/null") == "active":
+            _run(ssh, server, "systemctl reload nginx", step="nginx_apply_remove",
+                 title="Применение удаления конфигурации nginx")
+    except BaseException:
+        with recovery_scope():
+            _restore_previous_config(ssh, server, config_existed, backup_config)
+        raise
 
     root = templates.FAKESITE_WEB_ROOT
     backup = str((previous or {}).get("content_backup") or "").strip()
     owned = _probe(ssh, server, f"test -f {_q(_marker_path(root))} && echo yes") == "yes"
     restored = False
     if owned:
-        retired = "/var/www/.bot4vps-selfsni-removed.$$"
-        if backup.startswith("/var/www/.bot4vps-selfsni-backup-"):
+        # _q() экранирует $$: это был общий буквальный путь, а не PID.
+        # Используем идентификатор закрытого каталога текущей операции.
+        retired = posixpath.join(posixpath.dirname(root),
+                                ".bot4vps-selfsni-removed." +
+                                posixpath.basename(posixpath.dirname(backup_config)))
+        if backup.startswith(posixpath.dirname(root) + "/.bot4vps-selfsni-backup-"):
             command = (
                 f"retired={_q(retired)}; mv {_q(root)} \"$retired\"; "
                 f"if test -e {_q(backup)}; then mv {_q(backup)} {_q(root)}; "

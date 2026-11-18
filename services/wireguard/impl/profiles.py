@@ -2,16 +2,56 @@
 """Менеджмент клиентских профилей: добавление, удаление, включение/выключение, переименование, перевыпуск."""
 from __future__ import annotations
 
+import base64
+import binascii
 import ipaddress
+import shlex
+import uuid
 
 from typing import Any, Dict
 
 from core.integrator import StepError, StepRunner, read_cache
-from core.ssh import create_ssh_client, exec_sudo
+from core.ssh import create_ssh_client, exec_sudo, private_remote_upload
 
 from . import templates
 from .network import next_client_ip
 from .validation import is_private_ip, validate_dns, validate_host
+
+
+def _peer_value(path: str, field: str) -> str:
+    return (f"awk '/^[[:space:]]*{field}[[:space:]]*=/ "
+            f"{{sub(/^[^=]*=/, \"\"); print; exit}}' {shlex.quote(path)} | tr -d ' \\r\\n'")
+
+
+def _peer_live_command(path: str, *, remove: bool = False) -> str:
+    """Применить один peer с проверкой результата; при отсутствии wg0 — только файлы."""
+    fields = f'[ -r {shlex.quote(path)} ] || exit 1; pub=$({_peer_value(path, "PublicKey")}); [ -n "$pub" ] || exit 1; '
+    if remove:
+        action = 'wg set wg0 peer "$pub" remove || exit $?; '
+    else:
+        fields += (f'aip=$({_peer_value(path, "AllowedIPs")}); [ -n "$aip" ] || exit 1; '
+                   f'keep=$({_peer_value(path, "PersistentKeepalive")}); '
+                   f'endp=$({_peer_value(path, "Endpoint")}); ')
+        action = ('set -- wg set wg0 peer "$pub" allowed-ips "$aip"; '
+                  '[ -z "$keep" ] || set -- "$@" persistent-keepalive "$keep"; '
+                  '[ -z "$endp" ] || set -- "$@" endpoint "$endp"; '
+                  f'"$@" preshared-key <({_peer_value(path, "PresharedKey")}) || exit $?; ')
+    verify = ('peers=$(wg show wg0 peers) || exit $?; '
+              'present=0; while IFS= read -r peer; do '
+              '[ "$peer" != "$pub" ] || present=1; done <<< "$peers"; '
+              f'[ "$present" = {0 if remove else 1} ] || '
+              '{ echo "Не удалось подтвердить состояние пира wg0" >&2; exit 1; }; ')
+    return fields + 'if [ -d /sys/class/net/wg0 ]; then ' + action + verify + 'fi'
+
+
+def _restore_after_failure(runner, command: str, failure: Exception) -> None:
+    try:
+        from core.cancel_flags import recovery_scope
+        with recovery_scope():
+            runner.run("restore_peer_state", command, title="Восстановление состояния пира")
+    except Exception as recovery:
+        raise StepError("restore_peer_state", -1, title="Операция с профилем и восстановление",
+                        detail=f"{failure}. Не удалось восстановить состояние: {recovery}") from failure
 
 
 def add_profile(namespace: str, server: dict, name: str, params: Dict[str, Any], emit) -> Dict[str, str]:
@@ -68,278 +108,51 @@ def add_profile(namespace: str, server: dict, name: str, params: Dict[str, Any],
                    title=f"peers/{name}.conf")
                    
         runner.run("add_peer_live",
-                   f'{templates.PEER_LOADER_SCRIPT_PATH}',
+                   _peer_live_command(f"/etc/wireguard/peers/{name}.conf"),
                    title="Применение пиров (wg set)")
     finally:
         ssh.close()
     return {"client_ip": client_ip}
 
 
-def rewrite_client_endpoints(server: dict, host: str, emit=None) -> int:
-    """Перезаписать ``Endpoint = <host>:<port>`` во всех ``clients/*.conf``.
-
-    Вызывается при смене Endpoint, чтобы уже созданные профили получили новый
-    адрес (при следующем скачивании .conf / QR). host — внешний IP/домен без
-    порта, валидируется (HOST_RE → sed-safe). Возвращает число обновлённых
-    клиентских конфигов. Конфиги лежат и для включённых, и для выключенных
-    профилей (toggle двигает только peers/ ↔ peers.disabled/), так что
-    обновляются все.
-    """
-    host = validate_host(host)
+def _rewrite_configuration(server, *, endpoint=None, port=None, address=None, old_address=None, dns=None, emit=None):
+    from . import configuration
     ssh = create_ssh_client(server)
-    runner = StepRunner(ssh, server, emit or (lambda _line: None))
     try:
-        port = runner.probe("awk '/^ *ListenPort/{print $3}' /etc/wireguard/wg0.conf").strip()
-        if not port:
-            raise StepError("rewrite_endpoints", -1, title="Смена Endpoint",
-                            detail="не удалось прочитать ListenPort из wg0.conf")
-        new_ep = f"{host}:{port}"
-        # host валидирован (нет |, &, \, /) → безопасно подставлять в sed-замену.
-        runner.run(
-            "rewrite_endpoints",
-            f"for f in /etc/wireguard/clients/*.conf; do "
-            f'[ -f "$f" ] || continue; '
-            f"sed -i -E 's|^[[:space:]]*Endpoint[[:space:]]*=.*|Endpoint = {new_ep}|' \"$f\"; "
-            f"done",
-            title=f"Обновление Endpoint → {new_ep} в существующих профилях",
-        )
-        count = runner.probe("ls -1 /etc/wireguard/clients/*.conf 2>/dev/null | wc -l").strip()
-        return int(count) if count.isdigit() else 0
+        files = configuration.read_files(ssh, server)
+        planned = files
+        if old_address is not None:
+            planned = dict(files)
+            path = configuration.ROOT + '/wg0.conf'
+            planned[path] = configuration.replace(files[path].decode(), 'Address', old_address).encode()
+        changes = configuration.prepare(planned, endpoint=endpoint, port=port, address=address, dns=dns)
+        changes.pop(configuration.ROOT + '/wg0.conf', None)
+        count = configuration.apply(ssh, server, files, changes)
+        if emit:
+            emit(f'   подтверждено изменений клиентских конфигов: {count}')
+        return count
     finally:
         ssh.close()
+
+
+def rewrite_client_endpoints(server: dict, host: str, emit=None) -> int:
+    return _rewrite_configuration(server, endpoint=validate_host(host), emit=emit)
 
 
 
 def rewrite_client_endpoint_ports(server: dict, port: str, emit=None) -> int:
-    """Обновить только порт в Endpoint во всех clients/*.conf (хост сохраняется)."""
-    port = str(port).strip()
-    if not port.isdigit() or not (1 <= int(port) <= 65535):
-        raise StepError(
-            "rewrite_endpoint_ports", -1, title="Смена порта",
-            detail=f"некорректный порт: {port}",
-        )
-    ssh = create_ssh_client(server)
-    runner = StepRunner(ssh, server, emit or (lambda _line: None))
-    try:
-        # Python-side generate: for each conf we could SFTP, but keep remote sed via printf script
-        remote = (
-            "PORT=%s; "
-            "for f in /etc/wireguard/clients/*.conf; do "
-            "[ -f \"$f\" ] || continue; "
-            "awk -v p=\"$PORT\" '"
-            "/^[[:space:]]*Endpoint[[:space:]]*=/ {"
-            "  line=$0; sub(/^[^=]*=[[:space:]]*/, \"\", line);"
-            "  host=line; sub(/:[0-9]+[[:space:]]*$/, \"\", host);"
-            "  gsub(/[[:space:]]/, \"\", host);"
-            "  print \"Endpoint = \" host \":\" p; next"
-            "} { print }' \"$f\" > \"$f.bot4vps_tmp\" && mv \"$f.bot4vps_tmp\" \"$f\"; "
-            "done"
-        ) % (port,)
-        runner.run(
-            "rewrite_endpoint_ports",
-            remote,
-            title=f"Обновление порта Endpoint → {port} в клиентских профилях",
-        )
-        count = runner.probe(
-            "ls -1 /etc/wireguard/clients/*.conf 2>/dev/null | wc -l"
-        ).strip()
-        return int(count) if count.isdigit() else 0
-    finally:
-        ssh.close()
+    from .validation import validate_port
+    return _rewrite_configuration(server, port=validate_port(port), emit=emit)
 
 
 
 def rewrite_client_subnet(server: dict, old_addr: str, new_addr: str, emit=None) -> int:
-    """Смена подсети туннеля: сеть меняется, host-часть адреса пира сохраняется.
-
-    Пример: сервер 10.8.0.1/24 → 10.9.0.1/24
-            клиент 10.8.0.5/32 → 10.9.0.5/32
-            peers AllowedIPs то же.
-
-    Обновляет:
-      • clients/*.conf  → Address
-      • peers/*.conf и peers.disabled/*.conf → AllowedIPs
-
-    После вызова нужен reload пиров (wg set / peer loader) — делает update_config.
-    Возвращает число затронутых клиентских .conf.
-    """
-    try:
-        old_iface = ipaddress.ip_interface(old_addr.strip())
-        new_iface = ipaddress.ip_interface(new_addr.strip())
-    except ValueError as e:
-        raise StepError("rewrite_subnet", -1, title="Смена подсети", detail=str(e))
-
-    if old_iface.version != new_iface.version:
-        raise StepError(
-            "rewrite_subnet", -1, title="Смена подсети",
-            detail="IPv4/IPv6 нельзя смешивать",
-        )
-    old_net = old_iface.network
-    new_net = new_iface.network
-    # Для типичного /24: меняются первые 3 октета; общий алгоритм — offset в сети
-    if old_net.prefixlen != new_net.prefixlen:
-        # разрешаем, но offset считаем по min prefix host bits
-        pass
-
-    old_base = int(old_net.network_address)
-    new_base = int(new_net.network_address)
-    old_size = old_net.num_addresses
-    new_size = new_net.num_addresses
-
-    def map_ip(ip_str: str) -> str | None:
-        try:
-            ip = ipaddress.ip_address(ip_str.strip())
-        except ValueError:
-            return None
-        if ip.version != old_iface.version:
-            return None
-        # если IP был в старой сети — переносим offset
-        if ip in old_net:
-            offset = int(ip) - old_base
-            if offset >= new_size:
-                return None  # не влезает в новую сеть
-            return str(ipaddress.ip_address(new_base + offset))
-        return None
-
-    ssh = create_ssh_client(server)
-    runner = StepRunner(ssh, server, emit or (lambda _line: None))
-    updated = 0
-    try:
-        # Список clients/*.conf
-        names = runner.probe(
-            "ls -1 /etc/wireguard/clients/*.conf 2>/dev/null | xargs -n1 basename 2>/dev/null || true"
-        )
-        for fname in names.splitlines():
-            fname = fname.strip()
-            if not fname.endswith(".conf"):
-                continue
-            path = f"/etc/wireguard/clients/{fname}"
-            _, content, _ = exec_sudo(
-                runner.ssh, runner.server, f"cat {path} 2>/dev/null || true"
-            )
-            if not content.strip():
-                continue
-            new_lines = []
-            changed = False
-            for line in content.splitlines():
-                if line.strip().lower().startswith("address"):
-                    # Address = 10.8.0.5/32
-                    try:
-                        _, val = line.split("=", 1)
-                    except ValueError:
-                        new_lines.append(line)
-                        continue
-                    val = val.strip()
-                    ip_part = val.split("/")[0].strip()
-                    prefix = val.split("/")[1].strip() if "/" in val else "32"
-                    mapped = map_ip(ip_part)
-                    if mapped:
-                        new_lines.append(f"Address = {mapped}/{prefix}")
-                        changed = True
-                    else:
-                        new_lines.append(line)
-                else:
-                    new_lines.append(line)
-            if changed:
-                body = "\n".join(new_lines) + "\n"
-                tmp = f"/tmp/bot4vps_subnet_{fname}"
-                sftp = runner.ssh.open_sftp()
-                try:
-                    with sftp.file(tmp, "w") as f:
-                        f.write(body)
-                finally:
-                    sftp.close()
-                runner.run(
-                    f"subnet_client_{fname}",
-                    f"mv {tmp} {path} && chmod 600 {path}",
-                    title=f"Подсеть: {fname}",
-                )
-                updated += 1
-
-        # peers + peers.disabled AllowedIPs
-        for peer_glob in (
-            "/etc/wireguard/peers/*.conf",
-            "/etc/wireguard/peers.disabled/*.conf",
-        ):
-            peer_list = runner.probe(
-                f"ls -1 {peer_glob} 2>/dev/null || true"
-            )
-            for path in peer_list.splitlines():
-                path = path.strip()
-                if not path:
-                    continue
-                _, content, _ = exec_sudo(
-                    runner.ssh, runner.server, f"cat {path} 2>/dev/null || true"
-                )
-                if not content.strip():
-                    continue
-                new_lines = []
-                changed = False
-                for line in content.splitlines():
-                    if line.strip().lower().startswith("allowedips"):
-                        try:
-                            key, val = line.split("=", 1)
-                        except ValueError:
-                            new_lines.append(line)
-                            continue
-                        parts = []
-                        for tok in val.split(","):
-                            tok = tok.strip()
-                            if not tok:
-                                continue
-                            ip_part = tok.split("/")[0].strip()
-                            pref = tok.split("/")[1].strip() if "/" in tok else "32"
-                            mapped = map_ip(ip_part)
-                            if mapped:
-                                parts.append(f"{mapped}/{pref}")
-                                changed = True
-                            else:
-                                parts.append(tok)
-                        new_lines.append(f"AllowedIPs = {', '.join(parts)}")
-                    else:
-                        new_lines.append(line)
-                if changed:
-                    body = "\n".join(new_lines) + "\n"
-                    tmp = "/tmp/bot4vps_peer_subnet.tmp"
-                    sftp = runner.ssh.open_sftp()
-                    try:
-                        with sftp.file(tmp, "w") as f:
-                            f.write(body)
-                    finally:
-                        sftp.close()
-                    runner.run(
-                        "subnet_peer",
-                        f"mv {tmp} {path} && chmod 600 {path}",
-                        title=f"Подсеть peer: {path.split('/')[-1]}",
-                    )
-
-        if emit:
-            emit(f"   подсеть: {old_addr} → {new_addr}, клиентских conf: {updated}")
-        return updated
-    finally:
-        ssh.close()
+    from .validation import validate_addr
+    return _rewrite_configuration(server, address=validate_addr(new_addr), old_address=old_addr, emit=emit)
 
 
 def rewrite_client_dns(server: dict, dns: str, emit=None) -> int:
-    """Перезаписать ``DNS = <dns>`` во всех ``clients/*.conf``. dns валидируется
-    (validate_dns → HOST_RE на каждый токен → sed-safe). Возвращает число обновлённых
-    клиентских конфигов. Используется ``update_config`` (частичная правка, §12)."""
-    dns = validate_dns(dns)
-    ssh = create_ssh_client(server)
-    runner = StepRunner(ssh, server, emit or (lambda _line: None))
-    try:
-        runner.run(
-            "rewrite_dns",
-            "for f in /etc/wireguard/clients/*.conf; do "
-            '[ -f "$f" ] || continue; '
-            f"sed -i -E 's|^[[:space:]]*DNS[[:space:]]*=.*|DNS = {dns}|' \"$f\"; "
-            "done",
-            title=f"Обновление DNS → {dns} в клиентских профилях",
-        )
-        count = runner.probe("ls -1 /etc/wireguard/clients/*.conf 2>/dev/null | wc -l").strip()
-        return int(count) if count.isdigit() else 0
-    finally:
-        ssh.close()
+    return _rewrite_configuration(server, dns=validate_dns(dns), emit=emit)
 
 
 def reissue_profile(namespace: str, server: dict, name: str, params: Dict[str, Any], emit) -> None:
@@ -357,6 +170,9 @@ def reissue_profile(namespace: str, server: dict, name: str, params: Dict[str, A
         is_active = runner.probe(f"test -f {peer_file} && echo yes || echo no") == "yes"
         is_disabled = runner.probe(f"test -f {disabled_peer_file} && echo yes || echo no") == "yes"
         
+        if is_active and is_disabled:
+            raise StepError("reissue_profile", -1, title=f"Профиль «{name}»",
+                            detail="Обнаружены две копии пира. Проверьте peers и peers.disabled.")
         if not is_active and not is_disabled:
             raise StepError("reissue_profile", -1, title=f"Профиль «{name}»", detail="профиль не найден")
             
@@ -369,41 +185,90 @@ def reissue_profile(namespace: str, server: dict, name: str, params: Dict[str, A
         old_pub = runner.probe(
             f'awk \'/^[[:space:]]*PublicKey/ {{sub(/^[^=]*=/, ""); print; exit}}\' {target_file} | tr -d \' \\r\\n\''
         )
+        preshared_key = runner.probe(_peer_value(target_file, "PresharedKey")) or None
         
         if not allowed_ips or not old_pub:
             raise StepError("reissue_profile", -1, title=f"Профиль «{name}»", 
                             detail="не удалось прочитать данные профиля")
                             
-        client_ip = allowed_ips.split("/")[0]
+        try:
+            if len(base64.b64decode(old_pub, validate=True)) != 32:
+                raise ValueError()
+            if preshared_key and len(base64.b64decode(preshared_key, validate=True)) != 32:
+                raise ValueError()
+            for address in allowed_ips.split(","):
+                ipaddress.ip_network(address, strict=False)
+        except (ValueError, binascii.Error):
+            raise StepError("reissue_profile", -1, title=f"Профиль «{name}»",
+                            detail="В профиле некорректные ключи или AllowedIPs") from None
+        client_ip = allowed_ips.split(",")[0].split("/")[0]
         prefix = "32"
-        
-        runner.run("gen_client_keys",
-                   f"install -d -m 700 {cdir} && umask 077 && "
-                   f"wg genkey > {cdir}/privatekey && wg pubkey < {cdir}/privatekey > {cdir}/publickey",
-                   title=f"Генерация новых ключей для «{name}»")
-                   
-        runner.run("update_peer_pubkey",
-                   f'sed -i -e "s|^\\s*PublicKey\\s*=.*|PublicKey = $(cat {cdir}/publickey)|" {target_file}',
-                   title="Обновление PublicKey в peers/")
-                   
-        server_addr = runner.probe("awk '/^ *Address/{print $3}' /etc/wireguard/wg0.conf")
         cached = read_cache(namespace, server.get("id", "")) if server.get("id") else {}
-        dns = str(params.get("WG_DNS") or cached.get("dns") or "1.1.1.1").strip()
+        dns = validate_dns(str(params.get("WG_DNS") or cached.get("dns") or "1.1.1.1").strip())
         host = validate_host(
             params.get("WG_ENDPOINT") or cached.get("endpoint") or server.get("host") or ""
         )
         port = runner.probe("awk '/^ *ListenPort/{print $3}' /etc/wireguard/wg0.conf")
+        if not port.isdigit() or not 1 <= int(port) <= 65535:
+            raise StepError("reissue_profile", -1, title=f"Профиль «{name}»",
+                            detail="Не удалось прочитать корректный ListenPort из wg0.conf")
         endpoint = f"{host}:{port.strip()}"
-        
-        templates.write_client_config(runner, name, cdir, client_ip, prefix, dns, endpoint)
-        
-        if is_active:
-            runner.run("remove_old_peer_live",
-                       f'wg set wg0 peer "{old_pub}" remove 2>/dev/null; true',
-                       title="Удаление старого пира (wg set)")
-            runner.run("add_new_peer_live",
-                       f'wg set wg0 peer "$(cat {cdir}/publickey)" allowed-ips {allowed_ips}',
-                       title="Добавление нового пира (wg set)")
+
+        backup = "/etc/wireguard/.bot4vps-reissue-" + uuid.uuid4().hex
+        client_conf = f"/etc/wireguard/clients/{name}.conf"
+        new_keys = backup + "/new_keys"
+        new_peer = backup + "/new_peer"
+        ready = False
+        try:
+            runner.run("backup_reissue",
+                       f"install -d -m 700 {backup} && cp -a {target_file} {backup}/peer && "
+                       f"if [ -d {cdir} ]; then cp -a {cdir} {backup}/client_keys; fi && "
+                       f"if [ -f {client_conf} ]; then cp -a {client_conf} {backup}/client.conf; fi",
+                       title="Защитная копия профиля перед перевыпуском")
+            ready = True
+            runner.run("gen_client_keys",
+                       f"install -d -m 700 {new_keys} /etc/wireguard/clients && umask 077 && "
+                       f"wg genkey > {new_keys}/privatekey && wg pubkey < {new_keys}/privatekey > {new_keys}/publickey",
+                       title=f"Генерация новых ключей для «{name}»")
+            runner.run("prepare_new_peer",
+                       f"cp -a {backup}/peer {new_peer} && "
+                       f'sed -i -e "s|^[[:space:]]*PublicKey[[:space:]]*=.*|PublicKey = $(cat {new_keys}/publickey)|" {new_peer}',
+                       title="Подготовка новой конфигурации пира")
+            templates.write_client_config(runner, name, new_keys, client_ip, prefix, dns, endpoint,
+                                          preshared_key=preshared_key)
+            if is_active:
+                runner.run("add_new_peer_live", _peer_live_command(new_peer),
+                           title="Добавление и проверка нового пира")
+                runner.run("remove_old_peer_live", _peer_live_command(backup + "/peer", remove=True),
+                           title="Удаление и проверка старого пира")
+            runner.run("install_reissued_profile",
+                       f"install -d -m 700 {cdir} && "
+                       f"install -m 600 -o root -g root {new_keys}/privatekey {cdir}/privatekey && "
+                       f"install -m 600 -o root -g root {new_keys}/publickey {cdir}/publickey && "
+                       f"install -m 600 -o root -g root {new_peer} {target_file}",
+                       title="Сохранение перевыпущенного профиля")
+        except Exception as failure:
+            if ready:
+                restore = (f"cp -a {backup}/peer {target_file} && rm -rf -- {cdir} && "
+                           f"if [ -d {backup}/client_keys ]; then cp -a {backup}/client_keys {cdir}; fi && "
+                           f"if [ -f {backup}/client.conf ]; then cp -a {backup}/client.conf {client_conf}; "
+                           f"else rm -f -- {client_conf}; fi")
+                if is_active:
+                    restore += (f" && if [ -f {new_peer} ]; then {_peer_live_command(new_peer, remove=True)}; fi"
+                                f" && {_peer_live_command(backup + '/peer')}")
+                try:
+                    _restore_after_failure(runner, restore, failure)
+                except StepError as recovery:
+                    raise StepError("reissue_recovery", -1, title="Перевыпуск и восстановление профиля",
+                                    detail=f"Защитная копия сохранена: {backup}. {recovery}") from failure
+            _restore_after_failure(runner, f"rm -rf -- {backup}", failure)
+            raise
+        try:
+            from core.cancel_flags import recovery_scope
+            with recovery_scope():
+                runner.run("cleanup_reissue", f"rm -rf -- {backup}", title="Очистка защитной копии")
+        except Exception:
+            runner.emit(f"   [!] Профиль обновлён, но защитную копию не удалось удалить: {backup}")
                        
         runner.emit(f"   [OK] Профиль «{name}» перевыпущен. IP сохранен: {client_ip}")
     finally:
@@ -455,22 +320,18 @@ def remove_profile(server: dict, name: str, emit) -> None:
     runner = StepRunner(ssh, server, emit)
     cdir = f"/etc/wireguard/clients/{name}"
     try:
-        has_keys = runner.probe(f"test -f {cdir}/publickey && echo yes || echo no") == "yes"
-        if has_keys:
-            runner.run("remove_peer_live",
-                       f'wg set wg0 peer "$(cat {cdir}/publickey)" remove 2>/dev/null; true',
-                       title="Удаление пира (wg set)")
-        else:
-            peer_file = f"/etc/wireguard/peers/{name}.conf"
-            disabled_peer_file = f"/etc/wireguard/peers.disabled/{name}.conf"
-            runner.run("remove_peer_live",
-                       f'pub=$(awk \'/^[[:space:]]*PublicKey/ {{sub(/^[^=]*=/, ""); print; exit}}\' {peer_file} {disabled_peer_file} 2>/dev/null | tr -d \' \\r\\n\'); '
-                       f'wg set wg0 peer "$pub" remove 2>/dev/null; true',
-                       title="Удаление импортированного пира (wg set)")
+        active = f"/etc/wireguard/peers/{name}.conf"
+        disabled = f"/etc/wireguard/peers.disabled/{name}.conf"
+        path = runner.probe(f"if [ -f {shlex.quote(active)} ]; then echo {shlex.quote(active)}; "
+                            f"elif [ -f {shlex.quote(disabled)} ]; then echo {shlex.quote(disabled)}; fi")
+        if path not in {active, disabled}:
+            raise StepError("remove_profile", -1, title=f"Профиль «{name}»", detail="профиль не найден")
+        runner.run("remove_peer_live", _peer_live_command(path, remove=True),
+                   title="Удаление и проверка пира (wg set)")
                        
         runner.run("cleanup_profile_files",
-                   f"rm -f /etc/wireguard/peers/{name}.conf /etc/wireguard/peers.disabled/{name}.conf; "
-                   f"rm -rf {cdir}; rm -f /etc/wireguard/clients/{name}.conf",
+                   f"rm -f -- {shlex.quote(active)} {shlex.quote(disabled)} && "
+                   f"rm -rf -- {shlex.quote(cdir)} && rm -f -- {shlex.quote('/etc/wireguard/clients/' + name + '.conf')}",
                    title="Удаление файлов профиля")
     finally:
         ssh.close()
@@ -479,45 +340,32 @@ def remove_profile(server: dict, name: str, emit) -> None:
 def toggle_profile(server: dict, name: str, enabled: bool, emit) -> None:
     ssh = create_ssh_client(server)
     runner = StepRunner(ssh, server, emit)
-    cdir = f"/etc/wireguard/clients/{name}"
     active = f"/etc/wireguard/peers/{name}.conf"
     disabled = f"/etc/wireguard/peers.disabled/{name}.conf"
     try:
         has_active = runner.probe(f"test -f {active} && echo yes || echo no") == "yes"
         has_disabled = runner.probe(f"test -f {disabled} && echo yes || echo no") == "yes"
 
-        if enabled:
-            if has_active:
-                runner.emit(f"   «{name}» уже включён")
-                return
-            if not has_disabled:
-                raise StepError("toggle_profile", -1, title=f"Профиль «{name}»",
-                                detail="профиль не найден (ни в peers/, ни в peers.disabled/)")
-            runner.run("enable_peer",
-                       f'install -d -m 700 /etc/wireguard/peers && '
-                       f'mv {disabled} {active} && '
-                       f'{templates.PEER_LOADER_SCRIPT_PATH}',
-                       title=f"Включение пира «{name}»")
-        else:
-            if has_disabled:
-                runner.emit(f"   «{name}» уже выключен")
-                return
-            if not has_active:
-                raise StepError("toggle_profile", -1, title=f"Профиль «{name}»",
-                                detail="профиль не найден")
-            
-            has_keys = runner.probe(f"test -f {cdir}/publickey && echo yes || echo no") == "yes"
-            if has_keys:
-                pub_cmd = f'cat {cdir}/publickey'
-            else:
-                # Безопасное чтение PublicKey
-                pub_cmd = f'awk \'/^[[:space:]]*PublicKey/ {{sub(/^[^=]*=/, ""); print; exit}}\' {active} | tr -d \' \\r\\n\''
-                
-            runner.run("disable_peer",
-                       f'install -d -m 700 /etc/wireguard/peers.disabled && '
-                       f'wg set wg0 peer "$({pub_cmd})" '
-                       f'remove 2>/dev/null; mv {active} {disabled}',
-                       title=f"Выключение пира «{name}»")
+        if has_active and has_disabled:
+            raise StepError("toggle_profile", -1, title=f"Профиль «{name}»",
+                            detail="Обнаружены две копии пира: peers и peers.disabled. Проверьте конфигурацию.")
+        if not has_active and not has_disabled:
+            raise StepError("toggle_profile", -1, title=f"Профиль «{name}»", detail="профиль не найден")
+        source = active if has_active else disabled
+        target = active if enabled else disabled
+        runner.run("ensure_peer_directory", f"install -d -m 700 {shlex.quote(target.rsplit('/', 1)[0])}",
+                   title="Подготовка каталога пиров")
+        try:
+            runner.run("enable_peer" if enabled else "disable_peer",
+                       _peer_live_command(source, remove=not enabled),
+                       title=f"{'Включение' if enabled else 'Выключение'} и проверка пира «{name}»")
+            if source != target:
+                runner.run("move_peer_file", f"mv -- {shlex.quote(source)} {shlex.quote(target)}",
+                           title="Сохранение состояния профиля")
+        except Exception as failure:
+            if source != target:
+                _restore_after_failure(runner, _peer_live_command(source, remove=not has_active), failure)
+            raise
     finally:
         ssh.close()
 
@@ -531,7 +379,10 @@ def rename_profile(server: dict, old_name: str, new_name: str, emit) -> None:
     
     try:
         has_client = runner.probe(f"test -d {old_cdir} && echo yes || echo no") == "yes"
-        if not has_client:
+        has_peer = runner.probe(
+            f"test -f /etc/wireguard/peers/{old_name}.conf -o -f /etc/wireguard/peers.disabled/{old_name}.conf "
+            "&& echo yes || echo no") == "yes"
+        if not has_client and not has_peer:
             raise StepError("rename_profile", -1, title=f"Профиль «{old_name}»", detail="профиль не найден")
             
         target_exists = runner.probe(
@@ -542,24 +393,22 @@ def rename_profile(server: dict, old_name: str, new_name: str, emit) -> None:
         if target_exists:
             raise StepError("rename_profile", -1, title=f"Профиль «{new_name}»", detail="имя уже занято")
             
-        runner.run("rename_client_dir",
-                   f"mv {old_cdir} {new_cdir}",
-                   title="Переименование директории клиента")
-                   
-        runner.run("rename_client_conf",
-                   f"test -f /etc/wireguard/clients/{old_name}.conf && "
-                   f"mv /etc/wireguard/clients/{old_name}.conf /etc/wireguard/clients/{new_name}.conf || true",
-                   title="Переименование конфига клиента")
-                   
-        old_active = f"/etc/wireguard/peers/{old_name}.conf"
-        new_active = f"/etc/wireguard/peers/{new_name}.conf"
-        old_disabled = f"/etc/wireguard/peers.disabled/{old_name}.conf"
-        new_disabled = f"/etc/wireguard/peers.disabled/{new_name}.conf"
-        
-        runner.run("rename_peer_file",
-                   f"if [ -f {old_active} ]; then mv {old_active} {new_active}; "
-                   f"elif [ -f {old_disabled} ]; then mv {old_disabled} {new_disabled}; fi",
-                   title="Переименование peers/*.conf")
+        paths = [(old_cdir, new_cdir),
+                 (f"/etc/wireguard/clients/{old_name}.conf", f"/etc/wireguard/clients/{new_name}.conf"),
+                 (f"/etc/wireguard/peers/{old_name}.conf", f"/etc/wireguard/peers/{new_name}.conf"),
+                 (f"/etc/wireguard/peers.disabled/{old_name}.conf", f"/etc/wireguard/peers.disabled/{new_name}.conf")]
+        moved = []
+        try:
+            for index, (source, target) in enumerate(paths):
+                if runner.probe(f"test -e {shlex.quote(source)} && echo yes || echo no") != "yes":
+                    continue
+                runner.run(f"rename_profile_{index}", f"mv -- {shlex.quote(source)} {shlex.quote(target)}",
+                           title=f"Переименование {source.rsplit('/', 1)[-1]}")
+                moved.append((source, target))
+        except Exception as failure:
+            for source, target in reversed(moved):
+                _restore_after_failure(runner, f"mv -- {shlex.quote(target)} {shlex.quote(source)}", failure)
+            raise
                    
         runner.emit(f"   [OK] Профиль «{old_name}» переименован в «{new_name}».")
     finally:

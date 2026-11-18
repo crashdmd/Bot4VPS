@@ -22,6 +22,7 @@
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query
@@ -29,6 +30,36 @@ from fastapi import APIRouter, HTTPException, Query
 from ..deps import err, parse_ts
 
 router = APIRouter(tags=["audit"])
+
+
+def _phone_names() -> dict[str, str]:
+    """Only display names; keep authentication/device secrets out of audit responses."""
+    from core.json_store import JsonDocumentStore
+    path = Path("data/mobile_devices.json")
+    if not path.is_file():
+        return {}
+    try:
+        rows = JsonDocumentStore(path, name="AUDIT PHONE NAMES").read()
+        return {str(row["id"]): str(row["name"]).strip()[:256] for row in rows
+                if row.get("kind") == "device" and row.get("id") and row.get("name")}
+    except Exception:
+        return {}
+
+
+def _with_phone_names(data):
+    names = _phone_names()
+    def visit(value):
+        if isinstance(value, dict):
+            actor = value.get("actor")
+            if isinstance(actor, dict) and actor.get("type") == "phone" and names.get(actor.get("id")):
+                actor["name"] = names[actor["id"]]
+            for item in value.values():
+                visit(item)
+        elif isinstance(value, list):
+            for item in value:
+                visit(item)
+    visit(data)
+    return data
 
 
 @router.get("/api/audit")
@@ -64,7 +95,7 @@ async def api_audit_list(
     try:
         from core.audit_query import DEFAULT_LIMIT, list_records
 
-        return await asyncio.to_thread(
+        data = await asyncio.to_thread(
             list_records,
             since=parse_ts(from_, None),
             until=parse_ts(to, None),
@@ -78,6 +109,7 @@ async def api_audit_list(
             limit=DEFAULT_LIMIT if limit is None else limit,
             cursor=cursor,
         )
+        return await asyncio.to_thread(_with_phone_names, data)
     except HTTPException:
         raise
     except ValueError as e:
@@ -141,7 +173,7 @@ async def api_audit_record(record_id: str):
         detail = await asyncio.to_thread(record_detail, record_id)
         if detail is None:
             raise HTTPException(404, "Запись аудита не найдена")
-        return detail
+        return await asyncio.to_thread(_with_phone_names, detail)
     except HTTPException:
         raise
     except Exception as e:

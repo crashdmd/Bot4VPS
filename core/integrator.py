@@ -29,11 +29,11 @@ Integrator Core — управление жизненным циклом сер�
 from __future__ import annotations
 
 import asyncio
+import sys
 import contextlib
 import importlib
 import json
 import os
-import queue as _queue
 import threading
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -275,6 +275,8 @@ class Service:
                 ServiceAction("confirm_remove", "🗑 Удалить сервис", style="danger", task_title="удаление"),
             ]
         status = self.get_status(server_id) or {}
+        if status.get("error"):
+            return [ServiceAction("sync", "🔵 Повторить проверку", task_title="синхронизация")]
         installed = bool(status.get("installed"))
         items: List[ServiceAction] = []
         if not installed:
@@ -428,7 +430,10 @@ class StepError(Exception):
         self.title = title or step
         self.exit_code = exit_code
         self.detail = detail
-        super().__init__(f"{self.title} завершилась с ошибкой (код {exit_code})")
+        message = f"{self.title} завершилась с ошибкой (код {exit_code})"
+        if detail:
+            message += ": " + detail[:500]
+        super().__init__(message)
 
 
 class OperationCancelled(Exception):
@@ -458,7 +463,7 @@ class StepRunner:
         self.completed: List[str] = []
         self.failed: Optional[str] = None
 
-    def run(self, name: str, command: str, title: Optional[str] = None) -> str:
+    def run(self, name: str, command: str, title: Optional[str] = None, *, timeout: int = 600) -> str:
         """Именованный шаг: стримит заголовок + вывод, падает в StepError при exit!=0."""
         from core.cancel_flags import current
         from core.operation_metrics import measure
@@ -470,7 +475,7 @@ class StepRunner:
         title = title or name
         self.emit(f"• {title}")
         exit_code, out, err = exec_sudo(
-            self.ssh, self.server, command, emit=lambda line: self.emit("   " + line)
+            self.ssh, self.server, command, emit=lambda line: self.emit("   " + line), timeout=timeout
         )
         if exit_code != 0:
             self.failed = name
@@ -480,7 +485,10 @@ class StepRunner:
 
     def probe(self, command: str) -> str:
         """Read-only запрос без имени и без проверки exit — для детектов/проверок."""
-        _, out, _ = exec_sudo(self.ssh, self.server, command)
+        from core.ssh import sudo_failure_message
+        code, out, err = exec_sudo(self.ssh, self.server, command)
+        if code != 0 and sudo_failure_message(err):
+            raise StepError("probe", code, title="Проверка состояния сервера", detail=sudo_failure_message(err))
         return out.strip()
 
 
@@ -497,18 +505,27 @@ async def sync_progress(progress_cb: Optional[ProgressCb]):
             await asyncio.to_thread(install_sync, server, params, emit)
     """
     loop = asyncio.get_running_loop()
-    q: "_queue.Queue[Optional[str]]" = _queue.Queue()
+    from core.progress_queue import ProgressQueue
+    from core.cancel_flags import current
+    q = ProgressQueue()
+    flag = current()
 
     async def _drain() -> None:
-        while True:
-            item = await loop.run_in_executor(None, q.get)
-            if item is None:
-                return
-            if progress_cb:
-                try:
-                    await progress_cb(item)
-                except Exception as e:
-                    print(f"[INTEGRATOR] progress cb: {e}", flush=True)
+        try:
+            while True:
+                item = await loop.run_in_executor(None, q.get)
+                if item is None:
+                    return
+                if progress_cb:
+                    try:
+                        await asyncio.wait_for(progress_cb(item), timeout=10)
+                    except asyncio.TimeoutError:
+                        print("[INTEGRATOR] progress cb: таймаут доставки лога", flush=True)
+                        return
+                    except Exception as e:
+                        print(f"[INTEGRATOR] progress cb: {e}", flush=True)
+        finally:
+            q.abort()
 
     drain_task = asyncio.create_task(_drain())
 
@@ -519,10 +536,17 @@ async def sync_progress(progress_cb: Optional[ProgressCb]):
         yield emit
     finally:
         q.put(None)
+        if (flag is not None and flag.is_set()) or isinstance(sys.exc_info()[1], asyncio.CancelledError):
+            q.abort()
+            drain_task.cancel()
         try:
             await drain_task
+        except asyncio.CancelledError:
+            if not q.stopped.is_set(): raise
         except Exception:
             pass
+        finally:
+            q.abort()
 
 
 # --------------------------------------------------
@@ -973,6 +997,9 @@ def _write_synced_cache(
         persistent = ()
     with _CACHE_LOCK:
         previous = read_cache(service_id, server_id)
+        if data.get("error"):
+            # Не уничтожать сведения о сервисе при временном отказе чтения.
+            data = {**previous, **data, "installed": None}
         for field in persistent:
             if field in previous and field not in data:
                 data[field] = previous[field]

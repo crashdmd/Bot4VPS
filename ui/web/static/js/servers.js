@@ -833,16 +833,13 @@ async function renderQuickActions(id) {
     checkXuiStatus(id),
   ]);
   if (revision !== quickActionsRevision) return;
-  const wireGuardInstalled = wireGuardResult.status === 'fulfilled'
-    && wireGuardResult.value === true;
-  const dockerInstalled = dockerResult.status === 'fulfilled'
-    && dockerResult.value === true;
-  const xuiInstalled = xuiResult.status === 'fulfilled'
-    && xuiResult.value === true;
+  const wireGuardInstalled = wireGuardResult.status === 'fulfilled' ? wireGuardResult.value : null;
+  const dockerInstalled = dockerResult.status === 'fulfilled' ? dockerResult.value : null;
+  const xuiInstalled = xuiResult.status === 'fulfilled' ? xuiResult.value : null;
 
   const resolveService = (button, installed, name, icon, open, install) => {
-    button.innerHTML = `${icon} ${installed ? 'Панель управления' : 'Установить'} ${name}`;
-    button.onclick = installed ? open : install;
+    button.innerHTML = `${icon} ${installed === true ? 'Панель управления' : installed === false ? 'Установить' : 'Проверить'} ${name}`;
+    button.onclick = installed === false ? install : open;
     button.disabled = false;
   };
   resolveService(serviceButtons[0], wireGuardInstalled, 'WireGuard', WIREGUARD_ICON,
@@ -1121,6 +1118,8 @@ export async function openServer(id) {
     // Информация о системе
     const infoEl = document.getElementById('srv-info');
     if (infoEl) {
+      const hostIp = String(mon.host_ip || s.host || '').trim();
+      const sslIp = String(mon.ssl_ip || '').trim();
       // Объединяем OS и OS Version
       const osName = sys.os || '—';
       const osVer = sys.os_version || '';
@@ -1139,6 +1138,14 @@ export async function openServer(id) {
             </span>
           </span>
         </div>
+        ${sslIp && sslIp !== hostIp ? `
+        <div class="info-row">
+          <span class="info-label">Публичный IP домена</span>
+          <span class="info-value">
+            <span id="srv-info-ssl-ip" class="copyable-value" title="Нажмите, чтобы скопировать">${esc(sslIp)}</span>
+          </span>
+        </div>
+        ` : ''}
         <div class="info-row">
           <span class="info-label">Порт</span>
           <span class="info-value">${esc(s.port || 22)}</span>
@@ -1179,8 +1186,9 @@ export async function openServer(id) {
       }
 
       infoEl.innerHTML = rows;
-      const infoIp = document.getElementById('srv-info-ip');
-      if (infoIp) {
+      for (const elementId of ['srv-info-ip', 'srv-info-ssl-ip']) {
+        const infoIp = document.getElementById(elementId);
+        if (!infoIp) continue;
         infoIp.onclick = () => {
           const ip = infoIp.textContent.trim();
 
@@ -1250,9 +1258,10 @@ async function checkServiceInstalled(serviceId, serverId) {
   try {
     const r = await j(`/api/services/${serviceId}/status`, { cache: 'no-store' });
     const srv = r.servers?.find(s => s.id === serverId);
+    if (!srv || srv.status?.error || srv.status?.installed === null) return null;
     return srv?.status?.installed === true;
   } catch {
-    return false;
+    return null;
   }
 }
 
@@ -1286,12 +1295,12 @@ function confirmInstallDocker(serverId) {
 
 // Открыть карточку 3x-ui для сервера
 function openXuiServer(serverId) {
-  import('./3xui.js?v=20261001-mobile-charts-v1').then(m => m.openXuiServerById(serverId));
+  import('./3xui.js?v=20261116-cli-compat-v2').then(m => m.openXuiServerById(serverId));
 }
 
 // Открыть визард установки 3x-ui
 function confirmInstallXui(serverId) {
-  import('./3xui.js?v=20261001-mobile-charts-v1')
+  import('./3xui.js?v=20261116-cli-compat-v2')
     .then(m => m.openInstallWizard(serverId))
     .catch(err => console.error('Ошибка загрузки модуля 3x-ui:', err));
 }

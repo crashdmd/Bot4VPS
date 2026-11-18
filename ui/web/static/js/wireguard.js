@@ -108,6 +108,7 @@ function openModalEl(el) {
 }
 function closeModalEl(el) {
   if (!el) return;
+  if (el.id === 'wg-qr-modal') clearQr();
   el.classList.remove('open');
   el.style.zIndex = '';
   delete el.dataset.modalZ;
@@ -160,6 +161,7 @@ const wgEndpointRevealed = new Set();
 /** Состояние WG на сервере. «Не проверен» не существует: пустой кэш
  *  трактуется как «не установлен» (актуализация — забота фоновой проверки). */
 function wgState(st) {
+  if (st && st.error) return 'unknown';
   if (st && st.needs_migration) return 'classic';
   if (st && st.installed) return 'installed';
   return 'absent';
@@ -183,6 +185,7 @@ const WG_BLOCKED_NOTE = {
 };
 
 const WG_STATUS_LABEL = {
+  unknown: '⚠️ Ошибка проверки',
   installed: '🟢 Установлен',
   classic: '🟡 Классический конфиг',
   absent: '⚪ Не установлен',
@@ -191,9 +194,9 @@ const WG_STATUS_LABEL = {
 // 1-й клик — установленные сверху, 2-й — не установленные, 3-й — классика;
 // внутри каждой группы — по алфавиту.
 const WG_STATUS_ORDERS = [
-  ['installed', 'classic', 'absent'],
-  ['absent', 'classic', 'installed'],
-  ['classic', 'installed', 'absent'],
+  ['installed', 'classic', 'absent', 'unknown'],
+  ['absent', 'classic', 'installed', 'unknown'],
+  ['classic', 'installed', 'absent', 'unknown'],
 ];
 
 export async function loadWireguard() {
@@ -279,6 +282,7 @@ function sortedWgServers(list) {
 
 function wgStatusCell(s) {
   const st = s.status || {};
+  if (st.error) return `<span class="badge ssl-warn" title="${esc(st.error)}">⚠️ Ошибка проверки</span>`;
   const stateKey = wgState(st);
   const badgeCls = stateKey === 'installed' ? 'on' : (stateKey === 'classic' ? 'ssl-warn' : 'off');
   // title — подпись статуса (на мобиле бейдж превращается в цветной маркер);
@@ -344,6 +348,7 @@ function wgRowCells(s) {
       </span></td>`;
   }
   const status = `<td class="wg-status-cell" data-label="Статус">${wgStatusCell(s)}</td>`;
+  if (st.error) return `${name}${status}<td colspan="3" class="svc-offline-cell">${esc(st.error)}</td>`;
   if (stateKey === 'installed') {
     const stats = st.stats || {};
     return `${name}${status}
@@ -990,10 +995,7 @@ function openProfileMenu(anchor, name) {
 async function runProfileMenuAction(name, act) {
   // Скачивание — только клиентский GET; остальное — существующий profileAction()
   if (act === 'download') {
-    const a = document.createElement('a');
-    a.href = srvBase(wgServerId) + '/config/' + encodeURIComponent(name);
-    a.download = name + '.conf';
-    a.click();
+    downloadProfile(wgServerId, name);
     return;
   }
   if (act === 'qr') {
@@ -1068,11 +1070,7 @@ function applyProfilePicker() {
     (async () => {
       try {
         if (checked.length === 1) {
-          const a = document.createElement('a');
-          a.href = srvBase(wgServerId) + '/config/' + encodeURIComponent(checked[0]);
-          a.download = checked[0] + '.conf';
-          a.click();
-          toast('Скачивание…', true);
+          await downloadProfile(wgServerId, checked[0]);
           return;
         }
         const r = await fetch(srvBase(wgServerId) + '/export-zip', {
@@ -1082,7 +1080,7 @@ function applyProfilePicker() {
         });
         if (!r.ok) {
           let d; try { d = await r.json(); } catch { d = {}; }
-          throw new Error(d.detail || ('HTTP ' + r.status));
+          throw new Error(d.detail || d.error || ('HTTP ' + r.status));
         }
         const blob = await r.blob();
         const url = URL.createObjectURL(blob);
@@ -1138,7 +1136,7 @@ function openProfileDetail(name) {
   const dl = (k, v) => `<dt>${k}</dt><dd>${v}</dd>`;
   // Управляемый: скачать/QR. Импортированный: перевыпустить (после него станет управляемым).
   const conf = p.managed
-    ? `<a class="btn" href="${srvBase(wgServerId)}/config/${encodeURIComponent(p.name)}" download>📥 Скачать .conf</a>
+    ? `<button type="button" class="btn" data-pact="download">📥 Скачать .conf</button>
        <button type="button" class="secondary" data-pact="qr">📱 Показать QR</button>`
     : `<button type="button" data-pact="reissue">♻️ Перевыпустить</button>`;
   const toggleLbl = p.enabled ? 'Выключить' : 'Включить';
@@ -1194,6 +1192,8 @@ async function profileAction(name, act, extra = {}) {
       if (!(await wgConfirm('Перевыпуск ключей', `Перевыпустить ключи профиля «${name}»?\n\nСтарый .conf и QR станут недействительными — клиенту потребуется новый конфиг. IP-адрес сохранится.`, 'Перевыпустить'))) return;
       ok(await post(`${base}/${encodeURIComponent(name)}/reissue`, {})); toast('Перевыпущен', true);
       closeModalEl(document.getElementById('wg-profile-modal'));
+    } else if (act === 'download') {
+      return downloadProfile(id, name);
     } else if (act === 'qr') {
       return showQr(id, name);
     }
@@ -1438,10 +1438,66 @@ async function confirmInstall() {
 
 // ---------------- QR ----------------
 
-function showQr(id, name) {
+async function profileBlob(url, options) {
+  const response = await fetch(url, options);
+  if (!response.ok || (response.headers.get('Content-Type') || '').includes('application/json')) {
+    let payload = {}; try { payload = await response.json(); } catch (_) {}
+    throw new Error(payload.detail || payload.error || `Не удалось получить файл (HTTP ${response.status})`);
+  }
+  return response.blob();
+}
+
+async function downloadProfile(id, name) {
+  try {
+    const blob = await profileBlob(`${srvBase(id)}/config/${encodeURIComponent(name)}`);
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = name + '.conf';
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+    toast('Конфигурация скачана', true);
+  } catch (error) {
+    toast(error.message || 'Не удалось скачать конфигурацию', false);
+  }
+}
+
+let qrRequest = 0;
+let qrObjectUrl = null;
+function clearQr() {
+  qrRequest += 1;
+  const img = document.getElementById('wg-qr-img');
+  if (img) { img.hidden = true; img.removeAttribute('src'); }
+  if (qrObjectUrl) URL.revokeObjectURL(qrObjectUrl);
+  qrObjectUrl = null;
+}
+
+async function showQr(id, name) {
+  clearQr();
+  const request = qrRequest;
+  const img = document.getElementById('wg-qr-img');
+  const modal = document.getElementById('wg-qr-modal');
+  let note = document.getElementById('wg-qr-note');
+  if (!note) {
+    note = document.createElement('p');
+    note.id = 'wg-qr-note';
+    note.setAttribute('role', 'status');
+    img.after(note);
+  }
   document.getElementById('wg-qr-title').textContent = '📱 ' + name;
-  document.getElementById('wg-qr-img').src = `${srvBase(id)}/qr/${encodeURIComponent(name)}`;
-  openModalEl(document.getElementById('wg-qr-modal'));
+  note.textContent = 'Загрузка QR-кода…';
+  openModalEl(modal);
+  try {
+    const blob = await profileBlob(`${srvBase(id)}/qr/${encodeURIComponent(name)}`);
+    if (request !== qrRequest) return;
+    qrObjectUrl = URL.createObjectURL(blob);
+    img.src = qrObjectUrl;
+    img.hidden = false;
+    note.textContent = '';
+  } catch (error) {
+    if (request !== qrRequest) return;
+    note.textContent = error.message || 'Не удалось открыть QR-код';
+  }
 }
 
 // ---------------- bind ----------------
@@ -1524,11 +1580,16 @@ export function bindWireguardUI() {
   // install: backdrop click does not close
 
   // QR
-  document.getElementById('wg-qr-close')?.addEventListener('click', () =>
-    closeModalEl(document.getElementById('wg-qr-modal')));
+  document.getElementById('wg-qr-close')?.addEventListener('click', () => {
+    clearQr();
+    closeModalEl(document.getElementById('wg-qr-modal'));
+  });
   // QR: backdrop click does not close
   document.getElementById('wg-qr-img')?.addEventListener('error', () => {
-    toast('Не удалось сгенерировать QR (нет Endpoint, профиль неуправляемый или нет библиотеки qrcode)', false);
+    const note = document.getElementById('wg-qr-note');
+    const img = document.getElementById('wg-qr-img');
+    if (img) img.hidden = true;
+    if (note) note.textContent = 'Не удалось отобразить полученное изображение QR-кода. Повторите загрузку.';
   });
 }
 

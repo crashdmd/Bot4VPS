@@ -380,7 +380,7 @@ function renderRecord(item) {
   const end = endState(item);
   const duration = durationText(item.duration_seconds);
   const meta = [
-    `<span>${esc(actorText)}${actor.role ? ` · ${esc(actor.role)}` : ''}</span>`,
+    `<span>${esc(actorText)}${actor.name ? ` · ${esc(actor.name)}` : ''}${actor.role ? ` · ${esc(actor.role)}` : ''}</span>`,
     item.server ? `<span>${esc(item.server.name || item.server.id)}</span>` : '',
     badges.length ? `<span>${esc(badges.join(' · '))}</span>` : '',
   ].filter(Boolean).join('');
@@ -444,7 +444,7 @@ function technicalRecordsHtml(records) {
       <summary><span>${esc(formatServerDateTime(record.ts))}</span><span>${esc(record.title || record.action)}</span><span class="badge ${RESULT_CLASS[record.result] || 'unk'}"><span class="dot"></span>${esc(resultText(record.result))}</span></summary>
       <dl>
         <dt>Код</dt><dd><span class="audit-action-code">${esc(record.action)}</span></dd>
-        <dt>Кто</dt><dd>${esc(actorText)}</dd>
+        <dt>Кто</dt><dd>${esc(actorText)}${actor.name ? ` · ${esc(actor.name)}` : ''}</dd>
         ${record.server ? `<dt>Сервер</dt><dd>${esc(record.server.name || record.server.id)}</dd>` : ''}
         ${record.op_id ? `<dt>Операция</dt><dd><span class="audit-action-code">${esc(record.op_id)}</span></dd>` : ''}
         ${record.task_id ? `<dt>Задача</dt><dd><span class="audit-action-code">${esc(record.task_id)}</span></dd>` : ''}
@@ -468,7 +468,7 @@ function renderDetail(data) {
   ];
   if (record.duration_seconds != null) rows.push(['Длительность', esc(durationText(record.duration_seconds))]);
   rows.push(['Итог', esc(resultText(result))]);
-  rows.push(['Кто', `${esc(actor.type || 'система')}${actor.id ? `: ${esc(actor.id)}` : ''}${actor.role ? ` · роль: ${esc(actor.role)}` : ''}${actor.ip ? ` · ${esc(actor.ip)}` : ''}`]);
+  rows.push(['Кто', `${esc(actor.type || 'система')}${actor.id ? `: ${esc(actor.id)}` : ''}${actor.name ? ` · ${esc(actor.name)}` : ''}${actor.role ? ` · роль: ${esc(actor.role)}` : ''}${actor.ip ? ` · ${esc(actor.ip)}` : ''}`]);
   if (record.server) rows.push(['Сервер', esc(record.server.name || record.server.id)]);
   if (record.error) rows.push(['Ошибка', `<span class="audit-error">${esc(record.error)}</span>`]);
 

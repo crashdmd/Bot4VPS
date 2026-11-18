@@ -28,7 +28,7 @@ from core.integrator import (
     sync_progress,
     update_cache,
 )
-from core.ssh import create_ssh_client, exec_sudo
+from core.ssh import checked_output, create_ssh_client, exec_sudo
 from core.storage import find_server
 from core.task_manager import TaskResult
 
@@ -117,10 +117,11 @@ class Service(BaseService):
         if own:
             ssh = create_ssh_client(server)
         try:
-            _, ver, _ = exec_sudo(
+            version_result = exec_sudo(
                 ssh, server,
-                "command -v docker >/dev/null 2>&1 && docker --version || true",
+                "if command -v docker >/dev/null 2>&1; then docker --version; fi",
             )
+            ver = checked_output(version_result, title="Проверка Docker")
             installed = bool(ver.strip())
             active = "inactive"
             containers_list: List[Dict[str, Any]] = []
@@ -217,7 +218,7 @@ class Service(BaseService):
         try:
             data = await asyncio.to_thread(self._read_live, server_id, ssh)
         except Exception as e:
-            data = {"installed": False, "error": str(e)}
+            data = {"installed": None, "error": str(e)}
         # integrator.sync() переписывает кэш ЦЕЛИКОМ (write_cache), а не
         # сливает поля — возвращаем ignored в данных, иначе игнор слетал бы
         # при каждой синхронизации (docs/compose-model.md §11).
@@ -699,6 +700,8 @@ class Service(BaseService):
 
     def get_actions(self, server_id: str) -> List[ServiceAction]:
         status = self.get_status(server_id) or {}
+        if server_id and status.get("error"):
+            return [ServiceAction("sync", "🔵 Повторить проверку", task_title="синхронизация")]
         installed = bool(status.get("installed"))
         # Пустой server_id — служебный вызов из resolve_task_title (имя задачи
         # в очереди): сервер не нужен, отдаём полный каталог всех действий

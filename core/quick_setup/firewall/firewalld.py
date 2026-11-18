@@ -6,7 +6,7 @@ import re
 import shlex
 from typing import Optional
 
-from core.ssh import exec_sudo
+from core.ssh import checked_output, exec_sudo
 
 from ..package_manager import detect as detect_package_manager
 from .base import (
@@ -35,13 +35,14 @@ class FirewalldBackend(FirewallBackend):
     name = "firewalld"
 
     def detect(self, ssh, server: dict) -> Optional[FirewallInfo]:
-        code, out, _ = exec_sudo(
+        result = exec_sudo(
             ssh,
             server,
             "command -v firewall-cmd >/dev/null && echo yes || echo no",
             timeout=15,
         )
-        if code != 0 or "yes" not in (out or ""):
+        out = checked_output(result, title="Проверка firewalld")
+        if "yes" not in out:
             return None
         code, state, err = exec_sudo(ssh, server, "firewall-cmd --state", timeout=15)
         active = code == 0 and (state or "").strip().lower() == "running"

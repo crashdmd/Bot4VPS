@@ -30,8 +30,9 @@ from core.integrator import (
     update_cache,
 )
 from core.operation_metrics import mark_direct_mutation_started
-from core.ssh import create_ssh_client, exec_sudo
-from core.ssl import clear_ssl_check, enable_ssl_check
+from core.cancel_flags import recovery_scope
+from core.ssh import checked_output, create_ssh_client, exec_sudo, sudo_failure_message
+from core.ssl import CertificatePostIssueOptions, apply_certificate_post_issue, clear_ssl_check, enable_ssl_check
 from core.storage import find_server
 from core.task_manager import TaskResult
 
@@ -71,7 +72,11 @@ class Service(BaseService):
     def prepare_install_params(
         self, server_id: str, params: Dict[str, Any]
     ) -> Dict[str, Any]:
-        return validation.validate_install_params(params)
+        normalized = validation.validate_install_params(params)
+        CertificatePostIssueOptions.from_dict(params.get("post_issue"))
+        if params.get("post_issue") is not None:
+            normalized["post_issue"] = dict(params["post_issue"])
+        return normalized
 
     async def do_install(
         self, server_id: str, params: Dict[str, Any],
@@ -81,8 +86,9 @@ class Service(BaseService):
         if not server:
             return TaskResult(success=False, error="Сервер не найден")
         try:
-            params = validation.validate_install_params(params)
-        except validation.ValidationError as e:
+            params = self.prepare_install_params(server_id, params)
+            post_options = CertificatePostIssueOptions.from_dict(params.get("post_issue"))
+        except (validation.ValidationError, ValueError) as e:
             return TaskResult(success=False, error=str(e))
         # IP сервера — для LE IP-сертификата и URL при skip
         if params.get("ssl_mode") == "ip" and not params.get("server_ip"):
@@ -117,7 +123,15 @@ class Service(BaseService):
         elif fw.get("skipped"):
             ports_note = ", ".join(f"{p}/tcp" for p in fw["skipped"])
             out += f". Порт {ports_note} НЕ открыт в firewall — добавьте правило вручную"
-        return TaskResult(success=True, output=out)
+        post = {"warnings": []}
+        issued = res.get("issued_certificate")
+        if issued:
+            post = await apply_certificate_post_issue(
+                server_id, issued["host"], assigned=issued["assigned"],
+                options=post_options, progress_cb=progress_cb)
+            if post["ssl_monitoring"] == "enabled":
+                out += f". SSL-мониторинг включён для {issued['host']}"
+        return TaskResult(success=True, output=out, warnings=post["warnings"])
 
     def _schedule_arch_pull(self, params: Dict[str, Any]) -> None:
         """Фоновая докачка релиза в кэш (медленный канал — до 30 минут).
@@ -228,8 +242,9 @@ class Service(BaseService):
                         "aarch64": "arm64", "arm64": "arm64"}
             arch = arch_map.get(arch_raw)
 
-            installed = ssh_probe(ssh, server,
-                f"test -x {templates.XUI_FOLDER}/x-ui && echo yes || echo no") == "yes"
+            installed = checked_output(exec_sudo(ssh, server,
+                f"test -x {templates.XUI_FOLDER}/x-ui && echo yes || echo no"),
+                title="Проверка установки 3x-ui") == "yes"
             if not installed:
                 return {"installed": False, "service_id": "3x-ui", "arch": arch}
 
@@ -260,15 +275,9 @@ class Service(BaseService):
                 panel_url = f"{scheme}://{host}:{port}/{path}"
 
             # креды из install-result.env (наш парсинг — не source!)
-            creds = {}
             raw = ssh_probe(ssh, server,
                 f"if [ -r {templates.XUI_INSTALL_RESULT} ]; then cat {templates.XUI_INSTALL_RESULT}; fi")
-            for line in raw.splitlines():
-                line = line.strip()
-                if not line or "=" not in line:
-                    continue
-                key, _, value = line.partition("=")
-                creds[key.strip()] = value.strip().strip("'").strip('"')
+            creds = manage.parse_install_result(raw)
             # BBR и geo-файлы — для карточки (этап 4); при неустановленном
             # сервисе сюда не доходим (installed=False выше)
             bbr = manage.read_bbr_state(ssh, server)
@@ -299,7 +308,10 @@ class Service(BaseService):
                 ssh.close()
 
     async def do_sync(self, server_id: str, ssh=None) -> Dict[str, Any]:
-        live = await asyncio.to_thread(self._read_live, server_id, ssh)
+        try:
+            live = await asyncio.to_thread(self._read_live, server_id, ssh)
+        except Exception as exc:
+            return {"installed": None, "error": str(exc)}
         # секреты live — plaintext; в кэш (через integrator.sync → write_cache)
         # должны попадать уже enc1:
         if live.get("installed"):
@@ -325,7 +337,8 @@ class Service(BaseService):
         этот ключ никто (визард берёт источник через resolve-source)."""
         cache = read_cache("3x-ui", server_id) or {}
         return {
-            "installed": bool(cache.get("installed")),
+            "installed": cache.get("installed", False),
+            "error": cache.get("error"),
             "version": cache.get("version"),
             "active": cache.get("active"),
             "enabled": cache.get("enabled"),
@@ -401,8 +414,9 @@ class Service(BaseService):
         from core.operation_metrics import measure
 
         measure(ssh)
-        installed = ssh_probe(ssh, server,
-            f"test -x {templates.XUI_FOLDER}/x-ui && echo yes || echo no") == "yes"
+        installed = checked_output(exec_sudo(ssh, server,
+            f"test -x {templates.XUI_FOLDER}/x-ui && echo yes || echo no"),
+            title="Проверка установки 3x-ui") == "yes"
         if not installed:
             raise StepError("not_installed", -1, title="Карточка 3x-ui",
                             detail="3x-ui на сервере не установлен")
@@ -433,30 +447,19 @@ class Service(BaseService):
         finally:
             ssh.close()
 
-    def card_change_username(self, server_id: str, params: Dict[str, Any]) -> Dict[str, Any]:
+    def card_change_credentials(self, server_id: str, params: Dict[str, Any]) -> Dict[str, Any]:
         username = validation.validate_username((params or {}).get("username") or "")
-        restart = bool((params or {}).get("restart"))
-        ssh, server = self._card_ssh(server_id)
-        try:
-            self._card_check_installed(ssh, server)
-            mark_direct_mutation_started()
-            manage.change_username(ssh, server, username, restart)
-            return {"success": True,
-                    "output": f"Логин панели изменён: {username}"
-                              + ("; сервис перезапущен" if restart else "; перезапустите сервис для применения")}
-        finally:
-            ssh.close()
-
-    def card_change_password(self, server_id: str, params: Dict[str, Any]) -> Dict[str, Any]:
         password = validation.validate_password((params or {}).get("password") or "")
+        if len(password.encode("utf-8")) > 72:
+            raise validation.ValidationError("Пароль: максимум 72 байта UTF-8 (ограничение 3x-ui)")
         restart = bool((params or {}).get("restart"))
         ssh, server = self._card_ssh(server_id)
         try:
             self._card_check_installed(ssh, server)
             mark_direct_mutation_started()
-            manage.change_password(ssh, server, password, restart)
+            manage.change_credentials(ssh, server, username, password, restart)
             return {"success": True,
-                    "output": "Пароль панели изменён (обновлён в secrets бота)"
+                    "output": f"Логин и пароль панели изменены; логин: {username}"
                               + ("; сервис перезапущен" if restart else "; перезапустите сервис для применения")}
         finally:
             ssh.close()
@@ -573,7 +576,8 @@ class Service(BaseService):
         (/etc/letsencrypt). По умолчанию (не указан) — acme, как их CLI."""
         try:
             domain = validation.validate_domain((params or {}).get("domain") or "")
-        except validation.ValidationError as e:
+            post_options = CertificatePostIssueOptions.from_dict((params or {}).get("post_issue"))
+        except (validation.ValidationError, ValueError) as e:
             return TaskResult(success=False, error=str(e))
         engine = str((params or {}).get("engine") or "acme").strip().lower()
         if engine not in ("acme", "certbot"):
@@ -591,9 +595,15 @@ class Service(BaseService):
         note = (f"; панель: {res['panel_url']}" if res.get("panel_url")
                 else "; путь панели не менялся")
         eng_label = "certbot" if engine == "certbot" else "acme.sh"
+        post = await apply_certificate_post_issue(
+            server_id, domain, assigned=bool((params or {}).get("set_panel", True)),
+            options=post_options, progress_cb=progress_cb)
+        if post["ssl_monitoring"] == "enabled":
+            note += f"; SSL-мониторинг включён для {domain}"
         return TaskResult(success=True,
                           output=f"Сертификат для {res['domain']} выпущен "
-                                 f"(Let's Encrypt, {eng_label}, авто-renew){note}")
+                                 f"(Let's Encrypt, {eng_label}, авто-renew){note}",
+                          warnings=post["warnings"])
 
     async def do_cert_issue_ip(self, server_id: str, params: Dict[str, Any],
                                progress_cb) -> TaskResult:
@@ -602,7 +612,8 @@ class Service(BaseService):
             ip = validation.validate_ipv4((params or {}).get("ip") or "")
             ipv6_raw = str((params or {}).get("ipv6") or "").strip()
             ipv6 = validation.validate_ipv6(ipv6_raw) if ipv6_raw else None
-        except validation.ValidationError as e:
+            post_options = CertificatePostIssueOptions.from_dict((params or {}).get("post_issue"))
+        except (validation.ValidationError, ValueError) as e:
             return TaskResult(success=False, error=str(e))
         res, err = await self._cert_op(
             server_id,
@@ -613,9 +624,14 @@ class Service(BaseService):
         if err:
             return err
         note = f"; панель: {res['panel_url']}" if res.get("panel_url") else ""
+        post = await apply_certificate_post_issue(
+            server_id, ip, assigned=bool((params or {}).get("set_panel", True)),
+            options=post_options, progress_cb=progress_cb)
+        if post["ssl_monitoring"] == "enabled":
+            note += f"; SSL-мониторинг включён для {ip}"
         return TaskResult(success=True,
                           output=f"Сертификат для {ip} выпущен (~6 дней, "
-                                 f"обновляется автоматически){note}")
+                                 f"обновляется автоматически){note}", warnings=post["warnings"])
 
     async def do_cert_renew(self, server_id: str, params: Dict[str, Any],
                             progress_cb) -> TaskResult:
@@ -632,7 +648,7 @@ class Service(BaseService):
         fn = certs.renew_certbot if engine == "certbot" else certs.renew
         res, err = await self._cert_op(
             server_id,
-            lambda ssh, srv, emit: fn(ssh, srv, domain, emit),
+            lambda ssh, srv, emit: fn(ssh, srv, domain, emit=emit),
             progress_cb)
         if err:
             return err
@@ -691,7 +707,7 @@ class Service(BaseService):
             ssh.close()
 
     async def _fakesite_op(self, server_id: str, fn, progress_cb) -> Any:
-        """SSH + installed check + synchronous SelfSNI operation with progress."""
+        """SSH + SelfSNI operation; reconcile completed work after cleanup failure."""
         server = find_server(server_id)
         if not server:
             return None, TaskResult(success=False, error="Сервер не найден")
@@ -700,11 +716,39 @@ class Service(BaseService):
                 ssh = create_ssh_client(server)
                 try:
                     self._card_check_installed(ssh, server)
-                    return fn(ssh, server, emit)
+                    try:
+                        return fn(ssh, server, emit)
+                    except fakesite.FakesiteCleanupError as error:
+                        with recovery_scope():
+                            try:
+                                current = fakesite.inspect(ssh, server, error.result)
+                            except Exception as probe_error:
+                                error.verification_error = str(probe_error)
+                                error.state.update(status="unverified",
+                                                   message="Операция завершена; повторная проверка сайта недоступна")
+                            else:
+                                error.state.update(current)
+                                if error.operation == "install" and (
+                                    not current.get("present") or not current.get("local_reachable")
+                                ):
+                                    error.failure = "SelfSNI изменён, но проверка работающего сайта не пройдена: " + str(current.get("message") or current.get("status"))
+                                elif error.operation == "remove" and current.get("present") and current.get("managed"):
+                                    error.failure = "Удаление выполнено, но при сверке на сервере найден управляемый сайт SelfSNI"
+                        raise
                 finally:
                     ssh.close()
             try:
                 return await asyncio.to_thread(run), None
+            except fakesite.FakesiteCleanupError as error:
+                warning = str(error)
+                if error.verification_error:
+                    warning += "\nПовторная проверка сайта недоступна: " + error.verification_error
+                else:
+                    warning += "\nФактическое состояние сайта проверено: " + str(error.state.get("message") or error.state.get("status"))
+                return error.state, TaskResult(
+                    success=error.failure is None, warnings=error.failure is None,
+                    error=error.failure, output=warning,
+                )
             except StepError as e:
                 return None, TaskResult(success=False, error=str(e), output=e.detail)
             except Exception as e:
@@ -723,8 +767,11 @@ class Service(BaseService):
             lambda ssh, srv, emit: fakesite.install(ssh, srv, domain, previous, emit),
             progress_cb,
         )
-        if err:
+        if err and not err.success:
+            if res is not None:
+                update_cache("3x-ui", server_id, fakesite=res)
             return err
+        warning = err.output if err else ""
         update_cache("3x-ui", server_id, fakesite=res)
         await asyncio.to_thread(enable_ssl_check, server_id, res["domain"])
         if progress_cb:
@@ -739,13 +786,14 @@ class Service(BaseService):
             return TaskResult(
                 success=False,
                 error="SelfSNI установлен, но сертификат панели не назначен. Повторите установку.",
-                output=panel_err.output,
+                output="\n".join(part for part in (panel_err.output, warning) if part),
             )
         return TaskResult(
             success=True,
+            warnings=bool(warning),
             output=(f"SelfSNI установлен: {res['domain']}; "
                     f"Dest {res['dest']}; SNI {res['sni']}; Xver 1; "
-                    f"панель: {panel['panel_url']}"),
+                    f"панель: {panel['panel_url']}" + ("\n" + warning if warning else "")),
         )
 
     async def do_fakesite_remove(self, server_id: str, params: Dict[str, Any],
@@ -759,14 +807,18 @@ class Service(BaseService):
             lambda ssh, srv, emit: fakesite.remove(ssh, srv, previous, emit),
             progress_cb,
         )
-        if err:
+        if err and not err.success:
+            if res is not None:
+                update_cache("3x-ui", server_id, fakesite=res)
             return err
-        update_cache("3x-ui", server_id, fakesite={"present": False})
+        warning = err.output if err else ""
+        update_cache("3x-ui", server_id, fakesite=res if err else {"present": False})
         removed_domain = str((previous or {}).get("domain") or "").strip()
         if removed_domain:
             await asyncio.to_thread(clear_ssl_check, server_id, removed_domain)
         suffix = "; прежний сайт восстановлен" if res.get("restored_content") else ""
-        return TaskResult(success=True, output="SelfSNI удалён" + suffix)
+        return TaskResult(success=True, warnings=bool(warning),
+                          output="SelfSNI удалён" + suffix + ("\n" + warning if warning else ""))
 
     def card_export_db(self, server_id: str, params: Dict[str, Any]) -> Dict[str, Any]:
         """Экспорт x-ui.db: консистентная копия (sqlite3 .backup) → bytes.
@@ -785,8 +837,8 @@ class Service(BaseService):
                            progress_cb) -> TaskResult:
         """Импорт .db/.dump: файл уже в data/tmp (upload-эндпоинт положил),
         здесь — остановка панели, замена базы, migrate, авторестарт."""
-        import os
         from pathlib import Path
+        from core.db_import_uploads import open_upload
         local_path = Path(str((params or {}).get("local_path") or ""))
         # только data/tmp бота: local_path приходит из upload-эндпоинта,
         # произвольные пути читать нельзя
@@ -796,33 +848,32 @@ class Service(BaseService):
         except (OSError, ValueError):
             inside = False
         if not inside or not local_path.is_file():
-            return TaskResult(success=False, error="Файл импорта не найден")
+            return TaskResult(success=False, error="Файл импорта не найден. Загрузите файл заново.")
         server = find_server(server_id)
         if not server:
             return TaskResult(success=False, error="Сервер не найден")
 
-        def _read() -> bytes:
-            with open(local_path, "rb") as f:
-                data = f.read()
-            os.unlink(local_path)  # tmp-файл живёт одну задачу
-            return data
-
         async with sync_progress(progress_cb) as emit:
             def _import():
-                ssh, srv = self._card_ssh(server_id)
-                try:
-                    self._card_check_installed(ssh, srv)
-                    return dbops.import_db(ssh, srv, _read(), emit)
-                finally:
-                    ssh.close()
+                with open_upload(local_path) as uploaded:
+                    ssh, srv = self._card_ssh(server_id)
+                    try:
+                        self._card_check_installed(ssh, srv)
+                        result = dbops.import_db(ssh, srv, uploaded.read(), emit)
+                        local_path.unlink(missing_ok=True)
+                        return result
+                    finally:
+                        ssh.close()
             try:
                 res = await asyncio.to_thread(_import)
             except StepError as e:
                 return TaskResult(success=False,
                                   error=str(e),
                                   output=getattr(e, "detail", None) or None)
+            except (ValueError, RuntimeError, OSError) as e:
+                return TaskResult(success=False, error=str(e))
         return TaskResult(success=True,
-                          output="База восстановлена; панель перезапущена. "
+                          output="База восстановлена; исходное состояние панели сохранено. "
                                  f"Прежняя база: {res.get('backup', 'сохранена')}")
 
     # ------------------------------------------------------------
@@ -881,7 +932,9 @@ class Service(BaseService):
 
 
 def ssh_probe(ssh, server: dict, command: str) -> str:
-    code, out, _ = exec_sudo(ssh, server, command, timeout=30)
+    code, out, err = exec_sudo(ssh, server, command, timeout=30)
+    if code != 0 and sudo_failure_message(err):
+        checked_output((code, out, err), title="Чтение состояния 3x-ui")
     return out.strip()
 
 

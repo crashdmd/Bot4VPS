@@ -8,7 +8,7 @@ import { loadServers, loadQueues, loadHistory, loadGroupsAndKeys,
 import { loadScripts, bindScriptsUI } from './scripts.js?v=20261001-mobile-charts-v1';
 import { loadWireguard, bindWireguardUI, stopWgTimers, openWgServerById } from './wireguard.js?v=20261001-mobile-charts-v1';
 import { loadDocker, bindDockerUI, stopDockerTimers, openDockerServerById } from './docker.js?v=20261001-mobile-charts-v1';
-import { loadXui, stopXuiTimers, stopXuiCardPoll, openXuiServerById } from './3xui.js?v=20261001-mobile-charts-v1';
+import { loadXui, stopXuiTimers, stopXuiCardPoll, openXuiServerById } from './3xui.js?v=20261116-cli-compat-v2';
 import { loadFiles, bindFilesUI } from './files.js?v=20261001-mobile-charts-v1';
 import { bindEditorUI } from './editor.js?v=20260815-scripts-table-v1';
 import { bindTerminalUI, closeTerminal } from './terminal.js?v=20260905-glassblue-v2';
@@ -25,7 +25,7 @@ import {
 } from './metrics.js?v=20261001-mobile-charts-v1';
 import {
   loadAudit, resetAuditPage, auditFromUrl, openAuditRecord, bindAuditUI, refreshAudit,
-} from './audit.js?v=20261001-mobile-charts-v1';
+} from './audit.js?v=20261116-phone-names-v1';
 
 const QUICK_SETUP_MODULE_URL = './quick_setup.js?v=20261109-hostkey-v1';
 const quickSetupModule = import(QUICK_SETUP_MODULE_URL).catch(error => {

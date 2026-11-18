@@ -257,7 +257,7 @@ async def confirm(app, access, endpoint, host, body):
         if row is None:
             raise AccessDenied(403, "Подтвердить может только ранее привязанный телефон")
         if await asyncio.to_thread(access.primary_device_id) != device_id:
-            raise AccessDenied(403, "Подтвердить смену API может только главный телефон")
+            raise AccessDenied(403, "Подтвердить смену API может только основной телефон")
         try:
             _public_key(row["public_key"]).verify(_decode(body.get("signature"), 256),
                 proof_message(change.id, change.nonce, device_id, change.proposed["public_url"]), ec.ECDSA(hashes.SHA256()))
@@ -342,7 +342,7 @@ async def preview(app, access, endpoint, host, body):
                 await rollback(app, change, "expired", "Время истекло. Прежние настройки сохранены")
                 raise AccessDenied(410, "Время подтверждения истекло")
             if await asyncio.to_thread(access.primary_device_id) != device_id or device_id not in change.devices:
-                raise AccessDenied(403, "Смену API подтверждает главный телефон")
+                raise AccessDenied(403, "Смену API подтверждает основной телефон")
             payload = json.loads(base64.urlsafe_b64decode(change.code.removeprefix("b4vps:") + "=="))
             return {"ok": True, "state": "pending", "device_id": device_id, "payload": payload}
         if change and change.state != "approved":

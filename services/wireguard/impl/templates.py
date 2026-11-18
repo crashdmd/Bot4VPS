@@ -12,6 +12,7 @@ PEER_LOADER_SCRIPT_PATH = "/usr/local/lib/bot4vps/wg-load-peers.sh"
 # ВАЖНО: парсинг через awk '{sub(/^[^=]*=/, ""); print; exit}' используется потому,
 # что Base64 ключи заканчиваются на "=". awk -F= отрезал бы этот завершающий знак.
 PEER_LOADER_SCRIPT = """#!/bin/sh
+set -e
 # Автоматически сгенерировано Bot4VPS. Применяет peers/*.conf к live-интерфейсу.
 for p in /etc/wireguard/peers/*.conf; do
     [ -f "$p" ] || continue
@@ -28,30 +29,29 @@ for p in /etc/wireguard/peers/*.conf; do
         [ -n "$endp" ] && set -- "$@" "endpoint" "$endp"
 
         if [ -n "$psk" ]; then
-            echo "$psk" | "$@" "preshared-key" "/dev/stdin" 2>/dev/null || true
+            printf '%s\n' "$psk" | "$@" "preshared-key" "/dev/stdin"
         else
-            "$@" 2>/dev/null || true
+            "$@"
         fi
+    else
+        echo "В файле пира отсутствует PublicKey" >&2
+        exit 1
     fi
 done
+exit 0
 """
 
 
 def install_peer_loader_script(runner: StepRunner) -> None:
     """Устанавливает sh-скрипт парсера для использования в PostUp и live-применения."""
     runner.run("ensure_lib_dir", "install -d -m 755 /usr/local/lib/bot4vps", title="Создание /usr/local/lib/bot4vps")
-    tmp_path = "/tmp/bot4vps_wg_loader.sh"
-    sftp = runner.ssh.open_sftp()
-    try:
-        with sftp.file(tmp_path, "w") as f:
-            f.write(PEER_LOADER_SCRIPT)
-    finally:
-        sftp.close()
-    runner.run(
-        "install_loader_script",
-        f"mv {tmp_path} {PEER_LOADER_SCRIPT_PATH} && chmod 755 {PEER_LOADER_SCRIPT_PATH}",
-        title="Установка скрипта wg-load-peers.sh"
-    )
+    from core.ssh import private_remote_upload
+    with private_remote_upload(runner.ssh, runner.server, PEER_LOADER_SCRIPT) as tmp_path:
+        runner.run(
+            "install_loader_script",
+            f"install -m 755 -o root -g root {tmp_path} {PEER_LOADER_SCRIPT_PATH}",
+            title="Установка скрипта wg-load-peers.sh"
+        )
 
 
 def postup_postdown(iface: str) -> Tuple[str, str]:
@@ -71,13 +71,10 @@ def postup_postdown(iface: str) -> Tuple[str, str]:
 def _write_via_sftp_and_render(
     runner: StepRunner, tmp_path: str, template: str, step_id: str, title: str, render_cmd: str,
 ) -> None:
-    sftp = runner.ssh.open_sftp()
-    try:
-        with sftp.file(tmp_path, "w") as f:
-            f.write(template)
-    finally:
-        sftp.close()
-    runner.run(step_id, render_cmd, title=title)
+    from core.ssh import private_remote_upload
+
+    with private_remote_upload(runner.ssh, runner.server, template) as uploaded:
+        runner.run(step_id, "umask 077; " + render_cmd.replace(tmp_path, uploaded), title=title)
 
 
 def create_server_config(runner: StepRunner, port: str, addr: str, iface: str) -> None:
@@ -93,7 +90,7 @@ def create_server_config(runner: StepRunner, port: str, addr: str, iface: str) -
     tmp_path = "/tmp/bot4vps_wg0.tpl"
     render_cmd = (
         f'sed "s|__WG_SERVER_KEY__|$(cat /etc/wireguard/server_private.key)|" {tmp_path} '
-        f"> /etc/wireguard/wg0.conf && chmod 600 /etc/wireguard/wg0.conf && "
+        f"> /etc/wireguard/wg0.conf && chmod 600 /etc/wireguard/wg0.conf && chown root:root /etc/wireguard/wg0.conf && "
         f"test -s /etc/wireguard/wg0.conf && rm -f {tmp_path}"
     )
     _write_via_sftp_and_render(runner, tmp_path, template, "create_wg0_conf",
@@ -103,7 +100,9 @@ def create_server_config(runner: StepRunner, port: str, addr: str, iface: str) -
 def write_client_config(
     runner: StepRunner, name: str, cdir: str,
     client_ip: str, prefix: str, dns: str, endpoint: str,
+    preshared_key: str | None = None,
 ) -> None:
+    psk_line = f"PresharedKey = {preshared_key}\n" if preshared_key else ""
     template = (
         "[Interface]\n"
         "PrivateKey = __CLIENT_KEY__\n"
@@ -112,6 +111,7 @@ def write_client_config(
         "\n"
         "[Peer]\n"
         "PublicKey = __SERVER_KEY__\n"
+        f"{psk_line}"
         f"Endpoint = {endpoint}\n"
         "AllowedIPs = 0.0.0.0/0\n"
         "PersistentKeepalive = 25\n"
@@ -122,6 +122,7 @@ def write_client_config(
         f'-e "s|__SERVER_KEY__|$(cat /etc/wireguard/server_public.key)|" '
         f"{tmp_path} > /etc/wireguard/clients/{name}.conf && "
         f"chmod 600 /etc/wireguard/clients/{name}.conf && "
+        f"chown root:root /etc/wireguard/clients/{name}.conf && "
         f"test -s /etc/wireguard/clients/{name}.conf && rm -f {tmp_path}"
     )
     _write_via_sftp_and_render(runner, tmp_path, template, "write_client_conf",

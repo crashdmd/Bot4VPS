@@ -176,8 +176,9 @@ async def execute_script_ex(
 
     validate_script_path(script_name)
     validate_script_values(values or {})
-    line_queue: queue.Queue = queue.Queue(maxsize=128)
     cancel_flag = threading.Event()
+    from core.progress_queue import ProgressQueue
+    line_queue = ProgressQueue(cancel_flag)
 
     async def watch_cancel():
         if not cancel_event:
@@ -190,15 +191,20 @@ async def execute_script_ex(
 
     async def drain_lines():
         loop = asyncio.get_running_loop()
-        while True:
-            line = await loop.run_in_executor(None, line_queue.get)
-            if line is None:
-                break
-            if progress_callback:
-                try:
-                    await progress_callback(line)
-                except Exception as e:
-                    print(f"[SCRIPT] progress cb: {e}", flush=True)
+        try:
+            while True:
+                line = await loop.run_in_executor(None, line_queue.get)
+                if line is None:
+                    break
+                if progress_callback:
+                    try:
+                        await asyncio.wait_for(progress_callback(line), timeout=10)
+                    except asyncio.TimeoutError:
+                        return
+                    except Exception as e:
+                        print(f"[SCRIPT] progress cb: {e}", flush=True)
+        finally:
+            line_queue.abort()
 
     cancel_task = asyncio.create_task(watch_cancel())
     drain_task = asyncio.create_task(drain_lines())
@@ -213,12 +219,20 @@ async def execute_script_ex(
         await worker
         raise
     finally:
+        was_cancelled = cancel_flag.is_set()
         cancel_flag.set()
         cancel_task.cancel()
+        if was_cancelled:
+            line_queue.abort()
+            drain_task.cancel()
         try:
             await drain_task
+        except asyncio.CancelledError:
+            if not line_queue.stopped.is_set(): raise
         except Exception:
             pass
+        finally:
+            line_queue.abort()
 
     if error == "Отменено":
         return TaskResult(success=False, output=output, error="Отменено", cancelled=True)

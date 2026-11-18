@@ -2,6 +2,7 @@
 """Telegram presentation and routing for the 3x-ui service."""
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import string
 from io import BytesIO
@@ -55,7 +56,7 @@ async def _state(server_id: str) -> Dict[str, Any]:
     try:
         return await integrator.call(SERVICE_ID, server_id, "get_state") or {}
     except Exception as exc:
-        return {"installed": False, "error": str(exc)}
+        return {"installed": None, "error": str(exc)}
 
 
 def _server_name(server_id: str) -> str:
@@ -104,13 +105,15 @@ async def _card(query, user_id: int, server_id: str, src: str | None) -> None:
     state = await _state(server_id)
     name = _server_name(server_id)
     if not state.get("installed"):
-        text = f"🌐 3x-ui · {name}\n\n⚪ Не установлен"
+        text = f"🌐 3x-ui · {name}\n\n" + ("⚠️ Ошибка проверки" if state.get("error") else "⚪ Не установлен")
         if state.get("error"):
             text += f"\n\n⚠️ {state['error']}"
         rows = [
             [InlineKeyboardButton("🟢 Установить 3x-ui", callback_data=_cb("xui_install", server_id, src=src))],
             [InlineKeyboardButton("← Назад", callback_data=_back_from_service(SERVICE_ID, server_id, src))],
         ]
+        if state.get("error"):
+            rows = [[InlineKeyboardButton("🔄 Повторить проверку", callback_data=_cb("view", server_id, src=src))], rows[-1]]
         await _edit(query, text, InlineKeyboardMarkup(rows))
         return
 
@@ -779,11 +782,10 @@ class XuiUI(ServiceUI):
             await ctx.update.message.reply_text("❌ Файл больше 5 МиБ.")
             return True
 
-        tmp_dir = Path.cwd() / "data" / "tmp"
-        tmp_dir.mkdir(parents=True, exist_ok=True)
-        local_path = tmp_dir / f"xui-db-import-{token_hex(16)}{suffix}"
+        from core.db_import_uploads import save_upload
+        local_path = None
         try:
-            local_path.write_bytes(data)
+            local_path = await asyncio.to_thread(save_upload, data)
             task = await _enqueue_watch_message(
                 ctx.update.message, ctx.context.bot, SERVICE_ID, state["server"], "db_import",
                 {"local_path": str(local_path)}, src=state.get("src"),
@@ -791,7 +793,8 @@ class XuiUI(ServiceUI):
             if task is None:
                 local_path.unlink(missing_ok=True)
         except Exception as exc:
-            local_path.unlink(missing_ok=True)
+            if local_path is not None:
+                local_path.unlink(missing_ok=True)
             await ctx.update.message.reply_text(f"❌ Не удалось подготовить импорт: {exc}")
         return True
 

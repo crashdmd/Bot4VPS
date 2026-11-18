@@ -28,13 +28,17 @@ _CORE_CONTEXT = None
 class _CoreJob:
     """Один повторяющийся job: asyncio-таск с cancellation-токеном."""
 
-    def __init__(self, name, task: asyncio.Task):
+    def __init__(self, name, task: asyncio.Task, on_removal):
         self.name = name
         self.task = task
         self._removed = False
+        self._on_removal = on_removal
 
     def schedule_removal(self) -> None:
+        if self._removed:
+            return
         self._removed = True
+        self._on_removal(self)
         self.task.cancel()
 
     @property
@@ -47,6 +51,13 @@ class CoreJobQueue:
 
     def __init__(self) -> None:
         self._jobs: dict[str, list[_CoreJob]] = {}
+
+    def _discard(self, job: _CoreJob) -> None:
+        jobs = self._jobs.get(job.name, [])
+        if job in jobs:
+            jobs.remove(job)
+        if not jobs:
+            self._jobs.pop(job.name, None)
 
     def run_repeating(self, callback, interval, first=None, name=None) -> _CoreJob:
         loop = asyncio.get_running_loop()
@@ -71,8 +82,10 @@ class CoreJobQueue:
                 pass
 
         task = loop.create_task(_run())
-        job = _CoreJob(name or callback.__name__, task)
+        job = _CoreJob(name or callback.__name__, task, self._discard)
         self._jobs.setdefault(job.name, []).append(job)
+        # Также убираем задачи, отменённые напрямую или завершившиеся сами.
+        task.add_done_callback(lambda _task: job.schedule_removal())
         return job
 
     def get_jobs_by_name(self, name: str) -> list[_CoreJob]:
@@ -80,10 +93,10 @@ class CoreJobQueue:
         return [j for j in self._jobs.get(name, []) if not j.removed]
 
     async def stop(self) -> None:
-        for jobs in self._jobs.values():
-            for job in jobs:
-                job.schedule_removal()
-        self._jobs.clear()
+        jobs = [job for group in self._jobs.values() for job in group]
+        for job in jobs:
+            job.schedule_removal()
+        await asyncio.gather(*(job.task for job in jobs), return_exceptions=True)
 
 
 _core_queue: CoreJobQueue | None = None
@@ -213,6 +226,10 @@ async def start_core_jobs() -> CoreJobQueue:
 
     from core.monitor import schedule_monitor_jobs
     schedule_monitor_jobs(queue)
+
+    from core.db_import_uploads import cleanup_job
+    queue.run_repeating(cleanup_job, interval=5 * 60, first=0,
+                        name="db_import_upload_cleanup")
 
     # Автопродление LE-сертификата панели: сама задача каждый запуск
     # сверяется с config (mode) и юнитом (фактический TLS), поэтому

@@ -346,7 +346,7 @@ async def _generic_service_card(query, service_id: str, server_id: str, src: str
     try:
         status = await integrator.call(service_id, server_id, "get_status") or {}
     except Exception as e:
-        status = {}
+        status = {"error": str(e)}
         try:
             await query.message.reply_text(f"⚠️ Не удалось получить статус: {e}")
         except Exception:
@@ -361,7 +361,10 @@ async def _generic_service_card(query, service_id: str, server_id: str, src: str
     if desc:
         lines.append(desc)
     lines.append("")
-    lines.append("✅ Статус: установлен" if installed else "⚪ Статус: не установлен")
+    if status.get("error"):
+        lines.extend(("⚠️ Не удалось проверить состояние", str(status["error"])))
+    else:
+        lines.append("✅ Статус: установлен" if installed else "⚪ Статус: не установлен")
     if synced_at != "—":
         lines.append(f"🕒 Синхронизация: {synced_at}")
     else:

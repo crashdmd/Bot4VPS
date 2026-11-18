@@ -3671,6 +3671,7 @@ def open_port_on_ssh(
     source: str = "",
     *,
     acknowledge_firewall_conflict: bool = False,
+    temporary: bool = False,
 ):
     port = _port(port)
     protocol = _protocol(protocol)
@@ -3700,7 +3701,10 @@ def open_port_on_ssh(
         )
     mutations: list[FirewallMutation] = []
     for backend, _ in active:
-        mutation = backend.open_port(ssh, server, port, protocol, source)
+        if temporary and backend.name == "ufw":
+            mutation = backend.open_temporary_port(ssh, server, port, protocol, source)
+        else:
+            mutation = backend.open_port(ssh, server, port, protocol, source)
         mutations.append(mutation)
         if not mutation.ok or not mutation.verified:
             break

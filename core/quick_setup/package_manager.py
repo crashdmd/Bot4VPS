@@ -7,7 +7,7 @@ import shlex
 from dataclasses import dataclass
 from typing import Iterable, Sequence
 
-from core.ssh import exec_sudo
+from core.ssh import exec_sudo, sudo_failure_message
 
 _PACKAGE_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9+._-]{0,127}$")
 
@@ -61,7 +61,9 @@ class PackageManager:
             "zypper": f"rpm -q -- {q} >/dev/null 2>&1",
             "pacman": f"pacman -Q -- {q} >/dev/null 2>&1",
         }
-        code, _, _ = exec_sudo(ssh, server, commands[self.name], timeout=30)
+        code, _, err = exec_sudo(ssh, server, commands[self.name], timeout=30)
+        if code != 0 and sudo_failure_message(err):
+            raise RuntimeError(sudo_failure_message(err))
         return code == 0
 
     def is_installed_batch(self, ssh, server: dict, packages: Sequence[str]) -> dict[str, bool]:
@@ -86,7 +88,9 @@ class PackageManager:
             )
         else:
             command = f"pacman -Q -- {joined} 2>/dev/null || true"
-        code, out, _ = exec_sudo(ssh, server, command, timeout=60)
+        code, out, err = exec_sudo(ssh, server, command, timeout=60)
+        if code != 0 and sudo_failure_message(err):
+            raise RuntimeError(sudo_failure_message(err))
         if code != 0:
             # Батч-запрос не удался — честный пустой результат, вызовущий
             # может провалиться на is_installed по одному.

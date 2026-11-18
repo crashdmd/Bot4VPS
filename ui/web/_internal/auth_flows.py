@@ -278,7 +278,7 @@ class AuthFlows:
             from .device_access.primary import current
             result["recipient_device_id"] = current(rows)
             if method == "mobile" and not result["recipient_device_id"]:
-                raise HTTPException(409, "Сначала выберите главный телефон в настройках подключения")
+                raise HTTPException(409, "Сначала выберите основной телефон в настройках подключения")
             if method == "mobile":
                 result["expires"] = self.clock() + LOGIN_TTL
             if method == "delayed":
@@ -392,11 +392,11 @@ class AuthFlows:
                     primary_selection_required=len(remaining) > 1)
             if selected:
                 self._notice(rows, selected["id"], "primary_assigned", target_name=selected.get("name", "Телефон"),
-                    message="Телефон «" + selected.get("name", "Телефон") + "» автоматически назначен главным после отвязки другого устройства")
+                    message="Телефон «" + selected.get("name", "Телефон") + "» автоматически назначен основным после отвязки другого устройства")
             elif remaining:
                 for device in remaining:
                     self._notice(rows, device["id"], "primary_selection_required",
-                        message="Главный телефон отвязан. Выберите новый главный телефон в веб-панели, подтвердив выбор паролем администратора.")
+                        message="Основной телефон отвязан. Выберите новый основной телефон в веб-панели, подтвердив выбор паролем администратора.")
         if not totp_enabled() or get_web_config().get("totp_device_id") != device_id:
             return
         generation = clear_totp_secret(via="primary_phone_unlink", fallback_telegram=True, preserve_sessions=True)
@@ -693,12 +693,12 @@ class AuthFlows:
                 result = {"ok": True, "primary_device_id": device_id}
                 return rows
             if any(row.get("kind") == "auth" and row.get("purpose") == "primary_transfer" and not row.get("completed") and row.get("state") in ("pending", "approved", "confirming") and row.get("expires", 0) > self.clock() for row in rows):
-                raise HTTPException(409, "Сначала завершите или отмените перенос главного телефона")
+                raise HTTPException(409, "Сначала завершите или отмените перенос основного телефона")
             pending = self._new("auth", browser, ttl=OTP_TTL, purpose="primary_transfer", device_id=device_id,
                 primary_before=current(rows), initiating_version=expected_version,
                 username=web.get("username", "admin"))
             result = {"ok": False, "pending": True, "id": pending["id"], "primary_device_id": current(rows),
-                "message": "Ожидаем установку TOTP на новом телефоне. Прежний главный телефон сохраняет доступ до подтверждения. Для переноса требуется поддержка в мобильном приложении."}
+                "message": "Ожидаем установку TOTP на новом телефоне. Прежний основной телефон сохраняет доступ до подтверждения."}
             return rows + [pending]
         self._mutate(choose)
         return result
@@ -718,9 +718,9 @@ class AuthFlows:
             if primary:
                 require(rows, target)
             elif get_web_config().get("mobile_primary_selection_pending"):
-                raise HTTPException(409, "Сначала выберите главный телефон, подтвердив выбор паролем администратора")
+                raise HTTPException(409, "Сначала выберите основной телефон, подтвердив выбор паролем администратора")
             elif not enabled or target is None:
-                raise HTTPException(409, "Сначала назначьте главный телефон в настройках мобильного приложения")
+                raise HTTPException(409, "Сначала назначьте основной телефон в настройках мобильного приложения")
             if not any(r.get("kind") == "device" and r.get("id") == target for r in rows):
                 raise HTTPException(404, "Доверенный телефон не найден")
             if enabled and totp_enabled():
@@ -894,7 +894,7 @@ class AuthFlows:
                 if enable.get("purpose") == "primary_transfer":
                     from .device_access.primary import current
                     if current(rows) != enable.get("primary_before"):
-                        raise HTTPException(409, "Главный телефон уже изменился")
+                        raise HTTPException(409, "Основной телефон уже изменился")
                     replace = True
                 else:
                     from .device_access.primary import require_factor_authority
@@ -907,7 +907,7 @@ class AuthFlows:
             if device_id and enable is None:
                 from .device_access.access import MobileAccess
                 if not MobileAccess(self.store.path).totp_setup_allowed(device_id):
-                    raise HTTPException(403, "TOTP доступен главному телефону. Другой телефон выбирается при настройке 2FA в веб-панели")
+                    raise HTTPException(403, "TOTP доступен основному телефону. Другой телефон выбирается при настройке 2FA в веб-панели")
             if totp_registered() and totp_enabled() and not replace:
                 result = {"registered": True, "reuse": True}
                 return rows
@@ -958,7 +958,7 @@ class AuthFlows:
                 if enable.get("purpose") == "primary_transfer":
                     from .device_access.primary import current
                     if current(rows) != enable.get("primary_before"):
-                        raise HTTPException(409, "Главный телефон уже изменился")
+                        raise HTTPException(409, "Основной телефон уже изменился")
                 else:
                     from .device_access.primary import require_factor_authority
                     require_factor_authority(rows, row.get("device_id"), enable)

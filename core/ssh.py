@@ -2,8 +2,10 @@ import os
 import re
 import shlex
 import socket
+import sys
 import threading
 import time
+from contextlib import contextmanager
 from typing import Callable, Optional, Sequence, Tuple
 
 import paramiko
@@ -32,6 +34,7 @@ def create_ssh_client(server, timeout=8):
     try:
         _ssh_connect(ssh, server, timeout)
     except Exception:
+        ssh.close()
         from core.monitor import note_ssh_failure
         note_ssh_failure(server.get("id"))
         raise
@@ -51,11 +54,13 @@ def _ssh_connect(ssh, server, timeout=8):
         ssh.connect(
             hostname=server["host"], port=server.get("port", 22),
             username=server["user"], key_filename=server["key_path"], timeout=timeout,
+            allow_agent=False, look_for_keys=False,
         )
     else:
         ssh.connect(
             hostname=server["host"], port=server.get("port", 22),
             username=server["user"], password=server["password"], timeout=timeout,
+            allow_agent=False, look_for_keys=False,
         )
 
 
@@ -143,13 +148,13 @@ def test_connection(server):
         return False, str(e)
 
 
-def _sudo_argv(server, argv: Sequence[str]) -> str:
+def _sudo_argv(server, argv: Sequence[str], *, privileged: bool = True) -> str:
     """Собрать shell wrapper только из безопасно quoted argv."""
     if not argv or any("\x00" in str(value) for value in argv):
         raise ValueError("Некорректный binary command argv")
     command = shlex.join([str(value) for value in argv])
     wrapped = f"bash -c {shlex.quote(command)}"
-    if (server.get("user", "") or "").lower() != "root":
+    if privileged and (server.get("user", "") or "").lower() != "root":
         wrapped = f"sudo -S -p '' {wrapped}"
     return wrapped
 
@@ -162,15 +167,17 @@ def exec_binary_stream(
     *,
     timeout: float = 600,
     is_cancelled: Callable[[], bool] | None = None,
+    privileged: bool = True,
 ) -> tuple[int, bytes]:
     """Выполнить command и передать stdout неизменёнными binary chunks.
 
     stderr дренируется параллельно, чтобы он не заполнил SSH channel. stdout
     никогда не декодируется; stderr ограничен безопасным диагностическим буфером.
     """
-    stdin, stdout, stderr = ssh.exec_command(_sudo_argv(server, argv), timeout=timeout)
+    command = _sudo_argv(server, argv, privileged=privileged)
+    stdin, stdout, stderr = ssh.exec_command(command, timeout=timeout)
     is_root = (server.get("user", "") or "").lower() == "root"
-    if not is_root:
+    if privileged and not is_root:
         stdin.write((server.get("password", "") or "") + "\n")
         stdin.flush()
         stdin.channel.shutdown_write()
@@ -246,10 +253,11 @@ def _mentions_option(text: str, option: str) -> bool:
     return re.search(pattern, text) is not None
 
 
-def detect_tar_capability(ssh, server) -> dict:
+def detect_tar_capability(ssh, server, *, privileged: bool = True) -> dict:
     """Явно определить GNU tar или BusyBox tar и требуемые streaming options."""
-    version_code, version_out, version_err = exec_sudo(ssh, server, "tar --version", timeout=20)
-    help_code, help_out, help_err = exec_sudo(ssh, server, "tar --help", timeout=20)
+    execute = exec_sudo if privileged else exec_plain
+    version_code, version_out, version_err = execute(ssh, server, "tar --version", timeout=20)
+    help_code, help_out, help_err = execute(ssh, server, "tar --help", timeout=20)
     text = "\n".join((version_out, version_err, help_out, help_err))
     lowered = text.lower()
     if "gnu tar" in lowered:
@@ -296,6 +304,8 @@ def detect_tar_capability(ssh, server) -> dict:
         "supports": supports,
         "restore_supports": restore_supports,
         "usable": implementation in {"gnu", "busybox"} and all(supports.values()),
+        "error": sudo_failure_message(version_err or help_err)
+                 or ((version_err or help_err).strip()[:500] if version_code != 0 or help_code != 0 else None),
     }
 
 
@@ -517,7 +527,92 @@ def exec_sudo(
     quoted = shlex.quote(command)
     full = f"bash -c {quoted}" if is_root else f"sudo -S -p '' bash -c {quoted}"
     stdin_data = None if is_root else (server.get("password", "") or "") + "\n"
-    return _exec_remote(ssh, full, timeout, emit=emit, stdin_data=stdin_data)
+    code, out, err = _exec_remote(ssh, full, timeout, emit=emit, stdin_data=stdin_data)
+    reason = sudo_failure_message(err) if code != 0 else None
+    if reason:
+        err = reason + "\n" + err
+    return code, out, err
+
+
+def sudo_failure_message(stderr: str) -> Optional[str]:
+    """Понятная причина отказа sudo; пустой пароль сам по себе не ошибка."""
+    text = (stderr or "").lower()
+    if "sudo" not in text:
+        return None
+    if "no password was provided" in text or "a password is required" in text:
+        return "Требуется пароль sudo. Укажите его в настройках сервера."
+    if "incorrect password" in text or "sorry, try again" in text:
+        return "Пароль sudo неверен. Проверьте его в настройках сервера."
+    if "not in the sudoers" in text or "not allowed to execute" in text or "not allowed to run sudo" in text:
+        return "Пользователю не разрешена эта команда через sudo. Проверьте права sudoers на сервере."
+    if re.search(r"sudo: (?:command )?not found", text) or "sudo: no such file or directory" in text:
+        return "На сервере отсутствует sudo. Установите sudo или используйте пользователя root."
+    if "must have a tty" in text or "a terminal is required" in text:
+        return "sudo требует терминал. Разрешите неинтерактивное выполнение команд для пользователя панели."
+    return None
+
+
+def checked_output(result: Tuple[int, str, str], *, title: str) -> str:
+    """Не подменять отказ SSH-команды отсутствием программы или файла."""
+    code, out, err = result
+    if code != 0:
+        reason = sudo_failure_message(err) or (err.strip() or out.strip() or f"код {code}")
+        raise RuntimeError(f"{title}: {reason[:500]}")
+    return out.strip()
+
+
+class RemoteCleanupError(RuntimeError):
+    """Очистка не выполнена; исходная операция могла уже завершиться."""
+
+    def __init__(self, directory: str, cleanup_error: Exception, original_error=None):
+        self.directory = directory
+        self.cleanup_error = cleanup_error
+        self.original_error = original_error
+        message = str(cleanup_error)
+        if original_error is not None:
+            message = f"{original_error}. {message}"
+        super().__init__(message)
+
+
+@contextmanager
+def private_remote_directory(ssh, server, *, privileged: bool = False,
+                             parent: str = "/tmp"):
+    """Уникальный каталог 0700; секреты защищены ещё до первой записи."""
+    execute = exec_sudo if privileged else exec_plain
+    parent = parent.rstrip('/') or '/'
+    prefix = parent.rstrip('/') + '/bot4vps-private-'
+    directory = checked_output(
+        execute(ssh, server, "umask 077 && mktemp -d " + shlex.quote(prefix + "XXXXXXXXXXXX"), timeout=30),
+        title="Создание закрытого временного каталога",
+    )
+    if not re.fullmatch(re.escape(prefix) + r"[A-Za-z0-9]{12}", directory):
+        raise RuntimeError("Сервер вернул некорректный путь временного каталога")
+    try:
+        yield directory
+    finally:
+        original_error = sys.exc_info()[1]
+        try:
+            from core.cancel_flags import recovery_scope
+            with recovery_scope():
+                checked_output(execute(ssh, server, f"rm -rf -- {shlex.quote(directory)}", timeout=30),
+                               title="Очистка закрытого временного каталога")
+        except Exception as cleanup_error:
+            raise RemoteCleanupError(directory, cleanup_error, original_error) from (original_error or cleanup_error)
+
+
+@contextmanager
+def private_remote_upload(ssh, server, data):
+    """SFTP-загрузка в закрытый каталог с очисткой при любом исходе."""
+    with private_remote_directory(ssh, server) as directory:
+        path = directory + "/input"
+        sftp = ssh.open_sftp()
+        try:
+            with sftp.file(path, "wb") as stream:
+                sftp.chmod(path, 0o600)
+                stream.write(data.encode("utf-8") if isinstance(data, str) else data)
+        finally:
+            sftp.close()
+        yield path
 
 
 def exec_plain(

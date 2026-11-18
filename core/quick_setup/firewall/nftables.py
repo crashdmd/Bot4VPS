@@ -8,7 +8,7 @@ import re
 import shlex
 from typing import Any, Optional
 
-from core.ssh import exec_sudo
+from core.ssh import checked_output, exec_sudo
 from core.storage import (
     clear_nftables_input_chain,
     compare_and_set_nftables_input_chain,
@@ -64,10 +64,11 @@ class NftablesBackend(FirewallBackend):
     name = "nftables"
 
     def detect(self, ssh, server: dict) -> Optional[FirewallInfo]:
-        code, out, _ = exec_sudo(
+        result = exec_sudo(
             ssh, server, "command -v nft >/dev/null && echo yes || echo no", timeout=15
         )
-        if code != 0 or "yes" not in (out or ""):
+        out = checked_output(result, title="Проверка nftables")
+        if "yes" not in out:
             return None
         snapshot = self._ruleset(ssh, server)
         classified = self._classified_input_chains(snapshot)

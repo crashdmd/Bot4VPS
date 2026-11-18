@@ -103,11 +103,15 @@ def install(server: dict, params: Dict[str, Any], emit) -> StepRunner:
                    "DEBIAN_FRONTEND=noninteractive apt-get update -qq && "
                    "DEBIAN_FRONTEND=noninteractive apt-get install -y -qq curl ca-certificates",
                    title="Обновление apt + curl/ca-certificates")
-        runner.run("get_docker_script",
-                   "curl -fsSL https://get.docker.com -o /tmp/get-docker.sh",
-                   title="Скачивание официального установочного скрипта")
-        runner.run("run_installer", "sh /tmp/get-docker.sh",
-                   title="Установка Docker Engine (get.docker.com)")
+        from core.ssh import private_remote_directory
+        import shlex
+        with private_remote_directory(ssh, server, privileged=True) as directory:
+            script = shlex.quote(directory + '/get-docker.sh')
+            runner.run("get_docker_script",
+                       f"umask 077 && curl -fsSL --connect-timeout 15 --max-time 300 https://get.docker.com -o {script}",
+                       title="Скачивание официального установочного скрипта")
+            runner.run("run_installer", f"sh {script}",
+                       title="Установка Docker Engine (get.docker.com)")
         templates.write_daemon_config(runner)
         _enable_docker_soft(runner)
         runner.run("verify", "docker version --format '{{.Server.Version}}'",

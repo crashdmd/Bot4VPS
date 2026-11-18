@@ -1491,7 +1491,7 @@ function chooseTotpMethod(enabled, state) {
     <div class="set-form-actions"><button type="button" id="totp-method-mobile" ${available ? '' : 'disabled'}>Bot4VPS Mobile</button>
       <button type="button" class="secondary" id="totp-method-external">${enabled ? 'Сторонний аутентификатор' : 'Ввести TOTP-код'}</button>
       ${enabled ? `<button type="button" class="secondary" id="totp-method-telegram" ${state.telegram_available ? '' : 'disabled'}>Telegram</button>` : ''}</div>
-    <p class="set-desc">${available ? 'Запрос подтверждает главный телефон. Сканировать QR-код не нужно.' : devices.length ? 'Для подтверждения на телефоне включите мобильный API панели.' : 'Доверенных телефонов пока нет. Можно использовать любое стороннее приложение-аутентификатор.'}</p>
+    <p class="set-desc">${available ? 'Запрос подтверждает основной телефон. Сканировать QR-код не нужно.' : devices.length ? 'Для подтверждения на телефоне включите мобильный API панели.' : 'Доверенных телефонов пока нет. Можно использовать любое стороннее приложение-аутентификатор.'}</p>
     ${state.enabled || !enabled ? '<div class="set-form-actions"><button type="button" class="secondary" id="totp-method-cancel">Отмена</button></div>' : ''}`;
   document.getElementById('totp-method-mobile').onclick = () => chooseTotpDevice(enabled, devices);
   document.getElementById('totp-method-external').onclick = enabled ? openTotpSetup : renderTotpDisableForm;
@@ -1505,12 +1505,12 @@ function chooseTotpDevice(enabled, devices) {
   const body = document.getElementById('totp-body');
   if (!body) return;
   if (!enabled || !devices.length) {
-    body.innerHTML = '<p class="set-desc">Сначала назначьте главный телефон в настройках мобильного приложения.</p><button type="button" class="secondary" id="totp-device-cancel">Назад</button>';
+    body.innerHTML = '<p class="set-desc">Сначала назначьте основной телефон в настройках мобильного приложения.</p><button type="button" class="secondary" id="totp-device-cancel">Назад</button>';
     document.getElementById('totp-device-cancel').onclick = loadTotp;
     return;
   }
-  body.innerHTML = `<p class="set-desc">Главный телефон ещё не назначен. Выберите его для настройки 2FA: только он получит код этой панели.</p>
-    <label>Главный телефон<select id="totp-device">${devices.map(d => `<option value="${esc(d.id)}">${esc(d.name || 'Телефон')}</option>`).join('')}</select></label>
+  body.innerHTML = `<p class="set-desc">Основной телефон ещё не назначен. Выберите его для настройки 2FA: только он получит код этой панели.</p>
+    <label>Основной телефон<select id="totp-device">${devices.map(d => `<option value="${esc(d.id)}">${esc(d.name || 'Телефон')}</option>`).join('')}</select></label>
     <div class="set-form-actions"><button type="button" id="totp-device-confirm">Продолжить</button><button type="button" class="secondary" id="totp-device-cancel">Отмена</button></div>`;
   document.getElementById('totp-device-cancel').onclick = loadTotp;
   document.getElementById('totp-device-confirm').onclick = () => {
@@ -1522,8 +1522,8 @@ function chooseTotpDevice(enabled, devices) {
 async function sendTotpPhoneRequest(enabled, device) {
   const accepted = await confirmAction({
     title: enabled ? 'Включить 2FA?' : 'Отключить 2FA?',
-    message: enabled ? `Запрос будет отправлен на главный телефон «${device.name || 'Телефон'}». После подтверждения приложение сохранит код и включит 2FA.`
-      : `Подтвердите запрос на главном телефоне «${device.name || 'Телефон'}». 2FA отключится, а связанный код Bot4VPS удалится при синхронизации.`,
+    message: enabled ? `Запрос будет отправлен на основной телефон «${device.name || 'Телефон'}». После подтверждения приложение сохранит код и включит 2FA.`
+      : `Подтвердите запрос на основном телефоне «${device.name || 'Телефон'}». 2FA отключится, а связанный код Bot4VPS удалится при синхронизации.`,
     confirmText: 'Отправить запрос', danger: !enabled
   });
   if (!accepted || twoFactorFlow) return;
@@ -1539,7 +1539,7 @@ async function sendTotpPhoneRequest(enabled, device) {
 function renderTwoFactorWaiting(error = '') {
   const body = document.getElementById('totp-body');
   if (!body || !twoFactorFlow) return;
-  body.innerHTML = `<p class="set-desc">Подтвердите ${twoFactorFlow.enabled ? 'включение' : 'отключение'} 2FA в Bot4VPS на главном телефоне.</p>
+  body.innerHTML = `<p class="set-desc">Подтвердите ${twoFactorFlow.enabled ? 'включение' : 'отключение'} 2FA в Bot4VPS на основном телефоне.</p>
     ${error ? `<p class="set-desc" role="status">${esc(error)}</p>` : ''}
     <div class="set-form-actions"><button type="button" class="secondary" id="totp-mobile-cancel">Отменить запрос</button></div>`;
   document.getElementById('totp-mobile-cancel').onclick = async () => {
@@ -1603,7 +1603,7 @@ async function loadTotp() {
     badge.className = 'set-badge ok';
     body.innerHTML = `
       <p class="set-desc">Вход требует пароль и подтверждение на доверенном телефоне либо TOTP-код. При утрате TOTP отключение можно подтвердить доверенным телефоном. Если доступных факторов нет, используйте сброс 2FA в консоли.</p>
-      <p class="set-desc">${telegram ? 'Коды входа отправляются в Telegram.' : primary ? `Главный телефон: ${esc(primary.name)}. Код панели выдаётся только ему.` : 'Используется сторонний аутентификатор либо TOTP, настроенный ранее. Главный телефон выбирается при настройке второго фактора через Bot4VPS Mobile.'}</p>
+      <p class="set-desc">${telegram ? 'Коды входа отправляются в Telegram.' : primary ? `Основной телефон: ${esc(primary.name)}. Код панели выдаётся только ему.` : 'Используется сторонний аутентификатор либо TOTP, настроенный ранее. Основной телефон выбирается при настройке второго фактора через Bot4VPS Mobile.'}</p>
       <div class="set-form-actions"><button type="button" class="secondary" id="totp-disable-btn">Отключить</button><button type="button" class="secondary" id="totp-replace-btn">Заменить TOTP</button><button type="button" class="secondary" id="totp-use-telegram" ${state.telegram_available && !telegram ? '' : 'disabled'}>Использовать Телеграм</button></div>`;
     if (telegram) body.querySelector('p').textContent = 'Вход требует пароль и одноразовый код из Telegram. При недоступности бота восстановите доступ через консоль.';
     document.getElementById('totp-disable-btn')?.addEventListener('click', () => telegram ? startTelegramFactor(false) : chooseTotpMethod(false, state));

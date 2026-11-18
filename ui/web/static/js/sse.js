@@ -13,7 +13,7 @@ let connectedOnce = false;
 // один экземпляр модуля, то есть общее состояние страницы (импорт «заново»
 // с другим ?v= создал бы вторую копию со своим lastOverview).
 const METRICS_MODULE = './metrics.js?v=20261001-mobile-charts-v1';
-const AUDIT_MODULE = './audit.js?v=20261001-mobile-charts-v1';
+const AUDIT_MODULE = './audit.js?v=20261116-phone-names-v1';
 
 export function registerNotificationsRefresh(handler) {
   notificationsRefresh = typeof handler === 'function' ? handler : null;

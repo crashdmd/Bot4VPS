@@ -11,32 +11,39 @@
   x-ui migrate (доводит схему) → рестарт панели (база читается при
   старте).
 
-.dump (миграционный дамп SQLite) засыпается через sqlite3 в tmp-базу,
+.dump восстанавливается библиотекой SQLite в изолированную базу на панели,
 проверяется integrity_check и только потом становится x-ui.db.
 """
 from __future__ import annotations
 
-import posixpath
 import shlex
+import uuid
 from typing import Any, Dict
 
 from core.integrator import StepError
-from core.ssh import exec_sudo
+from core.ssh import checked_output, exec_binary_stream, exec_sudo, private_remote_directory, private_remote_upload
 
 from . import templates
 from .manage import _probe, _run
 
 DB_PATH = f"{templates.XUI_ETC}/x-ui.db"
 DB_BACKUP = f"{templates.XUI_ETC}/x-ui.db.bot4vps-backup"
-TMP_IMPORT = "/tmp/bot4vps_xui_import.db"
 # верхняя граница здравого смысла: их базы — единицы МБ, лимит загрузки
 # панелью такой же (5 МБ, как scripts/files)
 MAX_IMPORT_SIZE = 5 * 1024 * 1024
 
 
+def _recover(ssh, server, command, **kwargs):
+    from core.cancel_flags import recovery_scope
+    with recovery_scope():
+        return _run(ssh, server, command, **kwargs)
+
+
 def _ensure_sqlite3(ssh, server: dict) -> None:
     """sqlite3 нужен и экспорту (.backup), и импорту (.dump); ставим при отсутствии."""
-    if _probe(ssh, server, "command -v sqlite3 >/dev/null && echo yes") == "yes":
+    found = checked_output(exec_sudo(ssh, server,
+        "if command -v sqlite3 >/dev/null; then echo yes; else echo no; fi"), title="Проверка sqlite3")
+    if found == "yes":
         return
     rid = _probe(ssh, server, ". /etc/os-release 2>/dev/null; echo $ID")
     pkgs = {
@@ -74,18 +81,17 @@ def export_db(ssh, server: dict, server_name: str) -> Dict[str, Any]:
     _card_check_installed.
     """
     _ensure_sqlite3(ssh, server)
-    tmp = "/tmp/bot4vps_xui_export.db"
-    _run(ssh, server,
-         f"sqlite3 {shlex.quote(DB_PATH)} '.backup {shlex.quote(tmp)}'",
-         step="db_backup", title="Копия базы (sqlite3 .backup)")
-    sftp = ssh.open_sftp()
-    try:
-        with sftp.file(tmp, "r") as f:
-            data = f.read()
-    finally:
-        sftp.close()
-        # выгрузили — прибираем за собой
-        exec_sudo(ssh, server, f"rm -f {shlex.quote(tmp)}", timeout=30)
+    with private_remote_directory(ssh, server, privileged=True) as directory:
+        tmp = directory + "/export.db"
+        _run(ssh, server,
+             f"umask 077 && sqlite3 {shlex.quote(DB_PATH)} {shlex.quote('.backup ' + tmp)}",
+             step="db_backup", title="Копия базы (sqlite3 .backup)")
+        chunks = []
+        code, stderr = exec_binary_stream(ssh, server, ["cat", "--", tmp], chunks.append, timeout=120)
+        if code != 0:
+            raise StepError("db_export", code, title="Экспорт базы",
+                            detail=stderr.decode("utf-8", errors="replace")[:500] or "Не удалось прочитать копию базы через sudo")
+        data = b"".join(chunks)
     if not data:
         raise StepError("db_export", -1, title="Экспорт базы",
                         detail="база не выгрузилась (пустой файл)")
@@ -96,8 +102,8 @@ def export_db(ssh, server: dict, server_name: str) -> Dict[str, Any]:
 def import_db(ssh, server: dict, data: bytes, emit=lambda line: None) -> Dict[str, Any]:
     """Загрузить .db / .dump с устройства пользователя и восстановить базу.
 
-    Файл → SFTP /tmp → формат: .dump засыпается в свежую базу, .db
-    проверяется integrity_check → стоп панели → бэкап текущей базы →
+    .dump → ограниченный процесс восстановления на панели → файл .db →
+    SFTP → integrity_check → стоп панели → бэкап текущей базы →
     замена → migrate → старт (авторестарт — база читается при старте).
     Владелец/права как у оригинала: root:root 600 (база содержит креды).
     """
@@ -108,60 +114,74 @@ def import_db(ssh, server: dict, data: bytes, emit=lambda line: None) -> Dict[st
         raise StepError("db_import", -1, title="Импорт базы",
                         detail="файл пуст")
 
+    from .sql_dump import restore_sql_dump
+    is_database = data.startswith(b"SQLite format 3\x00")
+    if not is_database:
+        data = restore_sql_dump(data)
+        emit("• Формат: дамп SQLite (.dump) — проверен и развёрнут в отдельную базу")
     _ensure_sqlite3(ssh, server)
-    sftp = ssh.open_sftp()
-    try:
-        with sftp.file(TMP_IMPORT, "w") as f:
-            f.write(data)
-    finally:
-        sftp.close()
-    emit(f"• Файл передан ({len(data)} байт)")
-
-    head = data[:64]
-    if head.lstrip().startswith(b"SQLite format 3"):
-        # готовая база: проверяем как есть
-        check_target = TMP_IMPORT
-        emit("• Формат: база SQLite (.db)")
-    else:
-        # миграционный дамп: засыпаем в свежую базу
-        _run(ssh, server,
-             f"rm -f {shlex.quote(TMP_IMPORT)}.new && "
-             f"sqlite3 {shlex.quote(TMP_IMPORT)}.new < {shlex.quote(TMP_IMPORT)}",
-             step="db_dump_restore", title="Развёртывание дампа (.dump) в базу")
-        check_target = f"{TMP_IMPORT}.new"
-        emit("• Формат: дамп SQLite (.dump) — развёрнут в базу")
-
-    ok = _probe(ssh, server,
-                f"sqlite3 {shlex.quote(check_target)} 'PRAGMA integrity_check;' 2>&1")
-    if ok != "ok":
-        raise StepError("db_import", -1, title="Импорт базы",
-                        detail=f"файл не является корректной базой/дампом SQLite "
-                               f"(integrity_check: {ok[:200]})")
-    emit("• integrity_check: ok")
-
-    # стоп → бэкап → замена → права как у оригинала → migrate → старт
-    _run(ssh, server, "systemctl stop x-ui 2>/dev/null; exit 0",
-         step="db_import_stop", title="Остановка панели")
-    _run(ssh, server,
-         f"cp -a {shlex.quote(DB_PATH)} {shlex.quote(DB_BACKUP)} 2>/dev/null; exit 0",
-         step="db_import_backup", title="Бэкап текущей базы")
-    _run(ssh, server,
-         f"install -m 600 -o root -g root {shlex.quote(check_target)} {shlex.quote(DB_PATH)}",
-         step="db_import_install", title="Установка новой базы")
-    try:
-        _run(ssh, server, f"{templates.XUI_FOLDER}/x-ui migrate",
-             step="db_import_migrate", title="Миграция схемы базы")
-    except StepError:
-        # миграция не прошла — откатываемся на бэкап, панель не теряем
-        _run(ssh, server,
-             f"cp -a {shlex.quote(DB_BACKUP)} {shlex.quote(DB_PATH)} 2>/dev/null; exit 0",
-             step="db_import_rollback", title="Откат базы")
-        _run(ssh, server, "systemctl start x-ui",
-             step="db_import_restart", title="Запуск панели")
-        raise
-    _run(ssh, server, "systemctl start x-ui",
-         step="db_import_restart", title="Запуск панели")
-    _run(ssh, server, f"rm -f {shlex.quote(TMP_IMPORT)} {shlex.quote(TMP_IMPORT)}.new",
-         step="db_import_cleanup", title="Очистка временных файлов")
-    return {"ok": True,
-            "backup": f"{DB_BACKUP} (прежняя база сохранена на сервере)"}
+    with private_remote_upload(ssh, server, data) as uploaded:
+        emit(f"• Файл передан ({len(data)} байт)")
+        check_target = uploaded
+        if is_database:
+            emit("• Формат: база SQLite (.db)")
+        ok = _run(ssh, server,
+                  f"sqlite3 {shlex.quote(check_target)} 'PRAGMA integrity_check;'",
+                  step="db_import_check", title="Проверка базы SQLite")
+        if ok != "ok":
+            raise StepError("db_import", -1, title="Импорт базы",
+                            detail=f"Файл не является корректной базой/дампом SQLite (integrity_check: {ok[:200]})")
+        emit("• integrity_check: ok")
+        original_state = _run(ssh, server, "systemctl show x-ui -p ActiveState --value",
+                              step="db_import_state", title="Проверка состояния панели")
+        if original_state not in {"active", "inactive", "failed"}:
+            raise StepError("db_import_state", -1, title="Импорт базы",
+                            detail="Не удалось определить стабильное состояние панели. Повторите проверку.")
+        was_active = original_state == "active"
+        backup = DB_BACKUP + "." + uuid.uuid4().hex
+        stop_attempted = False
+        replacement_attempted = False
+        sidecars = f"{shlex.quote(DB_PATH + '-wal')} {shlex.quote(DB_PATH + '-shm')}"
+        try:
+            stop_attempted = True
+            _run(ssh, server, "systemctl stop x-ui",
+                 step="db_import_stop", title="Остановка панели")
+            _run(ssh, server,
+                 f"umask 077 && sqlite3 {shlex.quote(DB_PATH)} {shlex.quote('.backup ' + backup)} && "
+                 f"chmod 600 {shlex.quote(backup)}",
+                 step="db_import_backup", title="Бэкап текущей базы")
+            replacement_attempted = True
+            _run(ssh, server,
+                 f"rm -f -- {sidecars} && install -m 600 -o root -g root "
+                 f"{shlex.quote(check_target)} {shlex.quote(DB_PATH)}",
+                 step="db_import_install", title="Установка новой базы")
+            _run(ssh, server, f"{templates.XUI_FOLDER}/x-ui migrate",
+                 step="db_import_migrate", title="Миграция схемы базы")
+            if was_active:
+                _run(ssh, server, "systemctl start x-ui && systemctl is-active --quiet x-ui",
+                     step="db_import_restart", title="Запуск панели")
+        except Exception as failure:
+            recovery_errors = []
+            if replacement_attempted:
+                try:
+                    _recover(ssh, server, "systemctl stop x-ui",
+                         step="db_import_rollback_stop", title="Остановка панели перед откатом")
+                    _recover(ssh, server,
+                         f"rm -f -- {sidecars} && install -m 600 -o root -g root "
+                         f"{shlex.quote(backup)} {shlex.quote(DB_PATH)}",
+                         step="db_import_rollback", title="Восстановление прежней базы")
+                except Exception as recovery:
+                    recovery_errors.append(f"Не удалось восстановить прежнюю базу: {recovery}. Копия: {backup}")
+            if stop_attempted and was_active and not recovery_errors:
+                try:
+                    _recover(ssh, server, "systemctl start x-ui && systemctl is-active --quiet x-ui",
+                         step="db_import_recover", title="Восстановление работы панели")
+                except Exception as recovery:
+                    recovery_errors.append(f"Не удалось запустить панель после ошибки: {recovery}")
+            if recovery_errors:
+                previous_database = backup if replacement_attempted else DB_PATH
+                raise StepError("db_import_recovery", -1, title="Импорт базы и восстановление панели",
+                                detail=f"Прежняя база: {previous_database}. {failure}. " + " ".join(recovery_errors)) from failure
+            emit("• Импорт не завершён; прежняя база и исходное состояние панели восстановлены")
+            raise
+    return {"ok": True, "backup": f"{backup} (прежняя база сохранена на сервере)"}

@@ -295,7 +295,9 @@ class WireGuardUI(ServiceUI):
         if desc:
             lines.append(desc)
         lines.append("")
-        if installed:
+        if status.get("error"):
+            lines.extend(("⚠️ Не удалось проверить состояние", str(status["error"])))
+        elif installed:
             lines.append("✅ Статус: установлен")
             if status.get("version"):
                 lines.append(f"📦 Версия: {_extract_version(status['version'])}")

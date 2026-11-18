@@ -7,6 +7,8 @@ SFTP во /tmp + атомарный mv (секретов в шаблоне не�
 from __future__ import annotations
 
 from core.integrator import StepRunner
+from core.ssh import private_remote_upload
+import shlex
 
 # Лог-ротация по умолчанию — защита от разбухания json-логов контейнеров.
 # Докер читает daemon.json при старте демона.
@@ -33,17 +35,9 @@ def write_daemon_config(runner: StepRunner) -> None:
         runner.completed.append("daemon_config")
         return
 
-    tmp_path = "/tmp/bot4vps_daemon.json"
-    sftp = runner.ssh.open_sftp()
-    try:
-        with sftp.file(tmp_path, "w") as f:
-            f.write(_DAEMON_JSON)
-    finally:
-        sftp.close()
-    runner.run(
-        "daemon_config",
-        f"install -d -m 755 /etc/docker && "
-        f"mv {tmp_path} /etc/docker/daemon.json && "
-        f"chmod 644 /etc/docker/daemon.json",
-        title="Создание /etc/docker/daemon.json (log-rotation)",
-    )
+    with private_remote_upload(runner.ssh, runner.server, _DAEMON_JSON) as tmp_path:
+        runner.run(
+            "daemon_config",
+            f"install -d -m 755 /etc/docker && install -m 644 {shlex.quote(tmp_path)} /etc/docker/daemon.json",
+            title="Создание /etc/docker/daemon.json (log-rotation)",
+        )

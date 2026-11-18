@@ -20,7 +20,11 @@
 """
 from __future__ import annotations
 
+import configparser
+import ipaddress
 import shlex
+from pathlib import Path
+from contextlib import nullcontext
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
@@ -28,7 +32,7 @@ from core.integrator import StepError
 from core.ssh import exec_sudo
 
 from . import templates
-from .manage import panel_display_host, read_settings_show, unit_action
+from .manage import _setting, panel_display_host, read_settings_show, unit_action
 from .validation import (
     validate_certificate_identifier,
     validate_cert_path,
@@ -39,6 +43,129 @@ from .validation import (
 
 ACME = "/root/.acme.sh/acme.sh"
 CERT_ROOT = "/root/cert"
+ACME_HTTP_HOOK = f"{templates.XUI_ETC}/bot4vps-acme-http.py"
+
+
+def _require_acme_cli(ssh, server: dict, *, ip_certificate: bool = False) -> None:
+    import re
+    code, out, err = exec_sudo(ssh, server, f"{ACME} --help", timeout=60)
+    text = (out or "") + "\n" + (err or "")
+    required = {"info", "pre-hook", "post-hook", "install-cert", "ecc", "keylength", "debug"}
+    if ip_certificate:
+        required.add("certificate-profile")
+    missing = sorted(flag for flag in required if not re.search(r"(?:^|\s)--" + flag + r"(?:\s|$)", text))
+    if code != 0 or missing:
+        raise StepError("acme_compatibility", -1, title="Несовместимый CLI acme.sh",
+                        detail="Не подтверждена поддержка параметров: " + ", ".join("--" + flag for flag in missing)
+                               + ". Выпуск/продление не запущены; обновите acme.sh")
+
+
+def _acme_info(ssh, server: dict, identifier: str, ecc: bool) -> Dict[str, str]:
+    # Without an explicit RSA selector, acme.sh falls back to the ECC directory
+    # when RSA is absent. Querying both variants would then count one cert twice.
+    # --keylength only selects the directory here; --info never creates a key.
+    selector = " --ecc" if ecc else " --keylength 2048"
+    code, out, _ = exec_sudo(ssh, server, f"{ACME} --info -d {shlex.quote(identifier)}" + selector, timeout=60)
+    if code != 0:
+        return {}
+    fields = {"Le_Domain", "Le_Alt", "Le_Webroot", "Le_HTTPPort", "Le_PreHook", "Le_PostHook", "Le_ReloadCmd",
+              "Le_RealFullChainPath", "Le_RealKeyPath", "Le_RealCertPath", "Le_RealCACertPath"}
+    return {key: value for line in out.splitlines() for key, sep, value in [line.partition("=")]
+            if sep and key in fields}
+
+
+def _acme_lineage(ssh, server: dict, domain: str) -> tuple[str, bool, Dict[str, str]]:
+    """Find the exact primary name/key type linked to the installed certificate."""
+    candidates = [domain]
+    if domain == "ip":
+        san = _run(ssh, server, f"openssl x509 -in {CERT_ROOT}/ip/fullchain.pem -noout -ext subjectAltName",
+                   step="acme_ip_identity", title="IP-адреса сертификата")
+        import re
+        candidates = []
+        for raw in re.findall(r"IP Address:\s*([^,\s]+)", san):
+            try:
+                value = str(ipaddress.ip_address(raw))
+            except ValueError:
+                continue
+            if value not in candidates:
+                candidates.append(value)
+        if not candidates:
+            raise StepError("acme_ip_identity", -1, title="Продление IP-сертификата",
+                            detail="В установленном сертификате нет IP-адресов; продление не запущено")
+    found = []
+    for identifier in candidates:
+        for ecc in (False, True):
+            info = _acme_info(ssh, server, identifier, ecc)
+            if (info.get("Le_Domain") == identifier
+                    and info.get("Le_RealFullChainPath") == f"{CERT_ROOT}/{domain}/fullchain.pem"
+                    and info.get("Le_RealKeyPath") == f"{CERT_ROOT}/{domain}/privkey.pem"):
+                found.append((identifier, ecc, info))
+    if len(found) != 1:
+        raise StepError("acme_identity", -1, title="Сертификат acme.sh не определён однозначно",
+                        detail="Не найдена единственная регистрация acme.sh, связанная с файлами этого сертификата. "
+                               "Продление не запущено; проверьте регистрацию и пути установки")
+    return found[0]
+
+
+def _acme_hook_commands(identifier: str, port: int) -> tuple[str, str]:
+    base = f"python3 {shlex.quote(ACME_HTTP_HOOK)}"
+    # acme.sh evaluates $$ in its hook subshells: pre/post share the owner PID.
+    suffix = f"$$ {shlex.quote(identifier)} --port {int(port)}"
+    return f"{base} pre {suffix}", f"{base} post {suffix}"
+
+
+def _install_acme_http_hook(ssh, server: dict) -> None:
+    _run(ssh, server,
+         "command -v python3 >/dev/null && "
+         "python3 -c 'import sys; sys.exit(sys.version_info < (3, 8))' && "
+         "command -v systemd-run >/dev/null",
+         step="acme_hooks", title="Зависимости хуков acme.sh")
+    source = Path(__file__).with_name("acme_http_hook.py").read_text()
+    marker = "BOT4VPS_ACME_HTTP_SOURCE"
+    _run(ssh, server,
+         f"install -d -m 700 {templates.XUI_ETC} && "
+         f"(umask 077; cat > {ACME_HTTP_HOOK}.new <<'{marker}'\n{source}\n{marker}\n) && "
+         f"chmod 700 {ACME_HTTP_HOOK}.new && mv -f {ACME_HTTP_HOOK}.new {ACME_HTTP_HOOK}",
+         step="acme_hooks", title="Установка HTTP-хука acme.sh")
+
+
+def _check_foreign_acme_hooks(info, pre, post):
+    for key, expected in (("Le_PreHook", pre), ("Le_PostHook", post)):
+        if info.get(key) and info[key] != expected:
+            raise StepError("acme_hooks", -1, title="Собственные хуки acme.sh уже настроены",
+                            detail="Чужие pre/post-хуки не изменены. Для автоматической подготовки порта "
+                                   "нужно согласовать их совместное выполнение")
+
+
+def _acme_issue_hooks(ssh, server: dict, identifier: str, port: int) -> str:
+    _require_acme_cli(ssh, server, ip_certificate=bool(":" in identifier or identifier.replace(".", "").isdigit()))
+    pre, post = _acme_hook_commands(identifier, port)
+    for ecc in (False, True):
+        _check_foreign_acme_hooks(_acme_info(ssh, server, identifier, ecc), pre, post)
+    _install_acme_http_hook(ssh, server)
+    return f"--pre-hook {shlex.quote(pre)} --post-hook {shlex.quote(post)}"
+
+
+def _configure_acme_renew_hooks(ssh, server: dict, identifier: str, ecc: bool,
+                               info: Dict[str, str], port: int, emit) -> None:
+    pre, post = _acme_hook_commands(identifier, port)
+    _check_foreign_acme_hooks(info, pre, post)
+    _install_acme_http_hook(ssh, server)
+    if info.get("Le_PreHook") == pre and info.get("Le_PostHook") == post:
+        return
+    emit("Настройка pre/post-хуков acme.sh для автоматического продления…")
+    args = f"--install-cert -d {shlex.quote(identifier)}" + (" --ecc" if ecc else "")
+    options = {"--key-file": info["Le_RealKeyPath"], "--fullchain-file": info["Le_RealFullChainPath"],
+               "--reloadcmd": info.get("Le_ReloadCmd", ""), "--pre-hook": pre, "--post-hook": post}
+    for flag, key in (("--cert-file", "Le_RealCertPath"), ("--ca-file", "Le_RealCACertPath")):
+        if info.get(key):
+            options[flag] = info[key]
+    args += " " + " ".join(f"{flag} {shlex.quote(value)}" for flag, value in options.items())
+    _run(ssh, server, f"{ACME} {args} 2>&1", step="acme_hooks", title="Настройка хуков acme.sh", emit=emit)
+    checked = _acme_info(ssh, server, identifier, ecc)
+    if checked.get("Le_PreHook") != pre or checked.get("Le_PostHook") != post:
+        raise StepError("acme_hooks", -1, title="Хуки acme.sh не подтверждены",
+                        detail="CLI не сохранил pre/post-хуки; автоматическое продление не подтверждено")
 
 # socat: тот же выбор пакетного менеджера, что в их ssl_cert_issue
 _SOCAT_INSTALL = {
@@ -68,11 +195,21 @@ def _probe(ssh, server: dict, command: str) -> str:
 
 
 def _run(ssh, server: dict, command: str, *, step: str, title: str,
-         timeout: int = 180) -> str:
-    code, out, err = exec_sudo(ssh, server, command, timeout=timeout)
+         timeout: int = 180, emit=None) -> str:
+    kwargs = {"timeout": timeout}
+    if emit is not None:
+        kwargs["emit"] = emit
+    code, out, err = exec_sudo(ssh, server, command, **kwargs)
     if code != 0:
+        # Certbot пишет подробности challenge в stdout, сводку — в stderr.
+        # Сохраняем оба потока, ограничивая каждый отдельно.
+        parts = [text.strip() for text in (out, err) if text.strip()]
+        detail = "\n".join(
+            text if len(text) <= 4000 else text[:2000] + "\n[Вывод сокращён]\n" + text[-2000:]
+            for text in parts
+        )
         raise StepError(step, code, title=title,
-                        detail=(err or out or "команда завершилась с ошибкой").strip()[:500])
+                        detail=detail or "команда завершилась с ошибкой")
     return out.strip()
 
 
@@ -201,15 +338,17 @@ class _HttpPortLease:
     def __init__(self, port: Optional[int] = None) -> None:
         self.port: Optional[int] = port
         self.firewall_opened: bool = False      # порт 80 открыли мы
+        self.firewall_mutation = None          # точный token для отката
         self.stopped_unit: Optional[str] = None  # юнит, который остановили мы
 
 
 def _prepare_http_port(ssh, server: dict, port: int,
-                       emit=lambda line: None) -> _HttpPortLease:
-    """Перед standalone-выпуском: порт должен быть открыт в firewall и свободен.
+                       emit=lambda line: None, *, free_port: bool = True) -> _HttpPortLease:
+    """Открыть HTTP-порт; освобождать его только для standalone.
 
-    1. Firewall: open_port_on_ssh идемпотентен; existed_before=True — уже был
-       открыт, откат не нужен. Ошибка открытия — не роняем (выпуск ещё может
+    1. Firewall: временный UFW allow перед запретами; другие backend-ы
+       используют точные правила. existed_before=True — откат не нужен.
+       Ошибка открытия — не роняем (выпуск ещё может
        пройти: firewall может отсутствовать вообще), но честно сообщаем.
     2. Занятость: ss -tlnp называет процесс. systemd-юнит (nginx, apache,
        сам x-ui) — останавливаем и запоминаем; не-systemd процесс — StepError:
@@ -218,30 +357,43 @@ def _prepare_http_port(ssh, server: dict, port: int,
     lease = _HttpPortLease(port=int(port))
     from core.quick_setup.firewall import open_port_on_ssh
     try:
-        m = open_port_on_ssh(ssh, server, int(port), "tcp")
+        m = open_port_on_ssh(ssh, server, int(port), "tcp", temporary=True)
+        if getattr(m, "changed", False) and not m.existed_before:
+            lease.firewall_mutation = m
+            lease.firewall_opened = True
         if m.ok and m.verified:
             lease.firewall_opened = not m.existed_before
             if lease.firewall_opened:
                 emit(f"Порт {port}/tcp открыт в firewall (на время выпуска)")
+                if getattr(m, "token", {}).get("temporary_ufw_tag"):
+                    emit("Временное разрешение добавлено перед запретами UFW; исходные правила сохранены")
         else:
             emit(f"[!] firewall, порт {port}/tcp: {m.error or m.message} — "
                  "если выпуск провалится по таймауту, откройте вручную")
     except Exception as e:  # firewall-модуль упал — выпуск продолжается
         emit(f"[!] firewall, порт {port}/tcp: {e}")
 
-    # кто слушает порт: 'users:(("nginx",pid=123,fd=6))' у LISTEN-строки
-    out = _probe(ssh, server,
-                 f"ss -tlnp 'sport = :{int(port)}' 2>/dev/null | tail -n +2")
-    holder = ""
-    pid = ""
-    for line in out.splitlines():
-        if 'users:(("' in line:
-            holder = line.split('users:(("', 1)[1].split('"', 1)[0]
-            pid = line.split('pid=', 1)[1].split(',', 1)[0] if "pid=" in line else ""
-            break
-    if not holder:
+    if not free_port:
         return lease
     try:
+        # Читаем занятость внутри отката: сбой SSH после открытия firewall
+        # тоже должен приводить к попытке восстановить правило.
+        out = _run(ssh, server,
+                   f"ss -tlnpH 'sport = :{int(port)}'",
+                   step="cert_port_probe", title=f"Проверка порта {port}", timeout=60)
+        holder = ""
+        pid = ""
+        for line in out.splitlines():
+            if 'users:(("' in line:
+                holder = line.split('users:(("', 1)[1].split('"', 1)[0]
+                pid = line.split('pid=', 1)[1].split(',', 1)[0] if "pid=" in line else ""
+                break
+        if not out:
+            return lease
+        if not holder or not pid.isdigit():
+            raise StepError("cert_port_busy", -1, title=f"Порт {port} занят",
+                            detail="не удалось определить владельца порта — "
+                                   "освободите его вручную и повторите выпуск")
         # наш собственный юнит x-ui трогать нельзя при выпуске: перезапуск
         # панели в reloadcmd во время остановленного x-ui — путаница; панель
         # на 80 — редкий случай, честно отказываем
@@ -251,14 +403,25 @@ def _prepare_http_port(ssh, server: dict, port: int,
                                    "порт панели и повторите выпуск")
         unit = _probe(ssh, server,
                       f"ps -o unit= -p {pid} 2>/dev/null").strip() if pid else ""
-        if not unit or unit == "-":
+        if not unit.endswith(".service") or unit.startswith("user@"):
             raise StepError("cert_port_busy", -1, title=f"Порт {port} занят",
-                            detail=f"процесс {holder} не принадлежит systemd-юниту — "
+                            detail=f"процесс {holder} ({unit or 'юнит неизвестен'}) "
+                                   "не принадлежит отдельно перезапускаемому systemd-сервису — "
                                    "остановите его вручную и повторите выпуск")
+        properties = _run(
+            ssh, server,
+            f"systemctl show {shlex.quote(unit)} -p LoadState -p CanStart -p Transient",
+            step="cert_port_probe", title=f"Проверка сервиса {unit}", timeout=60)
+        state = dict(line.split("=", 1) for line in properties.splitlines() if "=" in line)
+        if state.get("LoadState") != "loaded" or state.get("CanStart") != "yes" or state.get("Transient") != "no":
+            raise StepError("cert_port_busy", -1, title=f"Порт {port} занят",
+                            detail=f"сервис {unit} нельзя надёжно запустить после остановки — "
+                                   "освободите порт вручную и повторите выпуск")
         emit(f"Порт {port} занят ({unit}) — останавливаем на время выпуска…")
+        # stop мог выполниться, даже если ответ SSH потерялся.
+        lease.stopped_unit = unit
         _run(ssh, server, f"systemctl stop {shlex.quote(unit)}",
              step="cert_port_free", title=f"Освобождение порта {port}")
-        lease.stopped_unit = unit
         return lease
     except BaseException:
         # дальше не пошли — вернуть firewall как было (порт мы открыли)
@@ -277,14 +440,16 @@ def _release_http_port(ssh, server: dict, lease: _HttpPortLease,
             _run(ssh, server, f"systemctl start {shlex.quote(lease.stopped_unit)}",
                  step="cert_port_restore", title=f"Запуск {lease.stopped_unit}")
             emit(f"{lease.stopped_unit} запущен обратно")
-        except StepError as e:
+        except Exception as e:
             emit(f"[!] не удалось запустить {lease.stopped_unit} обратно: {e}")
     if lease.firewall_opened:
         try:
-            from core.quick_setup.firewall import close_port_on_ssh
-            m = close_port_on_ssh(ssh, server, lease.port, "tcp")
+            from core.quick_setup.firewall import cleanup_mutation_on_ssh, close_port_on_ssh
+            m = (cleanup_mutation_on_ssh(ssh, server, lease.firewall_mutation)
+                 if lease.firewall_mutation is not None
+                 else close_port_on_ssh(ssh, server, lease.port, "tcp"))
             if m.ok and m.verified:
-                emit(f"Порт {lease.port}/tcp закрыт в firewall (как было)")
+                emit(f"Временный доступ к порту {lease.port}/tcp убран; firewall восстановлен")
             else:
                 emit(f"[!] порт {lease.port}/tcp НЕ закрыт в firewall "
                      f"({m.error or m.message}) — закройте вручную")
@@ -293,7 +458,7 @@ def _release_http_port(ssh, server: dict, lease: _HttpPortLease,
 
 
 def _with_http_port(ssh, server: dict, port: int,
-                    emit=lambda line: None):
+                    emit=lambda line: None, *, free_port: bool = True):
     """Контекст-менеджер комбо: подготовить HTTP-порт → yield → откат.
 
     with _with_http_port(ssh, server, port, emit):
@@ -305,7 +470,7 @@ def _with_http_port(ssh, server: dict, port: int,
     def _cm():
         # _prepare_http_port сам откатывает своё при ошибке (внешний
         # lease ещё пуст), поэтому здесь — только finally вокруг тела
-        lease = _prepare_http_port(ssh, server, port, emit)
+        lease = _prepare_http_port(ssh, server, port, emit, free_port=free_port)
         try:
             yield lease
         finally:
@@ -328,8 +493,8 @@ def set_paths(ssh, server: dict, cert_file: str, key_file: str) -> Dict[str, Any
               "&& echo yes") != "yes":
         raise StepError("cert_files", -1, title="Файлы сертификата",
                         detail="файл сертификата или ключа не найден на сервере")
-    _run(ssh, server,
-         f"{templates.XUI_FOLDER}/x-ui setting -webCert {shlex.quote(cert_file)} "
+    _setting(ssh, server,
+         f"-webCert {shlex.quote(cert_file)} "
          f"-webCertKey {shlex.quote(key_file)}",
          step="cert_set_paths", title="Пути сертификата панели")
     unit_action(ssh, server, "restart")
@@ -366,15 +531,16 @@ def issue_domain(ssh, server: dict, domain: str, port: int = 80,
 
     _run(ssh, server, f"{ACME} --set-default-ca --server letsencrypt --force",
          step="cert_ca", title="acme.sh: CA Let's Encrypt")
-    with _with_http_port(ssh, server, port, emit):
-        emit(f"Выпуск Let's Encrypt: {domain} (порт {port})…")
-        code, out, err = exec_sudo(ssh, server,
-            f"{ACME} --issue -d {d} {_listen_flag(ssh, server)} "
-            f"--standalone --httpport {port} --force", timeout=300)
-        if code != 0:
-            _cleanup_acme(ssh, server, [domain])
-            raise StepError("cert_issue", code, title=f"Выпуск сертификата {domain}",
-                            detail=(err or out or "выпуск не удался").strip()[:500])
+    hooks = _acme_issue_hooks(ssh, server, domain, port)
+    emit(f"Выпуск Let's Encrypt: {domain} (порт {port}, подробный вывод acme.sh)…")
+    try:
+        _run(ssh, server,
+             f"{ACME} --issue -d {d} {_listen_flag(ssh, server)} "
+             f"--standalone --httpport {port} --force {hooks} --debug 1 2>&1",
+             step="cert_issue", title=f"Выпуск сертификата {domain}", timeout=300, emit=emit)
+    except StepError:
+        _cleanup_acme(ssh, server, [domain])
+        raise
 
     emit("Установка сертификата в /root/cert…")
     # acme.sh copies to the requested paths but does not create the target
@@ -436,16 +602,18 @@ def issue_ip(ssh, server: dict, ip: str, ipv6: Optional[str] = None,
     cert_dir = f"{CERT_ROOT}/ip"
     args = f"-d {shlex.quote(ip)}" + (f" -d {shlex.quote(ipv6)}" if ipv6 else "")
 
-    with _with_http_port(ssh, server, port, emit):
-        emit(f"Выпуск shortlived-сертификата для {ip} (порт {port})…")
-        code, out, err = exec_sudo(ssh, server,
-            f"{ACME} --issue {args} --standalone --server letsencrypt "
-            f"--certificate-profile shortlived --days 6 --httpport {port} --force",
-            timeout=300)
-        if code != 0:
-            _cleanup_acme(ssh, server, [i for i in (ip, ipv6) if i])
-            raise StepError("cert_issue_ip", code, title=f"Выпуск сертификата для {ip}",
-                            detail=(err or out or "выпуск не удался").strip()[:500])
+    if not 1 <= port <= 65535:
+        raise StepError("cert_port", -1, title="Порт выпуска", detail="порт: целое число 1-65535")
+    hooks = _acme_issue_hooks(ssh, server, ip, port)
+    emit(f"Выпуск shortlived-сертификата для {ip} (порт {port}, подробный вывод acme.sh)…")
+    try:
+        _run(ssh, server,
+             f"{ACME} --issue {args} --standalone --server letsencrypt "
+             f"--certificate-profile shortlived --days 6 --httpport {port} --force {hooks} --debug 1 2>&1",
+             step="cert_issue_ip", title=f"Выпуск сертификата для {ip}", timeout=300, emit=emit)
+    except StepError:
+        _cleanup_acme(ssh, server, [i for i in (ip, ipv6) if i])
+        raise
 
     emit("Установка сертификата в /root/cert/ip…")
     # acme.sh не создаёт родительский каталог путей --key-file/--fullchain-file.
@@ -539,10 +707,19 @@ def renew(ssh, server: dict, domain: str, port: int = 80,
         port = int(port or 80)
     except (TypeError, ValueError):
         port = 80
-    with _with_http_port(ssh, server, port, emit):
-        emit(f"Продление {domain}…")
-        _run(ssh, server, f"{ACME} --renew -d {shlex.quote(domain)} --force",
-             step="cert_renew", title=f"Продление {domain}", timeout=300)
+    _require_acme_cli(ssh, server, ip_certificate=domain == "ip")
+    identifier, ecc, info = _acme_lineage(ssh, server, domain)
+    if info.get("Le_Webroot") == "no":
+        try:
+            port = int(info.get("Le_HTTPPort") or 80)
+        except ValueError:
+            raise StepError("cert_port", -1, title="Настройки acme.sh", detail="Неверный HTTP-порт в регистрации сертификата") from None
+        if not 1 <= port <= 65535:
+            raise StepError("cert_port", -1, title="Настройки acme.sh", detail="HTTP-порт вне диапазона 1–65535")
+        _configure_acme_renew_hooks(ssh, server, identifier, ecc, info, port, emit)
+    emit(f"Продление {domain} (acme.sh: {identifier}{', ECC' if ecc else ''}, подробный вывод)…")
+    _run(ssh, server, f"{ACME} --renew -d {shlex.quote(identifier)} --force" + (" --ecc" if ecc else "") + " --debug 1 2>&1",
+         step="cert_renew", title=f"Продление {domain}", timeout=300, emit=emit)
     emit(f"Готово: {domain}")
     return {"domain": domain}
 
@@ -608,9 +785,9 @@ def issue_domain_certbot(ssh, server: dict, domain: str, port: int = 80,
         _run(ssh, server,
              f"certbot certonly --standalone -n --agree-tos "
              f"-m {shlex.quote(email)} -d {shlex.quote(domain)} "
-             f"--http-01-port {int(port)} --keep-until-expiring",
+             f"--http-01-port {int(port)} --keep-until-expiring -v 2>&1",
              step="certbot_issue", title=f"Выпуск сертификата {domain}",
-             timeout=300)
+             timeout=300, emit=emit)
 
     live = f"/etc/letsencrypt/live/{domain}"
     if _probe(ssh, server,
@@ -626,6 +803,31 @@ def issue_domain_certbot(ssh, server: dict, domain: str, port: int = 80,
     return result
 
 
+def _certbot_renewal_method(ssh, server: dict, domain: str) -> tuple[str, int]:
+    """Прочитать способ проверки, не меняя renewal-конфиг и его hooks."""
+    raw = _run(ssh, server,
+               f"cat {shlex.quote('/etc/letsencrypt/renewal/' + domain + '.conf')}",
+               step="certbot_config", title="Чтение настроек продления", timeout=60)
+    config = configparser.ConfigParser(interpolation=None, inline_comment_prefixes=("#", ";"))
+    try:
+        # У ConfigObj (формат Certbot) есть поля до первой секции и вложенные
+        # [[webroot_map]]. Нас интересуют только скалярные renewalparams.
+        config.read_string("[certificate]\n" + raw)
+        method = config.get("renewalparams", "authenticator").strip().strip("\"'")
+        port = 80
+        if method == "standalone":
+            port = int(config.get("renewalparams", "http01_port", fallback="80").strip().strip("\"'"))
+            if not 1 <= port <= 65535:
+                raise ValueError("порт вне диапазона")
+        if not method:
+            raise ValueError("способ проверки пуст")
+    except (configparser.Error, ValueError) as exc:
+        raise StepError("certbot_config", -1, title="Настройки продления",
+                        detail="не удалось определить способ проверки Certbot — "
+                               "проверьте renewal-конфиг сертификата") from exc
+    return method, port
+
+
 def renew_certbot(ssh, server: dict, domain: str,
                   emit=lambda line: None) -> Dict[str, Any]:
     """Принудительное продление certbot'ом: certbot renew --force-renewal
@@ -634,12 +836,21 @@ def renew_certbot(ssh, server: dict, domain: str,
     if domain not in read_state(ssh, server)["certbot_domains"]:
         raise StepError("cert_renew", -1, title="Продление сертификата",
                         detail=f"домена {domain} нет в /etc/letsencrypt")
-    with _with_http_port(ssh, server, 80, emit):
-        emit(f"Продление {domain} (certbot)…")
+    method, port = _certbot_renewal_method(ssh, server, domain)
+    emit(f"Способ проверки Certbot: {method} (из настроек сертификата)")
+    # nginx/apache/webroot сами обслуживают HTTP-01; остановка слушателя
+    # ломает их проверку. DNS/manual/другие плагины управляются Certbot.
+    needs_http = method in ("standalone", "nginx", "apache", "webroot")
+    lease = (_with_http_port(ssh, server, port, emit, free_port=method == "standalone")
+             if needs_http else nullcontext())
+    with lease:
+        # Certbot can sleep for several minutes even with --force-renewal.
+        # This can outlive a manual task's SSH session and cause BrokenPipe.
+        emit(f"Продление {domain} (certbot, подробный вывод, без случайной задержки)…")
         _run(ssh, server,
              f"certbot renew -n --force-renewal "
-             f"--cert-name {shlex.quote(domain)}",
-             step="certbot_renew", title=f"Продление {domain}", timeout=300)
+             f"--cert-name {shlex.quote(domain)} --no-random-sleep-on-renew -v 2>&1",
+             step="certbot_renew", title=f"Продление {domain}", timeout=300, emit=emit)
     emit(f"Готово: {domain}")
     return {"domain": domain}
 

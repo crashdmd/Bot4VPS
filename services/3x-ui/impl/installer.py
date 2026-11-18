@@ -28,15 +28,16 @@ from __future__ import annotations
 
 import posixpath
 import shlex
+from contextlib import ExitStack
 from typing import Any, Dict, Optional
 
 from core.integrator import StepError, StepRunner
-from core.ssh import create_ssh_client
+from core.ssh import create_ssh_client, private_remote_directory, private_remote_upload
 
 from . import templates
 from .releases import ReleaseError, parse_tag, tarball_url, sha256_url
 
-_DEPS = "cron curl tar tzdata socat ca-certificates openssl"
+_DEPS = "cron curl tar tzdata socat ca-certificates openssl python3"
 
 # Ожидаемая структура тарболла релиза (как в install.sh): каталог x-ui/
 # с бинарником x-ui, x-ui.sh и bin/ (xray, mtg, geo-даты).
@@ -72,17 +73,17 @@ def fetch_from_github(runner: StepRunner, tag: str, arch: str) -> None:
     """
     tar_url = tarball_url(tag, arch)
     sha_url = sha256_url(tag, arch)
-    tmp_tar = "/tmp/x-ui-release.tar.gz"
-    tmp_sha = "/tmp/x-ui-release.tar.gz.sha256"
+    tmp_tar, tmp_sha = _release_paths(runner)
     runner.run(
         "fetch_tarball",
-        f"curl -fLR --connect-timeout 15 --max-time 900 "
+        f"umask 077 && curl -fLR --connect-timeout 15 --max-time 900 "
         f"--speed-limit 1024 --speed-time 120 -o {_quote(tmp_tar)} {_quote(tar_url)}",
         title=f"Загрузка тарболла {tag} ({arch}) с GitHub",
+        timeout=990,
     )
     runner.run(
         "fetch_checksum",
-        f"curl -fLR --connect-timeout 15 --max-time 60 -o {_quote(tmp_sha)} {_quote(sha_url)}",
+        f"umask 077 && curl -fLR --connect-timeout 15 --max-time 60 -o {_quote(tmp_sha)} {_quote(sha_url)}",
         title="Загрузка чексуммы релиза",
     )
     _verify_sha256(runner, tmp_tar, tmp_sha)
@@ -98,19 +99,28 @@ def push_from_cache(runner: StepRunner, local_tarball: str, tag: str, arch: str)
     if not os.path.isfile(local_tarball):
         raise ReleaseError(f"Тарболл не найден в кэше: {local_tarball}")
 
-    tmp_tar = "/tmp/x-ui-release.tar.gz"
-    tmp_sha = "/tmp/x-ui-release.tar.gz.sha256"
+    tmp_tar, tmp_sha = _release_paths(runner)
 
     sftp = runner.ssh.open_sftp()
     try:
         sftp.put(local_tarball, tmp_tar)
+        sftp.chmod(tmp_tar, 0o600)
         sha_local = str(local_tarball) + ".sha256"
         sftp.put(sha_local, tmp_sha)
+        sftp.chmod(tmp_sha, 0o600)
     finally:
         sftp.close()
 
     runner.emit(f"• Тарболл {tag} ({arch}) передан из кэша бота")
     _verify_sha256(runner, tmp_tar, tmp_sha)
+
+
+def _release_paths(runner):
+    directory = getattr(runner, 'release_directory', None)
+    if not isinstance(directory, str) or not directory.startswith('/tmp/bot4vps-private-'):
+        raise StepError('release_directory', -1, title='Временные файлы релиза',
+                        detail='Не создан закрытый каталог загрузки релиза.')
+    return directory + '/x-ui-release.tar.gz', directory + '/x-ui-release.tar.gz.sha256'
 
 
 def _verify_sha256(runner: StepRunner, tmp_tar: str, tmp_sha: str) -> None:
@@ -136,6 +146,7 @@ def extract_release(runner: StepRunner) -> None:
     недостающие файлы возвращаются (релизные не перезаписываются).
     Рантайм-остатки (config.json, mtproto/, tuic/) не возвращаются.
     """
+    tmp_tar, tmp_sha = _release_paths(runner)
     # бэкап существующего каталога (если стоит старая версия).
     # .old.$$ и .old.* НЕ в кавычках: $$ и glob должны раскрыться шеллом
     # (пути — константы без пробелов, шлёк-экранирование тут только мешает).
@@ -148,10 +159,10 @@ def extract_release(runner: StepRunner) -> None:
     runner.run(
         "extract_tarball",
         "cd /usr/local && "
-        "tar xzf /tmp/x-ui-release.tar.gz && "
+        f"tar xzf {_quote(tmp_tar)} && "
         f"test -d {_quote(templates.XUI_FOLDER)} && "
         f"test -x {_quote(templates.XUI_FOLDER + '/x-ui')} && "
-        "rm -f /tmp/x-ui-release.tar.gz /tmp/x-ui-release.tar.gz.sha256",
+        f"rm -f -- {_quote(tmp_tar)} {_quote(tmp_sha)}",
         title="Распаковка релиза в /usr/local/x-ui",
     )
     # рестор кастомных файлов bin/ из старой установки (glob не в кавычках)
@@ -211,19 +222,12 @@ def install_cli_and_unit(runner: StepRunner) -> None:
 
 def _write_unit_fallback(runner: StepRunner) -> None:
     """Fallback: unit-файл из шаблона (тарболл его не содержал)."""
-    tmp_path = "/tmp/bot4vps_xui_unit"
-    sftp = runner.ssh.open_sftp()
-    try:
-        with sftp.file(tmp_path, "w") as f:
-            f.write(templates.XUI_UNIT_FALLBACK)
-    finally:
-        sftp.close()
-    runner.run(
-        "install_unit_fallback",
-        f"install -m 644 {tmp_path} {templates.XUI_UNIT} && rm -f {tmp_path} && "
-        f"test -s {templates.XUI_UNIT}",
-        title="Установка systemd unit (шаблон)",
-    )
+    with private_remote_upload(runner.ssh, runner.server, templates.XUI_UNIT_FALLBACK) as tmp_path:
+        runner.run(
+            "install_unit_fallback",
+            f"install -m 644 {_quote(tmp_path)} {templates.XUI_UNIT} && test -s {templates.XUI_UNIT}",
+            title="Установка systemd unit (шаблон)",
+        )
 
 
 # ------------------------------------------------------------------
@@ -292,17 +296,25 @@ def configure_ssl_domain(runner: StepRunner, domain: str) -> bool:
     _ensure_acme(runner)
     cert_dir = f"/root/cert/{domain}"
     listen = _acme_listen_flag(runner)
+    from .certs import _acme_issue_hooks
     try:
+        hooks = _acme_issue_hooks(runner.ssh, runner.server, domain, 80)
         runner.run(
             "ssl_issue_domain",
             f"~/.acme.sh/acme.sh --set-default-ca --server letsencrypt --force >/dev/null 2>&1; "
-            f"~/.acme.sh/acme.sh --issue -d {_quote(domain)} {listen} --standalone --httpport 80 --force",
+            f"~/.acme.sh/acme.sh --issue -d {_quote(domain)} {listen} --standalone --httpport 80 --force {hooks} --debug 1 2>&1",
             title=f"Выпуск сертификата Let's Encrypt для {domain}",
         )
-    except StepError:
+    except StepError as exc:
         # выпуск не удался (порт 80 занят/закрыт, rate limit…) — панель
         # остаётся на HTTP; установка НЕ падает (так же ведёт офф-скрипт)
+        runner.emit(f"[!] SSL: {exc}. Панель остаётся на HTTP")
         return False
+    runner.run(
+        "ssl_cert_directory",
+        f"install -d -m 700 {_quote(cert_dir)}",
+        title="Подготовка каталога сертификата",
+    )
     runner.run(
         "ssl_install_domain",
         f"~/.acme.sh/acme.sh --installcert --force -d {_quote(domain)} "
@@ -311,8 +323,9 @@ def configure_ssl_domain(runner: StepRunner, domain: str) -> bool:
         f"--reloadcmd 'systemctl restart x-ui 2>/dev/null || true' && "
         f"chmod 600 {_quote(cert_dir + '/privkey.pem')} && "
         f"chmod 644 {_quote(cert_dir + '/fullchain.pem')} && "
-        f"~/.acme.sh/acme.sh --upgrade --auto-upgrade >/dev/null 2>&1; "
-        f"test -s {_quote(cert_dir + '/fullchain.pem')}",
+        f"~/.acme.sh/acme.sh --upgrade --auto-upgrade >/dev/null 2>&1 && "
+        f"test -s {_quote(cert_dir + '/fullchain.pem')} && "
+        f"test -s {_quote(cert_dir + '/privkey.pem')}",
         title="Установка сертификата (автопродление)",
     )
     runner.run(
@@ -327,38 +340,39 @@ def configure_ssl_domain(runner: StepRunner, domain: str) -> bool:
 def configure_ssl_ip(runner: StepRunner, server_ip: str, ipv6: str = "") -> bool:
     """Короткоживущий LE-сертификат для IP (~6 дней, autorrenew) — их вариант 2.
 
-    Перед выпуском панель останавливается: acme.sh нужен порт 80.
+    HTTP-порт готовят native pre/post-хуки acme.sh с восстановлением состояния.
     """
     _ensure_acme(runner)
     cert_dir = "/root/cert/ip"
     domain_args = f"-d {_quote(server_ip)}"
     if ipv6:
         domain_args += f" -d {_quote(ipv6)}"
-
-    # порт 80 нужен acme: остановить панель, если она уже слушает его
-    runner.run(
-        "ssl_stop_panel_for_acme",
-        f"ss -ltn '( sport = :80 )' 2>/dev/null | grep -q LISTEN && systemctl stop x-ui || true",
-        title="Освобождение порта 80 для ACME",
-    )
+    from .certs import _acme_issue_hooks
     try:
+        hooks = _acme_issue_hooks(runner.ssh, runner.server, server_ip, 80)
         runner.run(
             "ssl_issue_ip",
             f"~/.acme.sh/acme.sh --set-default-ca --server letsencrypt --force >/dev/null 2>&1; "
             f"~/.acme.sh/acme.sh --issue {domain_args} --standalone --server letsencrypt "
-            f"--certificate-profile shortlived --days 6 --httpport 80 --force",
+            f"--certificate-profile shortlived --days 6 --httpport 80 --force {hooks} --debug 1 2>&1",
             title=f"Выпуск IP-сертификата для {server_ip}",
         )
-    except StepError:
+    except StepError as exc:
+        runner.emit(f"[!] SSL: {exc}. Панель остаётся на HTTP")
         return False
+    runner.run(
+        "ssl_cert_directory",
+        f"install -d -m 700 {cert_dir}",
+        title="Подготовка каталога IP-сертификата",
+    )
     runner.run(
         "ssl_install_ip",
         f"~/.acme.sh/acme.sh --installcert --force -d {_quote(server_ip)} "
         f"--key-file {cert_dir}/privkey.pem --fullchain-file {cert_dir}/fullchain.pem "
-        f"--reloadcmd 'systemctl restart x-ui 2>/dev/null || true' 2>&1 || true; "
+        f"--reloadcmd 'systemctl restart x-ui 2>/dev/null || true' 2>&1 && "
         f"test -s {cert_dir}/fullchain.pem && test -s {cert_dir}/privkey.pem && "
         f"chmod 600 {cert_dir}/privkey.pem && chmod 644 {cert_dir}/fullchain.pem && "
-        f"~/.acme.sh/acme.sh --upgrade --auto-upgrade >/dev/null 2>&1; "
+        f"~/.acme.sh/acme.sh --upgrade --auto-upgrade >/dev/null 2>&1 && "
         f"test -s {cert_dir}/fullchain.pem",
         title="Установка IP-сертификата (автопродление ~6 дней)",
     )
@@ -537,23 +551,13 @@ def install_iplimit_jail(runner: StepRunner, panel_port: int) -> None:
 
 def _sftp_write_configs(runner: StepRunner, files: Dict[str, str], *, step_prefix: str) -> None:
     """Запись конфигов через SFTP → /tmp → atomic move (паттерн WG)."""
-    moves = []
-    sftp = runner.ssh.open_sftp()
-    try:
-        for i, (dest, content) in enumerate(files.items()):
-            tmp_path = f"/tmp/bot4vps_{step_prefix}_{i}"
-            with sftp.file(tmp_path, "w") as f:
-                f.write(content)
+    for dest, content in files.items():
+        with private_remote_upload(runner.ssh, runner.server, content) as tmp_path:
             dest_dir = posixpath.dirname(dest)
-            moves.append(
-                f"install -d -m 755 {dest_dir} && "
-                f"mv {tmp_path} {dest} && chmod 644 {dest}"
+            runner.run(f"write_{step_prefix}_config",
+                f"install -d -m 755 {_quote(dest_dir)} && install -m 644 {_quote(tmp_path)} {_quote(dest)}",
+                title=f"Запись конфигурации fail2ban ({step_prefix})",
             )
-    finally:
-        sftp.close()
-    for cmd in moves:
-        runner.run(f"write_{step_prefix}_config", cmd,
-                   title=f"Запись конфигурации fail2ban ({step_prefix})")
 
 
 # ------------------------------------------------------------------
@@ -668,8 +672,10 @@ def run_install(
 
     ssh = create_ssh_client(server)
     runner = StepRunner(ssh, server, emit)
+    temporary = ExitStack()
     try:
         ensure_deps(runner)
+        runner.release_directory = temporary.enter_context(private_remote_directory(ssh, server))
 
         used_source = source
         if source == "push":
@@ -769,6 +775,11 @@ def run_install(
             "panel_host": host,
             "firewall": fw,
         }
+        if ssl_mode in ("domain", "ip") and ssl_ok:
+            runner.result["issued_certificate"] = {"host": host, "assigned": True}
         return runner
     finally:
-        ssh.close()
+        try:
+            temporary.close()
+        finally:
+            ssh.close()

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import contextvars
 import threading
+from contextlib import contextmanager
 from typing import Optional
 
 
@@ -21,3 +22,13 @@ def reset(token: contextvars.Token[Optional[threading.Event]]) -> None:
 
 def current() -> Optional[threading.Event]:
     return _flag.get()
+
+
+@contextmanager
+def recovery_scope():
+    """Отмена останавливает работу, но не блокирует восстановление и очистку."""
+    token = _flag.set(None)
+    try:
+        yield
+    finally:
+        _flag.reset(token)

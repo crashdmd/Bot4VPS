@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import uuid
 from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 from core.operation_metrics import mark_direct_mutation_started
@@ -15,7 +16,7 @@ from core.integrator import (
     sync_progress,
     update_cache,
 )
-from core.ssh import create_ssh_client, exec_sudo
+from core.ssh import checked_output, create_ssh_client, exec_binary_stream, exec_sudo, private_remote_upload, sudo_failure_message
 from core.storage import find_server
 from core.task_manager import TaskResult
 
@@ -95,14 +96,13 @@ def _rollback_wg0(ssh, server, bak_path: Optional[str]) -> None:
     suffix = bak_path[len(prefix):]
     if not bak_path.startswith(prefix) or not suffix.isdigit():
         return  # не наш путь — не интерполируем
-    try:
-        exec_sudo(
+    from core.cancel_flags import recovery_scope
+    with recovery_scope():
+        checked_output(exec_sudo(
             ssh, server,
             f"cp -a {bak_path} /etc/wireguard/wg0.conf && chmod 600 /etc/wireguard/wg0.conf && "
-            "systemctl restart wg-quick@wg0 || true",
-        )
-    except Exception:
-        pass
+            "systemctl restart wg-quick@wg0",
+        ), title="Не удалось восстановить конфигурацию WireGuard")
 
 
 class Service(BaseService):
@@ -344,10 +344,11 @@ class Service(BaseService):
         if own:
             ssh = create_ssh_client(server)
         try:
-            _, ver, _ = exec_sudo(
+            version_result = exec_sudo(
                 ssh, server,
-                "command -v wg >/dev/null 2>&1 && wg --version | head -1 || true",
+                "if command -v wg >/dev/null 2>&1; then wg --version; fi",
             )
+            ver = checked_output(version_result, title="Проверка WireGuard")
             # Используем wg show для более точной проверки инициализации WG
             _, active, _ = exec_sudo(
                 ssh, server, "wg show wg0 >/dev/null 2>&1 && echo active || echo inactive"
@@ -470,7 +471,7 @@ class Service(BaseService):
         try:
             return await asyncio.to_thread(self._read_live, server_id, ssh)
         except Exception as e:
-            return {"installed": False, "error": str(e)}
+            return {"installed": None, "error": str(e)}
 
     def get_state(self, server_id: str) -> Dict[str, Any]:
         """Живое чтение состояния БЕЗ записи кэша (ТЗ §18/§21): актуальная
@@ -486,19 +487,8 @@ class Service(BaseService):
         return read_cache(self.manifest.id, server_id).get("profiles", [])
 
     def _apply_endpoint(self, server_id: str, endpoint: Optional[str]) -> Optional[int]:
-        """Записать предпочтение Endpoint в кэш и переписать ``Endpoint =`` во всех
-        ``clients/*.conf``. None/пусто = сброс предпочтения (конфиги не трогаем).
-        Общая логика для ``set_endpoint`` и ``update_config``. Возвращает число
-        обновлённых конфигов (None при сбросе)."""
-        endpoint = (endpoint or "").strip() or None
-        update_cache(self.manifest.id, server_id, endpoint=endpoint)
-        if not endpoint:
-            return None
-        server = find_server(server_id)
-        if not server:
-            return 0
-        mark_direct_mutation_started()
-        return profiles.rewrite_client_endpoints(server, endpoint)
+        result = self.update_config(server_id, endpoint=(endpoint or ''))
+        return result.get('updated_profiles', 0) if endpoint else None
 
     def set_endpoint(self, server_id: str, endpoint: Optional[str]) -> Optional[int]:
         """Сменить Endpoint (обратная совместимость). Делегирует в ``_apply_endpoint``.
@@ -506,148 +496,54 @@ class Service(BaseService):
         контракта (ТЗ §14: единый сервисный метод)."""
         return self._apply_endpoint(server_id, endpoint)
 
-    def update_config(
-        self, server_id: str,
-        endpoint: Optional[str] = None,
-        port: Optional[int] = None,
-        address: Optional[str] = None,
-        dns: Optional[str] = None,
-    ) -> Dict[str, Any]:
-        """Частичное изменение конфигурации WireGuard (ТЗ §12-§17).
-
-        ``None`` = пропустить (поле не трогается — частичный patch, §13); для
-        ``endpoint`` пустая строка = явный сброс. Валидация — до любых SSH-записей.
-        port/address → правка wg0.conf + ``wg-quick`` restart (с откатом при провале
-        apply, §16); endpoint/dns → только clients/*.conf, без рестарта. Механизм
-        применения — внутреннее дело сервиса (ТЗ §15: UI его не знает и systemctl
-        не зовёт). Кэш обновляет вызывающий (роутер) через ``integrator.sync``.
-        """
-        # --- Валидация (всё сразу, до записи) ---
-        v_port: Optional[str] = validate_port(port) if port is not None else None
-        v_addr: Optional[str] = validate_addr(address) if address is not None else None
-        v_dns: Optional[str] = validate_dns(dns) if dns is not None else None
-        if endpoint is not None and endpoint.strip():
-            validate_host(endpoint.strip())  # StepError при невалидном host
-
-        iface_change = (v_port is not None) or (v_addr is not None)
-        ep_change = endpoint is not None
-        dns_change = v_dns is not None
-        if not (iface_change or ep_change or dns_change):
-            return {}  # ничего не менялось
-
+    def update_config(self, server_id: str, endpoint: Optional[str] = None,
+                      port: Optional[int] = None, address: Optional[str] = None,
+                      dns: Optional[str] = None) -> Dict[str, Any]:
+        from . import configuration
+        from core.integrator import _CACHE_LOCK, write_cache
+        v_port = validate_port(port) if port is not None else None
+        v_addr = validate_addr(address) if address is not None else None
+        v_dns = validate_dns(dns) if dns is not None else None
+        v_endpoint = None
+        if endpoint is not None:
+            stripped = endpoint.strip()
+            v_endpoint = validate_host(stripped) if stripped else ''
+        if endpoint is None and port is None and address is None and dns is None:
+            return {}
         server = find_server(server_id)
         if not server:
-            raise RuntimeError("Сервер не найден")
-
-        ssh = create_ssh_client(server)
-        bak_path: Optional[str] = None
-        old_server_addr: Optional[str] = None
-        try:
-            # 1) wg0.conf: Address/ListenPort (до рестарта и до rewrite_endpoints,
-            #    т.к. rewrite_endpoints читает ListenPort из wg0.conf).
-            if iface_change:
-                _, wg0, _ = exec_sudo(ssh, server, "cat /etc/wireguard/wg0.conf 2>/dev/null || true")
-                if not wg0.strip():
-                    raise StepError("update_config", -1, title="Изменение конфигурации",
-                                    detail="/etc/wireguard/wg0.conf не найден или пуст")
-                new_wg0 = wg0
-                old_server_addr = _conf_value(wg0, "Address")  # для переноса подсети у пиров
-                if v_addr is not None:
-                    new_wg0 = _set_conf_line(new_wg0, "Address", v_addr)
-                if v_port is not None:
-                    new_wg0 = _set_conf_line(new_wg0, "ListenPort", v_port)
-                mark_direct_mutation_started()
-                # бэкап с серверным ts; echo пути — для точного отката при провале apply
-                _, bak_out, _ = exec_sudo(
-                    ssh, server,
-                    "BAK=/etc/wireguard/wg0.conf.bak.$(date +%s); "
-                    "cp -a /etc/wireguard/wg0.conf $BAK && echo $BAK",
-                )
-                bak_lines = [l.strip() for l in bak_out.splitlines() if l.strip()]
-                bak_path = bak_lines[-1] if bak_lines else None
-                sftp = ssh.open_sftp()
+            raise RuntimeError('Сервер не найден')
+        preferences = {}
+        if endpoint is not None: preferences['endpoint'] = v_endpoint or None
+        if dns is not None: preferences['dns'] = v_dns
+        def publish():
+            if not preferences: return
+            with _CACHE_LOCK:
+                before = dict(read_cache(self.manifest.id, server_id) or {})
+                after = {**before, **preferences}
                 try:
-                    with sftp.file("/tmp/bot4vps_wg0.new", "w") as f:
-                        f.write(new_wg0)
-                finally:
-                    sftp.close()
-                code, _, e2 = exec_sudo(
-                    ssh, server,
-                    "mv /tmp/bot4vps_wg0.new /etc/wireguard/wg0.conf && chmod 600 /etc/wireguard/wg0.conf",
-                )
-                if code != 0:
-                    raise StepError("update_config_write", code, title="Изменение конфигурации",
-                                    detail=(e2 or "не удалось записать wg0.conf").strip()[:500])
-
-            # 2) Endpoint в clients/*.conf (cache-pref + rewrite; читает новый ListenPort)
-            if ep_change:
-                self._apply_endpoint(server_id, endpoint)
-
-            # 3) DNS в clients/*.conf (+ сохраняем предпочтение в кэш — как endpoint;
-            #    иначе без профилей значение теряется, и меню показывает «—»).
-            if dns_change:
-                update_cache(self.manifest.id, server_id, dns=v_dns)
-                mark_direct_mutation_started()
-                profiles.rewrite_client_dns(server, v_dns)
-
-            # 3b) ListenPort → Endpoint в clients/*.conf
-            if v_port is not None:
-                host = None
-                try:
-                    cached = read_cache(self.manifest.id, server_id) or {}
-                    host = (cached.get("endpoint") or "").strip() or None
-                    if host and ":" in host and not host.startswith("["):
-                        host = host.rsplit(":", 1)[0].strip() or None
-                except Exception:
-                    host = None
-                if not host:
-                    _, ep_line, _ = exec_sudo(
-                        ssh, server,
-                        "awk '/^[[:space:]]*Endpoint[[:space:]]*=/{sub(/^[^=]*=/, ""); "
-                        "gsub(/^[[:space:]]+|[[:space:]]+$/, ""); print; exit}' "
-                        "/etc/wireguard/clients/*.conf 2>/dev/null || true",
-                    )
-                    ep_line = (ep_line or "").strip()
-                    if ep_line:
-                        host = ep_line.rsplit(":", 1)[0].strip() or None
-                if host:
-                    profiles.rewrite_client_endpoints(server, host)
-                else:
-                    profiles.rewrite_client_endpoint_ports(server, v_port)
-
-            
-            # 3c) Address (подсеть сервера) → Address клиентов + AllowedIPs peers
-            if v_addr is not None and old_server_addr and old_server_addr != v_addr:
-                try:
-                    profiles.rewrite_client_subnet(server, old_server_addr, v_addr)
-                except StepError:
+                    write_cache(self.manifest.id, server_id, after)
+                except Exception as failure:
+                    try:
+                        write_cache(self.manifest.id, server_id, before)
+                    except Exception as recovery:
+                        raise StepError('configuration_cache_recovery', -1,
+                                        detail=f'Не удалось восстановить предпочтения конфигурации: {recovery}') from failure
                     raise
-                except Exception as e:
-                    raise StepError(
-                        "rewrite_subnet", -1, title="Смена подсети",
-                        detail=str(e)[:400],
-                    )
-
-# 4) Применение к работающему интерфейсу — только для port/address
-            #    (endpoint/dns — клиентские, рестарта не требуют).
-            if iface_change:
-                code, _, e3 = exec_sudo(ssh, server, "systemctl restart wg-quick@wg0")
-                if code != 0:
-                    _rollback_wg0(ssh, server, bak_path)
-                    raise StepError("update_config_apply", code, title="Применение конфигурации",
-                                    detail=(e3 or "wg-quick restart завершился с ошибкой").strip()[:500])
-                _, active_out, _ = exec_sudo(
-                    ssh, server, "wg show wg0 >/dev/null 2>&1 && echo active || echo inactive"
-                )
-                if active_out.strip() != "active":
-                    _rollback_wg0(ssh, server, bak_path)
-                    raise StepError(
-                        "update_config_apply", -1, title="Применение конфигурации",
-                        detail="после перезапуска интерфейс wg0 не активен; конфиг откатан",
-                    )
+        if endpoint is not None and not v_endpoint and port is None and address is None and dns is None:
+            publish()
+            return {'updated_profiles': 0}
+        ssh = create_ssh_client(server)
+        try:
+            files = configuration.read_files(ssh, server)
+            changes = configuration.prepare(files, endpoint=v_endpoint, port=v_port, address=v_addr, dns=v_dns)
+            if changes: mark_direct_mutation_started()
+            count = configuration.apply(ssh, server, files, changes,
+                                        restart=port is not None or address is not None,
+                                        publish=publish)
+            return {'updated_profiles': count}
         finally:
             ssh.close()
-        return {}
 
     def get_actions(self, server_id: str) -> List[ServiceAction]:
         # Пустой server_id — служебный вызов из resolve_task_title (имя задачи
@@ -670,6 +566,8 @@ class Service(BaseService):
                 ServiceAction("confirm_remove", "🗑 Удалить сервис", style="danger", task_title="удаление"),
             ]
         status = self.get_status(server_id) or {}
+        if status.get("error"):
+            return [ServiceAction("sync", "🔵 Повторить проверку", task_title="синхронизация")]
         installed = bool(status.get("installed"))
         items: List[ServiceAction] = []
         if not installed:
@@ -705,21 +603,40 @@ class Service(BaseService):
 
     def fetch_profile_config(self, server_id: str, name: str) -> bytes:
         name = validate_profile_name(name)
-        if not (read_cache(self.manifest.id, server_id).get("endpoint") or "").strip():
-            raise RuntimeError(
-                "Endpoint не настроен. Укажите внешний IP или домен в настройках "
-                "сервиса — без него конфиг клиентам бесполезен."
-            )
         server = find_server(server_id)
         if not server:
             raise RuntimeError("Сервер не найден")
         ssh = create_ssh_client(server)
         try:
-            sftp = ssh.open_sftp()
+            # clients/*.conf имеют права root:600. SFTP от SSH-пользователя
+            # не умеет sudo; binary stdout сохраняет конфиг без изменений.
+            chunks: list[bytes] = []
+            code, stderr = exec_binary_stream(
+                ssh, server, ["cat", "--", f"/etc/wireguard/clients/{name}.conf"],
+                chunks.append, timeout=30,
+            )
+            if code != 0:
+                reason = sudo_failure_message(stderr.decode("utf-8", errors="replace"))
+                if reason:
+                    raise RuntimeError(f"Не удалось получить конфигурацию профиля «{name}»: {reason}")
+                raise RuntimeError(
+                    f"Не удалось прочитать конфиг профиля «{name}» (код {code}). "
+                    "Клиентский файл отсутствует или недоступен для чтения. Проверьте профиль и права пользователя."
+                )
+            data = b"".join(chunks)
+            if not data:
+                raise RuntimeError(f"Конфиг профиля «{name}» пуст.")
+            # При добавлении уже настроенного сервера локального Endpoint
+            # может ещё не быть. Источник истины — скачиваемый конфиг.
             try:
-                with sftp.file(f"/etc/wireguard/clients/{name}.conf", "r") as f:
-                    return f.read()
-            finally:
-                sftp.close()
+                text = data.decode("utf-8")
+            except UnicodeDecodeError:
+                raise RuntimeError("Конфиг содержит недопустимые символы UTF-8.") from None
+            if not _conf_value(text, "Endpoint"):
+                raise RuntimeError(
+                    "Endpoint не настроен. Укажите внешний IP или домен в настройках "
+                    "сервиса — без него конфиг клиентам бесполезен."
+                )
+            return data
         finally:
             ssh.close()

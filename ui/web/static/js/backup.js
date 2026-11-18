@@ -1430,8 +1430,11 @@ function renderHistoryRow(operation) {
       ? ' <span class="backup-lock" title="Архив защищён паролем резервных копий">🔒</span>'
       : '';
   const detail = archiveUiText(operation.error?.message || (operation.type === 'create' && progress.archive ? `${bytes(progress.archive)}` : ''));
+  const unavailable = operation.error?.details?.unreadable_sources;
+  const paths = Array.isArray(unavailable) && unavailable.length
+    ? `<details><summary>Недоступные источники (${unavailable.length})</summary><ul>${unavailable.map(path => `<li>${esc(archiveUiText(String(path)))}</li>`).join('')}</ul></details>` : '';
   return `<div class="backup-history-event"><time>${esc(formatServerTime(operation.updated_at || operation.created_at))}</time>
-    <span class="backup-history-icon">${icon}</span><span class="backup-history-event-text"><strong>${esc(title)}${lock}</strong>${detail ? `<small>${esc(detail)}</small>` : ''}</span></div>`;
+    <span class="backup-history-icon">${icon}</span><span class="backup-history-event-text"><strong>${esc(title)}${lock}</strong>${detail ? `<small>${esc(detail)}</small>` : ''}${paths}</span></div>`;
 }
 
 function renderHistory() {

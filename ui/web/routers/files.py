@@ -3,12 +3,15 @@ from __future__ import annotations
 import os
 import re
 import subprocess
+import tempfile
+import asyncio
 from pathlib import Path
 from core.integrator import StepError
 from fastapi import APIRouter, File, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from ..deps import err
+from ..uploads import read_limited_upload
 
 router = APIRouter(tags=["files"])
 
@@ -67,6 +70,17 @@ def _reject_master_key(root: str, name: str) -> None:
     ни удаление (только специальный флоу «Мастер-ключ» с подтверждением)."""
     if root == "keys" and Path(name).name == MASTER_KEY_FILENAME:
         raise HTTPException(403, "Мастер-ключ недоступен через раздел Файлы")
+    if root in FILE_ROOTS:
+        candidate = FILE_ROOTS[root] / _safe_name(name)
+        _reject_protected_target(candidate)
+
+
+def _reject_protected_target(candidate: Path) -> None:
+    master = FILE_ROOTS["keys"] / MASTER_KEY_FILENAME
+    if candidate.resolve() == master.resolve() or (
+        candidate.is_file() and master.is_file() and candidate.samefile(master)
+    ):
+        raise HTTPException(403, "Мастер-ключ недоступен через раздел Файлы")
 
 
 def _root_path(root: str) -> Path:
@@ -93,12 +107,20 @@ def _key_used_by_servers(key_name: str) -> list[str]:
     """
     from core.storage import load_servers
 
+    key_name = key_name.removesuffix(".pub")
+    key_file = FILE_ROOTS["keys"] / key_name
     suffix = "/" + key_name
     names = []
     for s in load_servers():
         path = str(s.get("key_path") or "")
+        server_file = Path(path)
+        if not server_file.is_absolute():
+            server_file = FILE_ROOTS["keys"] / server_file.name
+        same_target = key_file.resolve() == server_file.resolve() or (
+            key_file.is_file() and server_file.is_file() and key_file.samefile(server_file)
+        )
         if s.get("auth_type") == "key" and path and (
-            path == key_name or path.endswith(suffix)
+            path == key_name or path.endswith(suffix) or same_target
         ):
             names.append(str(s.get("name") or s.get("host") or s.get("id") or "?"))
     return names
@@ -185,6 +207,11 @@ async def api_files(
                     continue
             if not f.is_file():
                 continue
+            try:
+                _reject_master_key(root, f.name)
+                _resolve_target(root, f.name)
+            except HTTPException:
+                continue
             st = f.stat()
             items.append({
                 "name": f.name,
@@ -220,10 +247,13 @@ def _resolve_target(root: str, name: str, project: str = "") -> Path:
             title = getattr(e, "title", "") or "Ошибка"
             raise HTTPException(400, f"{title}: {detail}")
         pdir = _safe_rel(base, stack_name)
-        return _safe_rel(pdir, name)
+        fp = _safe_rel(pdir, name)
+        _reject_protected_target(fp)
+        return fp
     fp = (base / _safe_name(name)).resolve()
-    if not str(fp).startswith(str(base)):
+    if base not in fp.parents:
         raise HTTPException(400, "Путь вне разрешённого каталога")
+    _reject_protected_target(fp)
     return fp
 
 
@@ -319,14 +349,8 @@ async def api_files_write(body: FileWriteBody):
         text = body.content.replace("\r\n", "\n").replace("\r", "\n")
         if not text.endswith("\n"):
             text += "\n"
-        mode = fp.stat().st_mode
-        tmp = fp.with_suffix(fp.suffix + ".tmp")
-        with open(tmp, "w", encoding="utf-8", newline="\n") as f:
-            f.write(text)
-            f.flush()
-            os.fsync(f.fileno())
-        os.replace(tmp, fp)
-        os.chmod(fp, mode)   # .sh остаётся исполняемым
+        mode = fp.stat().st_mode & 0o777
+        await asyncio.to_thread(_atomic_write, fp, text.encode("utf-8"), mode)
         return {"ok": True, "file": {"name": fp.name, "size": len(text.encode())}}
     except HTTPException:
         raise
@@ -357,8 +381,8 @@ async def api_files_delete(root: str, name: str, project: str = Query("")):
             return {"ok": True, "removed": removed}
 
         safe = _safe_name(name)
-        fp = (base / safe).resolve()
-        if not str(fp).startswith(str(base)) or not fp.is_file():
+        fp = _resolve_target(root, name)
+        if not fp.is_file():
             raise HTTPException(404, "Файл не найден")
         # Ключ, которым подключается хотя бы один сервер, удалить нельзя:
         # сервер потеряет доступ по SSH.
@@ -371,11 +395,13 @@ async def api_files_delete(root: str, name: str, project: str = Query("")):
                     + ", ".join(used_by)
                     + ". Сначала переключите их на другой способ входа.",
                 )
-        fp.unlink()
         # удалить .pub пару если есть
         if root == "keys":
-            pub = (base / (safe + ".pub")).resolve()
-            if str(pub).startswith(str(base)) and pub.is_file():
+            _reject_master_key(root, safe + ".pub")
+            pub = _resolve_target(root, safe + ".pub")
+        fp.unlink()
+        if root == "keys":
+            if pub.is_file():
                 pub.unlink(missing_ok=True)
         return {"ok": True}
     except HTTPException:
@@ -437,9 +463,7 @@ async def api_docker_project_upload(
     filename = file.filename or "project.zip"
     if Path(filename).suffix.lower() != ".zip":
         raise HTTPException(400, "Поддерживаются только ZIP-архивы")
-    data = await file.read()
-    if len(data) > compose_store.MAX_PROJECT_TOTAL_SIZE:
-        raise HTTPException(400, "ZIP-архив слишком большой")
+    data = await read_limited_upload(file, compose_store.MAX_PROJECT_TOTAL_SIZE, "ZIP-архив слишком большой")
     try:
         chosen = (
             compose_store.validate_stack_name(name)
@@ -506,7 +530,7 @@ async def api_docker_file_upload(
     from services.docker.impl import compose_store
     raw_name = file.filename or ""
     rel = _docker_object_path(directory, raw_name)
-    data = await file.read()
+    data = await read_limited_upload(file, compose_store.MAX_PROJECT_FILE_SIZE, "Файл слишком большой (лимит 5 МБ)")
     try:
         info = compose_store.create_project_file(project, rel, data)
         return {"ok": True, "file": info}
@@ -519,25 +543,76 @@ async def api_docker_file_upload(
 
 
 @router.post("/api/files/upload")
-async def api_files_upload(root: str = Query("scripts"), file: UploadFile = File(...)):
+async def api_files_upload(root: str = Query("scripts"), file: UploadFile = File(...), name: str = Query("")):
     try:
         if root == "docker":
             raise HTTPException(400, "Для Docker используйте загрузку внутри проекта")
         base = _root_path(root)
-        fname = _safe_name(file.filename or "file")
+        fname = name or file.filename or "file"
+        if root == "keys" and _safe_name(fname) != fname:
+            raise HTTPException(400, "Имя ключа не должно содержать путь")
+        fname = _safe_name(fname)
         # Загрузкой нельзя перезаписать мастер-ключ (root=keys)
         _reject_master_key(root, fname)
-        data = await file.read()
-        if len(data) > 5 * 1024 * 1024:
-            raise HTTPException(400, "Макс 5 МБ")
-        (base / fname).write_bytes(data)
-        if fname.endswith(".sh"):
-            os.chmod(base / fname, 0o755)
+        data = await read_limited_upload(file, 5 * 1024 * 1024, "Максимальный размер — 5 МБ")
+        await asyncio.to_thread(_save_file_upload, root, fname, data)
         return {"ok": True, "name": fname}
     except HTTPException:
         raise
     except Exception as e:
         return err(e)
+
+
+def _save_file_upload(root: str, name: str, data: bytes) -> None:
+    _reject_master_key(root, name)
+    target = _resolve_target(root, name)
+    if root == "keys":
+        private_name = name.removesuffix(".pub")
+        if not _is_key_name(private_name):
+            raise HTTPException(400, "Имя SSH-ключа: латинские буквы, цифры, точка, дефис, подчёркивание (до 64 символов)")
+        used_by = _key_used_by_servers(name)
+        if used_by:
+            raise HTTPException(409, "Ключ используется серверами: " + ", ".join(used_by) +
+                                ". Замена запрещена. Введите новое имя ключа.")
+        _validate_ssh_key(data, public=name.endswith(".pub"))
+        mode = 0o644 if name.endswith(".pub") else 0o600
+    else:
+        mode = 0o755 if name.endswith(".sh") else 0o600
+    _atomic_write(target, data, mode)
+
+
+def _validate_ssh_key(data: bytes, *, public: bool = False) -> None:
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric import rsa, ec, ed25519
+    from cryptography.exceptions import UnsupportedAlgorithm
+    try:
+        if public:
+            serialization.load_ssh_public_key(data)
+        elif data.lstrip().startswith(b"-----BEGIN OPENSSH PRIVATE KEY-----"):
+            key = serialization.load_ssh_private_key(data, password=None)
+        else:
+            key = serialization.load_pem_private_key(data, password=None)
+        if not public:
+            if not isinstance(key, (rsa.RSAPrivateKey, ec.EllipticCurvePrivateKey, ed25519.Ed25519PrivateKey)):
+                raise ValueError("Unsupported SSH key type")
+            key.public_key().public_bytes(serialization.Encoding.OpenSSH, serialization.PublicFormat.OpenSSH)
+    except TypeError as exc:
+        raise HTTPException(400, "SSH-ключ защищён паролем. Панель поддерживает подключение ключом без парольной фразы.") from exc
+    except (ValueError, UnsupportedAlgorithm) as exc:
+        raise HTTPException(400, "Файл не является корректным SSH-ключом. Загрузите приватный ключ PEM/OpenSSH или публичный ключ .pub.") from exc
+
+
+def _atomic_write(target: Path, data: bytes, mode: int) -> None:
+    fd, temporary = tempfile.mkstemp(prefix=".bot4vps-upload-", dir=target.parent)
+    try:
+        with os.fdopen(fd, "wb") as stream:
+            os.fchmod(stream.fileno(), mode)
+            stream.write(data)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, target)
+    finally:
+        Path(temporary).unlink(missing_ok=True)
 
 
 class ScriptCreateBody(BaseModel):
@@ -594,6 +669,10 @@ class KeyCreateBody(BaseModel):
 
 @router.post("/api/keys/create")
 async def api_keys_create(body: KeyCreateBody):
+    return await asyncio.to_thread(_create_key_sync, body)
+
+
+def _create_key_sync(body: KeyCreateBody):
     """Создать SSH-ключ (ed25519). Использует core, если есть, иначе ssh-keygen."""
     try:
         name = re.sub(r"[^\w.\-]", "_", body.name.strip())[:64]
@@ -655,11 +734,12 @@ async def api_keys_view(name: str):
         safe = _safe_name(name)
         if safe.endswith(".pub"):
             raise HTTPException(400, "pub не показываем")
-        fp = (base / safe).resolve()
-        if not str(fp).startswith(str(base)) or not fp.is_file():
+        fp = _resolve_target("keys", name)
+        if not fp.is_file():
             raise HTTPException(404, "Ключ не найден")
         content = fp.read_text(encoding="utf-8", errors="replace")
-        pub = base / (safe + ".pub")
+        _reject_master_key("keys", safe + ".pub")
+        pub = _resolve_target("keys", safe + ".pub")
         pub_content = pub.read_text(encoding="utf-8", errors="replace") if pub.is_file() else None
         return {
             "name": safe,

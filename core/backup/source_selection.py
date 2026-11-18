@@ -350,3 +350,23 @@ def parse_privileged_source_probe(path: str, exit_code: int, stdout: str, stderr
     }
     reason = labels.get(token, "не найден или недоступен")
     raise SourceSelectionError(f"{normalized}: {reason}")
+
+
+def build_source_access_scan(path: str, exclusions: list[str]) -> str:
+    """Проверить вложенные объекты без чтения данных и без перехода по symlink."""
+    normalized = normalize_source_path(path)
+    predicates = []
+    for pattern in exclusions:
+        if "/" in pattern:
+            predicates.extend((f"-path {shlex.quote('./' + pattern)}",
+                               f"-path {shlex.quote('./*/' + pattern)}"))
+        else:
+            predicates.append(f"-name {shlex.quote(pattern)}")
+    prune = ("\\( " + " -o ".join(predicates) + " \\) -prune -o ") if predicates else ""
+    check = ('for entry do '
+             '[ -L "$entry" ] && continue; '
+             'if { [ -d "$entry" ] && { [ ! -r "$entry" ] || [ ! -x "$entry" ]; }; } '
+             '|| { [ -f "$entry" ] && [ ! -r "$entry" ]; }; then '
+             'printf "%s\\n" "$entry"; fi; done')
+    return (f"cd -- {shlex.quote(normalized)} && find . {prune}"
+            f"-exec sh -c {shlex.quote(check)} sh {{}} +")

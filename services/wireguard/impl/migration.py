@@ -7,7 +7,7 @@ from datetime import datetime
 from typing import Dict, List, Optional, Tuple
 
 from core.integrator import StepError, StepRunner
-from core.ssh import create_ssh_client, exec_sudo
+from core.ssh import create_ssh_client, exec_sudo, private_remote_upload
 
 from . import lifecycle
 from .templates import postup_postdown, install_peer_loader_script
@@ -161,20 +161,13 @@ def migrate(server: dict, emit) -> int:
                 if k.lower() in mapping:
                     content += f"{mapping[k.lower()]} = {v}\n"
             
-            tmp = f"/tmp/bot4vps_peer_{name}.conf"
-            sftp = runner.ssh.open_sftp()
-            try:
-                with sftp.file(tmp, "w") as f:
-                    f.write(content)
-            finally:
-                sftp.close()
-            runner.run(
-                f"peer_{name}",
-                f"mv {tmp} /etc/wireguard/peers/{name}.conf && "
-                f"chmod 600 /etc/wireguard/peers/{name}.conf && "
-                f"test -s /etc/wireguard/peers/{name}.conf",
-                title=f"peers/{name}.conf",
-            )
+            with private_remote_upload(runner.ssh, runner.server, content) as tmp:
+                runner.run(
+                    f"peer_{name}",
+                    f"install -m 600 -o root -g root {tmp} /etc/wireguard/peers/{name}.conf && "
+                    f"test -s /etc/wireguard/peers/{name}.conf",
+                    title=f"peers/{name}.conf",
+                )
             written.append(name)
 
         if not written:
@@ -185,19 +178,13 @@ def migrate(server: dict, emit) -> int:
 
         iface = lifecycle.detect_external_iface(runner)
         new_conf = rebuild_interface_only(iface_text, iface)
-        tmp_wg = "/tmp/bot4vps_wg0_migrated.conf"
-        sftp = runner.ssh.open_sftp()
-        try:
-            with sftp.file(tmp_wg, "w") as f:
-                f.write(new_conf)
-        finally:
-            sftp.close()
-        runner.run(
-            "write_wg0",
-            f"mv {tmp_wg} /etc/wireguard/wg0.conf && chmod 600 /etc/wireguard/wg0.conf && "
-            f"test -s /etc/wireguard/wg0.conf",
-            title="Пересборка wg0.conf (только Interface)",
-        )
+        with private_remote_upload(runner.ssh, runner.server, new_conf) as tmp_wg:
+            runner.run(
+                "write_wg0",
+                f"install -m 600 -o root -g root {tmp_wg} /etc/wireguard/wg0.conf && "
+                f"test -s /etc/wireguard/wg0.conf",
+                title="Пересборка wg0.conf (только Interface)",
+            )
 
         install_peer_loader_script(runner)
 

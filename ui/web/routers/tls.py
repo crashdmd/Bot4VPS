@@ -246,12 +246,11 @@ async def api_tls_upload(
         for upload, what in ((cert, "первого файла"), (key, "второго файла")):
             if not upload.filename:
                 raise HTTPException(400, "Не выбран %s" % what)
-            data = await upload.read()
+            from ..uploads import read_limited_upload
+            data = await read_limited_upload(upload, 1024 * 1024,
+                                            "%s слишком большой (лимит 1 МБ)" % what.capitalize())
             if not data:
                 raise HTTPException(400, "%s пуст" % what.capitalize())
-            if len(data) > 1024 * 1024:
-                raise HTTPException(
-                    400, "%s слишком большой (лимит 1 МБ)" % what.capitalize())
             kind = classify_pem(data)
             if kind is None:
                 raise HTTPException(

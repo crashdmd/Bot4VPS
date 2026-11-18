@@ -134,8 +134,8 @@ async def primary_telegram(body: PrimaryBody, request: Request):
         raise HTTPException(409, "Telegram выключен или не настроен")
     delivery = telegram_delivery_fingerprint()
     try:
-        pending = await send_telegram_code("Назначение главного телефона Bot4VPS",
-            "Назначение устройства «" + device["name"] + "» главным на панели " + str(request.base_url) + ". Введите код в этой панели для подтверждения.", clock=time.time)
+        pending = await send_telegram_code("Назначение основного телефона Bot4VPS",
+            "Назначение устройства «" + device["name"] + "» основным на панели " + str(request.base_url) + ". Введите код в этой панели для подтверждения.", clock=time.time)
     except Exception:
         raise HTTPException(503, "Не удалось отправить код Telegram") from None
     return await asyncio.to_thread(_flows().setup_telegram_factor, browser_id(request), True, pending,

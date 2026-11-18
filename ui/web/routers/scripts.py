@@ -177,9 +177,8 @@ async def api_upload_script(file: UploadFile = File(...)):
         fname = file.filename or "upload.sh"
         if not fname.lower().endswith(".sh"):
             raise HTTPException(400, "Нужен .sh")
-        data = await file.read()
-        if len(data) > 1024 * 1024:
-            raise HTTPException(400, "Слишком большой")
+        from ..uploads import read_limited_upload
+        data = await read_limited_upload(file, 1024 * 1024, "Скрипт слишком большой (лимит 1 МБ)")
         safe = _safe_script_name(fname)
         dest = Path("scripts")
         dest.mkdir(parents=True, exist_ok=True)

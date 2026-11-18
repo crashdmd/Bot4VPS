@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import re
 import shlex
+import uuid
 from typing import Optional
 
-from core.ssh import exec_sudo
+from core.ssh import checked_output, exec_sudo
 
 from ..package_manager import detect as detect_package_manager
 from .base import (
@@ -40,10 +41,11 @@ class UfwBackend(FirewallBackend):
     name = "ufw"
 
     def detect(self, ssh, server: dict) -> Optional[FirewallInfo]:
-        code, out, _ = exec_sudo(
+        result = exec_sudo(
             ssh, server, "command -v ufw >/dev/null && echo yes || echo no", timeout=15
         )
-        if code != 0 or "yes" not in (out or ""):
+        out = checked_output(result, title="Проверка UFW")
+        if "yes" not in out:
             return None
         code, status, err = exec_sudo(ssh, server, "ufw status numbered", timeout=20)
         if code != 0:
@@ -337,6 +339,100 @@ class UfwBackend(FirewallBackend):
             },
         )
 
+    @staticmethod
+    def _temporary_spec(port: int, tag: str) -> str:
+        return f"-p tcp -m tcp --dport {port} -m comment --comment {shlex.quote(tag)} -j ACCEPT"
+
+    @staticmethod
+    def _runtime_rules(ssh, server: dict, binary: str) -> list[list[str]]:
+        code, out, err = exec_sudo(
+            ssh, server, f"{binary} -w 5 -S ufw-user-input", timeout=20)
+        if code != 0:
+            raise RuntimeError((err or out or "Не удалось прочитать цепочку UFW")[:800])
+        return [shlex.split(line) for line in out.splitlines() if line.startswith("-A ")]
+
+    def open_temporary_port(self, ssh, server: dict, port: int,
+                            protocol: str, source: str = "") -> FirewallMutation:
+        """Временный TCP allow перед deny; конфигурацию UFW не меняем.
+
+        UFW insert отказывается вставлять дубликат даже с новым comment.
+        Runtime-правило имеет уникальный token и удаляется только по нему.
+        """
+        if protocol != "tcp" or source:
+            return FirewallMutation(self.name, port, protocol, "open", False,
+                                    error="temporary_ufw_requires_unrestricted_tcp")
+        tag = "bot4vps-acme-" + uuid.uuid4().hex
+        mutation = FirewallMutation(
+            self.name, port, protocol, "open", False,
+            token={"temporary_ufw_tag": tag, "binaries": []})
+        try:
+            # IPv6 включён в UFW, только если есть его user chain.
+            self._runtime_rules(ssh, server, "iptables")
+            code, _, _ = exec_sudo(
+                ssh, server, "ip6tables -w 5 -S ufw-user-input", timeout=20)
+            binaries = ["iptables"] + (["ip6tables"] if code == 0 else [])
+            spec = self._temporary_spec(port, tag)
+            expected = shlex.split("-A ufw-user-input " + spec)
+            for binary in binaries:
+                # Запоминаем ДО вызова: запись могла пройти, а ответ SSH потеряться.
+                mutation.token["binaries"].append(binary)
+                mutation.changed = True
+                code, out, err = exec_sudo(
+                    ssh, server, f"{binary} -w 5 -I ufw-user-input 1 {spec}", timeout=20)
+                if code != 0:
+                    raise RuntimeError((err or out or "Временное правило не добавлено")[:800])
+                rules = self._runtime_rules(ssh, server, binary)
+                if not rules or rules[0] != expected:
+                    raise RuntimeError("Временное правило UFW не подтверждено перед запретами")
+            mutation.ok = mutation.verified = True
+            mutation.message = f"Временное правило {port}/tcp добавлено перед запретами UFW"
+        except Exception as exc:
+            mutation.error = str(exc)[:800]
+            mutation.message = "Не удалось открыть временный доступ в UFW"
+            if mutation.changed:
+                cleanup = self._cleanup_temporary_port(ssh, server, mutation)
+                if cleanup.ok:
+                    mutation.changed = False
+                else:
+                    mutation.error += "; откат: " + str(cleanup.error or cleanup.message)
+        return mutation
+
+    def _cleanup_temporary_port(self, ssh, server: dict,
+                                mutation: FirewallMutation) -> FirewallMutation:
+        tag = str(mutation.token.get("temporary_ufw_tag") or "")
+        binaries = mutation.token.get("binaries")
+        result = FirewallMutation(self.name, mutation.port, mutation.protocol, "cleanup", False)
+        if (not re.fullmatch(r"bot4vps-acme-[0-9a-f]{32}", tag)
+                or not isinstance(binaries, list) or not binaries
+                or any(binary not in {"iptables", "ip6tables"} for binary in binaries)
+                or mutation.protocol != "tcp"):
+            result.error = "invalid_temporary_ufw_token"
+            return result
+        spec = self._temporary_spec(int(mutation.port), tag)
+        expected = shlex.split("-A ufw-user-input " + spec)
+        errors = []
+        for binary in reversed(binaries):
+            try:
+                rules = self._runtime_rules(ssh, server, binary)
+                tagged = [rule for rule in rules if tag in rule]
+                if not tagged:
+                    continue  # Например, UFW reload уже убрал runtime-правило.
+                if tagged != [expected]:
+                    raise RuntimeError("Временное правило изменилось; удаление остановлено")
+                code, out, err = exec_sudo(
+                    ssh, server, f"{binary} -w 5 -D ufw-user-input {spec}", timeout=20)
+                if code != 0:
+                    raise RuntimeError((err or out or "Удаление не выполнено")[:800])
+                if any(tag in rule for rule in self._runtime_rules(ssh, server, binary)):
+                    raise RuntimeError("Удаление временного правила не подтверждено")
+            except Exception as exc:
+                errors.append(f"{binary}: {exc}")
+        result.ok = result.verified = not errors
+        result.changed = not errors
+        result.error = "; ".join(errors) or None
+        result.message = "Временное правило UFW удалено" if not errors else "Откат UFW не подтверждён"
+        return result
+
     def preflight_close_port(
         self,
         ssh,
@@ -438,6 +534,8 @@ class UfwBackend(FirewallBackend):
                 error="cleanup_refused_not_exact_change",
                 message="Правило не было новым точным изменением этой операции и не удалено",
             )
+        if mutation.token.get("temporary_ufw_tag"):
+            return self._cleanup_temporary_port(ssh, server, mutation)
         source = str(mutation.token.get("source") or "")
         matching = self._standard_exact(
             self.list_rules(ssh, server), mutation.port, mutation.protocol, source

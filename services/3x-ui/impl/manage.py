@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import posixpath
+import re
 import shlex
 from typing import Any, Dict, Optional
 
@@ -50,9 +51,9 @@ def _probe(ssh, server: dict, command: str) -> str:
     return out.strip()
 
 
-def _run(ssh, server: dict, command: str, *, step: str, title: str) -> str:
+def _run(ssh, server: dict, command: str, *, step: str, title: str, timeout: int = 120) -> str:
     """Команда с проверкой кода возврата → StepError с stderr при провале."""
-    code, out, err = exec_sudo(ssh, server, command, timeout=120)
+    code, out, err = exec_sudo(ssh, server, command, timeout=timeout)
     if code != 0:
         raise StepError(step, code, title=title,
                         detail=(err or out or "команда завершилась с ошибкой").strip()[:500])
@@ -101,13 +102,58 @@ def read_install_result(ssh, server: dict) -> Dict[str, str]:
         ssh, server,
         f"if [ -r {templates.XUI_INSTALL_RESULT} ]; then cat {templates.XUI_INSTALL_RESULT}; fi",
     )
+    return parse_install_result(out)
+
+
+def parse_install_result(out: str) -> Dict[str, str]:
+    """Разобрать shell-экранированные значения без выполнения env-файла."""
     result: Dict[str, str] = {}
     for line in out.splitlines():
         line = line.strip()
         if not line or "=" not in line or line.startswith("#"):
             continue
         key, _, value = line.partition("=")
-        result[key.strip()] = value.strip().strip("'").strip('"')
+        key = key.strip()
+        if not re.fullmatch(r"XUI_[A-Z0-9_]+", key):
+            continue
+        value = value.strip()
+        if value.startswith("$'") and value.endswith("'"):
+            # Bash printf %q использует ANSI-C quoting для непечатных байтов.
+            body = value[2:-1]
+            decoded = bytearray()
+            i = 0
+            escapes = {"a": 7, "b": 8, "e": 27, "E": 27, "f": 12,
+                       "n": 10, "r": 13, "t": 9, "v": 11, "\\": 92, "'": 39, '"': 34}
+            while i < len(body):
+                if body[i] != "\\":
+                    decoded.extend(body[i].encode("utf-8")); i += 1
+                    continue
+                i += 1
+                if i >= len(body):
+                    raise ValueError("Неверное экранирование install-result.env")
+                char = body[i]
+                if char in escapes:
+                    decoded.append(escapes[char]); i += 1
+                else:
+                    match = re.match(r"[0-7]{1,3}", body[i:])
+                    if match:
+                        decoded.append(int(match.group(), 8)); i += len(match.group())
+                    elif char in "xuU":
+                        limit = {"x": 2, "u": 4, "U": 8}[char]
+                        match = re.match(r"[0-9a-fA-F]{1," + str(limit) + "}", body[i+1:])
+                        if not match:
+                            raise ValueError("Неверное экранирование install-result.env")
+                        number = int(match.group(), 16)
+                        decoded.extend(bytes([number]) if char == "x" else chr(number).encode("utf-8"))
+                        i += 1 + len(match.group())
+                    else:
+                        raise ValueError("Неподдерживаемое экранирование install-result.env")
+            result[key] = decoded.decode("utf-8")
+        else:
+            parts = shlex.split(value, posix=True)
+            if len(parts) > 1:
+                raise ValueError("Неверный формат install-result.env")
+            result[key] = parts[0] if parts else ""
     return result
 
 
@@ -152,35 +198,82 @@ def read_settings_show(ssh, server: dict) -> Dict[str, Optional[str]]:
 # Аккаунт панели (x-ui setting …)
 # ------------------------------------------------------------------
 
-def _setting(ssh, server: dict, args: str, *, step: str, title: str) -> None:
-    """Выполнить ``x-ui setting <args>`` с проверкой кода возврата.
+def require_setting_cli(ssh, server: dict, flags: set[str]) -> None:
+    """Проверить контракт живого бинарника; версии и флаги не кэшируем."""
+    code, out, err = exec_sudo(
+        ssh, server, f"{templates.XUI_FOLDER}/x-ui setting -h", timeout=30)
+    help_text = (out or "") + "\n" + (err or "")
+    declarations = dict(re.findall(r"(?m)^\s+-([A-Za-z][A-Za-z0-9]*)(?:[^\S\n]+(string|int))?[^\S\n]*$", help_text))
+    available = set(declarations)
+    missing = sorted(flags - available)
+    types = {"username": "string", "password": "string", "port": "int",
+             "webBasePath": "string", "webCert": "string", "webCertKey": "string", "reset": ""}
+    changed = sorted(flag for flag in flags & available if flag in types and declarations[flag] != types[flag])
+    if code not in (0, 2) or "Usage of setting:" not in help_text or not available or missing or changed:
+        version = _probe(ssh, server, f"{templates.XUI_FOLDER}/x-ui -v")
+        version = version if re.fullmatch(r"v?\d+(?:\.\d+){1,3}[-+a-zA-Z0-9.]*", version) else "неизвестна"
+        detail = ("не поддерживает параметры " + ", ".join("-" + flag for flag in missing)
+                  if available and missing else
+                  "изменились типы параметров " + ", ".join("-" + flag for flag in changed)
+                  if changed else "не удалось прочитать справку команды setting")
+        raise StepError("cli_compatibility", -1, title="Несовместимый CLI 3x-ui",
+                        detail=f"Версия {version}: {detail}. Действие не запущено; требуется обновление интеграции.")
+
+
+def _setting(ssh, server: dict, args: str, *, step: str, title: str,
+             expected: tuple[str, ...] = (), secrets: tuple[str, ...] = ()) -> None:
+    """Проверить параметры CLI до мутации и его ответ после выполнения.
 
     Значения пользовательского ввода (логин/пароль/path) вызывающие
     передают уже shlex-экранированными — интерполяции «сырого» ввода
     в команду здесь нет."""
-    _run(ssh, server, f"{templates.XUI_FOLDER}/x-ui setting {args}",
-         step=step, title=title)
+    words = shlex.split(args)
+    flags = {words[i][1:].split("=", 1)[0] for i in range(0, len(words), 2)}
+    require_setting_cli(ssh, server, flags)
+    try:
+        code, out, err = exec_sudo(
+            ssh, server, f"{templates.XUI_FOLDER}/x-ui setting {args}", timeout=120)
+    except Exception:
+        raise StepError(step, -1, title=title,
+                        detail="Ответ CLI не получен. Результат не подтверждён; проверьте панель перед повтором.") from None
+    text = (out or "") + "\n" + (err or "")
+    text = re.sub(r"\x1b\[[0-9;]*m", "", text)
+    failure = re.search(r"(?im)^.*(?:\bfailed\b|\berror\b|flag provided but not defined|warning: ignored).*$", text)
+    if code != 0 or failure:
+        detail = failure.group().strip() if failure else (err or out or "команда завершилась с ошибкой").strip()
+        for secret in secrets:
+            for representation in (secret, shlex.quote(secret)):
+                if representation:
+                    detail = detail.replace(representation, "[скрыто]")
+        raise StepError(step, code if code != 0 else -1, title=title, detail=detail[:500])
+    if expected and not all(re.search(pattern, text, re.I | re.M) for pattern in expected):
+        raise StepError("cli_compatibility", -1, title="Ответ CLI 3x-ui не распознан",
+                        detail="CLI не подтвердил изменение. Его формат или поведение могло измениться; "
+                               "проверьте панель перед повтором. Сохранённые данные бота не обновлены.")
 
 
-def change_username(ssh, server: dict, username: str, restart: bool) -> str:
-    """Смена логина; env обновляем точечно (пароль не трогаем — он не
-    читается извне, остаётся прежним)."""
-    _setting(ssh, server, f"-username {shlex.quote(username)}",
-             step="change_username", title="Смена логина панели")
+def change_credentials(ssh, server: dict, username: str, password: str, restart: bool) -> None:
+    """Одна команда с обоими значениями: поддерживается текущим CLI.
+
+    CLI UpdateFirstUser сохраняет 2FA. Вывод с exit 0 не является успехом
+    без явного подтверждения совместного обновления учётных данных.
+    """
+    _setting(ssh, server, f"-username {shlex.quote(username)} -password {shlex.quote(password)}",
+             step="change_credentials", title="Смена логина и пароля панели",
+             expected=(r"^\s*Username and password (?:updated|set) successfully[.!]?\s*$",),
+             secrets=(password,))
+    try:
+        patch_install_result(ssh, server, {"XUI_USERNAME": username, "XUI_PASSWORD": password})
+    except Exception:
+        raise StepError("write_install_result", -1, title="Учётные данные изменены",
+                        detail="CLI подтвердил смену логина и пароля, но сохранить их для бота не удалось. "
+                               "Используйте введённые данные для входа; повторная смена не требуется.") from None
     if restart:
-        unit_action(ssh, server, "restart")
-    patch_install_result(ssh, server, {"XUI_USERNAME": username})
-    return username
-
-
-def change_password(ssh, server: dict, password: str, restart: bool) -> None:
-    """Смена пароля. ВАЖНО (видение): пароль меняется только через бота —
-    иначе рассинхрон наших секретов; после смены env + кэш обновятся."""
-    _setting(ssh, server, f"-password {shlex.quote(password)}",
-             step="change_password", title="Смена пароля панели")
-    if restart:
-        unit_action(ssh, server, "restart")
-    patch_install_result(ssh, server, {"XUI_PASSWORD": password})
+        try:
+            unit_action(ssh, server, "restart")
+        except Exception:
+            raise StepError("credentials_restart", -1, title="Учётные данные изменены и сохранены",
+                            detail="Перезапуск панели не подтверждён. Проверьте её состояние; повторная смена не требуется.") from None
 
 
 def panel_display_host(server: dict) -> str:
@@ -408,17 +501,27 @@ def read_bbr_state(ssh, server: dict) -> Dict[str, Any]:
 def update_geo(ssh, server: dict, restart: bool = True) -> Dict[str, str]:
     """Скачать свежие geoip.dat/geosite.dat в bin/ (те же URL, что их меню),
     затем рестарт панели (подхватывает файлы). Возвращает даты файлов."""
-    parts = [f"cd {templates.XUI_FOLDER}/bin"]
-    for name in _GEO_FILES:
-        parts.append(
-            f"curl -fL --connect-timeout 15 --max-time 300 "
-            f"--retry 3 --retry-delay 5 -o {name}.new {_GEO_URL}{name} && "
-            f"mv {name}.new {name}"
-        )
-    _run(ssh, server, " && ".join(parts), step="update_geo",
-         title="Обновление geo-файлов (geoip/geosite)")
+    from core.ssh import private_remote_directory
+    from .geo import commit_command
+    was_active = False
     if restart:
-        unit_action(ssh, server, "restart")
+        state = _run(ssh, server, 'systemctl show x-ui -p ActiveState --value',
+                     step='geo_state', title='Состояние 3x-ui перед обновлением')
+        if state not in {'active', 'inactive', 'failed'}:
+            raise StepError('geo_state', -1, title='Обновление geo-файлов',
+                            detail='Не удалось определить стабильное состояние 3x-ui. Повторите проверку.')
+        was_active = state == 'active'
+    with private_remote_directory(ssh, server, privileged=True) as directory:
+        for name in _GEO_FILES:
+            path = shlex.quote(directory + '/' + name)
+            _run(ssh, server,
+                 f'curl -fL --connect-timeout 15 --max-time 300 --retry 3 --retry-delay 5 '
+                 f'-o {path} {shlex.quote(_GEO_URL + name)} && test -s {path} && '
+                 f'test "$(stat -c %s -- {path})" -le 134217728 && '
+                 f'test "$(od -An -tu1 -N1 -- {path} | tr -d " \\n")" = 10',
+                 step='update_geo', title=f'Загрузка и проверка {name}', timeout=1260)
+        _run(ssh, server, commit_command(templates.XUI_FOLDER + '/bin', directory, restart, was_active),
+             step='update_geo', title='Применение пары geoip/geosite', timeout=240)
     return read_geo_state(ssh, server)
 
 
@@ -441,14 +544,9 @@ def read_geo_state(ssh, server: dict) -> Dict[str, str]:
 
 def _sftp_write_file(ssh, server: dict, dest: str, content: str) -> None:
     """SFTP → /tmp → atomic move (паттерн WG templates/installer)."""
-    tmp_path = "/tmp/bot4vps_xui_" + posixpath.basename(dest)
-    sftp = ssh.open_sftp()
-    try:
-        with sftp.file(tmp_path, "w") as f:
-            f.write(content)
-    finally:
-        sftp.close()
-    dest_dir = posixpath.dirname(dest)
-    _run(ssh, server,
-         f"install -d -m 755 {dest_dir} && mv {tmp_path} {dest} && chmod 644 {dest}",
-         step="write_file", title=f"Запись {dest}")
+    from core.ssh import private_remote_upload
+    with private_remote_upload(ssh, server, content) as tmp_path:
+        dest_dir = posixpath.dirname(dest)
+        _run(ssh, server,
+             f"install -d -m 755 {shlex.quote(dest_dir)} && install -m 644 {shlex.quote(tmp_path)} {shlex.quote(dest)}",
+             step="write_file", title=f"Запись {dest}")

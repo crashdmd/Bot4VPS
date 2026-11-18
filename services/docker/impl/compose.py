@@ -27,12 +27,11 @@ import base64
 import ipaddress
 import json
 import shlex
-import uuid
 from typing import Any, Dict, List, Optional, Tuple
 
 from core.integrator import StepError, StepRunner
 from core.operation_metrics import mark_direct_mutation_started
-from core.ssh import create_ssh_client, exec_sudo
+from core.ssh import create_ssh_client, exec_sudo, exec_binary_stream, private_remote_directory, private_remote_upload, sudo_failure_message
 
 from . import compose_store
 
@@ -284,8 +283,7 @@ def _read_remote_project_files(
     """Прочитать с сервера КОНФИГ-НАБОР проекта как {rel_path: bytes}.
 
     Нужно и для импорта (§17), и для сравнения версий (§23). Передаём одним
-    tar+base64, чтобы не делать по SSH-вызову на файл и не терять бинарные
-    данные. Пустой dict, если каталог недоступен.
+    binary-потоком tar, без потери кода возврата. Отказ чтения останавливает импорт.
 
     Один и тот же конфиг-предикат (compose_store §3) действует на всех
     уровнях: tar-исключения на сервере отсекают основную массу данных ДО
@@ -300,22 +298,27 @@ def _read_remote_project_files(
         return {}
     size = _du_bytes(ssh, server, wd, config_only=True)
     if size > limit_bytes:
-        return {}
-    _, out, _ = exec_sudo(
-        ssh, server,
-        f"cd {shlex.quote(wd)} 2>/dev/null && "
-        f"tar -cf - --exclude-vcs {_config_excludes_args()} . 2>/dev/null "
-        f"| base64 -w0 || true",
-    )
-    raw = (out or "").strip()
-    if not raw:
-        return {}
-    try:
-        blob = base64.b64decode(raw, validate=False)
-    except Exception:
-        return {}
-    if len(blob) > limit_bytes:
-        return {}
+        raise StepError('read_project_limit', -1, title='Импорт проекта', detail='Конфиг-набор превышает допустимый размер')
+    from core.cancel_flags import current
+    flag = current()
+    chunks = []
+    transferred = 0
+    def receive(chunk):
+        nonlocal transferred
+        transferred += len(chunk)
+        if transferred > limit_bytes:
+            raise StepError('read_project_limit', -1, title='Импорт проекта', detail='Передаваемый конфиг-набор превышает допустимый размер')
+        chunks.append(chunk)
+    argv = ['tar', '-C', wd, '-cf', '-', '--hard-dereference', '--exclude-vcs', *shlex.split(_config_excludes_args()), '.']
+    code, diagnostics = exec_binary_stream(ssh, server, argv, receive,
+        is_cancelled=(lambda: flag.is_set()) if flag else None)
+    if code != 0:
+        detail = diagnostics.decode('utf-8', errors='replace')
+        raise StepError('read_project', code, title='Чтение полного проекта',
+                        detail=sudo_failure_message(detail) or detail[:500] or 'Не удалось прочитать все файлы проекта')
+    blob = b''.join(chunks)
+    if not blob:
+        raise StepError('read_project', -1, title='Чтение проекта', detail='Сервер вернул пустой архив')
 
     import io
     import tarfile
@@ -333,14 +336,14 @@ def _read_remote_project_files(
                 try:
                     # Пути с сервера тоже проверяем — tar мог прийти враждебным.
                     rel = compose_store.safe_relative_path(name).as_posix()
-                except StepError:
-                    continue
+                except StepError as error:
+                    raise StepError('read_project_path', -1, title='Чтение проекта', detail='В архиве небезопасный путь') from error
                 fh = tf.extractfile(member)
                 if fh is None:
                     continue
                 files[rel] = fh.read()
-    except (tarfile.TarError, EOFError):
-        return {}
+    except (tarfile.TarError, EOFError) as error:
+        raise StepError('read_project_archive', -1, title='Чтение проекта', detail='Архив проекта повреждён или передан не полностью') from error
     # Финальный фильтр тем же предикатом, что и локальную библиотеку:
     # tar-исключения не знают размера/бинарности конкретных файлов.
     return {rel: files[rel] for rel in compose_store.filter_config_files(files)}
@@ -374,14 +377,16 @@ def _du_bytes(ssh, server, wd: str, config_only: bool = False) -> int:
     if not wd:
         return 0
     excludes = f" {_config_excludes_args()}" if config_only else ""
+    code, out, err = exec_sudo(ssh, server, f"du -sb{excludes} -- {shlex.quote(wd)}")
+    if code != 0:
+        raise StepError('read_project_size', code, title='Проверка размера проекта',
+                        detail=err[:500] or 'Не удалось проверить доступ к проекту')
     try:
-        _, out, _ = exec_sudo(
-            ssh, server,
-            f"du -sb{excludes} {shlex.quote(wd)} 2>/dev/null | cut -f1 || echo 0",
-        )
-        return int((out or "0").strip() or "0")
-    except Exception:
-        return 0
+        size = int(out.split()[0])
+        if size < 0: raise ValueError()
+        return size
+    except (ValueError, IndexError):
+        raise StepError('read_project_size', -1, title='Проверка размера проекта', detail='Сервер не подтвердил размер проекта') from None
 
 
 def list_server_stacks(server: dict) -> List[Dict[str, Any]]:
@@ -616,146 +621,36 @@ def _upload_files(runner: StepRunner, target_dir: str, files: Dict[str, bytes]) 
     переносит в target. Защита от traversal уже выполнена
     compose_store.safe_relative_path, поэтому здесь проверять не нужно.
     """
-    # Доступный временный каталог (для non-root SSH). Уникальный суффикс гарантирует,
-    # что параллельные deploy на одном сервере не пересекаются.
-    import uuid
-    sftp_temp = f"/tmp/bot4vps_{uuid.uuid4().hex[:12]}"
-    sftp = runner.ssh.open_sftp()
-    try:
-        created: set = set()
-
-        def ensure_dir(path: str) -> None:
-            if not path or path in created:
-                return
-            parent = path.rsplit("/", 1)[0]
-            if parent and parent != path:
-                ensure_dir(parent)
-            try:
-                sftp.stat(path)
-            except IOError:
-                try:
-                    sftp.mkdir(path)
-                except IOError:
-                    pass
-            created.add(path)
-
-        ensure_dir(sftp_temp)
-        for rel in sorted(files.keys()):
-            dest = f"{sftp_temp}/{rel}"
-            parent = dest.rsplit("/", 1)[0]
-            ensure_dir(parent)
-            with sftp.file(dest, "wb") as f:
-                f.write(files[rel])
-    finally:
-        sftp.close()
-    runner.emit(f"   загружено файлов во временный каталог: {len(files)}")
-
-    # Теперь с правами sudo перемещаем содержимое в staging-каталог.
-    # target_dir создан install -d ранее с root-правами — обычный SSH-пользователь
-    # туда писать не может, поэтому делаем через sudo.
-    runner.run(
-        "move_to_staging",
-        f"install -d -m 755 {shlex.quote(target_dir)} && "
-        f"cp -rT {shlex.quote(sftp_temp)} {shlex.quote(target_dir)} && "
-        f"rm -rf {shlex.quote(sftp_temp)}",
-        title="Перенос файлов в staging-каталог",
-    )
-
-
-# --------------------------------------------------
-# Атомарный deploy проекта из библиотеки (§9, §10)
-# --------------------------------------------------
-
-def _restore_runtime_dirs_cmd(target: str, backup: str) -> str:
-    """Команда переноса runtime-каталогов из backup в новую рабочую копию.
-
-    Список тот же, что и в конфиг-предикате (CONFIG_EXCLUDE_DIRS + *_data):
-    что не входит в конфиг-набор, то живёт на сервере и переживает деплой.
-    Каталоги ищем на любой глубине — как data/ в корне, так и config/data/.
-    tar-пайп вместо find -exec: во временной копии runtime-каталогов быть не
-    может (библиотека несёт только конфиг-набор), так что перезапись
-    невозможна, а копирование сохраняет структуру путей как есть.
-    """
-    names = " -o ".join(
-        [f"-name {shlex.quote(d)}" for d in sorted(compose_store.CONFIG_EXCLUDE_DIRS)]
-        + [f"-name {shlex.quote('?*_data')}"]
-    )
-    return (
-        f"if [ -d {shlex.quote(backup)} ]; then "
-        f"(cd {shlex.quote(backup)} && "
-        f"find . -type d \\( {names} \\) -print 2>/dev/null "
-        f"| tar -cf - -T - 2>/dev/null "
-        f"| (cd {shlex.quote(target)} && tar -xf -)) || true; fi"
-    )
+    with private_remote_directory(runner.ssh, runner.server) as directory:
+        sftp_temp = directory + "/project"
+        sftp = runner.ssh.open_sftp()
+        try:
+            sftp.mkdir(sftp_temp, mode=0o755)
+            created = {sftp_temp}
+            for rel in sorted(files):
+                safe = compose_store.safe_relative_path(rel).as_posix()
+                parent = sftp_temp
+                for part in safe.split("/")[:-1]:
+                    parent += "/" + part
+                    if parent not in created:
+                        sftp.mkdir(parent, mode=0o755)
+                        created.add(parent)
+                with sftp.file(sftp_temp + "/" + safe, "wb") as stream:
+                    stream.write(files[rel])
+        finally:
+            sftp.close()
+        runner.run("move_to_staging",
+                   f"install -d -m 755 {shlex.quote(target_dir)} && "
+                   f"cp -rT -- {shlex.quote(sftp_temp)} {shlex.quote(target_dir)}",
+                   title="Подготовка всех файлов проекта")
 
 
 def _deploy_atomic(runner: StepRunner, cmd: str, stack: str, files: Dict[str, bytes],
                    compose_file: str) -> Deployment:
-    """Развернуть проект в /opt/bot4vps/<stack> без риска потерять рабочую копию.
-
-    Порядок строго такой (§9):
-      1. temp-каталог рядом с целевым (тот же fs → атомарный mv);
-      2. загрузить ВСЕ файлы проекта;
-      3. `compose config -q` в temp — относительные пути (./config, ./.env)
-         разрешаются уже в правильном контексте;
-      4. только при успехе — атомарно заменить рабочий каталог;
-      5. при любой ошибке — снести temp, рабочий каталог не тронуть (§10).
-    """
+    from .deploy import deploy_atomic
     stack_name = compose_store.validate_stack_name(stack)
-    target = remote_dir(stack_name)
-    tmp = f"{target}.new"
-    backup = f"{target}.old"
-
-    # Чистим возможные остатки прошлой неудачной попытки. Создавать tmp не нужно —
-    # _upload_files сделает temp в /tmp через SFTP.
-    runner.run(
-        "prepare_tmp",
-        f"rm -rf {shlex.quote(tmp)} {shlex.quote(backup)}",
-        title="Подготовка временного каталога",
-    )
-    try:
-        runner.emit(f"• Загрузка файлов проекта ({len(files)}) во временный каталог")
-        _upload_files(runner, tmp, files)
-
-        # Валидация в temp: рабочая копия ещё не тронута.
-        tmp_dep = Deployment(stack_name, tmp, [f"{tmp}/{compose_file}"])
-        runner.run(
-            "compose_config", f"{cmd} {tmp_dep.args()} config -q",
-            title="Проверка конфигурации (compose config)",
-        )
-
-        # Атомарная замена: рабочий каталог уезжает в backup, temp встаёт на его
-        # место. Между двумя mv нет валидации — только переименования.
-        runner.run(
-            "activate",
-            f"if [ -d {shlex.quote(target)} ]; then "
-            f"mv {shlex.quote(target)} {shlex.quote(backup)}; fi && "
-            f"mv {shlex.quote(tmp)} {shlex.quote(target)}",
-            title="Активация новой версии проекта",
-        )
-        # Библиотека несёт только конфиг-набор (§3), а рабочая копия содержит
-        # ещё и runtime-данные (data/, logs/, …). Переносим их из backup в
-        # новый каталог ДО удаления backup: повторный деплой не стирает данные
-        # контейнеров. Провал переноса не откатывает деплой (конфиг уже
-        # валиден и активирован), но и не сносит данные.
-        runner.run(
-            "restore_runtime_dirs",
-            _restore_runtime_dirs_cmd(target, backup),
-            title="Перенос runtime-данных в новую версию",
-        )
-        runner.run(
-            "cleanup_backup", f"rm -rf {shlex.quote(backup)}",
-            title="Удаление резервной копии",
-        )
-    except Exception:
-        # Возвращаем прежнюю рабочую копию, если успели её отодвинуть.
-        exec_sudo(
-            runner.ssh, runner.server,
-            f"if [ -d {shlex.quote(backup)} ] && [ ! -d {shlex.quote(target)} ]; then "
-            f"mv {shlex.quote(backup)} {shlex.quote(target)}; fi; "
-            f"rm -rf {shlex.quote(tmp)}",
-        )
-        raise
+    deploy_atomic(runner, cmd, stack_name, files, compose_file, remote_dir(stack_name),
+                  _upload_files, Deployment)
     return managed_deployment(stack_name)
 
 
@@ -997,6 +892,24 @@ def _resolve_remote_path(dep: "Deployment", rel_path: str) -> str:
     return f"{dep.working_dir}/{rel.as_posix()}"
 
 
+def _remote_file_command(dep: "Deployment", rel_path: str, command: str) -> str:
+    """Canonical path проверяется в той же SSH-команде, что и операция.
+
+    command обращается к уже разрешённой цели через $bot4vps_file;
+    исходная символьная ссылка больше не используется для чтения/записи.
+    """
+    path = _resolve_remote_path(dep, rel_path)
+    return (
+        f"bot4vps_root=$(readlink -f -- {shlex.quote(dep.working_dir)}) && "
+        f"bot4vps_file=$(readlink -f -- {shlex.quote(path)}) && "
+        '[ -n "$bot4vps_root" ] && [ -n "$bot4vps_file" ] || '
+        "{ printf '%s\\n' 'Не удалось проверить путь файла: каталог отсутствует или недоступен.' >&2; exit 1; }; "
+        'case "$bot4vps_file" in "$bot4vps_root"/*) ;; *) '
+        "printf '%s\\n' 'Файл находится за пределами проекта (возможно, через символическую ссылку). Операция запрещена.' >&2; exit 1;; esac; "
+        + command
+    )
+
+
 def list_remote_files(server: dict, stack: str, key: Optional[str] = None) -> List[Dict[str, Any]]:
     """Файлы развёртывания на сервере для UI: [{path, size, is_compose}].
 
@@ -1066,9 +979,13 @@ def fetch_remote_file(server: dict, stack: str, rel_path: str,
     ssh = create_ssh_client(server)
     try:
         # Размер заранее: cat гигабайта в base64 — не то, что нам нужно.
-        _, sz_out, _ = exec_sudo(
-            ssh, server, f"stat -c %s {shlex.quote(path)} 2>/dev/null || echo 0",
+        size_code, sz_out, size_err = exec_sudo(
+            ssh, server, _remote_file_command(dep, rel_path,
+                'test -f "$bot4vps_file" && stat -c %s -- "$bot4vps_file"'),
         )
+        if size_code != 0:
+            raise StepError("read_remote_file", size_code, title="Не удалось прочитать файл",
+                            detail=(size_err or f"{path} отсутствует или недоступен")[:500])
         try:
             size = int((sz_out or "").strip().splitlines()[0] or "0")
         except (ValueError, IndexError):
@@ -1081,15 +998,16 @@ def fetch_remote_file(server: dict, stack: str, rel_path: str,
                     f"(лимит {compose_store.MAX_PROJECT_FILE_SIZE // (1024 * 1024)} МБ)."
                 ),
             )
-        _, out, _ = exec_sudo(
+        code, out, err = exec_sudo(
             ssh, server,
-            f"base64 -w0 {shlex.quote(path)} 2>/dev/null || true",
+            _remote_file_command(dep, rel_path,
+                'test -f "$bot4vps_file" && base64 -w0 -- "$bot4vps_file"'),
         )
         raw_b64 = (out or "").strip()
-        if not raw_b64:
+        if code != 0:
             raise StepError(
-                "read_remote_file", -1, title="Файл не найден",
-                detail=f"{path} отсутствует или недоступен на сервере",
+                "read_remote_file", code, title="Не удалось прочитать файл",
+                detail=(err or f"{path} отсутствует или недоступен на сервере")[:500],
             )
         data = base64.b64decode(raw_b64, validate=False)
         mime = _sniff_mime(data)
@@ -1122,30 +1040,25 @@ def write_remote_file(server: dict, stack: str, rel_path: str, content: str,
             "file_too_large", -1, title="Файл слишком велик",
             detail=f"лимит {compose_store.MAX_PROJECT_FILE_SIZE // (1024 * 1024)} МБ",
         )
-    remote_tmp = f"/tmp/bot4vps_edit_{uuid.uuid4().hex[:12]}"
-    sftp = None
     ssh = create_ssh_client(server)
     try:
         mark_direct_mutation_started()
-        sftp = ssh.open_sftp()
-        with sftp.file(remote_tmp, "wb") as f:
-            f.write(data)
-        sftp.close()
-        sftp = None
         runner = StepRunner(ssh, server, lambda _msg: None)
-        runner.run(
-            "write_remote_file",
-            f"cp {shlex.quote(remote_tmp)} {shlex.quote(path)} && "
-            f"rm -f {shlex.quote(remote_tmp)}",
-            title="Запись файла",
-        )
+        with private_remote_upload(ssh, server, data) as remote_tmp:
+            runner.run(
+                "write_remote_file",
+                _remote_file_command(dep, rel_path,
+                    'bot4vps_stage=$(mktemp -d "${bot4vps_file%/*}/.bot4vps-edit-XXXXXXXXXXXX") || exit 1; '
+                    '( if [ -e "$bot4vps_file" ]; then '
+                    'test -f "$bot4vps_file" && cp -p -- "$bot4vps_file" "$bot4vps_stage/file" || exit 1; '
+                    'else umask 077; : > "$bot4vps_stage/file" || exit 1; fi; '
+                    f'cat -- {shlex.quote(remote_tmp)} > "$bot4vps_stage/file" && '
+                    'mv -f -- "$bot4vps_stage/file" "$bot4vps_file" ); '
+                    'bot4vps_status=$?; rm -rf -- "$bot4vps_stage" || exit 1; exit "$bot4vps_status"'),
+                title="Запись файла",
+            )
         return {"path": rel_path, "size": len(data)}
     finally:
-        if sftp is not None:
-            try:
-                sftp.close()
-            except Exception:
-                pass
         ssh.close()
 
 
@@ -1166,7 +1079,12 @@ def delete_remote_file(server: dict, stack: str, rel_path: str,
         mark_direct_mutation_started()
         runner.run(
             "delete_remote_file",
-            f"rm -f {shlex.quote(path)}",
+            _remote_file_command(dep, rel_path,
+                "".join(
+                    f'if [ "$bot4vps_file" = "$(readlink -f -- {shlex.quote(cfg if cfg.startswith("/") else dep.working_dir + "/" + cfg)})" ]; then '
+                    "printf '%s\\n' 'Основной Compose-файл удалить нельзя, в том числе через ссылку.' >&2; exit 1; fi; "
+                    for cfg in (dep.config_files or list(compose_store.COMPOSE_FILENAMES))
+                ) + 'rm -f -- "$bot4vps_file"'),
             title="Удаление файла",
         )
         return rel_path
@@ -1235,6 +1153,11 @@ def import_from_server(server: dict, stack: str, overwrite: bool, emit,
             )
         emit(f"• Чтение проекта с сервера ({dep.working_dir})")
         files = _read_remote_project_files(ssh, server, dep)
+        from core.cancel_flags import current
+        from core.integrator import OperationCancelled
+        cancellation = current()
+        if cancellation is not None and cancellation.is_set():
+            raise OperationCancelled()
         if not files:
             raise StepError(
                 "import_failed", -1, title="Не удалось прочитать проект",

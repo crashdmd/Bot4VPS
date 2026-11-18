@@ -182,6 +182,17 @@ def _probe_privileged_source_kind(exec_sudo, ssh, server: dict, path: str) -> st
     return parse_privileged_source_probe(path, code, stdout, stderr)
 
 
+def _probe_source_access(execute, ssh, server: dict, source: dict) -> list[str]:
+    from .source_selection import build_source_access_scan
+    code, out, err = execute(ssh, server,
+                            build_source_access_scan(source["path"], source["exclusions"]), timeout=120)
+    inaccessible = [source["path"].rstrip("/") + "/" + name.removeprefix("./") + ": нет прав на чтение"
+                    for name in out.splitlines() if name.strip()]
+    if code != 0:
+        inaccessible.append(source["path"] + ": не удалось проверить права на весь каталог")
+    return inaccessible
+
+
 def _streamed_member_relative_name(name: str) -> str:
     """Снять ровно префикс './' у члена удалённого tar, не срезая символы.
 
@@ -1497,7 +1508,9 @@ class BackupManager:
             create_ssh_client,
             detect_tar_capability,
             exec_binary_stream,
+            exec_plain,
             exec_sudo,
+            sudo_failure_message,
         )
         if sources_override is None:
             server, profile = self._require_backup_profile(server_id)
@@ -1581,16 +1594,25 @@ class BackupManager:
             )
             self.operations.set_result_backup_id(operation_id, backup_id)
             ssh = create_ssh_client(server)
+            privileged = True
+            if (server.get("user") or "").lower() != "root":
+                code, out, err = exec_sudo(ssh, server, "true", timeout=30)
+                if code != 0:
+                    if not sudo_failure_message(err):
+                        raise BackupError(ErrorCode.SOURCE_PERMISSION_DENIED,
+                                          "Не удалось проверить права архивирования: " + (err or out)[:350])
+                    privileged = False
+            execute = exec_sudo if privileged else exec_plain
             source_utc_offset = self._capture_remote_utc_offset(
-                exec_sudo,
+                execute,
                 ssh,
                 server,
             )
-            capability = detect_tar_capability(ssh, server)
+            capability = detect_tar_capability(ssh, server, **({"privileged": False} if not privileged else {}))
             if not capability.get("usable"):
                 raise BackupError(
                     ErrorCode.ARCHIVE_CREATE_FAILED,
-                    "Удалённый tar не поддерживает безопасный gzip streaming",
+                    capability.get("error") or "Удалённый tar не поддерживает создание gzip-архива",
                 )
             limits = dict(self.config["bot4vps"]["limits"])
             limits.update(profile.get("limits", {}))
@@ -1610,7 +1632,7 @@ class BackupManager:
                 source_path = source["path"]
                 try:
                     source_kind = _probe_privileged_source_kind(
-                        exec_sudo,
+                        execute,
                         ssh,
                         server,
                         source_path,
@@ -1619,6 +1641,8 @@ class BackupManager:
                     unreadable.append(str(exc))
                     continue
                 probed.append((source, source_kind))
+                if source_kind == "directory":
+                    unreadable.extend(_probe_source_access(execute, ssh, server, source))
             if unreadable:
                 # Проверка доступности дешёвая, поэтому проходит по всем
                 # источникам до первой передачи данных: пользователь получает
@@ -1627,7 +1651,8 @@ class BackupManager:
                     ErrorCode.SOURCE_PERMISSION_DENIED
                     if any("прав" in item for item in unreadable)
                     else ErrorCode.SOURCE_NOT_FOUND,
-                    _joined_reasons("Источники недоступны для чтения", unreadable),
+                    _joined_reasons("Выберите доступные каталоги. Недоступны для чтения", unreadable),
+                    details={"unreadable_sources": unreadable},
                 )
 
             for index, (source, source_kind) in enumerate(probed):
@@ -1645,7 +1670,7 @@ class BackupManager:
                 self.operations.update_stage(operation_id, "streaming_source")
                 try:
                     current_kind = _probe_privileged_source_kind(
-                        exec_sudo,
+                        execute,
                         ssh,
                         server,
                         source_path,
@@ -1701,6 +1726,7 @@ class BackupManager:
                         exit_code, diagnostics = exec_binary_stream(
                             ssh, server, argv, receive, timeout=600,
                             is_cancelled=lambda: bool(self.operations.get(operation_id)["cancellation"]["requested"]),
+                            **({"privileged": False} if not privileged else {}),
                         )
                     except BinaryStreamCancelled as exc:
                         raise BackupError(
