@@ -73,6 +73,8 @@ async def build_server_card(server_id):
 
     if not server:
         return None, None
+    if server.get('node_type') == 'openwrt':
+        return ('Это шлюз OpenWrt. Откройте раздел «Шлюзы» в веб-панели.', InlineKeyboardMarkup([[InlineKeyboardButton('⬅️ Назад', callback_data='main')]]))
 
     info = await asyncio.to_thread(
         get_server_info,
@@ -390,7 +392,7 @@ async def show_group(query, group_name):
 
     group_servers = [
         s for s in servers
-        if s.get("group", "").lower() == group_name.lower()
+        if s.get('node_type') != 'openwrt' and s.get("group", "").lower() == group_name.lower()
     ]
 
     group = get_group(group_name)

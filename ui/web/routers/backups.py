@@ -25,9 +25,9 @@ from core.config import get_backup_config, patch_backup_config
 from core.storage import (
     BackupProfileConflictError,
     get_server_backup_profile,
-    load_servers,
     server_backup_configured,
 )
+from core.node_types import load_linux_servers as load_servers
 from ..backup_runtime import (
     call,
     locate_source_async,

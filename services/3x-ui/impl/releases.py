@@ -16,7 +16,8 @@ import urllib.error
 import urllib.request
 from typing import List, Optional
 
-REPO = "MHSanaei/3x-ui"
+from core.service_projects import PROJECTS
+REPO = PROJECTS['3x-ui']['repository']
 RELEASES_LATEST_URL = f"https://github.com/{REPO}/releases/latest"
 RELEASES_API_URL = f"https://api.github.com/repos/{REPO}/releases?per_page=30"
 DOWNLOAD_URL = f"https://github.com/{REPO}/releases/download"

@@ -565,7 +565,7 @@ app.add_middleware(EmergencyGateMiddleware)
 # (сначала сам проверяет emergency, не читая config).
 app.add_middleware(SetupGateMiddleware)
 
-from .routers import meta, summary, servers, tasks, scripts, files, monitor, stream, terminal, services, system, update, backups, settings, quick_setup, masterkey, tls, metrics, audit  # noqa: E402
+from .routers import gateways, meta, summary, servers, tasks, scripts, files, monitor, stream, terminal, services, system, update, backups, settings, quick_setup, masterkey, tls, metrics, audit  # noqa: E402
 
 app.mount("/static", NoCacheStaticFiles(directory=STATIC), name="static")
 
@@ -576,6 +576,7 @@ app.include_router(meta.router, dependencies=_AUTH)
 app.include_router(summary.router, dependencies=_AUTH)
 app.include_router(system.router, dependencies=_AUTH)
 app.include_router(servers.router, dependencies=_AUTH)
+app.include_router(gateways.router, dependencies=_AUTH)
 app.include_router(tasks.router, dependencies=_AUTH)
 app.include_router(scripts.router, dependencies=_AUTH)
 app.include_router(files.router, dependencies=_AUTH)
@@ -610,6 +611,8 @@ app.include_router(update.health_router)
 # WebSocket-терминал: авторизация проверяется внутри хендлера (по сессии в scope),
 # т.к. router-level deps на WS работают ненадёжно.
 app.include_router(terminal.router)
+from .routers import service_browser
+app.include_router(service_browser.router)
 
 
 @app.get("/")

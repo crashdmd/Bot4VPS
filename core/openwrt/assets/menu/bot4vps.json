@@ -1,0 +1,8 @@
+{
+  "admin/services/bot4vps": {
+    "title": "Bot4VPS",
+    "order": 85,
+    "action": {"type": "view", "path": "bot4vps/access"},
+    "depends": {"acl": ["luci-app-bot4vps-access"]}
+  }
+}

@@ -120,7 +120,7 @@ def save_groups(groups):
 # «чем ходили».
 _SERVER_PARAM_FIELDS = (
     "name", "group", "host", "port", "user", "auth_type",
-    "certificate_check", "ssl_host", "key_path",
+    "certificate_check", "ssl_host", "key_path", "node_type",
 )
 
 
@@ -202,7 +202,7 @@ def commit_server(server: dict) -> dict | None:
     return server
 
 
-def delete_server(server_id: str) -> dict | None:
+def delete_server(server_id: str, *, gateway_revoked: bool = False) -> dict | None:
     """Удалить сервер. Возвращает снимок удалённой записи (None — нет такого).
 
     Снимок нужен и аудиту (имя сервера переживает удаление), и вызывающему
@@ -222,6 +222,8 @@ def delete_server(server_id: str) -> dict | None:
             remaining.append(item)
         if removed is None:
             return None
+        if removed.get("node_type") == "openwrt" and not gateway_revoked:
+            raise ValueError("Перед удалением шлюза необходимо отозвать его API-доступ. Используйте раздел «Шлюзы».")
         save_servers(remaining)
 
     audit.record(
@@ -854,6 +856,14 @@ def _encrypt_passwords_for_disk(data):
             password = server.get("password")
             if isinstance(password, str) and password:
                 server["password"] = encrypt(password)
+            rpc = server.get("openwrt")
+            if isinstance(rpc, dict):
+                for name in ("password", "signing_private_key"):
+                    if isinstance(rpc.get(name), str) and rpc[name]:
+                        rpc[name] = encrypt(rpc[name])
+                ssh = rpc.get('ssh')
+                if isinstance(ssh, dict) and isinstance(ssh.get('password'), str) and ssh['password']:
+                    ssh['password'] = encrypt(ssh['password'])
     return out
 
 
@@ -872,6 +882,14 @@ def _decrypt_passwords(data):
                 password = server.get("password")
                 if isinstance(password, str) and password:
                     server["password"] = decrypt(password)
+                rpc = server.get("openwrt")
+                if isinstance(rpc, dict):
+                    for name in ("password", "signing_private_key"):
+                        if isinstance(rpc.get(name), str) and rpc[name]:
+                            rpc[name] = decrypt(rpc[name])
+                    ssh = rpc.get('ssh')
+                    if isinstance(ssh, dict) and isinstance(ssh.get('password'), str) and ssh['password']:
+                        ssh['password'] = decrypt(ssh['password'])
     return data
 
 

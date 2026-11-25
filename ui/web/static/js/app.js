@@ -1,21 +1,22 @@
+import { bindGateways, openGatewayPage, stopGatewayPage, refreshGatewayNav } from './gateways.js?v=20261125-port-forward-v1';
 import { tickClock, syncServerClock, showPage, toast, parseEmoji, initEmojiObserver, confirmAction, bindTelegramHealthDialog } from './ui.js';
-import { loadDashboard, loadSummary, bindDashboard, stopDashMetrics, updateDashboardData, updateDashboardState } from './dashboard.js?v=20261001-mobile-charts-v1';
+import { loadDashboard, loadSummary, bindDashboard, stopDashMetrics, updateDashboardData, updateDashboardState } from './dashboard.js?v=20261125-four-servers-v1';
 import { loadEvents, EVENTS_LIMIT, openEventDetail, applyEventsSnapshot, initSystemMonitor, stopSystemMonitor } from './monitor.js?v=20261001-mobile-charts-v1';
 import { loadServers, loadQueues, loadHistory, loadGroupsAndKeys,
-  bindServerUI, stopWatchers, openServer, closeGroupsPanel, lastServerTab,
+  bindServerUI, stopWatchers, openServer, openAddServerModal, closeGroupsPanel, lastServerTab,
   startSshProbeLoop, stopSshProbeLoop,
 } from './servers.js?v=20261109-hostkey-v1';
 import { loadScripts, bindScriptsUI } from './scripts.js?v=20261001-mobile-charts-v1';
 import { loadWireguard, bindWireguardUI, stopWgTimers, openWgServerById } from './wireguard.js?v=20261001-mobile-charts-v1';
 import { loadDocker, bindDockerUI, stopDockerTimers, openDockerServerById } from './docker.js?v=20261001-mobile-charts-v1';
-import { loadXui, stopXuiTimers, stopXuiCardPoll, openXuiServerById } from './3xui.js?v=20261116-cli-compat-v2';
-import { loadFiles, bindFilesUI } from './files.js?v=20261001-mobile-charts-v1';
+import { loadXui, stopXuiTimers, stopXuiCardPoll, openXuiServerById } from './3xui.js?v=20261123-service-info-v1';
+import { loadFiles, bindFilesUI } from './files.js?v=20261122-archives-v7';
 import { bindEditorUI } from './editor.js?v=20260815-scripts-table-v1';
 import { bindTerminalUI, closeTerminal } from './terminal.js?v=20260905-glassblue-v2';
 import { startSSE, registerNotificationsRefresh } from './sse.js?v=20261001-mobile-charts-v1';
 import { state, setPage, clearQuickSetupServer } from './state.js';
 import { j, esc } from './api.js';
-import { resumeBackgroundTasks } from './taskmodal.js?v=20260914-v3';
+import { resumeBackgroundTasks, openTaskModal } from './taskmodal.js?v=20260914-v3';
 import { initAuth, bindAuthUI } from './auth.js';
 import { initSetup, bindSetupUI } from './setup.js?v=20260910-setup-v4';
 import { bindGlobalSearch } from './search.js?v=20261114-two-factor-device-v1';
@@ -26,6 +27,14 @@ import {
 import {
   loadAudit, resetAuditPage, auditFromUrl, openAuditRecord, bindAuditUI, refreshAudit,
 } from './audit.js?v=20261116-phone-names-v1';
+
+// Dialog backgrounds never dismiss an open form on a stray pointer click.
+for (const type of ['click','mousedown']) document.addEventListener(type, event => {
+  const target=event.target;
+  if(target instanceof Element && target.matches('.modal-bg,.gw-dialog-overlay,.modal-overlay,[data-modal-backdrop]')) {
+    event.preventDefault(); event.stopImmediatePropagation();
+  }
+}, true);
 
 const QUICK_SETUP_MODULE_URL = './quick_setup.js?v=20261109-hostkey-v1';
 const quickSetupModule = import(QUICK_SETUP_MODULE_URL).catch(error => {
@@ -68,6 +77,7 @@ function stopSettingsPageTimers() {
 async function refreshAll() {
   await Promise.all([
     loadDashboard(),
+    refreshGatewayNav(),
     loadServers(),
     loadQueues(),
     loadHistory(),
@@ -177,6 +187,7 @@ function onNav(page) {
   // Переход из марки графика: «История» открывается сразу на аудите.
   if (page === 'history' && !tab && auditFromUrl()) tab = 'actions';
   setPage(page);
+  if (page !== 'gateways') stopGatewayPage();
   if (page !== 'servers') closeGroupsPanel();
   if (page !== 'server') stopWatchers();
   if (page !== 'servers') stopSshProbeLoop();
@@ -198,6 +209,7 @@ function onNav(page) {
     else if (historyTab() === 'queues') { loadQueues(); loadHistory(); }
     else openAuditFromUrl();
   }
+  if (page === 'gateways') openGatewayPage();
   if (page === 'servers') { loadServers(); startSshProbeLoop(); }
   if (page === 'metrics') {
     const target = metricsFromUrl() || {};
@@ -329,6 +341,7 @@ document.getElementById('btn-events-clear')?.addEventListener('click', async () 
   } catch (e) { toast(e.message, false); }
 });
 
+bindGateways({ navigate: onNav, task: openTaskModal, server: openAddServerModal });
 bindDashboard();
 bindServerUI({ openQuickSetup: openQuickSetupFromCard, openMetrics: openMetricsAt });
 bindMetricsUI({ openServer, openAuditRecord: openRecordFromMetrics });

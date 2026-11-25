@@ -59,7 +59,16 @@ function createModal(watch) {
       <button type="button" id="task-progress-close" class="hidden" style="margin-left:auto">Закрыть</button>
     </div>
   </div>`;
-  const close = () => { if (watch.done || watch.unavailable) dispose(watch); else background(watch); };
+  const close = () => {
+    if (watch.done || watch.unavailable) {
+      dispose(watch);
+      if(watch.done && !watch.unavailable && !watch.resultClosedReported) {
+        watch.resultClosedReported=true;
+        try { watch.opts.onResultClosed?.(watch.task)?.catch(error => toast(error.message || 'Не удалось открыть помощь', false)); }
+        catch(error) { toast(error.message || 'Не удалось открыть помощь',false); }
+      }
+    } else background(watch);
+  };
   el.addEventListener('keydown', e => {
     if (e.key === 'Escape') { e.preventDefault(); close(); }
   });

@@ -1,0 +1,10 @@
+<script setup lang="ts">
+import GatewayDialog from '../GatewayDialog.vue';
+import type { OperationPlan } from '../types/gateway';
+defineProps<{operation:OperationPlan;busy:boolean;error?:string}>();
+const emit=defineEmits<{apply:[];cancel:[]}>();
+const names={install:'Установка',update:'Обновление',web_access:'Доступ веб-панели',remove:'Удаление',start:'Запуск',stop:'Остановка',restart:'Перезапуск'};
+</script>
+<template>
+<GatewayDialog title="План операции" :busy="busy" @close="emit('cancel')"><p v-if="error" class="gw-error" role="alert">{{ error }}</p><h2>{{ names[operation.action] }} {{ operation.service }} {{ operation.version || '' }}</h2><p v-if="operation.network_check">После действия панель проверит API и состояние службы. Если подтверждение не придёт, будет выполнено восстановление.</p><template v-if="operation.action==='remove'"><h3>Будет удалено</h3><ul><li v-for="path in operation.removed" :key="path">{{ path }}</li></ul></template><template v-if="['install','update'].includes(operation.action)"><p>Файлы передаются с панели. GitHub на роутере не используется.</p><p v-if="operation.action==='update'">Конфигурация и автозапуск сохраняются. Работающая служба будет остановлена на время обновления и запущена снова. Подготовлен резерв исходной версии для отката.</p><ul><li v-for="change in operation.changes" :key="change.package">{{ change.package }}: {{ change.before || 'не установлен' }} → {{ change.after }}</li></ul></template><section v-if="operation.warnings?.length" class="gw-notice"><h3>Последствия изменений</h3><ul><li v-for="warning in operation.warnings" :key="warning">{{ warning }}</li></ul></section><p v-if="operation.preserved.length">Сохранятся: {{ operation.preserved.join(', ') }}.</p><p v-if="operation.keep_backup">Конфигурация сохраняется в резервную копию; путь будет в журнале.</p><div class="gw-actions"><button class="gw-primary" :disabled="busy" @click="emit('apply')">Да, выполнить показанный план</button><button :disabled="busy" @click="emit('cancel')">Отмена</button></div></GatewayDialog>
+</template>

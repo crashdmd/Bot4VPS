@@ -1,0 +1,32 @@
+{
+  "version": 2,
+  "plan_ttl_seconds": 900,
+  "network_confirmation_seconds": 120,
+  "max_rpc_bytes": 2000000,
+  "operation_families": [
+    "services",
+    "network",
+    "packages",
+    "backup"
+  ],
+  "job_phases": [
+    "prepared",
+    "running",
+    "verify",
+    "success",
+    "failed",
+    "rolled_back"
+  ],
+  "read_methods": [
+    "status",
+    "packages",
+    "network",
+    "package_catalog",
+    "logs",
+    "adguard_info",
+    "wireless",
+    "wireless_capabilities",
+    "wireless_survey",
+    "service_versions"
+  ]
+}

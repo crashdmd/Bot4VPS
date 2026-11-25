@@ -11,6 +11,7 @@
 // Клиентская валидация — ТОЛЬКО мгновенная подсказка (как docker.js §25):
 // авторитет — impl/validation.py, бэкенд проверяет всё повторно.
 import { j, esc } from './api.js';
+import { renderProjectInfo } from './project-info.js?v=20261123-project-info';
 import { fitServerTables, toast, showPage, confirmAction, infoModal } from './ui.js';
 import { ansiToHtml } from './ansi.js';
 import { openTaskModal } from './taskmodal.js?v=20260914-v3';
@@ -81,6 +82,7 @@ export function stopXuiCardPoll() {
 }
 
 export async function loadXui() {
+  renderProjectInfo(document.getElementById('xui-project-info'), SID);
   bindXuiServersList();
   bindXuiCardUI();   // статичные кнопки карточки (back/refresh) — идемпотентно
   const el = document.getElementById('xui-servers');
@@ -880,6 +882,7 @@ let xuiStateInFlight = null;
 let xuiMutationRefreshSeq = 0;
 
 function loadXuiServerDetail(id, { force = false } = {}) {
+  renderProjectInfo(document.getElementById('xui-server-project-info'), SID);
   if (!force && xuiStateInFlight?.id === id) return xuiStateInFlight.promise;
   const seq = ++xuiStateSeq;
   const promise = (async () => {

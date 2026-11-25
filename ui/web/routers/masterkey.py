@@ -312,8 +312,7 @@ async def api_masterkey_new(body: MasterKeyNewBody, request: Request):
                 data = storage.load_data(decrypt_passwords=False)
                 count = 0
                 for server in data.get("servers", []):
-                    if isinstance(server, dict) and server.get("password"):
-                        server["password"] = ""
+                    if secretbox.clear_node_secrets(server):
                         count += 1
                 if count:
                     storage.save_data(data)

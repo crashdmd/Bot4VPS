@@ -1,15 +1,21 @@
-// Раздел «Файлы»: локальная Docker/Compose-библиотека и SSH-ключи.
+// Раздел «Файлы»: Compose, SSH-ключи и сохранённые установочные файлы сервисов.
 import { j, esc } from './api.js';
+import { ARCHIVE_SERVICE_ICONS, ROUTER_ICON } from './icons.js?v=20260905-brandicons-v3';
 import { toast, confirmAction, plural } from './ui.js';
 import { openEditor } from './editor.js?v=20260815-scripts-table-v1';
 import { openDockerProjectFile } from './docker.js?v=20261001-mobile-charts-v1';
 
-let fileRoot = 'docker';
+let fileRoot = 'services';
 let dockerProject = '';
 let dockerDir = '';
 let libraryDialogMode = '';
 let pendingProjectZip = null;
 let pendingKeyUpload = null;
+let serviceArchives = [], filesGeneration = 0;
+let gatewayBackups = [];
+const expandedArchiveServices = new Set();
+const archiveFamilyTabs = new Map();
+let reserveTasks = [], reserveTimer = null, reservePolling = false, reserveHadErrors = false;
 
 function fmtSize(n) {
   if (n == null) return '';
@@ -42,8 +48,12 @@ function setShown(id, shown) {
 }
 
 function updateChrome() {
+  const actions = document.querySelector('#page-files .file-actions');
+  if (actions) actions.style.display = fileRoot === 'gateway-backups' ? 'none' : '';
+  document.getElementById('file-list')?.classList.toggle('file-services-list', ['services', 'gateway-backups'].includes(fileRoot));
+  setShown('btn-service-archives-refresh', fileRoot === 'services');
   setShown('btn-create-key', fileRoot === 'keys');
-  setShown('upload-label', fileRoot !== 'docker');
+  setShown('upload-label', fileRoot === 'keys');
 
   const dockerRoot = fileRoot === 'docker' && !dockerProject;
   const dockerInside = fileRoot === 'docker' && !!dockerProject;
@@ -63,6 +73,10 @@ function renderTabHint() {
   if (!el) return;
   if (fileRoot === 'keys') {
     el.textContent = 'SSH-ключи панели. Используемый ключ нельзя удалить или заменить. Для загрузки другого ключа укажите новое имя.';
+  } else if (fileRoot === 'services') {
+    el.textContent = 'Установочные файлы, сохранённые на панели. Назначение и совместимость указаны у каждой копии. Здесь удаляются только локальные файлы.';
+  } else if (fileRoot === 'gateway-backups') {
+    el.textContent = 'Архивы настроек шлюзов на панели. Восстановление — в карточке шлюза. Архивы могут содержать пароли и ключи доступа.';
   } else {
     el.textContent = dockerProject
       ? 'Файлы Compose-проекта. Основной compose-файл защищён от удаления.'
@@ -126,16 +140,40 @@ function openDockerEntry(item) {
 }
 
 export async function loadFiles() {
+  if(reserveTasks.length&&!reserveTimer&&!reservePolling)reserveTimer=setTimeout(pollReserveTasks,3000);
+  const generation = ++filesGeneration;
   updateChrome();
   const el = document.getElementById('file-list');
   if (!el) return;
   try {
+    const [archives, backups] = await Promise.all([
+      j('/api/files/services').catch(() => null),
+      j('/api/files/gateway-backups').catch(() => null),
+    ]);
+    if (generation !== filesGeneration) return;
+    if (backups) {
+      gatewayBackups = backups.items || [];
+      const backupTab = document.getElementById('file-gateway-backups-tab');
+      if (backupTab) backupTab.hidden = !gatewayBackups.length;
+      if (fileRoot === 'gateway-backups' && !gatewayBackups.length) fileRoot = 'services';
+    }
+    if (archives) {
+      serviceArchives = archives.items || [];
+      const serviceTab = document.getElementById('file-services-tab');
+      if (serviceTab) serviceTab.hidden = !serviceArchives.length;
+      if (fileRoot === 'services' && !serviceArchives.length) fileRoot = gatewayBackups.length ? 'gateway-backups' : 'docker';
+      document.querySelectorAll('#file-tabs [data-root]').forEach(button => button.classList.toggle('on', button.dataset.root === fileRoot));
+      updateChrome();
+    }
+    if (fileRoot === 'gateway-backups') { renderGatewayBackups(el); return; }
+    if (fileRoot === 'services') { renderServiceArchives(el); return; }
     const qs = new URLSearchParams({ root: fileRoot });
     if (fileRoot === 'docker' && dockerProject) {
       qs.set('project', dockerProject);
       if (dockerDir) qs.set('directory', dockerDir);
     }
     const data = await j('/api/files?' + qs);
+    if (generation !== filesGeneration) return;
     const items = data.items || [];
 
     if (!items.length) {
@@ -288,6 +326,96 @@ export async function loadFiles() {
     }
     el.innerHTML = '<div class="empty" style="padding:.8rem">' + esc(e.message) + '</div>';
   }
+}
+function renderGatewayBackups(el) {
+  el.innerHTML = `<div class="gateway-backup-archives">${gatewayBackups.map(row => `
+    <article class="gateway-backup-archive">
+      <span class="archive-service-icon">${ROUTER_ICON}</span>
+      <div class="gateway-backup-identity"><strong>${esc(row.filename)}</strong>
+        <small>${esc([row.model, row.version ? 'OpenWrt ' + row.version : null].filter(Boolean).join(' · '))}</small>
+        <span>${esc(row.source_name ? 'Источник: ' + row.source_name : 'Загруженный архив')}</span></div>
+      <div class="gateway-backup-time"><span>${esc(new Date(row.created_at * 1000).toLocaleString('ru-RU'))}</span><small>${esc(fmtSize(row.size))}</small></div>
+      <div class="actions"><a href="/api/files/gateway-backups/${encodeURIComponent(row.id)}/download" download>Скачать</a>
+        <button type="button" class="secondary" data-gateway-backup-delete="${esc(row.id)}">Удалить</button></div>
+    </article>`).join('')}</div>`;
+  el.querySelectorAll('[data-gateway-backup-delete]').forEach(button => button.onclick = async () => {
+    const row = gatewayBackups.find(item => item.id === button.dataset.gatewayBackupDelete);
+    if (!row || !await confirmAction({title: 'Удалить копию шлюза?', message: `${row.filename}\nАрхив будет удалён с панели.`, confirmText: 'Удалить архив'})) return;
+    button.disabled = true;
+    try {
+      await j('/api/files/gateway-backups/' + encodeURIComponent(row.id), {method: 'DELETE'});
+      await loadFiles();
+    } catch (error) { toast(error.message, false); button.disabled = false; }
+  });
+}
+
+const archiveFamily = row => row.openwrt_major || /OpenWrt (\d{2}|SNAPSHOT)/.exec(row.destination || '')?.[1] || '';
+function renderArchiveVersion(row) {
+  return `<article class="service-archive service-archive-version">
+    <div class="service-archive-head"><div><h4>v${esc(String(row.version).replace(/^v/, ''))}</h4><p>${esc(row.destination)}</p></div><button type="button" class="secondary" data-archive-delete="${esc(row.id)}" ${row.busy ? 'disabled' : ''}>Удалить версию</button></div>
+    <div class="service-archive-meta"><span>${esc(fmtSize(row.size))}</span><span>${row.complete ? 'Сохранено' : 'Неполный комплект'}</span>${row.reserved ? '<span>Резервная копия</span>' : ''}${row.busy ? '<span>Используется операцией</span>' : ''}</div>
+    <details><summary>Файлы (${row.files.length})</summary><ul>${row.files.map((file, index) => `<li><span>${esc(file.name)}</span><small>${esc(fmtSize(file.size))}</small>${file.available ? `<a href="/api/files/services/${encodeURIComponent(row.id)}/download?file=${index}" download>Скачать</a>` : '<small>Файл отсутствует</small>'}</li>`).join('')}</ul></details>
+    ${row.auto_reserve ? '<p class="service-archive-note">При резервировании удалённая версия может загрузиться снова.</p>' : ''}
+  </article>`;
+}
+function renderServiceArchives(el) {
+  const groups = new Map();
+  for (const row of serviceArchives) { if (!groups.has(row.service)) groups.set(row.service, []); groups.get(row.service).push(row); }
+  el.innerHTML = `<div class="service-archive-list">${[...groups.entries()].map(([service, rows]) => {
+    rows.sort((a,b) => String(b.version).localeCompare(String(a.version), undefined, {numeric:true}) || a.destination.localeCompare(b.destination));
+    const families = [...new Set(rows.map(archiveFamily).filter(Boolean))].sort((a,b)=>b.localeCompare(a,undefined,{numeric:true}));
+    const family = families.includes(archiveFamilyTabs.get(service)) ? archiveFamilyTabs.get(service) : families[0];
+    if (family) archiveFamilyTabs.set(service, family);
+    const visible = family ? rows.filter(row=>archiveFamily(row)===family) : rows;
+    const count = new Set(rows.map(row=>String(row.version).replace(/^v/,''))).size;
+    return `<details class="service-archive-group" data-archive-service="${esc(service)}" ${expandedArchiveServices.has(service) ? 'open' : ''}><summary><span class="archive-service-icon" data-service="${esc(service)}">${ARCHIVE_SERVICE_ICONS[service] || ''}</span><h3>${esc(rows[0].name)}</h3><span>${count} ${plural(count,'версия','версии','версий')} · ${rows.length} ${plural(rows.length,'копия','копии','копий')}</span></summary>
+      ${family ? `<div class="archive-family-tools"><div class="tabs archive-family-tabs" role="tablist" aria-label="Версии OpenWrt для ${esc(rows[0].name)}">${families.map(value=>`<button type="button" role="tab" aria-selected="${value===family}" class="${value===family?'on':''}" data-archive-tab="${esc(service)}" data-family="${esc(value)}">OpenWrt ${esc(value)}</button>`).join('')}</div><button type="button" class="secondary" data-archive-group-delete="${esc(service)}" data-family="${esc(family)}" ${visible.some(row=>row.busy)?'disabled':''}>Удалить группу</button></div>` : ''}
+      ${visible.map(renderArchiveVersion).join('')}</details>`;
+  }).join('')}</div>`;
+  el.querySelectorAll('[data-archive-service]').forEach(group=>group.addEventListener('toggle',()=>{
+    if(group.open)expandedArchiveServices.add(group.dataset.archiveService);else expandedArchiveServices.delete(group.dataset.archiveService);
+  }));
+  el.querySelectorAll('[data-archive-tab]').forEach(button=>button.onclick=()=>{
+    archiveFamilyTabs.set(button.dataset.archiveTab,button.dataset.family);renderServiceArchives(el);
+  });
+  el.querySelectorAll('[data-archive-group-delete]').forEach(button=>button.onclick=async()=>{
+    const service=button.dataset.archiveGroupDelete,family=button.dataset.family;
+    const rows=serviceArchives.filter(row=>row.service===service&&archiveFamily(row)===family);
+    if(!await confirmAction({title:`Удалить ${rows[0].name} для OpenWrt ${family}?`,message:`Будут удалены все ${rows.length} установочные копии этой группы на панели. Службы на шлюзах сохранятся. При резервировании файлы могут загрузиться снова.`,confirmText:'Удалить группу'}))return;
+    button.disabled=true;
+    try{await j(`/api/files/services/groups/${encodeURIComponent(service)}/${encodeURIComponent(family)}`,{method:'DELETE'});await loadFiles();}catch(error){toast(error.message,false);button.disabled=false;}
+  });
+  el.querySelectorAll('[data-archive-delete]').forEach(button=>button.onclick=async()=>{
+    const row=serviceArchives.find(item=>item.id===button.dataset.archiveDelete);if(!row)return;
+    if(!await confirmAction({title:`Удалить копию ${row.name} ${row.version}?`,message:`${row.destination}\nБудут удалены только установочные файлы на панели. Установленные сервисы сохранятся.`,confirmText:'Удалить копию'}))return;
+    button.disabled=true;
+    try{await j('/api/files/services/'+encodeURIComponent(row.id),{method:'DELETE'});await loadFiles();}catch(error){toast(error.message,false);button.disabled=false;}
+  });
+}
+async function pollReserveTasks() {
+  clearTimeout(reserveTimer);reserveTimer=null;
+  if(!reserveTasks.length||!document.getElementById('page-files')?.classList.contains('on'))return;
+  reservePolling=true;
+  try {
+    const tasks=await Promise.all(reserveTasks.map(id=>j('/api/tasks/'+encodeURIComponent(id))));
+    reserveHadErrors = reserveHadErrors || tasks.some(task=>task.is_done && !task.success);
+    reserveTasks=tasks.filter(task=>!task.is_done).map(task=>task.id);
+    await loadFiles();
+    if(!reserveTasks.length)toast(reserveHadErrors?'Загрузка завершена с ошибками. Проверьте журнал задач.':'Установочные комплекты обновлены',!reserveHadErrors);
+  } catch(error){toast(error.message,false);reserveTasks=[];}
+  reservePolling=false;
+  const button=document.getElementById('btn-service-archives-refresh');if(button)button.disabled=!!reserveTasks.length;
+  if(reserveTasks.length)reserveTimer=setTimeout(pollReserveTasks,3000);
+}
+async function refreshServiceArchives() {
+  const button=document.getElementById('btn-service-archives-refresh');button.disabled=true;
+  try {
+    const result=await j('/api/gateways/reserve/refresh',{method:'POST'});
+    reserveHadErrors=!!result.errors?.length;
+    reserveTasks=result.tasks.map(task=>task.id);
+    toast(reserveHadErrors?'Не удалось поставить в очередь часть шлюзов. '+result.errors.map(row=>row.gateway_name+': '+row.error).join('; '):reserveTasks.length?'Проверка версий и загрузка на панель поставлены в очередь для всех шлюзов':'Нет добавленных шлюзов',!reserveHadErrors);
+    if(reserveTasks.length)reserveTimer=setTimeout(pollReserveTasks,1000);else button.disabled=false;
+  } catch(error){toast(error.message,false);button.disabled=false;}
 }
 
 async function viewKey(name) {
@@ -562,6 +690,7 @@ export function bindFilesUI() {
     };
   });
 
+  document.getElementById('btn-service-archives-refresh')?.addEventListener('click',refreshServiceArchives);
   document.getElementById('btn-create-key')?.addEventListener('click', () => openLibraryDialog('key'));
 
   document.getElementById('upload-file')?.addEventListener('change', async e => {

@@ -5674,3 +5674,6 @@ button.faq-help-link:focus-visible{outline:2px solid var(--accent);outline-offse
 @media (prefers-reduced-motion:reduce){
   .faq-toc,.faq-menu-backdrop{transition:none}
 }
+.dash-col-left{display:flex;flex-direction:column;gap:1rem;min-width:0}.dash-card-gateways[hidden]{display:none}.dash-gateway{display:block;width:100%;text-align:left;background:var(--card);border:1px solid var(--border);border-radius:12px;padding:16px;margin-top:12px;color:var(--text)}.dash-gateway-head{display:flex;align-items:center;justify-content:space-between;gap:12px}.dash-gateway-metrics{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:16px 0;color:var(--text-muted);font-size:11px}.dash-gateway-metrics b{display:block;color:var(--text);font-size:16px;margin-top:5px}.dash-gateway-net{display:grid;grid-template-columns:40px 1fr;gap:6px 12px;padding:10px 0;border-top:1px solid var(--border);font-size:12px}.dash-gateway-net small{grid-column:2;color:var(--text-muted)}.has-gateways .dash-card-servers .dash-srv{padding-top:10px;padding-bottom:10px}
+
+[data-page="gateways"][hidden],#dash-gateways-card[hidden]{display:none!important}

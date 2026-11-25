@@ -1,0 +1,538 @@
+'use strict';
+import * as backup from '/usr/share/bot4vps/backup.uc';
+import { readfile, open, access, popen, glob, unlink, writefile, mkdir, stat, realpath } from 'fs';
+import { cursor } from 'uci';
+import { connect } from 'ubus';
+import * as agh from '/usr/share/bot4vps/adguard.uc';
+import * as net from '/usr/share/bot4vps/network.uc';
+import * as wifi from '/usr/share/bot4vps/wireless.uc';
+import * as pm from '/usr/share/bot4vps/package-manager.uc';
+let protocol = json(readfile('/usr/share/bot4vps/contract.json') || '{}');
+
+function put_file(path, data, mode) {
+    let file = open(path, 'w', mode == null ? 0600 : mode);
+    if (!file) die('Не удалось сохранить файл операции');
+    file.write(data);
+    file.close();
+}
+
+function quote(s) { return "'" + replace(s, "'", "'\\''") + "'"; }
+function package_feed(line) {
+    let fields = split(trim(split(line || '', '#')[0]), /\s+/);
+    let url = fields[0] || '';
+    if (substr(url, 0, 1) == '@') url = fields[1] || '';
+    if (match(url, /^http:\/\/downloads\.openwrt\.org\//))
+        url = 'https://' + substr(url, 7);
+    return match(url, /^https:\/\/downloads\.openwrt\.org\//) ? url : null;
+}
+function packages() {
+    let fd = popen(access('/sbin/apk') || access('/usr/bin/apk') ? 'apk list -I --manifest 2>/dev/null' : 'opkg list-installed 2>/dev/null');
+    let text = fd ? fd.read('all') : '';
+    if (fd) fd.close();
+    let manager = access('/sbin/apk') || access('/usr/bin/apk') ? 'apk' : 'opkg';
+    if (manager == 'apk') {
+        let normalized = [];
+        for (let line in split(text, '\n')) {
+            let fields = split(trim(line), /\s+/);
+            if (length(fields) == 2) push(normalized, fields[0] + ' - ' + fields[1]);
+        }
+        text = join('\n', normalized);
+    }
+    let arch = '';
+    let fdarch = popen(manager == 'opkg' ? 'opkg print-architecture' : 'apk --print-arch');
+    let archtext = fdarch ? fdarch.read('all') : '';
+    if (fdarch) fdarch.close();
+    if (manager == 'opkg') {
+        let priority = -1;
+        for (let line in split(archtext, '\n')) {
+            let fields = split(trim(line), /\s+/);
+            if (length(fields) == 3 && int(fields[2]) > priority) { arch = fields[1]; priority = int(fields[2]); }
+        }
+    } else arch = trim(archtext);
+    let kernel = null;
+    for (let line in split(text, '\n')) {
+        let found = match(line, /^kernel - (.+)$/);
+        if (found) kernel = found[1];
+    }
+    let feeds = [];
+    if (manager == 'opkg') {
+        for (let path in glob('/etc/opkg/*feeds.conf'))
+            for (let line in split(readfile(path) || '', '\n')) {
+                let fields = split(trim(line), /\s+/);
+                let url = length(fields) >= 3 && fields[0] == 'src/gz' ? package_feed(fields[2]) : null;
+                if (url) push(feeds, url);
+            }
+    } else {
+        for (let path in ['/etc/apk/repositories', ...glob('/etc/apk/repositories.d/*')])
+            for (let line in split(readfile(path) || '', '\n')) {
+                let url = package_feed(line);
+                if (url) push(feeds, url);
+            }
+    }
+    let apk_keys = [];
+    if (manager == 'apk')
+        for (let path in [...glob('/etc/apk/keys/*.pub'), ...glob('/etc/apk/keys/*.pem')]) {
+            if ((stat(path)?.size || 0) > 16384) continue;
+            let resolved = realpath(path);
+            let data = readfile(path);
+            if (!resolved || substr(resolved, 0, 14) != '/etc/apk/keys/' || index(data || '', 'PUBLIC KEY') < 0 || index(data || '', 'PRIVATE KEY') >= 0) continue;
+            let fields = split(path, '/');
+            push(apk_keys, { name: fields[length(fields) - 1], data });
+        }
+    return { manager, output: text, architecture: arch, kernel, feeds, apk_keys };
+}
+function wireguard() {
+    if (!access('/usr/bin/wg')) return null;
+    let p = popen('/usr/bin/wg show all dump 2>/dev/null');
+    let output = p ? p.read('all') : '';
+    if (p) p.close();
+    let interfaces = {};
+    for (let line in split(output, '\n')) {
+        let fields = split(trim(line), /\s+/);
+        if (length(fields) == 5) interfaces[fields[0]] = { name: fields[0], listen_port: int(fields[3]), peers: [] };
+        else if (length(fields) >= 9 && interfaces[fields[0]]) {
+            let last_handshake = int(fields[5]);
+            push(interfaces[fields[0]].peers, { endpoint: fields[3], allowed_ips: split(fields[4], ','),
+                last_handshake, recent_handshake: last_handshake > 0 && time() - last_handshake < 180,
+                rx_bytes: int(fields[6]), tx_bytes: int(fields[7]) });
+        }
+    }
+    return interfaces;
+}
+function status() {
+    let bus = connect();
+    let all = bus ? bus.call('service', 'list', {}) : {};
+    let services = {};
+    for (let name in ['dnsmasq', 'firewall', 'podkop', 'ssclash', 'adguardhome']) {
+        let installed = access('/etc/init.d/' + name);
+        let running = false;
+        for (let key, instance in (all?.[name]?.instances || {}))
+            if (instance.running) running = true;
+        let kind = name == 'firewall' ? 'rules' : 'process';
+        if (name == 'firewall' && installed) {
+            let fw = popen('nft list table inet fw4 >/dev/null 2>&1');
+            running = fw && fw.close() == 0;
+        }
+        services[name] = { installed: !!installed, running: !!running, kind };
+        if (name == 'adguardhome' && installed) { let info = agh.information(); services[name].web_port = info.web_port; services[name].web_https = false; services[name].managed = info.managed; }
+        if (name == 'ssclash' && installed) {
+            let port = 9091, https = false;
+            services[name].managed = index(readfile('/etc/init.d/ssclash') || '', '# Bot4VPS SSClash web access') >= 0;
+            services[name].web_scope = cursor().get('ssclash', 'main', 'web_scope') || 'lan';
+            for (let key, instance in (all?.[name]?.instances || {})) {
+                let env = instance.env || {};
+                let found = match(env.SSCLASH_ADDR || ':9091', /:([0-9]+)$/);
+                if (found && int(found[1]) >= 1 && int(found[1]) <= 65535) port = int(found[1]);
+                if (index(['lan', 'wan'], env.SSCLASH_SCOPE) >= 0) services[name].web_scope = env.SSCLASH_SCOPE;
+                if (env.SSCLASH_TLS_CERT && env.SSCLASH_TLS_KEY) https = true;
+            }
+            services[name].web_port = port;
+            services[name].web_https = https;
+        }
+    }
+    let temperature = null;
+    for (let path in [...glob('/sys/class/thermal/thermal_zone*/temp'), ...glob('/sys/class/hwmon/hwmon*/temp*_input')]) {
+        let value = int(trim(readfile(path) || ''));
+        if (value > 0 && value < 200000) {
+            temperature = value / 1000;
+            break;
+        }
+    }
+    let model = readfile('/sys/class/dmi/id/product_name') || '';
+    let cpu = readfile('/proc/cpuinfo') || '';
+    let virtual = match(model, /(QEMU|Virtual|VMware|KVM|Hyper-V)/i) || match(cpu, /hypervisor/);
+    let sensor_package = null;
+    if (temperature == null && !virtual) {
+        if (index(cpu,'GenuineIntel') >= 0) sensor_package = 'kmod-hwmon-coretemp';
+        else if (index(cpu,'AuthenticAMD') >= 0) sensor_package = 'kmod-hwmon-k10temp';
+    }
+    let network_roles = {};
+    cursor().foreach('firewall','zone',function(zone) {
+        let names = zone.network || []; if (type(names) != 'array') names = [names];
+        for (let name in names) network_roles[name] = zone.name;
+    });
+    return { services, temperature, network_roles, temperature_support: { virtual: !!virtual, package: sensor_package }, wireguard: wireguard(), boot_id: trim(readfile('/proc/sys/kernel/random/boot_id') || '') };
+}
+function accounts() {
+    let c = cursor();
+    let result = [];
+    c.foreach('rpcd', 'login', function(s) {
+        if (s.bot4vps_id && match(s['.name'], /^bot4vps_[a-f0-9]+$/))
+            push(result, { id: s['.name'], username: 'bot4vps_' + s.bot4vps_id,
+                label: s.bot4vps_label || 'Bot4VPS', enabled: s.bot4vps_disabled != '1' });
+    });
+    return { accounts: result };
+}
+function revoke_sessions(username) {
+    // The shell exits immediately; session API calls happen in a separate process.
+    let child = popen('(sleep 1; /usr/bin/ucode /usr/libexec/bot4vps-revoke.uc ' + quote(username) + ') >/dev/null 2>&1 &');
+    if (child) child.close();
+}
+function change(request, rotate) {
+    let id = request.args.id;
+    if (!match(id || '', /^bot4vps_[a-f0-9]+$/)) return { error: 'Invalid account' };
+    let c = cursor();
+    if (!c.get('rpcd', id, 'bot4vps_id')) return { error: 'Unknown account' };
+    let username = 'bot4vps_' + c.get('rpcd', id, 'bot4vps_id');
+    let secret = null;
+    if (rotate) {
+        let f = open('/dev/urandom', 'r');
+        if (!f) return { error: 'Random source unavailable' };
+        secret = hexenc(f.read(32));
+        f.close();
+        let hash = popen('/usr/sbin/uhttpd -m ' + quote(secret));
+        let password = hash ? trim(hash.read('all')) : '';
+        if (hash) hash.close();
+        if (!length(password)) return { error: 'Password hashing failed' };
+        c.set('rpcd', id, 'password', password);
+    }
+    else {
+        let enabled = request.args.enabled;
+        c.set('rpcd', id, 'bot4vps_disabled', enabled ? '0' : '1');
+        c.set('rpcd', id, 'username', enabled ? username : '__disabled__' + username);
+    }
+    if (!c.commit('rpcd')) return { error: 'Cannot save account' };
+    revoke_sessions(username);
+    return { ok: true, secret, username };
+}
+function disconnect(username) {
+    // Account is captured from the object definition, not supplied by the caller.
+    // Each account has an ACL for its own bot4vps-key-<id> object only.
+    let c = cursor();
+    if (!c.get('rpcd', username, 'bot4vps_id')) return { error: 'Not a managed account' };
+    c.delete('rpcd', username);
+    if (!c.commit('rpcd')) return { error: 'Cannot revoke account' };
+    unlink('/etc/bot4vps/keys/' + username + '.pub');
+    unlink('/usr/share/rpcd/acl.d/bot4vps-key-' + substr(username, 8) + '.json');
+    revoke_sessions(username);
+    return { revoked: true };
+}
+
+function job_directory(username, nonce) {
+    if (!match(nonce || '', /^[a-f0-9]{32}$/)) return null;
+    return '/tmp/bot4vps-jobs/' + username + '/' + nonce;
+}
+function digest(path) {
+    let fd = popen('sha256sum ' + quote(path) + ' 2>/dev/null');
+    let data = fd ? fd.read('all') : '';
+    if (fd) fd.close();
+    return split(trim(data), ' ')[0] || '';
+}
+function package_fingerprint(manager) {
+    if (manager != 'apk') return digest('/usr/lib/opkg/status');
+    let p = popen('apk list -I --manifest 2>/dev/null | sort | sha256sum');
+    let text = p ? p.read('all') : '';
+    if (p) p.close();
+    return split(trim(text), ' ')[0] || '';
+}
+function collect_jobs(username) {
+    for (let dir in glob('/tmp/bot4vps-jobs/' + username + '/*')) {
+        let nonce = split(dir, '/')[4];
+        if (!match(nonce, /^[a-f0-9]{32}$/)) continue;
+        let path = dir + '/state.json', state;
+        try { state = json(readfile(path) || '{}'); } catch (error) { state = {}; }
+        if (state.phase == 'running' || state.phase == 'verify') continue;
+        if (time() - (stat(path)?.mtime || stat(dir)?.mtime || time()) < 900) continue;
+        let p = popen('rm -rf ' + quote(dir)); if (p) p.close();
+        connect().call('service', 'delete', { name: 'bot4vps-job-' + nonce });
+    }
+    if (length(glob('/tmp/bot4vps-jobs/' + username + '/*')) >= 16) die('Слишком много незавершённых планов. Завершите или очистите старые операции.');
+}
+function store_plan(username, nonce, plan) {
+    let dir = job_directory(username, nonce);
+    if (!dir) return { error: 'Некорректный идентификатор' };
+    mkdir('/tmp/bot4vps-jobs', 0700); mkdir('/tmp/bot4vps-jobs/' + username, 0700);
+    for (let path in glob('/tmp/bot4vps-jobs/' + username + '/*/state.json')) {
+        let old = json(readfile(path) || '{}');
+        if (old.phase != 'running' && old.phase != 'verify' && time() - (stat(path)?.mtime || time()) > 900) {
+            let old_nonce = split(path, '/')[4];
+            if (match(old_nonce, /^[a-f0-9]{32}$/)) {
+                let child = popen('rm -rf ' + quote('/tmp/bot4vps-jobs/' + username + '/' + old_nonce));
+                if (child) child.close();
+            }
+        }
+    }
+    if (length(glob('/tmp/bot4vps-jobs/' + username + '/*/state.json')) >= 16)
+        return { error: 'Слишком много незавершённых планов. Завершите или очистите старые операции.' };
+    mkdir(dir, 0700);
+    if (access(dir + '/state.json')) return { error: 'Операция уже существует' };
+    put_file(dir + '/plan.json', sprintf('%J', plan), 0600);
+    put_file(dir + '/state.json', sprintf('%J', { phase: 'prepared' }), 0600);
+    return plan;
+}
+function router_plan(username, request) {
+    let nonce = request.args.nonce;
+    collect_jobs(username);
+    let dir = job_directory(username, nonce);
+    if (!dir || access(dir)) return { error: 'Некорректный или уже использованный идентификатор' };
+    if (length(request.args.data || '') > 49152) return { error: 'Сетевой план слишком большой' };
+    let data = json(request.args.data || '{}');
+    mkdir('/tmp/bot4vps-jobs', 0700); mkdir('/tmp/bot4vps-jobs/' + username, 0700); mkdir(dir, 0700);
+    try {
+        let plan;
+        if (request.args.kind == 'network') plan = net.prepare(dir, request.args.action, data);
+        else if (request.args.kind == 'packages') plan = pm.prepare(request.args.action, data);
+        else if (request.args.kind == 'backup') plan = backup.prepare(request.args.action, data);
+        else die('Тип операции не поддерживается');
+        plan.nonce = nonce;
+        return store_plan(username, nonce, plan);
+    } catch (error) {
+        put_file(dir + '/state.json', sprintf('%J', { phase: 'failed', updated_at: time() }), 0600);
+        let child = popen('rm -rf ' + quote(dir));
+        if (child) child.close();
+        die(type(error) == 'object' ? error.message : '' + error);
+    }
+}
+function service_versions() {
+    let current = status(), result = {};
+    for (let name in ['podkop', 'ssclash', 'adguardhome']) {
+        let root = name == 'adguardhome' ? '/opt/AdGuardHome' : '/opt/clash';
+        if (name == 'ssclash') for (let line in split(readfile('/etc/init.d/ssclash') || '', '\n')) {
+            let found = match(line, /^ROOT=['"]?([^'"\n]+)['"]?$/); if (found) root = replace(found[1], /['"]$/, '');
+        }
+        let path = name == 'adguardhome' ? root + '/AdGuardHome' : root + '/bin/ssclash';
+        let binary = name == 'podkop' ? null : digest(path);
+        let record = json(readfile('/etc/bot4vps/services/' + name + '.json') || '{}');
+        result[name] = { ...current.services[name], binary_sha256: binary,
+            version: binary && record.binary_sha256 == binary ? record.version : null };
+    }
+    return result;
+}
+function service_plan(username, request) {
+    let name = request.args.service, action = request.args.action, nonce = request.args.nonce;
+    collect_jobs(username);
+    if (!match(name || '', /^(podkop|ssclash|dnsmasq|adguardhome)$/) || !match(action || '', /^(start|stop|restart|remove|install|update|web_access)$/))
+        return { error: 'Операция не разрешена' };
+    if (name == 'dnsmasq' && (action == 'remove' || action == 'install' || action == 'update')) return { error: 'Системный dnsmasq нельзя удалять или переустанавливать' };
+    let dir = job_directory(username, nonce);
+    if (!dir) return { error: 'Некорректный идентификатор' };
+    let init = '/etc/init.d/' + name;
+    let script = readfile(init) || '';
+    if (action != 'install' && !length(script)) return { error: 'Служба не установлена' };
+    let root = name == 'adguardhome' ? '/opt/AdGuardHome' : '/opt/clash';
+    let adguard = name == 'adguardhome' ? agh.information() : null;
+    if (adguard) {
+        if (action == 'install' && access(root)) return { error: 'Каталог AdGuard Home уже существует. Проверьте его вручную; чужие данные не перезаписываются.' };
+        if ((action == 'remove' || action == 'update') && !adguard.managed) return { error: 'Этот AdGuard Home установлен другим способом. Удалите его через исходный пакет или установщик.' };
+        if ((action == 'stop' || action == 'remove') && length(adguard.dns_dependencies)) return { error: 'Сначала верните рабочий DNS и проверьте клиентов: ' + join('; ', adguard.dns_dependencies) };
+        if (action == 'start' && !adguard.configured && adguard.setup_port_busy) return { error: 'TCP-порт 3000 занят. Освободите его перед первым запуском AdGuard Home.' };
+    }
+    if (name == 'ssclash') {
+        for (let line in split(script, '\n')) {
+            let m = match(line, /^ROOT=['"]?([^'"\n]+)['"]?$/);
+            if (m) root = m[1];
+        }
+        root = replace(root, /['"]$/, '');
+        if (!match(root, /^\/(opt|mnt|media)\/[a-zA-Z0-9_./-]+$/) || index(root, '/..') >= 0)
+            return { error: 'Каталог SSClash требует ручной проверки' };
+        let actual = realpath(root);
+        if (actual && !match(actual, /^\/(opt|mnt|media)\/.+/)) return { error: 'Каталог SSClash указывает на системный путь' };
+        if (action == 'install' && !length(script) && access(root)) return { error: 'Каталог уже существует и не зарегистрирован как SSClash' };
+    }
+    let current = status();
+    if (action == 'web_access' && (name != 'ssclash' || !current.services[name]?.managed || index(['lan', 'wan'], request.args.web_scope) < 0))
+        return { error: 'Изменение доступа доступно только для SSClash с управляемым init-скриптом и выбранной зоной LAN/WAN' };
+    if (action == 'install' && current.services[name]?.installed)
+        return { error: 'Служба уже установлена. Для смены версии сначала удалите её с резервом конфигурации.' };
+    if (action == 'update' && !current.services[name]?.installed) return { error: 'Служба не установлена' };
+    let platform = packages();
+    let hash = digest(init);
+    let binary_path = name == 'ssclash' ? root + '/bin/ssclash' : name == 'adguardhome' ? root + '/AdGuardHome' : null;
+    let api_host = request.args.api_host || '';
+    let lan = cursor().get('network', 'lan', 'ipaddr') || ''; if (type(lan) == 'array') lan = lan[0]; lan = split(lan, '/')[0];
+    let bind_address = match(api_host, /^[0-9.]+$/) ? api_host : lan;
+    let plan = { nonce, service: name, action, root, bind_address, init_hash: hash, architecture: platform.architecture,
+        manager: platform.manager, kernel: platform.kernel,
+        package_hash: package_fingerprint(platform.manager),
+        expires: time() + 900,
+        binary_path, binary_hash: binary_path ? digest(binary_path) : null,
+        expected: hash + ':' + root + ':' + platform.kernel + (action == 'update' && binary_path ? ':' + digest(binary_path) : ''),
+        running: current.services[name]?.running || false,
+        removed: action == 'remove' ? name == 'ssclash' || name == 'adguardhome' ? [init, root] : ['podkop', 'luci-app-podkop', 'luci-i18n-podkop-ru', '/etc/config/podkop', '/usr/lib/podkop', '/www/luci-static/resources/view/podkop'] : [],
+        preserved: action == 'update' ? ['Конфигурация службы, DNS/DHCP и маршрутизация', 'Автозапуск и прежнее состояние службы', 'Резерв для восстановления'] : action == 'remove' ? ['SSH и API Bot4VPS', 'Другие службы и общие зависимости'] : [] };
+    if (action == 'web_access') {
+        plan.web_scope = request.args.web_scope;
+        plan.web_config_hash = digest('/etc/config/ssclash');
+        plan.expected += ':' + plan.web_scope + ':' + plan.web_config_hash;
+        plan.preserved = ['Настройки Clash/Mihomo, DNS и маршрутизация', 'Прежнее состояние и автозапуск службы'];
+        plan.warnings = plan.web_scope == 'wan' ? ['Веб-панель SSClash будет слушать все интерфейсы, включая WAN. Для подключения извне также потребуется разрешение порта в firewall.', current.services[name]?.web_https ? 'Проверьте пароль доступа и доверие HTTPS-сертификату.' : 'HTTPS веб-панели выключен: при прямом доступе пароль и данные передаются без шифрования. Настройте TLS или защищённый прокси перед открытием в интернете.'] : ['Веб-панель будет слушать только LAN; прямое подключение к адресу WAN перестанет работать.'];
+    }
+    mkdir('/tmp/bot4vps-jobs', 0700); mkdir('/tmp/bot4vps-jobs/' + username, 0700);
+    for (let path in glob('/tmp/bot4vps-jobs/' + username + '/*/state.json')) {
+        let old = json(readfile(path) || '{}');
+        if (old.phase != 'running' && old.phase != 'verify' && time() - (stat(path)?.mtime || time()) > 900) {
+            let old_nonce = split(path, '/')[4];
+            if (match(old_nonce, /^[a-f0-9]{32}$/)) {
+                let child = popen('rm -rf ' + quote('/tmp/bot4vps-jobs/' + username + '/' + old_nonce));
+                if (child) child.close();
+                connect().call('service', 'delete', { name: 'bot4vps-job-' + old_nonce });
+            }
+        }
+    }
+    if (length(glob('/tmp/bot4vps-jobs/' + username + '/*/state.json')) >= 16)
+        return { error: 'Слишком много незавершённых операций. Завершите или очистите старые планы.' };
+    mkdir(dir, 0700);
+    if (access(dir + '/state.json')) return { error: 'Операция уже существует' };
+    put_file(dir + '/plan.json', sprintf('%J', plan), 0600);
+    put_file(dir + '/state.json', sprintf('%J', { phase: 'prepared' }), 0600);
+    return plan;
+}
+function upload(username, request) {
+    let dir = job_directory(username, request.args.nonce);
+    let name = request.args.name;
+    if (!dir || !match(name || '', /^[a-zA-Z0-9_.+~-]+$/) || name == '.' || name == '..' || length(request.args.data || '') > 350000)
+        return { error: 'Некорректный файл' };
+    let state = json(readfile(dir + '/state.json') || '{}');
+    if (state.phase != 'prepared') return { error: 'Операция не ожидает файлы' };
+    let plan = json(readfile(dir + '/plan.json') || '{}');
+    if (!plan.expires || time() > plan.expires) return { error: 'План операции истёк' };
+    let allowed = name == 'manifest.json' || name == 'manifest.sig';
+    let file_limit = name == 'manifest.json' ? 65536 : 1024;
+    if (!allowed) {
+        let signature = popen('usign -V -p ' + quote('/etc/bot4vps/keys/' + username + '.pub') + ' -m ' + quote(dir + '/manifest.json') + ' -x ' + quote(dir + '/manifest.sig') + ' >/dev/null 2>&1');
+        if (!signature || signature.close() != 0) return { error: 'Сначала передайте подписанный план' };
+        let manifest = json(readfile(dir + '/manifest.json') || '{}');
+        for (let file in [...(manifest.files || []), ...(manifest.rollback_files || [])])
+            if (file.name == name && match(file.name, /^[a-zA-Z0-9_.+~-]+$/) && !match(file.name, /^(plan\.json|state\.json|state\.new|log|confirmed|opkg\.conf|apk\.repositories|backup-exclude|before-(ssclash|clash|adguardhome)|(network|uhttpd|dhcp|firewall)\.(before|after))$/)) {
+                allowed = true; file_limit = int(file.size);
+            }
+        if (manifest.username != username || manifest.nonce != request.args.nonce || manifest.expected != plan.expected)
+            allowed = false;
+    }
+    if (!allowed || file_limit <= 0 || file_limit > 128 * 1024 * 1024) return { error: 'Файл отсутствует в подписанном плане' };
+    let data = b64dec(request.args.data || '');
+    if (data == null) return { error: 'Некорректное содержимое' };
+    let target = dir + '/' + name;
+    let length_before = stat(target)?.size || 0;
+    if ((request.args.append ? length_before : 0) + length(data) > file_limit) return { error: 'Файл превышает лимит плана' };
+    let total = 0;
+    for (let path in glob('/tmp/bot4vps-jobs/*/*/*')) total += stat(path)?.size || 0;
+    if (total + length(data) > 128 * 1024 * 1024) return { error: 'Общий лимит временных файлов исчерпан' };
+    let f = open(target, request.args.append ? 'a' : 'w', 0600);
+    if (!f) return { error: 'Не удалось сохранить файл' };
+    f.write(data); f.close();
+    return { ok: true };
+}
+function apply_operation(username, request) {
+    let dir = job_directory(username, request.args.nonce);
+    if (!dir) return { error: 'Некорректный идентификатор' };
+    let old = json(readfile(dir + '/state.json') || '{}');
+    if (old.phase != 'prepared') return old;
+    let verify = popen('usign -V -p ' + quote('/etc/bot4vps/keys/' + username + '.pub') + ' -m ' + quote(dir + '/manifest.json') + ' -x ' + quote(dir + '/manifest.sig') + ' >/dev/null 2>&1');
+    if (!verify || verify.close() != 0) return { error: 'Подпись установочного плана не подтверждена' };
+    let payload = json(readfile(dir + '/manifest.json') || '{}');
+    if (!payload.expires || time() > payload.expires) return { error: 'План операции истёк' };
+    let plan = json(readfile(dir + '/plan.json') || '{}');
+    if (payload.username != username || payload.nonce != request.args.nonce || payload.expected != plan.expected || payload.service != plan.service || payload.action != plan.action)
+        return { error: 'План операции изменился' };
+    if (plan.kind == 'network') {
+        if (digest('/etc/config/network') != plan.before_hash) return { error: 'Сеть изменилась; подготовьте новый план' };
+    } else if (plan.kind == 'backup') {
+        if (backup.fingerprint() != plan.before_hash) return { error: 'Настройки изменились; подготовьте новый план' };
+    } else if (package_fingerprint(plan.manager) != plan.package_hash) return { error: 'Состав пакетов изменился; подготовьте новый план' };
+    for (let path in glob('/tmp/bot4vps-jobs/*/*/state.json')) {
+        let state = json(readfile(path) || '{}');
+        if (state.phase == 'running' || state.phase == 'verify') {
+            let other_nonce = split(path, '/')[4];
+            let service = connect().call('service', 'list', { name: 'bot4vps-job-' + other_nonce });
+            let active = false;
+            for (let key, instance in (service?.['bot4vps-job-' + other_nonce]?.instances || {}))
+                if (instance.running) active = true;
+            if (active || time() - (stat(path)?.mtime || time()) < 10)
+                return { error: 'На роутере уже выполняется операция' };
+            put_file(path, sprintf('%J', { phase: 'failed', error: 'Процесс операции завершился без подтверждения; проверьте журнал', updated_at: time() }), 0600);
+        }
+    }
+    put_file(dir + '/state.json', sprintf('%J', { phase: 'running' }), 0600);
+    let instances = {};
+    let worker = plan.kind == 'backup' ? '/usr/libexec/bot4vps-backup-worker.uc' : plan.kind == 'network' ? '/usr/libexec/bot4vps-network-worker.uc' : plan.kind == 'packages' ? '/usr/libexec/bot4vps-packages-worker.uc' : '/usr/libexec/bot4vps-worker.uc';
+    instances.job = { command: ['/usr/bin/ucode', worker, username, request.args.nonce], stdout: true, stderr: true };
+    let bus = connect();
+    bus.call('service', 'set', { name: 'bot4vps-job-' + request.args.nonce, instances });
+    return { phase: 'running' };
+}
+function job(username, request) {
+    let dir = job_directory(username, request.args.nonce);
+    if (!dir) return { error: 'Некорректный идентификатор' };
+    let state = json(readfile(dir + '/state.json') || '{}');
+    state.output = substr(readfile(dir + '/log') || '', -65536);
+    let plan = json(readfile(dir + '/plan.json') || '{}');
+    if (state.phase == 'success' && plan.kind == 'backup' && plan.action == 'create' && int(request.args.length) > 0) {
+        let offset = int(request.args.offset || 0), count = min(65536, int(request.args.length));
+        if (offset < 0 || offset >= (state.archive?.size || 0)) return { error: 'Некорректный диапазон архива' };
+        let file = open(dir + '/backup.tar.gz', 'r'); if (!file) return { error: 'Архив не найден' };
+        file.seek(offset); state.data = b64enc(file.read(min(count, state.archive.size - offset))); file.close();
+    }
+    return state;
+}
+function confirm(username, request) {
+    let dir = job_directory(username, request.args.nonce);
+    if (!dir) return { error: 'Некорректный идентификатор' };
+    let state = json(readfile(dir + '/state.json') || '{}');
+    if (state.phase == 'success') return { ok: true, confirmed: true, phase: 'success' };
+    if (!dir || state.phase != 'verify') return { error: 'Операция не ожидает подтверждения' };
+    put_file(dir + '/confirmed', 'ok', 0600);
+    return { ok: true, confirmed: true, phase: 'verify' };
+}
+function cleanup(username, request) {
+    let dir = job_directory(username, request.args.nonce);
+    if (!dir) return { error: 'Некорректный идентификатор' };
+    let state = json(readfile(dir + '/state.json') || '{}');
+    if (state.phase == 'running' || state.phase == 'verify') return { error: 'Операция ещё выполняется' };
+    let child = popen('rm -rf ' + quote(dir));
+    if (!child || child.close() != 0) return { error: 'Очистка не завершена' };
+    connect().call('service', 'delete', { name: 'bot4vps-job-' + request.args.nonce });
+    return { ok: true };
+}
+
+let objects = {
+    bot4vps: {
+        status: { call: function() { return status(); } },
+        packages: { call: function() { return packages(); } },
+        adguard_info: { call: function() { return agh.information(); } },
+        network: { call: function() { return net.configuration(); } },
+        wireless: { call: function() { return wifi.configuration(); } },
+        service_versions: { call: function() { return service_versions(); } },
+        wireless_capabilities: { call: function() { return { version: 1 }; } },
+        wireless_survey: { args: { radio: '' }, call: function(request) { try { return wifi.measurement(request.args.radio); } catch (e) { return { error: type(e) == 'object' ? e.message : '' + e }; } } },
+        package_catalog: { args: { query: '', installed: false, offset: 0 }, call: function(request) {
+            try { return pm.catalog(request.args.query, request.args.installed, request.args.offset); }
+            catch (error) { return { error: 'Не удалось прочитать каталог пакетов: ' + (type(error) == 'object' ? error.message : '' + error) }; }
+        } },
+        logs: {
+            args: { lines: 0 },
+            call: function(request) {
+                let lines = min(200, max(1, int(request.args.lines || 100)));
+                let fd = popen('/sbin/logread -l ' + lines + ' 2>/dev/null');
+                let output = fd ? fd.read('all') : '';
+                if (fd) fd.close();
+                return { output: substr(output, -65536) };
+            }
+        }
+    },
+    'bot4vps-access': {
+        accounts: { call: function() { return accounts(); } },
+        rotate: { args: { id: '' }, call: function(request) { return change(request, true); } },
+        toggle: { args: { id: '', enabled: true }, call: function(request) { return change(request, false); } }
+    }
+};
+cursor().foreach('rpcd', 'login', function(account) {
+    let id = account.bot4vps_id;
+    if (id && match(id, /^[a-f0-9]+$/) && account['.name'] == 'bot4vps_' + id) {
+        let username = account['.name'];
+        objects['bot4vps-key-' + id] = {
+            disconnect: { call: function() { return disconnect(username); } },
+            capabilities: { call: function() { let component_hashes = {}; for (let path in ["/usr/share/bot4vps/backup.uc", "/usr/libexec/bot4vps-backup-worker.uc", "/usr/share/bot4vps/contract.json", "/usr/share/bot4vps/adguard.uc", "/usr/share/bot4vps/configuration.uc", "/usr/share/bot4vps/wireless.uc", "/usr/share/bot4vps/network.uc", "/usr/share/bot4vps/package-manager.uc", "/usr/libexec/bot4vps-network-worker.uc", "/usr/libexec/bot4vps-packages-worker.uc", "/usr/share/rpcd/ucode/bot4vps", "/usr/share/rpcd/acl.d/bot4vps.json", "/usr/share/luci/menu.d/bot4vps.json", "/www/luci-static/resources/view/bot4vps/access.js", "/usr/libexec/bot4vps-revoke.uc", "/usr/libexec/bot4vps-worker.uc", "/usr/share/bot4vps/adguardhome.init", "/usr/share/bot4vps/ssclash.init"]) component_hashes[path] = digest(path); return { component_hashes, protocol_version: protocol.version, signed_operations: access('/etc/bot4vps/keys/' + username + '.pub'), network_forms: true, package_manager: true }; } },
+            plan: { args: { nonce: '', service: '', action: '', kind: '', data: '', api_host: '', web_scope: '' }, call: function(request) {
+                try { return request.args.kind ? router_plan(username, request) : service_plan(username, request); }
+                catch (error) { return { error: type(error) == 'object' ? error.message : '' + error }; }
+            } },
+            upload: { args: { nonce: '', name: '', data: '', append: true }, call: function(request) { return upload(username, request); } },
+            apply: { args: { nonce: '' }, call: function(request) { try { return apply_operation(username, request); } catch (error) { return { error: 'Ошибка применения плана: ' + (type(error) == 'object' ? error.message : '' + error) }; } } },
+            job: { args: { nonce: '', offset: 0, length: 0 }, call: function(request) { return job(username, request); } },
+            confirm: { args: { nonce: '' }, call: function(request) { return confirm(username, request); } }
+            , cleanup: { args: { nonce: '' }, call: function(request) { return cleanup(username, request); } }
+        };
+    }
+});
+return objects;

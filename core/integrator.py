@@ -785,7 +785,7 @@ async def _svc_scan_executor(
     if not service_id:
         return TaskResult(success=False, error="service не указан")
 
-    servers = load_servers()
+    servers = [s for s in load_servers() if s.get("node_type") != "openwrt"]
     if not servers:
         return TaskResult(success=True, output="Серверов для проверки нет")
 

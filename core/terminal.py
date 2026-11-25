@@ -63,7 +63,11 @@ class ShellSession:
         from core.ssh import create_ssh_client
 
         self._ssh = create_ssh_client(self.server, timeout=self.connect_timeout)
-        chan = self._ssh.invoke_shell(width=self.cols, height=self.rows)
+        try:
+            chan = self._ssh.invoke_shell(width=self.cols, height=self.rows)
+        except Exception:
+            self._ssh.close(); self._ssh = None
+            raise
         chan.settimeout(self.read_timeout)
         self._chan = chan
         # сбрасываем приветственный баннер оболочки

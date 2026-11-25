@@ -211,6 +211,7 @@ SCAN_CONFIG_FILE = runtime_file("config.json")
 SCAN_SERVERS_FILE = runtime_file("servers.json")
 SCAN_BACKUP_DIR = Path("backup")
 SCAN_TASKS_DIR = Path("logs/tasks")
+SCAN_OPENWRT_DRAFTS_DIR = Path('data/openwrt-bootstrap-drafts')
 
 # Где искать enc1: (файл → путь к значению внутри JSON). Совпадает с
 # реестром фактических полей: servers[].password, bot_token,
@@ -223,6 +224,33 @@ _ENC_FIELD_LABELS = {
     "backup_password": "пароль резервных копий",
     "task_history": "приватная история задач",
 }
+
+
+def _node_secret_slots(server):
+    if not isinstance(server, dict):
+        return ()
+    rpc = server.get("openwrt")
+    ssh = rpc.get('ssh') if isinstance(rpc, dict) else None
+    slots = [(server, "password")]
+    if isinstance(rpc, dict):
+        slots.extend(((rpc, "password"), (rpc, "signing_private_key")))
+    if isinstance(ssh, dict):
+        slots.append((ssh, "password"))
+    return slots
+
+
+def _node_secrets(server):
+    return tuple(container.get(name) for container, name in _node_secret_slots(server))
+
+
+def clear_node_secrets(server) -> bool:
+    """Очистить секреты узла только при подтверждённой замене мастер-ключа."""
+    changed = False
+    for container, name in _node_secret_slots(server):
+        if container.get(name):
+            container[name] = ""
+            changed = True
+    return changed
 
 
 def _iter_encrypted_values() -> list[tuple[str, str]]:
@@ -262,8 +290,9 @@ def _iter_encrypted_values() -> list[tuple[str, str]]:
     servers = data.get("servers")
     if isinstance(servers, list):
         for server in servers:
-            if isinstance(server, dict) and is_encrypted(server.get("password")):
-                found.append(("server_passwords", server["password"]))
+            for value in _node_secrets(server):
+                if is_encrypted(value):
+                    found.append(("server_passwords", value))
 
     # Ротации backup/ (latest.json, servers_*.json): расшифровываются
     # только вручную через restore_backup, но если ключа нет — авто-
@@ -280,8 +309,9 @@ def _iter_encrypted_values() -> list[tuple[str, str]]:
         if not isinstance(rot_servers, list):
             continue
         for server in rot_servers:
-            if isinstance(server, dict) and is_encrypted(server.get("password")):
-                found.append(("server_passwords", server["password"]))
+            for value in _node_secrets(server):
+                if is_encrypted(value):
+                    found.append(("server_passwords", value))
     # История задач тоже использует мастер-ключ. Её нельзя осиротить,
     # создав новый ключ при отсутствии секретов в config/servers.
     for path in SCAN_TASKS_DIR.glob("*.json"):
@@ -291,6 +321,12 @@ def _iter_encrypted_values() -> list[tuple[str, str]]:
             continue
         if isinstance(record, dict) and not record.get("private_key_retired") and is_encrypted(record.get("private_enc")):
             found.append(("task_history", record["private_enc"]))
+    for path in SCAN_OPENWRT_DRAFTS_DIR.glob('*.json'):
+        try: record = json.loads(path.read_text(encoding='utf-8'))
+        except (OSError, ValueError): continue
+        credentials = record.get('credentials') if isinstance(record, dict) else None
+        value = credentials.get('password') if isinstance(credentials, dict) else None
+        if is_encrypted(value): found.append(('openwrt_bootstrap', value))
     return found
 
 
@@ -304,7 +340,7 @@ def retire_old_encrypted_copies() -> int:
                 raw = json.loads(path.read_text(encoding="utf-8"))
             except (OSError, ValueError):
                 continue
-            if isinstance(raw, dict) and any(isinstance(s, dict) and is_encrypted(s.get("password")) for s in raw.get("servers", [])):
+            if isinstance(raw, dict) and any(is_encrypted(value) for s in raw.get("servers", []) for value in _node_secrets(s)):
                 raw["secret_key_retired"] = True
                 atomic_write_json(path, raw)
     store = JsonItemStore(SCAN_TASKS_DIR)
@@ -441,8 +477,8 @@ def scan_plaintext_secrets() -> dict:
     if _is_plaintext_secret(cfg.get("backup_encryption_password")):
         counts["backup_password"] = 1
     plain_passwords = sum(
-        1 for s in servers
-        if isinstance(s, dict) and _is_plaintext_secret(s.get("password"))
+        1 for s in servers for value in _node_secrets(s)
+        if _is_plaintext_secret(value)
     )
     if plain_passwords:
         counts["server_passwords"] = plain_passwords

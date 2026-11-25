@@ -1,0 +1,71 @@
+{
+  "bot4vps-reader": {
+    "description": "Bot4VPS: мониторинг шлюза",
+    "read": {
+      "ubus": {
+        "system": [
+          "board",
+          "info"
+        ],
+        "network.interface": [
+          "dump"
+        ],
+        "network.device": [
+          "status"
+        ],
+        "network.wireless": [
+          "status"
+        ],
+        "iwinfo": [
+          "info",
+          "freqlist",
+          "scan",
+          "countrylist",
+          "txpowerlist"
+        ],
+        "luci-rpc": [
+          "getDHCPLeases",
+          "getWirelessDevices"
+        ],
+        "file": [
+          "read"
+        ],
+        "bot4vps": [
+          "status",
+          "packages",
+          "logs",
+          "network",
+          "adguard_info",
+          "package_catalog",
+          "wireless",
+          "wireless_capabilities",
+          "wireless_survey",
+          "service_versions"
+        ]
+      },
+      "file": {
+        "/proc/stat": [
+          "read"
+        ]
+      }
+    }
+  },
+  "luci-app-bot4vps-access": {
+    "description": "LuCI: отключение и перевыпуск доступа Bot4VPS",
+    "read": {
+      "ubus": {
+        "bot4vps-access": [
+          "accounts"
+        ]
+      }
+    },
+    "write": {
+      "ubus": {
+        "bot4vps-access": [
+          "rotate",
+          "toggle"
+        ]
+      }
+    }
+  }
+}

@@ -21,6 +21,12 @@ from ..uploads import read_limited_upload
 router = APIRouter(tags=["services"])
 
 
+@router.get('/api/service-projects')
+async def service_projects():
+    from core.service_projects import public_projects
+    return {'projects': public_projects()}
+
+
 # do_* quick-ops вызываются напрямую (без очереди) и требуют async progress_cb.
 async def _noop_progress(_line: str) -> None:
     return None
@@ -129,7 +135,7 @@ async def api_service_status(sid: str):
         from core.monitor import load_monitor
         monitor = load_monitor()
         rows = []
-        for s in load_servers():
+        for s in (node for node in load_servers() if node.get("node_type") != "openwrt"):
             status = await integrator.call(sid, s["id"], "get_status") or {}
             monitor_entry = monitor.get(s["id"]) or {}
             avail = monitor_entry.get("availability") or {}

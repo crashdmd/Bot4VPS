@@ -14,6 +14,7 @@ let fitAddon = null;
 let ws = null;
 let ro = null;
 let curServerId = null;
+let curNodeKind = 'servers';
 
 function resolvedTheme() {
   const theme = document.documentElement.getAttribute('data-theme');
@@ -73,7 +74,7 @@ function connect(sid, script = null) {
   const t = ensureTerm();
   if (!t) return;
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const url = `${proto}//${location.host}/api/servers/${encodeURIComponent(sid)}/shell/ws`;
+  const url = `${proto}//${location.host}/api/${curNodeKind}/${encodeURIComponent(sid)}/shell/ws`;
   setStatus('SSH · подключение…');
   let sock;
   try {
@@ -116,6 +117,7 @@ function resolveServerId() {
 }
 
 export async function openTerminal() {
+  curNodeKind = 'servers';
   const sid = resolveServerId();
   if (!sid) {
     toast('Сначала откройте сервер', false);
@@ -130,6 +132,17 @@ export async function openTerminal() {
   connect(sid, script);
 }
 
+export function openGatewayTerminal(node) {
+  curNodeKind = 'gateways'; curServerId = node.id;
+  state.pendingTermScript = null;
+  document.getElementById('term-server-name').textContent = node.name;
+  document.getElementById('term-ssh-badge').textContent = 'SSH: ' + (node.ssh_user || 'root') + '@' + node.host;
+  const back = document.getElementById('btn-back-from-terminal');
+  back.textContent = '← Вернуться к шлюзам';
+  back.dataset.nodeKind = 'gateways';
+  connect(node.id);
+}
+
 export function closeTerminal() {
   closeWs();
   if (ro) { try { ro.disconnect(); } catch {} ro = null; }
@@ -137,6 +150,8 @@ export function closeTerminal() {
   // term-mount создаётся заново в ensureTerm(); снести за собой
   document.getElementById('term-xterm')?.replaceChildren();
   setStatus('SSH · отключено');
+  const back = document.getElementById('btn-back-from-terminal');
+  if (back) { back.textContent = '← Вернуться к серверу'; delete back.dataset.nodeKind; }
 }
 
 // синхронизация темы xterm с темой приложения (событие из settings.js)

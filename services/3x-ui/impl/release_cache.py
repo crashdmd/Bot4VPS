@@ -179,6 +179,13 @@ def re_is_hex(s: str) -> bool:
 
 
 def download(tag: str, arch: Optional[str] = None, emit: Optional[Callable[[str], None]] = None) -> Path:
+    """Download and retain releases while preventing deletion of in-use files."""
+    from core.service_archives import archive_access
+    with archive_access(cache_root()):
+        return _download(tag, arch, emit)
+
+
+def _download(tag: str, arch: Optional[str] = None, emit: Optional[Callable[[str], None]] = None) -> Path:
     """Скачать релиз в кэш (идемпотентно: уже есть и валиден — ничего не делаем).
 
     Возвращает путь к тарболлу в кэше. По успеху применяет ретеншн.
@@ -215,6 +222,13 @@ def download(tag: str, arch: Optional[str] = None, emit: Optional[Callable[[str]
 # ------------------------------------------------------------------
 
 def apply_retention() -> List[str]:
+    """Apply retention under the same lock used by uploads and manual deletion."""
+    from core.service_archives import archive_access
+    with archive_access(cache_root()):
+        return _apply_retention()
+
+
+def _apply_retention() -> List[str]:
     """Оставить последние RETENTION версий, старшие каталоги удалить.
 
     Удаляем только каталоги с semver-именем — мусор/чужие файлы не трогаем.

@@ -15,6 +15,66 @@ from ..uploads import read_limited_upload
 
 router = APIRouter(tags=["files"])
 
+
+@router.get('/api/files/gateway-backups')
+async def gateway_backup_archives():
+    from core.openwrt.backup_store import inventory
+    return {'items': await asyncio.to_thread(inventory)}
+
+
+@router.get('/api/files/gateway-backups/{archive_id}/download')
+async def download_gateway_backup(archive_id: str):
+    from core.openwrt.backup_store import download
+    try:
+        path, record = await asyncio.to_thread(download, archive_id, verify=True)
+        return FileResponse(path, filename=record['filename'], media_type='application/gzip',
+                            headers={'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff'})
+    except FileNotFoundError as exc: raise HTTPException(404, str(exc)) from None
+    except ValueError as exc: raise HTTPException(400, str(exc)) from None
+
+
+@router.delete('/api/files/gateway-backups/{archive_id}')
+async def delete_gateway_backup(archive_id: str):
+    from core.openwrt.backup_store import delete, ArchiveBusy
+    try: return await asyncio.to_thread(delete, archive_id)
+    except ArchiveBusy as exc: raise HTTPException(409, str(exc)) from None
+    except FileNotFoundError as exc: raise HTTPException(404, str(exc)) from None
+    except ValueError as exc: raise HTTPException(400, str(exc)) from None
+
+
+@router.get('/api/files/services')
+async def service_archives():
+    from core.service_archives import inventory
+    return {'items': await asyncio.to_thread(inventory)}
+
+
+@router.delete('/api/files/services/groups/{service}/{major}')
+async def delete_service_group(service: str, major: str):
+    from core.service_archives import delete_group, ArchiveBusy
+    try: return await asyncio.to_thread(delete_group, service, major)
+    except ArchiveBusy as exc: raise HTTPException(409, str(exc)) from None
+    except FileNotFoundError as exc: raise HTTPException(404, str(exc)) from None
+    except ValueError as exc: raise HTTPException(400, str(exc)) from None
+
+
+@router.get('/api/files/services/{archive_id}/download')
+async def download_service_archive(archive_id: str, file: int = Query(ge=0)):
+    from core.service_archives import download_path
+    try:
+        path, name = await asyncio.to_thread(download_path, archive_id, file)
+        return FileResponse(path, filename=name)
+    except FileNotFoundError as exc: raise HTTPException(404, str(exc)) from None
+    except ValueError as exc: raise HTTPException(400, str(exc)) from None
+
+
+@router.delete('/api/files/services/{archive_id}')
+async def delete_service_archive(archive_id: str):
+    from core.service_archives import delete, ArchiveBusy
+    try: return await asyncio.to_thread(delete, archive_id)
+    except ArchiveBusy as exc: raise HTTPException(409, str(exc)) from None
+    except FileNotFoundError as exc: raise HTTPException(404, str(exc)) from None
+    except ValueError as exc: raise HTTPException(400, str(exc)) from None
+
 FILE_ROOTS = {
     "scripts": Path("scripts"),
     "keys": Path("keys"),

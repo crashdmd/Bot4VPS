@@ -4,7 +4,7 @@ import asyncio
 import os
 from pathlib import Path
 from typing import Optional
-from fastapi import APIRouter, BackgroundTasks, HTTPException
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
 from pydantic import BaseModel, Field
 from ..deps import err, task_brief, queue_state_dict
 
@@ -162,6 +162,8 @@ async def api_servers(group: Optional[str] = None, online: Optional[bool] = None
         for s in load_servers():
             if group and (s.get("group") or "") != group:
                 continue
+            if s.get("node_type") == "openwrt":
+                continue
             mid = s.get("id")
             m = monitor.get(mid) or {}
             avail = m.get("availability") or {}
@@ -206,6 +208,8 @@ async def api_server(server_id: str):
         from core.task_manager import task_manager
 
         server = find_server(server_id)
+        if server and server.get("node_type") == "openwrt":
+            raise HTTPException(400, "Используйте раздел «Шлюзы» для операций OpenWrt")
         if not server:
             raise HTTPException(404, "Сервер не найден")
         mon = get_server_monitor(server_id) or {}
@@ -241,6 +245,8 @@ async def api_metrics(server_id: str):
             update_server_uptime,
         )
         server = find_server(server_id)
+        if server and server.get("node_type") == "openwrt":
+            raise HTTPException(400, "Используйте раздел «Шлюзы» для операций OpenWrt")
         if not server:
             raise HTTPException(404, "Сервер не найден")
         if ssh_probe_throttled(server_id):
@@ -288,6 +294,8 @@ async def api_probe(server_id: str):
             get_server_info_without_ssh,
         )
         server = find_server(server_id)
+        if server and server.get("node_type") == "openwrt":
+            raise HTTPException(400, "Используйте раздел «Шлюзы» для операций OpenWrt")
         if not server:
             raise HTTPException(404, "Сервер не найден")
         if ssh_probe_throttled(server_id):
@@ -338,7 +346,7 @@ async def api_ssh_probe_all(background_tasks: BackgroundTasks):
     try:
         from core.monitor import ssh_probe_servers
         from core.storage import load_servers
-        background_tasks.add_task(ssh_probe_servers, load_servers())
+        background_tasks.add_task(ssh_probe_servers, [s for s in load_servers() if s.get("node_type") != "openwrt"])
         return {"ok": True}
     except Exception as e:
         return err(e)
@@ -349,6 +357,8 @@ async def api_exec(server_id: str, body: ExecBody):
     try:
         from core.storage import find_server
         server = find_server(server_id)
+        if server and server.get("node_type") == "openwrt":
+            raise HTTPException(400, "Используйте раздел «Шлюзы» для операций OpenWrt")
         if not server:
             raise HTTPException(404, "Сервер не найден")
         cmd = body.command.strip()
@@ -369,6 +379,8 @@ async def api_reboot(server_id: str):
         from core.storage import find_server
         from core.servers import reboot_server_with_readiness
         server = find_server(server_id)
+        if server and server.get("node_type") == "openwrt":
+            raise HTTPException(400, "Используйте раздел «Шлюзы» для операций OpenWrt")
         if not server:
             raise HTTPException(404, "Сервер не найден")
         # Без ожидания readiness: ответ приходит за секунды после dispatch,
@@ -498,6 +510,8 @@ async def api_ping_server(server_id: str):
     try:
         from core.storage import find_server
         server = find_server(server_id)
+        if server and server.get("node_type") == "openwrt":
+            raise HTTPException(400, "Используйте раздел «Шлюзы» для операций OpenWrt")
         if not server:
             raise HTTPException(404, "Сервер не найден")
         host = server.get("host") or ""
@@ -653,6 +667,8 @@ async def api_server_update(server_id: str, body: ServerUpdate):
         )
 
         server = find_server(server_id)
+        if server and server.get("node_type") == "openwrt":
+            raise HTTPException(400, "Используйте раздел «Шлюзы» для операций OpenWrt")
         if not server:
             raise HTTPException(404, "Сервер не найден")
 
@@ -757,7 +773,7 @@ async def api_server_update(server_id: str, body: ServerUpdate):
 
 
 @router.post("/api/servers")
-async def api_server_create(body: ServerCreate):
+async def api_server_create(body: ServerCreate, request: Request):
     try:
         from core.storage import add_server, is_group_ssl_enabled
         import secrets
@@ -770,6 +786,19 @@ async def api_server_create(body: ServerCreate):
             raise HTTPException(400, "Нужен key_path")
         if not (1 <= body.port <= 65535):
             raise HTTPException(400, "Порт 1–65535")
+
+        # Detect OpenWrt without writing configuration or adding a Linux record.
+        if body.test:
+            from core.openwrt.bootstrap import prepare, inspect_target
+            from core.openwrt.feature import enabled
+            from .gateways import owner
+            if enabled():
+                detected = await prepare(body.model_dump(), owner(request))
+            else:
+                detected = await asyncio.to_thread(inspect_target, body.model_dump())
+                if detected: raise HTTPException(400,'Обнаружен OpenWrt. Включите управление роутерами в Настройки → Параметры.')
+            if detected:
+                return {"gateway_required": True, "gateway": detected}
 
         # test connection
         if body.test:
@@ -917,6 +946,8 @@ async def api_server_test(server_id: str):
         from core.storage import find_server
         from core.ssh import test_connection
         server = find_server(server_id)
+        if server and server.get("node_type") == "openwrt":
+            raise HTTPException(400, "Используйте раздел «Шлюзы» для операций OpenWrt")
         if not server:
             raise HTTPException(404, "Сервер не найден")
         ok, msg = await asyncio.to_thread(test_connection, server)

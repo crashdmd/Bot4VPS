@@ -14,6 +14,8 @@ async def api_summary():
         import core.scripts  # noqa: F401
 
         servers = load_servers()
+        gateways = [s for s in servers if s.get('node_type') == 'openwrt']
+        from core.openwrt.feature import enabled as openwrt_enabled
         running = queued = paused = active = 0
         for s in servers:
             sid = s["id"]
@@ -29,7 +31,8 @@ async def api_summary():
                 active += 1
         return {
             "ok": True,
-            "servers": len(servers),
+            "servers": len(servers) - len(gateways),
+            "gateways": len(gateways) if openwrt_enabled() else 0,
             "running_tasks": running,
             "queued_tasks": queued,
             "active_queues": active,

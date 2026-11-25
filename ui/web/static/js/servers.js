@@ -2,7 +2,7 @@ import { j, esc } from './api.js';
 import { ansiToHtml } from './ansi.js';
 import { fitServerTables, toast, showPage, bindPasswordToggles, parseEmoji, confirmAction, formatServerDateTime, serverDateTimeParts, serverDayDifference, serverNow, infoModal } from './ui.js';
 import { state, setServers, setGroups, setKeys, setOpenServer, setPage, setServerGroupTab, setServerSort, setServerQuery as updateServerQuery } from './state.js';
-import { WIREGUARD_ICON, DOCKER_ICON, XUI_ICON } from './icons.js?v=20260905-brandicons-v3';
+import { WIREGUARD_ICON, DOCKER_ICON, XUI_ICON, VPS_ICON } from './icons.js?v=20260905-brandicons-v3';
 import { openTerminal, closeTerminal } from './terminal.js?v=20260905-glassblue-v2';
 import { openEventDetail, applyEventsSnapshot } from './monitor.js?v=20261001-mobile-charts-v1';
 import { openTaskLog, cancelTaskAPI } from './tasks.js?v=20261001-handbook-v3';
@@ -477,7 +477,7 @@ function serverRowCellContents(server) {
     ? `<button type="button" class="server-group-link" data-group-link="${esc(group)}">${esc(group)}</button>`
     : '<span class="server-no-group">Без группы</span>';
   return [
-    `<strong>${esc(server.name || '—')}</strong>${server.has_running ? '<span class="server-running-mark" title="Идёт задача">▶</span>' : ''}`,
+    `<span class="server-list-identity"><span class="vps-icon-tile">${VPS_ICON}</span><strong>${esc(server.name || '—')}</strong>${server.has_running ? '<span class="server-running-mark" title="Идёт задача">▶</span>' : ''}</span>`,
     serverHostCell(server),
     onlineCell(server.online, server.ssh_error, server.last_error),
     sslCell(server),
@@ -1295,12 +1295,12 @@ function confirmInstallDocker(serverId) {
 
 // Открыть карточку 3x-ui для сервера
 function openXuiServer(serverId) {
-  import('./3xui.js?v=20261116-cli-compat-v2').then(m => m.openXuiServerById(serverId));
+  import('./3xui.js?v=20261123-service-info-v1').then(m => m.openXuiServerById(serverId));
 }
 
 // Открыть визард установки 3x-ui
 function confirmInstallXui(serverId) {
-  import('./3xui.js?v=20261116-cli-compat-v2')
+  import('./3xui.js?v=20261123-service-info-v1')
     .then(m => m.openInstallWizard(serverId))
     .catch(err => console.error('Ошибка загрузки модуля 3x-ui:', err));
 }
@@ -1987,6 +1987,10 @@ export async function submitAddServer() {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
     });
     closeAddServerModal();
+    if (r.gateway_required) {
+      window.dispatchEvent(new CustomEvent('bot4vps:gateway-detected', { detail: r.gateway }));
+      return;
+    }
     toast('Сервер добавлен', true);
     await loadServers();
     if (r.id) openServer(r.id);

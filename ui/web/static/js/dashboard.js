@@ -1,5 +1,6 @@
 // Bot4VPS Dashboard — Modern UI
 import { j, esc } from './api.js';
+import { VPS_ICON, ROUTER_ICON } from './icons.js?v=20260905-brandicons-v3';
 import { showPage, plural, toast, bindPasswordToggles, serverHour, formatServerTimestamp } from './ui.js';
 import { setPage } from './state.js';
 import { loadEvents, openEventDetail, applyEventsSnapshot, showUpdateModal } from './monitor.js?v=20261001-mobile-charts-v1';
@@ -106,17 +107,19 @@ export async function loadDashboard() {
     }
 
     // Загружаем данные параллельно
-    const [servers, events, sys, updaterState] = await Promise.all([
+    const [servers, events, sys, updaterState, gateways] = await Promise.all([
       j('/api/servers'),
       j('/api/events?limit=5').catch(() => ({ events: [] })),
       j('/api/system').catch(() => null),
-      j('/api/update/state').catch(() => null)
+      j('/api/update/state').catch(() => null),
+      j('/api/gateways?compact=true').catch(() => ({gateways:[]}))
     ]);
 
     lastSys = sys;
     lastUpdaterState = updaterState;
     const allEvents = events.events || [];
     pushSysHistory(sys);
+    renderGateways(gateways);
     renderServers(servers.servers || []);
     renderEvents(allEvents);
     renderSystem(sys, updaterState);
@@ -137,6 +140,8 @@ export async function updateDashboardData() {
     if (sys) lastSys = sys;
     pushSysHistory(sys);
     renderSystem(sys, lastUpdaterState);
+    const gateways=await j('/api/gateways?compact=true').catch(()=>null);
+    if(gateways) renderGateways(gateways);
   } catch (e) {
     console.error('[DASH UPDATE]', e);
   }
@@ -173,6 +178,55 @@ export async function updateDashboardState() {
 }
 
 const WIDGET_LIMIT = 6;
+let widgetLimit = WIDGET_LIMIT;
+let dashboardServers = [];
+let gatewayItems = [], gatewayPosition = 0, gatewayTimer = null;
+
+function renderGateways(data) {
+  const nodes=data?.enabled===false?[]:data?.gateways||[];
+  const card=document.getElementById('dash-gateways-card'),box=document.getElementById('dash-gateways');
+  if(!card||!box)return;
+  card.hidden=!nodes.length;
+  document.getElementById('page-dashboard')?.classList.toggle('has-gateways',!!nodes.length);
+  const selectedId = gatewayItems[gatewayPosition]?.id;
+  gatewayItems = nodes;
+  gatewayPosition = Math.max(0, nodes.findIndex(node => node.id === selectedId));
+  const nextLimit = data?.enabled === true ? 4 : WIDGET_LIMIT;
+  if (widgetLimit !== nextLimit) {
+    widgetLimit = nextLimit;
+    if (dashboardServers.length) renderServers(dashboardServers);
+  }
+  paintGateway();
+  startGatewayRotation();
+}
+
+function paintGateway() {
+  const node = gatewayItems[gatewayPosition], box = document.getElementById('dash-gateways');
+  if (!box) return;
+  if (!node) { box.replaceChildren(); return; }
+  const m = node.monitor || {}, traffic = m.traffic || {};
+  box.innerHTML = `<button type="button" class="dash-gateway" data-gateway="${esc(node.id)}"><div class="dash-gateway-head"><strong><span class="vps-icon-tile">${ROUTER_ICON}</span>${esc(node.name)}</strong><span class="dash-pill ${m.ok ? 'is-ok' : 'is-bad'}">${m.ok ? 'На связи' : 'Нет доступа'}</span></div><div class="dash-gateway-metrics"><span>CPU <b>${m.cpu_pct == null ? '—' : esc(m.cpu_pct) + '%'}</b></span><span>RAM <b>${m.ram_pct == null ? '—' : esc(m.ram_pct) + '%'}</b></span><span>SoC <b>${m.temperature == null ? '—' : esc(m.temperature) + '°C'}</b></span></div><div class="dash-gateway-traffic">${['lan', 'wan'].map(role => `<span><b>${role.toUpperCase()}</b> ↓ ${esc(fmtRate(traffic[role]?.rx_bps))} · ↑ ${esc(fmtRate(traffic[role]?.tx_bps))}</span>`).join('')}</div></button>`;
+  box.querySelector('[data-gateway]').onclick = async () => {
+    stopDashMetrics();
+    const module = await import('./gateways.js?v=20261125-port-forward-v1');
+    module.openGatewayFromDashboard(node.id);
+  };
+
+}
+
+function startGatewayRotation() {
+  if (gatewayItems.length < 2) {
+    if (gatewayTimer) clearInterval(gatewayTimer);
+    gatewayTimer = null;
+    return;
+  }
+  if (gatewayTimer || !document.getElementById('page-dashboard')?.classList.contains('on')) return;
+  gatewayTimer = setInterval(() => {
+    if (document.hidden) return;
+    gatewayPosition = (gatewayPosition + 1) % gatewayItems.length;
+    paintGateway();
+  }, 5000);
+}
 const SPARK_POINTS = 20;     // сколько замеров держит график (20 × 3с ≈ минута)
 const SPARK_W = 96, SPARK_H = 24, SPARK_PAD = 2;
 // Компактные причины недоступности в виджете (см. classify_ssh_error в core)
@@ -261,12 +315,13 @@ function pickWidgetServers(servers) {
   };
   const problems = shuffle(servers.filter(isProblem));
   const healthy = shuffle(servers.filter(s => !isProblem(s)));
-  const pCount = Math.min(problems.length, WIDGET_LIMIT);
-  const hCount = Math.min(healthy.length, WIDGET_LIMIT - pCount);
+  const pCount = Math.min(problems.length, widgetLimit);
+  const hCount = Math.min(healthy.length, widgetLimit - pCount);
   return [...problems.slice(0, pCount), ...healthy.slice(0, hCount)];
 }
 
 function renderServers(servers, keepIds = null) {
+  dashboardServers = servers;
   const box = document.getElementById('dash-servers');
   stopDashMetrics();
   if (!servers.length) {
@@ -280,6 +335,7 @@ function renderServers(servers, keepIds = null) {
         <button type="button" class="ghost" style="flex:1" data-dash-add="1">Добавить сервер</button>
       </div>`;
     bindDashAdd(box);
+    startGatewayRotation();
     return;
   }
 
@@ -287,7 +343,7 @@ function renderServers(servers, keepIds = null) {
     // состав панели изменился: прежняя выборка живёт, исчезнувшие уходят;
     // освободившиеся слоты не добираем — новые серверы увидит следующая
     // загрузка страницы
-    widgetServers = servers.filter(s => keepIds.has(s.id));
+    widgetServers = servers.filter(s => keepIds.has(s.id)).slice(0, widgetLimit);
     if (!widgetServers.length) widgetServers = pickWidgetServers(servers);
   } else {
     widgetServers = pickWidgetServers(servers);
@@ -305,7 +361,7 @@ function renderServers(servers, keepIds = null) {
       <div class="dash-srv" data-sid="${esc(s.id)}">
         <div class="dash-srv-top">
           <span data-f="dot" class="dash-srv-dot">${dot}</span>
-          <span class="dash-srv-name">${esc(s.name)}</span>
+          <span class="dash-srv-name"><span class="vps-icon-tile">${VPS_ICON}</span>${esc(s.name)}</span>
           <span class="dash-srv-ping" data-f="ping">—</span>
           <span class="dash-srv-cpu">
             <span class="m-cpu" data-f="cpu">—</span>
@@ -323,6 +379,7 @@ function renderServers(servers, keepIds = null) {
   const showAll = servers.length > widgetServers.length
     ? `<button type="button" class="ghost" style="flex:1" data-dash-all="1">Показать все →</button>`
     : '';
+  box.innerHTML = '<div class="dash-server-list">' + box.innerHTML + '</div>';
   box.insertAdjacentHTML('beforeend',
     `<div class="dash-srv-actions">
        ${showAll}
@@ -410,10 +467,12 @@ export function startDashMetrics() {
   stopDashMetrics();
   refreshDashMetrics();
   metricsTimer = setInterval(refreshDashMetrics, 3000);
+  startGatewayRotation();
 }
 
 export function stopDashMetrics() {
   if (metricsTimer) { clearInterval(metricsTimer); metricsTimer = null; }
+  if (gatewayTimer) { clearInterval(gatewayTimer); gatewayTimer = null; }
 }
 
 async function openServerFromDash(id) {
@@ -634,12 +693,13 @@ function renderSystem(sys, updaterState) {
   // /api/system не ответил — значит и веб-часть недоступна
   if (!sys || !sys.ok) {
     box.innerHTML = `
-      <div class="dash-sys-statuses">
+      <div class="dash-system-body"><div class="dash-sys-statuses">
         ${statusPill('Web', { ok: false, detail: 'нет ответа' })}
         ${statusPill('Telegram-бот', { ok: false, detail: 'неизвестно' })}
       </div>
-      ${notice}
-      ${sysFooter()}`;
+      </div>
+      ${sysFooter()}
+      ${notice}`;
     box.querySelector('[data-dash-update]')?.addEventListener('click', showUpdateModal);
     return;
   }
@@ -648,7 +708,7 @@ function renderSystem(sys, updaterState) {
   // по накопленной истории (pushSysHistory, 3с/точка) и мелкая подпись.
   const temp = sys.temp && sys.temp !== 'N/A' ? sys.temp : '';
   box.innerHTML = `
-    <div class="dash-sys-tiles">
+    <div class="dash-system-body"><div class="dash-sys-tiles">
       <div class="dash-sys-tile">
         <span class="lbl">CPU</span>
         <span class="val">${sys.cpu != null ? esc(String(sys.cpu)) + '%' : 'N/A'}</span>
@@ -672,8 +732,9 @@ function renderSystem(sys, updaterState) {
       ${statusPill('Web', sys.web)}
       ${statusPill('Telegram-бот', sys.bot)}
     </div>
-    ${notice}
-    ${sysFooter()}`;
+    </div>
+    ${sysFooter()}
+    ${notice}`;
   box.querySelector('[data-dash-update]')?.addEventListener('click', showUpdateModal);
 }
 

@@ -104,6 +104,8 @@ async def _handle_group_ssl(query, data):
     ssl_setup = []
 
     for server in servers:
+        if server.get('node_type') == 'openwrt':
+            continue
         if server["group"] != group_name:
             continue
         if ssl_monitor:

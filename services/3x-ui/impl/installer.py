@@ -90,6 +90,14 @@ def fetch_from_github(runner: StepRunner, tag: str, arch: str) -> None:
 
 
 def push_from_cache(runner: StepRunner, local_tarball: str, tag: str, arch: str) -> None:
+    """Keep the local release available until both SFTP uploads finish."""
+    from core.service_archives import archive_access
+    from . import release_cache
+    with archive_access(release_cache.cache_root()):
+        _push_from_cache(runner, local_tarball, tag, arch)
+
+
+def _push_from_cache(runner: StepRunner, local_tarball: str, tag: str, arch: str) -> None:
     """Перегон тарболла из локального кэша бота на сервер (SFTP + verify).
 
     local_tarball — путь на МАШИНЕ БОТА (release_cache.tarball_path).

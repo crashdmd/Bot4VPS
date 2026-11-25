@@ -27,12 +27,25 @@ def create_ssh_client(server, timeout=8):
     fail2ban'ом. Успех — сбрасывает backoff.
     """
     from core import host_keys
+    from core.node_types import require_linux
+    require_linux(server)
+    from core.openwrt.feature import gateway_profile
+    gateway_connection = gateway_profile(server)
+    if gateway_connection:
+        from core.openwrt.feature import require_enabled
+        require_enabled()
 
     ssh = paramiko.SSHClient()
+    if gateway_connection:
+        from core.openwrt.feature import register_ssh
+        register_ssh(ssh)
     gate = host_keys.HostKeyGate(server)
     ssh.set_missing_host_key_policy(gate)
     try:
         _ssh_connect(ssh, server, timeout)
+        if gateway_connection:
+            from core.openwrt.feature import require_enabled
+            require_enabled()
     except Exception:
         ssh.close()
         from core.monitor import note_ssh_failure

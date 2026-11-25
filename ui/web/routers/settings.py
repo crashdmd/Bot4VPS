@@ -29,6 +29,24 @@ from ..deps import err
 router = APIRouter(tags=["settings"])
 
 
+class OpenWrtFeatureBody(BaseModel):
+    enabled: bool
+    confirmed: bool = False
+
+
+@router.get('/api/settings/openwrt')
+async def openwrt_feature_state():
+    from core.openwrt.feature import state
+    return state()
+
+
+@router.put('/api/settings/openwrt')
+async def openwrt_feature_set(body: OpenWrtFeatureBody):
+    from core.openwrt.feature import set_enabled
+    try: return await set_enabled(body.enabled,body.confirmed)
+    except ValueError as exc: raise HTTPException(409,str(exc)) from None
+
+
 # ==================================================================
 # Пароль резервных копий (шифрование B4VE)
 # ==================================================================

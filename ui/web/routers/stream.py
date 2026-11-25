@@ -179,6 +179,8 @@ def _snapshot():
         online_n = 0
         offline_n = 0
         for s in load_servers():
+            if s.get("node_type") == "openwrt":
+                continue
             sid = s["id"]
             mon = mon_all.get(sid) or {}
             avail = mon.get("availability") or {}

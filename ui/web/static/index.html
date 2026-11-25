@@ -11,7 +11,7 @@
 <link rel="stylesheet" href="/static/css/layout.css?v=20261001-faq-v1"/>
 <link rel="stylesheet" href="/static/css/components.css?v=20260927-audit-ui-v15"/>
 <link rel="stylesheet" href="/static/css/pages.css?v=20261114-controls-v1"/>
-<link rel="stylesheet" href="/static/css/workspace.css?v=20261114-header-density-v1"/>
+<link rel="stylesheet" href="/static/css/workspace.css?v=20261125-server-row-spacing"/>
 <link rel="stylesheet" href="/static/vendor/xterm/xterm.css"/>
 <link rel="stylesheet" href="/static/vendor/codemirror/codemirror.min.css"/>
 <link rel="stylesheet" href="/static/vendor/codemirror/material-darker.min.css"/>
@@ -36,6 +36,7 @@
       </div>
       <div class="nav-section">
         <div class="nav-label">Управление</div>
+        <button type="button" data-page="gateways" hidden><span class="icon">⌘</span> Шлюзы</button>
         <button type="button" data-page="servers">
           <span class="icon">🖥</span> Серверы
         </button>
@@ -189,7 +190,7 @@
         <!-- Одна строка контента: Серверы (главное) + Система/Журнал -->
         <div class="dash-cols">
           <!-- Серверы -->
-          <div class="card dash-card-servers">
+          <div class="dash-col-left"><div class="card dash-card-servers">
             <div class="dash-widget-head">
               <h3>🖥 Серверы</h3>
             </div>
@@ -198,9 +199,10 @@
             </div>
           </div>
 
+          <div class="card dash-card-gateways" id="dash-gateways-card" hidden><div class="dash-widget-head"><h3>🌐 Шлюзы</h3></div><div id="dash-gateways"></div></div></div>
           <div class="dash-col-right">
             <!-- Состояние системы: компактно, бары + пилюли -->
-            <div class="card">
+            <div class="card dash-card-system">
               <h3>🖥 Состояние системы</h3>
               <div id="dash-system">
                 <div class="empty" style="padding:1.25rem 1rem">Загрузка...</div>
@@ -223,6 +225,7 @@
         </div>
       </section>
 
+      <section class="page" id="page-gateways"><div id="gateway-root"></div></section>
       <section class="page" id="page-servers">
         <div class="section-head servers-page-head">
           <div class="section-head-main">
@@ -458,7 +461,7 @@
       </section>
 
       <section class="page" id="page-xui">
-        <div class="section-head"><div class="section-head-main"><h1><svg class="brand-icon" viewBox="0 0 24 24" aria-hidden="true" style="fill:none;stroke:#30e0b0;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round"><path d="M8 6c3.2 0 4.6 1.2 4.6 3s-1.4 3-4.6 3c3.2 0 4.6 1.2 4.6 3s-1.4 3-4.6 3"/><path d="M14.5 6 21 18M21 6l-6.5 12"/></svg> 3x-ui</h1><p class="section-sub">Мультипротокольная панель Xray: VLESS, VMess, Trojan, Shadowsocks; неограниченное число пользователей, лимиты трафика и срока действия, IP-лимиты. Bot4VPS устанавливает и сопровождает сервис — инбаунды и клиенты управляются в самой панели.</p></div></div>
+        <div class="section-head"><div class="section-head-main"><h1><svg class="brand-icon" viewBox="0 0 24 24" aria-hidden="true" style="fill:none;stroke:#30e0b0;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round"><path d="M8 6c3.2 0 4.6 1.2 4.6 3s-1.4 3-4.6 3c3.2 0 4.6 1.2 4.6 3s-1.4 3-4.6 3"/><path d="M14.5 6 21 18M21 6l-6.5 12"/></svg> 3x-ui</h1><div id="xui-project-info"></div></div></div>
         <div id="xui-servers"><div class="empty">Загрузка…</div></div>
       </section>
 
@@ -472,13 +475,16 @@
           <h1 id="xui-srv-title"><svg class="brand-icon" viewBox="0 0 24 24" aria-hidden="true" style="fill:none;stroke:#30e0b0;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round"><path d="M8 6c3.2 0 4.6 1.2 4.6 3s-1.4 3-4.6 3c3.2 0 4.6 1.2 4.6 3s-1.4 3-4.6 3"/><path d="M14.5 6 21 18M21 6l-6.5 12"/></svg> <span class="srv-title-name">3x-ui</span></h1>
           <span id="xui-srv-badge"></span>
         </div>
+        <div id="xui-server-project-info"></div>
         <div id="xui-srv-body"><div class="empty">Загрузка…</div></div>
       </section>
 
       <section class="page" id="page-files">
         <div class="section-head"><h1>Файлы</h1></div>
         <div class="tabs" id="file-tabs">
-          <button type="button" class="on" data-root="docker"><svg class="brand-icon brand-docker" viewBox="0 0 24 24" aria-hidden="true"><path d="M13.983 11.078h2.119a.186.186 0 00.186-.185V9.006a.186.186 0 00-.186-.186h-2.119a.185.185 0 00-.185.185v1.888c0 .102.083.185.185.185m-2.954-5.43h2.118a.186.186 0 00.186-.186V3.574a.186.186 0 00-.186-.185h-2.118a.185.185 0 00-.185.185v1.888c0 .102.082.185.185.185m0 2.716h2.118a.187.187 0 00.186-.186V6.29a.186.186 0 00-.186-.185h-2.118a.185.185 0 00-.185.185v1.887c0 .102.082.185.185.186m-2.93 0h2.12a.186.186 0 00.184-.186V6.29a.185.185 0 00-.185-.185H8.1a.185.185 0 00-.185.185v1.887c0 .102.083.185.185.186m-2.964 0h2.119a.186.186 0 00.185-.186V6.29a.185.185 0 00-.185-.185H5.136a.186.186 0 00-.186.185v1.887c0 .102.084.185.186.186m5.893 2.715h2.118a.186.186 0 00.186-.185V9.006a.186.186 0 00-.186-.186h-2.118a.185.185 0 00-.185.185v1.888c0 .102.082.185.185.185m-2.93 0h2.12a.185.185 0 00.184-.185V9.006a.185.185 0 00-.184-.186h-2.12a.185.185 0 00-.184.185v1.888c0 .102.083.185.185.185m-2.964 0h2.119a.185.185 0 00.185-.185V9.006a.185.185 0 00-.184-.186h-2.12a.186.186 0 00-.186.186v1.887c0 .102.084.185.186.185m-2.92 0h2.12a.185.185 0 00.184-.185V9.006a.185.185 0 00-.184-.186h-2.12a.185.185 0 00-.184.185v1.888c0 .102.082.185.185.185M23.763 9.89c-.065-.051-.672-.51-1.954-.51-.338.001-.676.03-1.01.087-.248-1.7-1.653-2.53-1.716-2.566l-.344-.199-.226.327c-.284.438-.49.922-.612 1.43-.23.97-.09 1.882.403 2.661-.595.332-1.55.413-1.744.42H.751a.751.751 0 00-.75.748 11.376 11.376 0 00.692 4.062c.545 1.428 1.355 2.48 2.41 3.124 1.18.723 3.1 1.137 5.275 1.137.983.003 1.963-.086 2.93-.266a12.248 12.248 0 003.823-1.389c.98-.567 1.86-1.288 2.61-2.136 1.252-1.418 1.998-2.997 2.553-4.4h.221c1.372 0 2.215-.549 2.68-1.009.309-.293.55-.65.707-1.046l.098-.288Z"/></svg> Docker</button>
+          <button type="button" class="on" data-root="services" id="file-services-tab" hidden><svg class="brand-icon" viewBox="0 0 24 24" aria-hidden="true" style="fill:none;stroke:currentColor;stroke-width:1.6;stroke-linejoin:round"><path d="m12 3 8 4.5v9L12 21l-8-4.5v-9L12 3Z"/><path d="m4 7.5 8 4.5 8-4.5M12 12v9M8 5.25l8 4.5"/></svg> Сервисы</button>
+          <button type="button" data-root="gateway-backups" id="file-gateway-backups-tab" hidden><svg class="brand-icon" viewBox="0 0 24 24" aria-hidden="true" style="fill:none;stroke:currentColor;stroke-width:1.6;stroke-linejoin:round"><path d="M4 5h16v5H4zM6 10v10h12V10M10 14h4"/></svg> Копии шлюзов</button>
+          <button type="button" data-root="docker"><svg class="brand-icon brand-docker" viewBox="0 0 24 24" aria-hidden="true"><path d="M13.983 11.078h2.119a.186.186 0 00.186-.185V9.006a.186.186 0 00-.186-.186h-2.119a.185.185 0 00-.185.185v1.888c0 .102.083.185.185.185m-2.954-5.43h2.118a.186.186 0 00.186-.186V3.574a.186.186 0 00-.186-.185h-2.118a.185.185 0 00-.185.185v1.888c0 .102.082.185.185.185m0 2.716h2.118a.187.187 0 00.186-.186V6.29a.186.186 0 00-.186-.185h-2.118a.185.185 0 00-.185.185v1.887c0 .102.082.185.185.186m-2.93 0h2.12a.186.186 0 00.184-.186V6.29a.185.185 0 00-.185-.185H8.1a.185.185 0 00-.185.185v1.887c0 .102.083.185.185.186m-2.964 0h2.119a.186.186 0 00.185-.186V6.29a.185.185 0 00-.185-.185H5.136a.186.186 0 00-.186.185v1.887c0 .102.084.185.186.186m5.893 2.715h2.118a.186.186 0 00.186-.185V9.006a.186.186 0 00-.186-.186h-2.118a.185.185 0 00-.185.185v1.888c0 .102.082.185.185.185m-2.93 0h2.12a.185.185 0 00.184-.185V9.006a.185.185 0 00-.184-.186h-2.12a.185.185 0 00-.184.185v1.888c0 .102.083.185.185.185m-2.964 0h2.119a.185.185 0 00.185-.185V9.006a.185.185 0 00-.184-.186h-2.12a.186.186 0 00-.186.186v1.887c0 .102.084.185.186.185m-2.92 0h2.12a.185.185 0 00.184-.185V9.006a.185.185 0 00-.184-.186h-2.12a.185.185 0 00-.184.185v1.888c0 .102.082.185.185.185M23.763 9.89c-.065-.051-.672-.51-1.954-.51-.338.001-.676.03-1.01.087-.248-1.7-1.653-2.53-1.716-2.566l-.344-.199-.226.327c-.284.438-.49.922-.612 1.43-.23.97-.09 1.882.403 2.661-.595.332-1.55.413-1.744.42H.751a.751.751 0 00-.75.748 11.376 11.376 0 00.692 4.062c.545 1.428 1.355 2.48 2.41 3.124 1.18.723 3.1 1.137 5.275 1.137.983.003 1.963-.086 2.93-.266a12.248 12.248 0 003.823-1.389c.98-.567 1.86-1.288 2.61-2.136 1.252-1.418 1.998-2.997 2.553-4.4h.221c1.372 0 2.215-.549 2.68-1.009.309-.293.55-.65.707-1.046l.098-.288Z"/></svg> Docker</button>
           <button type="button" data-root="keys">🔑 Keys</button>
         </div>
         <!-- Подсказка активной вкладки: маленькая строка под линией табов -->
@@ -486,6 +492,7 @@
         <!-- Хлебные крошки: нужны docker-вкладке (проекты → файлы проекта) -->
         <div id="file-crumbs" class="tabs-hint hidden"></div>
         <div class="actions file-actions">
+          <button type="button" class="secondary" id="btn-service-archives-refresh">↓ Загрузить комплекты сервисов</button>
           <label class="btn secondary" style="cursor:pointer" id="upload-label">Загрузить<input type="file" hidden id="upload-file"/></label>
           <button type="button" class="secondary" id="btn-create-key" style="display:none">🔑 Создать ключ</button>
           <button type="button" id="btn-docker-project-new" style="display:none">＋ Создать проект</button>
@@ -1521,7 +1528,7 @@
 <script src="/static/vendor/codemirror/codemirror.min.js"></script>
 <script src="/static/vendor/codemirror/shell.min.js"></script>
 <script src="/static/vendor/codemirror/yaml.min.js"></script>
-<script type="module" src="/static/js/app.js?v=20261114-primary-phone-v1"></script>
+<script type="module" src="/static/js/app.js?v=20261125-review-dashboard"></script>
 
 
 <div class="modal-bg" id="tg-setup-modal">

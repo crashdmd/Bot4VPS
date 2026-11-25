@@ -776,15 +776,27 @@ async function renderNotifications(renderVersion = categoryRenderVersion) {
 // «Параметры» — только часовой пояс и тема: всё про уведомления переехало в
 // отдельный раздел выше, «Уведомления».
 async function renderParameters(renderVersion = categoryRenderVersion) {
-  const timezoneMetadata = await j('/api/settings/timezone');
+  const [timezoneMetadata, openwrt] = await Promise.all([j('/api/settings/timezone'),j('/api/settings/openwrt')]);
   if (renderVersion !== categoryRenderVersion) return;
   const content = document.getElementById('settings-content');
   content.innerHTML = section('Параметры', 'Часовой пояс и оформление панели.', [
     settingRow({ id: 'set-timezone', type: 'select', title: 'Часовой пояс сервера', desc: 'Меняет часовую зону локального хоста Bot4VPS.', descId: 'set-timezone-desc', value: timezoneMetadata.timezone, groups: timezoneMetadata.options, controlClass: 'set-timezone-select' }),
     '<div class="set-divider" role="separator"></div>',
     settingRow({ id: 'set-theme', type: 'theme', title: 'Тема интерфейса', desc: 'Сохраняется на сервере и восстанавливается в любом браузере.', value: storedTheme() }),
+    '<div class="set-divider" role="separator"></div>',
+    settingRow({ id:'set-openwrt-enabled',type:'toggle',title:'Включить управление роутерами OpenWrt',desc:'Раздел «Шлюзы», мониторинг сети и управление роутерами из панели.',value:openwrt.enabled }),
   ]);
   bindTimezoneSelect(timezoneMetadata);
+  bindToggle('set-openwrt-enabled',async enabled => {
+    const state = await j('/api/settings/openwrt');
+    let confirmed = false;
+    if (!enabled && state.gateways) {
+      confirmed = await confirmAction({title:'Выключить управление OpenWrt?',message:`Добавлено шлюзов: ${state.gateways}. Опросы и подключения к ним остановятся, открытые консоли закроются. Записи и зашифрованные данные сохранятся для повторного включения. Уже запущенные действия на роутере могут завершиться самостоятельно.`,confirmFirst:true});
+      if (!confirmed) throw new Error('Управление OpenWrt оставлено включённым');
+    }
+    await j('/api/settings/openwrt',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled,confirmed})});
+    window.dispatchEvent(new Event('bot4vps:openwrt-feature-changed'));
+  });
   initializeSettingDependencies(content);
   document.getElementById('set-theme-light')?.addEventListener('click', () => { setTheme('light'); flashRow(document.getElementById('set-theme-light'), true); });
   document.getElementById('set-theme-dark')?.addEventListener('click', () => { setTheme('dark'); flashRow(document.getElementById('set-theme-dark'), true); });

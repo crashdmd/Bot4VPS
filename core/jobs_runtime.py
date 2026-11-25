@@ -124,7 +124,7 @@ async def services_sync_job(_context=None) -> None:
     from core import integrator
     from core.storage import load_servers
 
-    servers = load_servers()
+    servers = [s for s in load_servers() if s.get("node_type") != "openwrt"]
     if not servers:
         return
     sem = asyncio.Semaphore(SERVICES_SYNC_CONCURRENCY)
@@ -242,6 +242,11 @@ async def start_core_jobs() -> CoreJobQueue:
         name="tls_renew",
     )
 
+    from core.openwrt.monitor import polling_job
+    from core.openwrt.bundle_jobs import reserve_job
+    queue.run_repeating(polling_job, interval=25, first=8, name="openwrt_sync")
+    queue.run_repeating(reserve_job, interval=6 * 3600, first=45, name="openwrt_reserve")
+
     # Автопроверка сервисов на всех серверах: первый прогон скоро после
     # старта (страницы сразу свежие), далее каждые 15 минут. Ручные входы
     # (кнопки на карточках, post-action sync в _svc_executor) остаются.
@@ -295,6 +300,9 @@ async def stop_core_jobs() -> None:
         print(f"[JOBS] остановка: {e}", flush=True)
     else:
         print("[JOBS] ядерная JobQueue остановлена", flush=True)
+    finally:
+        from core.openwrt.monitor import close_clients
+        await close_clients()
 
 
 def reschedule_core_jobs() -> bool:

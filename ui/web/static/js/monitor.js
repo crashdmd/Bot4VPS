@@ -59,7 +59,7 @@ function scheduleUpdatePolling() {
       if (prev && prev.status !== updateState.status) {
         if (updateState.status === 'idle' && prev.status !== 'idle') {
           toast('Обновление установлено', true);
-          const { loadSummary } = await import('./dashboard.js?v=20261001-mobile-charts-v1');
+          const { loadSummary } = await import('./dashboard.js?v=20261125-four-servers-v1');
           loadSummary();
         } else if (updateState.status === 'failed') {
           toast('Ошибка обновления: ' + (updateState.last_error || 'неизвестная ошибка'), false);

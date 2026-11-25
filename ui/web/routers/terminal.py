@@ -68,6 +68,15 @@ async def _notify(websocket: WebSocket, text: str) -> None:
 
 @router.websocket("/api/servers/{server_id}/shell/ws")
 async def shell_ws(websocket: WebSocket, server_id: str):
+    await _serve_shell(websocket, server_id, gateway=False)
+
+
+@router.websocket('/api/gateways/{gateway_id}/shell/ws')
+async def gateway_shell_ws(websocket: WebSocket, gateway_id: str):
+    await _serve_shell(websocket, gateway_id, gateway=True)
+
+
+async def _serve_shell(websocket: WebSocket, server_id: str, *, gateway=False):
     await websocket.accept()
 
     # 1) авторизация
@@ -86,8 +95,22 @@ async def shell_ws(websocket: WebSocket, server_id: str):
         await websocket.close(code=4404)
         return
 
+    if (server.get('node_type') == 'openwrt') != gateway:
+        await _notify(websocket, '\r\nОткройте консоль из карточки соответствующего узла.\r\n')
+        await websocket.close(code=4404)
+        return
+    connection = server
+    if gateway:
+        from core.openwrt.console import target
+        try:
+            connection = target(server)
+        except ValueError as exc:
+            await _notify(websocket, '\r\n' + str(exc) + '\r\n')
+            await websocket.close(code=4400)
+            return
+
     # 3) открываем собственную PTY-сессию
-    session = ShellSession(server)
+    session = ShellSession(connection)
     actor = _ws_actor(websocket)
     from core import audit
     from core.audit_actions import AuditAction, AuditResult
@@ -124,6 +147,8 @@ async def shell_ws(websocket: WebSocket, server_id: str):
         op_id=op_id,
         actor=actor,
     )
+    if gateway:
+        await _notify(websocket, '\r\nSSH-консоль шлюза. Команды выполняются напрямую; автоматический откат консольных команд не предусмотрен.\r\n')
 
     last_activity = time.monotonic()
     stop = asyncio.Event()
@@ -132,6 +157,17 @@ async def shell_ws(websocket: WebSocket, server_id: str):
     # подставит пароль, когда sudo напечатает свой запрос пароля (эхо уже выключено,
     # поэтому пароль не виден в терминале).
     sudo_pw = {"armed": False, "password": ""}
+    gateway_ssh = json.dumps(server.get('openwrt', {}).get('ssh'), sort_keys=True) if gateway else None
+
+    async def gateway_valid():
+        if not gateway: return True
+        from core.openwrt.feature import enabled
+        if not enabled(): return False
+        try:
+            current = await asyncio.to_thread(find_server, server_id)
+            return bool(current and current.get('host') == server['host'] and json.dumps(current.get('openwrt', {}).get('ssh'), sort_keys=True) == gateway_ssh)
+        except Exception:
+            return False
 
     # PTY → браузер
     async def reader():
@@ -140,7 +176,7 @@ async def shell_ws(websocket: WebSocket, server_id: str):
         while not stop.is_set() and not session.closed:
             if time.monotonic() - last_auth_check >= 1:
                 last_auth_check = time.monotonic()
-                if not _ws_authorized(websocket):
+                if not _ws_authorized(websocket) or not await gateway_valid():
                     await websocket.close(code=4401)
                     break
             try:
@@ -174,7 +210,7 @@ async def shell_ws(websocket: WebSocket, server_id: str):
                 msg = await websocket.receive_text()
             except (WebSocketDisconnect, Exception):
                 break  # клиент закрыл соединение
-            if not _ws_authorized(websocket):
+            if not _ws_authorized(websocket) or not await gateway_valid():
                 await websocket.close(code=4401)
                 break
             last_activity = time.monotonic()
@@ -188,6 +224,9 @@ async def shell_ws(websocket: WebSocket, server_id: str):
             # Сами баннеры идут через _notify (out-of-band, не в shell); команда —
             # отдельным send, её печатает эхом сама оболочка после свежего промпта.
             if kind == "run_script":
+                if gateway:
+                    await _notify(websocket, '\r\nВ консоли шлюза вводите команды напрямую. Сценарии Linux запускаются в разделе «Серверы».\r\n')
+                    continue
                 name = (payload.get("name") or "").strip()
                 if not name or Path(name).name != name or not name.endswith(".sh"):
                     await _notify(websocket, "\r\n\x1b[31mНекорректное имя скрипта.\x1b[0m\r\n")

@@ -302,7 +302,7 @@ def refresh_domain_ips(servers) -> None:
 
 
 def run_monitor(group_name: str | None = None):
-    servers = load_servers()
+    servers = [s for s in load_servers() if s.get("node_type") != "openwrt"]
     if group_name:
         servers = [s for s in servers if s.get("group") == group_name]
 
@@ -450,7 +450,7 @@ def light_check_servers(servers: list[dict]) -> list[dict]:
         return []
 
     with _inflight_lock:
-        todo = [s for s in servers if s.get("id") and s["id"] not in _inflight_light_checks]
+        todo = [s for s in servers if s.get('node_type') != 'openwrt' and s.get("id") and s["id"] not in _inflight_light_checks]
         # Заявленные в этом вызове серверы чистим в finally по ПОЛНОМУ списку:
         # фильтр свежести ниже перезаписывает todo, и отфильтрованный сервер
         # иначе навсегда застревал бы в «в полёте» — пробы прекращались.
@@ -868,7 +868,7 @@ async def availability_monitor_job(context):
     from core.event_service import notify_event
     from core.event_types import EventType, EventLevel, EventReason
 
-    servers = load_servers()
+    servers = [s for s in load_servers() if s.get("node_type") != "openwrt"]
 
     def _probe(server: dict) -> dict | None:
         """Лёгкая проба одного сервера: возвращает событие смены или None."""
@@ -930,7 +930,7 @@ async def online_monitor_job(context):
     from core import metrics
     from core.storage import load_servers
 
-    servers = load_servers()
+    servers = [s for s in load_servers() if s.get("node_type") != "openwrt"]
 
     def _collect(server: dict) -> None:
         try:
@@ -999,7 +999,7 @@ async def keys_integrity_job(context):
     reported: dict = state["reported"]
 
     missing: list[dict] = []
-    for server in load_servers():
+    for server in (s for s in load_servers() if s.get("node_type") != "openwrt"):
         if server.get("auth_type") != "key":
             continue
         key_path = str(server.get("key_path") or "")
