@@ -114,6 +114,8 @@ BOT4VPS_INSTALL_EXCLUSIONS = (
     # старого архива поверх текущего состояния.
     "data/key_integrity.json",
     "data/telegram_state.json",
+    # Session revocation belongs to the running installation, including after restore.
+    "data/web_session_revocations.json",
     # Живая sqlite — см. STATE_DB_EXCLUSIONS выше.
     *STATE_DB_EXCLUSIONS,
     "logs/**/*.corrupt-*.json",

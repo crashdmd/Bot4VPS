@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import PasswordInput from './components/PasswordInput.vue';
 import { computed, onMounted, onUnmounted, ref } from 'vue';
 import type { Bridge } from './main';
 import GatewayDialog from './GatewayDialog.vue';
@@ -102,7 +103,7 @@ onUnmounted(() => { alive = false; editor.value = null; });
         <label class="gw-check"><input v-model="iface.disabled" type="checkbox" /> Выключить эту сеть</label>
         <label>Имя сети (SSID)<input v-model="iface.ssid" required maxlength="32" /></label>
         <label>Защита<select v-model="iface.encryption"><option v-if="!encryptionNames[iface.original.encryption]" :value="iface.original.encryption">{{ iface.original.encryption }} (текущая)</option><option v-for="(name, value) in encryptionNames" :key="value" :value="value">{{ name }}</option></select></label>
-        <label v-if="iface.encryption !== 'none' && encryptionNames[iface.encryption]">Пароль Wi-Fi<input v-model="iface.key" type="password" autocomplete="new-password" minlength="8" maxlength="64" :required="!iface.has_key" :placeholder="iface.has_key ? 'Оставьте пустым, чтобы сохранить текущий' : ''" /></label>
+        <label v-if="iface.encryption !== 'none' && encryptionNames[iface.encryption]">Пароль Wi-Fi<PasswordInput v-model="iface.key" autocomplete="new-password" minlength="8" maxlength="64" :required="!iface.has_key" :placeholder="iface.has_key ? 'Оставьте пустым, чтобы сохранить текущий' : ''" /></label>
         <p v-if="iface.encryption === 'none'" class="gw-hint">Сеть будет открытой, сохранённый пароль будет удалён.</p>
         <fieldset class="gw-wifi-networks"><legend>Сетевые подключения</legend><label v-for="name in model.networks" :key="name" class="gw-check"><input v-model="iface.network" type="checkbox" :value="name" /> {{ name }}</label></fieldset>
         <div class="gw-two"><label class="gw-check"><input v-model="iface.hidden" type="checkbox" /> Скрыть SSID</label><label class="gw-check"><input v-model="iface.isolate" type="checkbox" /> Изолировать клиентов</label></div>

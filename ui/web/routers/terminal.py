@@ -21,28 +21,19 @@ _IDLE_TIMEOUT = 15 * 60
 
 def _ws_authorized(websocket: WebSocket) -> bool:
     """Та же проверка, что require_auth, но для WS: сессия приходит в scope."""
-    from ui.web.security import (auth_enabled, session_valid, verified_mobile_device_id, emergency_state,
-                                 setup_wizard_active, setup_expired_active, login_stub_active)
+    from ui.web.security import (
+        auth_enabled, browser_origin_matches, emergency_state, login_stub_active,
+        session_valid_for_connection, setup_expired_active, setup_wizard_active,
+        verified_mobile_device_id,
+    )
+
     if emergency_state() or setup_wizard_active() or setup_expired_active() or login_stub_active():
         return False
-    origin = websocket.headers.get("origin")
-    if origin:
-        from urllib.parse import urlsplit
-        try:
-            parsed = urlsplit(origin)
-            if parsed.scheme not in ("http", "https") or parsed.netloc.lower() != websocket.headers.get("host", "").lower():
-                return False
-            if {"http": "ws", "https": "wss"}[parsed.scheme] != websocket.url.scheme:
-                return False
-        except ValueError:
-            return False
-
-    if verified_mobile_device_id(websocket):
+    if "origin" in websocket.headers and not browser_origin_matches(websocket):
+        return False
+    if verified_mobile_device_id(websocket) or not auth_enabled():
         return True
-    if not auth_enabled():
-        return True
-    session = websocket.scope.get("session") or {}
-    return session_valid(session)
+    return session_valid_for_connection(websocket)
 
 
 def _ws_actor(websocket: WebSocket):
@@ -152,11 +143,6 @@ async def _serve_shell(websocket: WebSocket, server_id: str, *, gateway=False):
 
     last_activity = time.monotonic()
     stop = asyncio.Event()
-    # Авто-ввод sudo-пароля при запуске скрипта на не-root сервере (как в TG).
-    # armed=True сразу после отправки «sudo bash …»; reader снимет флаг и
-    # подставит пароль, когда sudo напечатает свой запрос пароля (эхо уже выключено,
-    # поэтому пароль не виден в терминале).
-    sudo_pw = {"armed": False, "password": ""}
     gateway_ssh = json.dumps(server.get('openwrt', {}).get('ssh'), sort_keys=True) if gateway else None
 
     async def gateway_valid():
@@ -186,14 +172,6 @@ async def _serve_shell(websocket: WebSocket, server_id: str, *, gateway=False):
             if data:
                 text = data.decode("utf-8", errors="replace")
                 last_activity = time.monotonic()
-                # sudo запросил пароль — подставляем автоматически (как в TG).
-                # Эхо уже выключено самим sudo, поэтому пароль не виден в терминале.
-                if sudo_pw["armed"] and ("[sudo]" in text or "password for" in text):
-                    sudo_pw["armed"] = False
-                    try:
-                        await asyncio.to_thread(session.send, sudo_pw["password"] + "\n")
-                    except Exception:
-                        break
                 try:
                     await websocket.send_text(text)
                 except Exception:
@@ -239,13 +217,7 @@ async def _serve_shell(websocket: WebSocket, server_id: str, *, gateway=False):
                     continue
                 await _notify(websocket, f"\x1b[32m✅ Готов: {remote}\x1b[0m\r\n\x1b[36m▶ Запускаю…\x1b[0m\r\n\r\n")
                 try:
-                    # root-сервер — напрямую. Не-root — через sudo; если пароль известен,
-                    # он подставится автоматически (sudo_pw + reader), как в TG-пути.
                     is_root = (server.get("user", "") or "").lower() == "root"
-                    sudo_pass = server.get("password", "") or ""
-                    if not is_root and sudo_pass:
-                        sudo_pw["password"] = sudo_pass
-                        sudo_pw["armed"] = True
                     run_cmd = f"bash {remote}" if is_root else f"sudo bash {remote}"
                     # ведущий \n → свежий промпт; дальше команда печатается эхом оболочки
                     await asyncio.to_thread(session.send, f"\n{run_cmd}\n")

@@ -68,17 +68,17 @@ def _payload_offset(stream) -> int:
 
 
 @contextmanager
-def open_backup_tar(path):
+def open_backup_tar(path, *, tar_class=tarfile.TarFile, **tar_options):
     """Read ordinary TAR or the inner TAR of B4VS without extracting files."""
     with open(path, "rb") as stream:
         offset = _payload_offset(stream)
         if offset:
             payload = _PayloadReader(stream, offset)
-            with tarfile.open(name=os.fspath(path), fileobj=payload, mode="r:gz") as archive:
+            with tar_class.open(name=os.fspath(path), fileobj=payload, mode="r:gz", **tar_options) as archive:
                 archive.self_container = True
                 yield archive
         else:
-            with tarfile.open(name=os.fspath(path), fileobj=stream, mode="r:*") as archive:
+            with tar_class.open(name=os.fspath(path), fileobj=stream, mode="r:*", **tar_options) as archive:
                 archive.self_container = False
                 yield archive
 

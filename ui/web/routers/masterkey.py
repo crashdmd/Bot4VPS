@@ -334,8 +334,9 @@ async def api_masterkey_new(body: MasterKeyNewBody, request: Request):
         ) from exc
 
     state = await asyncio.to_thread(secretbox.master_key_state)
-    if request.session.get("user"):
-        from ui.web.security import refresh_web_session
+    from ui.web.security import refresh_web_session, verified_mobile_device_id
+
+    if not verified_mobile_device_id(request) and request.session.get("user"):
         refresh_web_session(request)
     return {"ok": True, "created": True, "cleared": cleared, "recovery_archive": str(recovery_archive), **state}
 

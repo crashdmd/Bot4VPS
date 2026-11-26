@@ -28,7 +28,6 @@ import re
 import shutil
 import subprocess
 import sys
-import tarfile
 import tempfile
 import threading
 import time
@@ -39,7 +38,8 @@ from core.install_paths import get_install_path
 from core.version import APP_VERSION
 
 from .errors import BackupError, ErrorCode
-from .archive_format import copy_tar_payload, open_backup_tar
+from .archive_format import copy_tar_payload
+from .manifest import MAX_MANIFEST_BYTES, MAX_RESTORE_UNIT_BYTES, read_archive_files
 from .self_restore_version import require_self_restore_compatible
 from .models import OperationStatus, TERMINAL_STATUSES
 from .restore_apply import (
@@ -128,33 +128,23 @@ def inspect_self_restore_archive(archive_path, plan: dict) -> dict:
         if str(entry.get("path")) == UNIT_PATH:
             unit_member = str(entry.get("name"))
             break
+    manifest_names = ("payload/manifest.json", "manifest.json")
+    requested = dict.fromkeys(manifest_names, MAX_MANIFEST_BYTES)
+    if unit_member is not None:
+        requested[unit_member] = MAX_RESTORE_UNIT_BYTES
     try:
-        with open_backup_tar(archive_path) as tar:
-            for name in ("payload/manifest.json", "manifest.json"):
-                try:
-                    member = tar.getmember(name)
-                except KeyError:
-                    continue
-                if member.isfile():
-                    stream = tar.extractfile(member)
-                    if stream is not None:
-                        manifest = json.loads(stream.read().decode("utf-8"))
-                        version = str(
-                            (manifest.get("producer") or {}).get("version") or ""
-                        ) or None
-                    break
-            if unit_member is not None:
-                try:
-                    member = tar.getmember(unit_member)
-                except KeyError:
-                    member = None
-                if member is not None and member.isfile():
-                    stream = tar.extractfile(member)
-                    if stream is not None:
-                        unit_text = stream.read().decode("utf-8", "replace")
-    except (OSError, ValueError, tarfile.TarError):
-        # Осмотр вспомогательный: нечитаемый архив уже отвергнут физической
-        # валидацией restore(); здесь отказ не должен блокировать применение.
+        files = read_archive_files(archive_path, requested)
+        for name in manifest_names:
+            if name in files:
+                manifest = json.loads(files[name].decode("utf-8"))
+                producer = manifest.get("producer") if isinstance(manifest, dict) else None
+                if isinstance(producer, dict):
+                    version = str(producer.get("version") or "") or None
+                break
+        if unit_member in files:
+            unit_text = files[unit_member].decode("utf-8", "replace")
+    except (OSError, ValueError, BackupError):
+        # Осмотр вспомогательный: полный план уже проверен независимо.
         return {"version": None, "unit_text": None}
     return {"version": version, "unit_text": unit_text}
 

@@ -208,7 +208,7 @@ function paintGateway() {
   box.innerHTML = `<button type="button" class="dash-gateway" data-gateway="${esc(node.id)}"><div class="dash-gateway-head"><strong><span class="vps-icon-tile">${ROUTER_ICON}</span>${esc(node.name)}</strong><span class="dash-pill ${m.ok ? 'is-ok' : 'is-bad'}">${m.ok ? 'На связи' : 'Нет доступа'}</span></div><div class="dash-gateway-metrics"><span>CPU <b>${m.cpu_pct == null ? '—' : esc(m.cpu_pct) + '%'}</b></span><span>RAM <b>${m.ram_pct == null ? '—' : esc(m.ram_pct) + '%'}</b></span><span>SoC <b>${m.temperature == null ? '—' : esc(m.temperature) + '°C'}</b></span></div><div class="dash-gateway-traffic">${['lan', 'wan'].map(role => `<span><b>${role.toUpperCase()}</b> ↓ ${esc(fmtRate(traffic[role]?.rx_bps))} · ↑ ${esc(fmtRate(traffic[role]?.tx_bps))}</span>`).join('')}</div></button>`;
   box.querySelector('[data-gateway]').onclick = async () => {
     stopDashMetrics();
-    const module = await import('./gateways.js?v=20261125-port-forward-v1');
+    const module = await import('./gateways.js?v=20261126-gateway-15m');
     module.openGatewayFromDashboard(node.id);
   };
 

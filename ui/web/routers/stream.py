@@ -276,6 +276,10 @@ async def api_stream(request: Request):
     Каждые ~3с — снимок dashboard (серверы, события, monitor).
     Клиент может отказаться от polling.
     """
+    from ..security import auth_enabled, session_valid_for_connection, verified_mobile_device_id
+
+    mobile = verified_mobile_device_id(request)
+
     async def event_gen():
         # Пока этот поток жив, панель считается открытой: от этого зависит
         # выдержка Telegram-уведомлений (core/web_presence). Клиент
@@ -299,6 +303,8 @@ async def api_stream(request: Request):
             # Аудит: то же самое, но знак — (rowid, ts) последней записи журнала.
             audit_mark = await asyncio.to_thread(_audit_watermark)
             while True:
+                if not mobile and auth_enabled() and not session_valid_for_connection(request):
+                    break
                 if await request.is_disconnected():
                     break
                 web_presence.touch(client_id)

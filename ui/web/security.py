@@ -16,9 +16,13 @@ import secrets
 import json
 import time
 import hmac
+import threading
+from pathlib import Path
 from typing import Optional
+from urllib.parse import urlsplit
 
 from fastapi import HTTPException, Request, status
+from starlette.requests import HTTPConnection
 
 from core.actor import Actor, ActorRole, set_actor
 
@@ -511,6 +515,33 @@ def auth_enabled() -> bool:
 ROLE_SESSION_KEY = "role"
 
 
+def browser_origin_matches(request: HTTPConnection) -> bool:
+    if request.headers.get("sec-fetch-site", "") not in ("", "same-origin", "none"):
+        return False
+
+    origins = request.headers.getlist("origin")
+    if len(origins) != 1:
+        return False
+
+    try:
+        origin = urlsplit(origins[0])
+        target = request.url
+        scheme = {"ws": "http", "wss": "https"}.get(target.scheme, target.scheme)
+        if (
+            origin.scheme not in ("http", "https") or not origin.hostname
+            or origin.username is not None or origin.password is not None
+            or origin.path or origin.query or origin.fragment
+            or origin.scheme != scheme or origin.hostname != target.hostname
+        ):
+            return False
+        default_port = 443 if origin.scheme == "https" else 80
+        source_port = default_port if origin.port is None else origin.port
+        target_port = default_port if target.port is None else target.port
+        return source_port == target_port
+    except ValueError:
+        return False
+
+
 def _client_ip(request: Request) -> Optional[str]:
     client = getattr(request, "client", None)
     return getattr(client, "host", None) or None
@@ -609,6 +640,58 @@ def auth_version(web=None) -> str:
     return hashlib.sha256(json.dumps(data, ensure_ascii=False).encode()).hexdigest()
 
 
+WEB_SESSION_MAX_AGE = 7 * 24 * 60 * 60
+WEB_SESSION_ID_KEY = "web_sid"
+_WEB_SESSION_REVOCATIONS = Path("data/web_session_revocations.json")
+_WEB_SESSION_REVOCATIONS_LOCK = threading.RLock()
+
+
+def _session_id(session: dict) -> str | None:
+    value = session.get(WEB_SESSION_ID_KEY)
+    return value if isinstance(value, str) and len(value) == 43 else None
+
+
+def _read_session_revocations() -> dict[str, int]:
+    try:
+        with _WEB_SESSION_REVOCATIONS.open(encoding="utf-8") as source:
+            data = json.load(source)
+    except FileNotFoundError:
+        return {}
+    if not isinstance(data, dict) or any(type(expiry) is not int for expiry in data.values()):
+        raise ValueError("Некорректное хранилище отозванных Web-сеансов")
+    return data
+
+
+def web_session_active(session: dict) -> bool:
+    sid = _session_id(session)
+    if sid is None:
+        return False
+    try:
+        return _read_session_revocations().get(sid, 0) <= time.time()
+    except (ValueError, OSError):
+        return False
+
+
+def revoke_web_session(session: dict) -> None:
+    sid = _session_id(session)
+    if sid is None:
+        return
+
+    from core.json_store import atomic_write_json, locked
+
+    now = int(time.time())
+    lock_path = _WEB_SESSION_REVOCATIONS.with_suffix(".json.lock")
+    with locked(lock_path, _WEB_SESSION_REVOCATIONS_LOCK):
+        revoked = {
+            key: expiry for key, expiry in _read_session_revocations().items()
+            if expiry > now
+        }
+        # Cover the cookie lifetime even if a response written immediately
+        # before logout finishes signing its (now invalid) copy in flight.
+        revoked[sid] = now + WEB_SESSION_MAX_AGE + 60
+        atomic_write_json(_WEB_SESSION_REVOCATIONS, revoked)
+
+
 def session_valid(session: dict) -> bool:
     from core.config import get_web_config
     web = get_web_config()
@@ -616,7 +699,13 @@ def session_valid(session: dict) -> bool:
     # Отзыв устройства закрывает Mobile API и незавершённые подтверждения отдельно.
     return bool(session.get("user") and session.get("user") == web.get("username")
                 and "recovery_until" not in session
-                and secrets.compare_digest(str(session.get("auth_version") or ""), auth_version(web)))
+                and secrets.compare_digest(str(session.get("auth_version") or ""), auth_version(web))
+                and web_session_active(session))
+
+
+def session_valid_for_connection(connection: HTTPConnection) -> bool:
+    expiry = connection.scope.get("web_session_expires")
+    return (expiry is None or time.time() < expiry) and session_valid(connection.scope.get("session") or {})
 
 
 def refresh_web_session(request: Request, username=None) -> None:
@@ -639,6 +728,7 @@ def establish_web_session(request: Request, username: str, *, expected_version=N
     request.session.clear()
     request.session["user"] = username
     request.session[ROLE_SESSION_KEY] = ActorRole.ADMIN.value
+    request.session[WEB_SESSION_ID_KEY] = secrets.token_urlsafe(32)
     request.session["auth_version"] = expected_version or version
     set_request_actor(request)
 

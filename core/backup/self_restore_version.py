@@ -4,12 +4,11 @@ from __future__ import annotations
 import ast
 import posixpath
 import re
-import tarfile
 
 from core.install_paths import get_install_path
 from core.version import APP_VERSION
 
-from .archive_format import open_backup_tar
+from .manifest import read_archive_files
 from .errors import BackupError, ErrorCode
 
 MAX_VERSION_BYTES = 64 * 1024
@@ -85,27 +84,12 @@ def require_self_restore_compatible(archive_path, full_plan, *, current_version=
     if len(entries) == 1 and entries[0].get("type") == "file":
         expected = posixpath.normpath(entries[0]["name"])
         try:
-            with open_backup_tar(archive_path) as archive:
-                members = archive.getmembers()
-                matches = [member for member in members if posixpath.normpath(member.name) == expected]
-                parents = set()
-                parent = posixpath.dirname(expected)
-                while parent and parent != ".":
-                    parents.add(parent)
-                    parent = posixpath.dirname(parent)
-                substituted = any(posixpath.normpath(member.name) in parents and not member.isdir()
-                                  for member in members)
-                if len(matches) == 1 and not substituted:
-                    member = matches[0]
-                    if member.isfile() and 0 < member.size <= MAX_VERSION_BYTES:
-                        with archive.extractfile(member) as stream:
-                            data = stream.read(MAX_VERSION_BYTES + 1)
-                        if len(data) == member.size:
-                            version = _constant_version(data)
-        except BackupError:
-            raise
-        except (OSError, ValueError, tarfile.TarError, EOFError):
-            version = None
+            files = read_archive_files(archive_path, {expected: MAX_VERSION_BYTES}, unique_path=expected)
+            if data := files.get(expected):
+                version = _constant_version(data)
+        except BackupError as exc:
+            if exc.code != ErrorCode.ARCHIVE_INVALID.value:
+                raise
     if version is None or numeric_version(version) < (7, 0, 0, 0):
         raise _compatibility_error(version, current)
     return version

@@ -1,7 +1,6 @@
 """Self-restore adaptation for the privilege-separated local installation."""
 from __future__ import annotations
 
-import hashlib
 import os
 import shutil
 import tempfile
@@ -10,6 +9,7 @@ from pathlib import Path
 from core.install_paths import get_install_path
 from core.local_privileges import request
 from .archive_format import open_backup_tar
+from .manifest import MAX_RESTORE_UNIT_BYTES, inspect_archive_entries
 
 # The legacy root name identifies code in archives made before its removal.
 CODE_ROOTS = {"bot.py", "state.py", "core", "ui", "services", "privileged", "deploy", "install.sh",
@@ -34,36 +34,47 @@ def relative_data(path):
 def prepare(archive, plan):
     """Hash selected code and validate the full local scope before mutation."""
     code, unit = {}, None
-    install = get_install_path()
-    with open_backup_tar(archive) as tar:
-        for entry in plan.get("entries") or ():
-            path = str(entry["path"])
-            if path == UNIT:
-                member = tar.getmember(entry["name"])
-                if not member.isfile() or member.size > 32768:
-                    raise ValueError("Некорректный unit в архиве")
-                unit = tar.extractfile(member).read().decode("utf-8")
-                # Validation only: the helper reconstructs its own non-root unit.
-                request("unit.validate", text=unit)
-                continue
-            relative = relative_data(path)
-            if relative in EMPTY_ENV_DIRS and tar.getmember(entry['name']).isdir():
-                continue  # Old self-backups included the excluded venv container.
-            if not relative.parts or relative == Path("."):
-                continue
-            if relative.parts[0] in CODE_ROOTS:
-                member = tar.getmember(entry["name"])
-                if member.isdir():
-                    continue
-                if not member.isfile():
-                    raise ValueError("Код архива содержит ссылку или специальный файл")
-                digest = hashlib.sha256()
-                with tar.extractfile(member) as stream:
-                    while chunk := stream.read(256 * 1024):
-                        digest.update(chunk)
-                code[relative.as_posix()] = digest.hexdigest()
-            elif relative.parts[0] not in DATA_ROOTS:
-                raise ValueError("Архив содержит файл вне разрешённых рабочих каталогов: " + str(relative))
+    checks = {}
+    code_paths = {}
+    directories = set()
+    unit_name = None
+    entries = plan.get("entries") or ()
+    for entry in entries:
+        path, name = str(entry["path"]), entry["name"]
+        if path == UNIT:
+            unit_name = name
+            checks[name] = MAX_RESTORE_UNIT_BYTES
+            continue
+        relative = relative_data(path)
+        if relative in EMPTY_ENV_DIRS:
+            checks[name] = "directory"
+            directories.add(name)
+        elif not relative.parts or relative == Path("."):
+            continue
+        elif relative.parts[0] in CODE_ROOTS:
+            checks[name] = "sha256"
+            code_paths[name] = relative.as_posix()
+        elif relative.parts[0] not in DATA_ROOTS:
+            raise ValueError("Архив содержит файл вне разрешённых рабочих каталогов: " + str(relative))
+
+    if checks:
+        from base64 import b64decode
+
+        verified = inspect_archive_entries(archive, checks)
+        if unit_name is not None:
+            if unit_name not in verified:
+                raise ValueError("Некорректный unit в архиве")
+            unit = b64decode(verified[unit_name]).decode("utf-8")
+            # The helper reconstructs its own non-root unit after validation.
+            request("unit.validate", text=unit)
+        if any(verified.get(name) != "directory" for name in directories):
+            raise ValueError("Архив содержит файл вне разрешённых рабочих каталогов")
+        for name, relative in code_paths.items():
+            value = verified.get(name)
+            if value is None:
+                raise ValueError("Код архива содержит ссылку или специальный файл")
+            if value != "directory":
+                code[relative] = value
     request("code.validate", files=code)
     return {"code": code, "unit": unit, "entries": plan.get("entries") or ()}
 

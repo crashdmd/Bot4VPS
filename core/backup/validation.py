@@ -253,6 +253,8 @@ def normalize_backup_config(config: dict, *, install_path: Path | None = None) -
         _fail("bot4vps.limits должен быть объектом")
     _positive_or_none(limits.get("max_source_bytes"), "bot4vps.limits.max_source_bytes")
     _positive_or_none(limits.get("max_archive_bytes"), "bot4vps.limits.max_archive_bytes")
+    for name in ("max_index_members", "max_index_unpacked_bytes"):
+        _positive_or_none(limits.get(name), f"bot4vps.limits.{name}")
     safety = config.get("safety", {})
     required = (
         "warning_free_bytes", "critical_free_bytes", "emergency_free_bytes",

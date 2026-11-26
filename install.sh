@@ -291,7 +291,7 @@ print_web_access() {
 }
 
 # TLS_ARGS: аргументы ExecStart после --port N (пусто = HTTP, как раньше).
-# Проставляется setup_https; enable-web без HTTPS inherits пустое значение.
+# Проставляется load_web_tls; для HTTP остаётся пустым.
 TLS_ARGS=""
 
 write_web_unit() {
@@ -434,7 +434,7 @@ PY
         return 1
     fi
 
-    mkdir -p "$WEB_TLS_DIR"
+    mkdir -p "$WEB_TLS_DIR" || return 1
     chmod 700 "${INSTALL_DIR}/keys" 2>/dev/null || true
     local live="/etc/letsencrypt/live/${domain}"
     if ! cp -f "${live}/fullchain.pem" "${WEB_TLS_DIR}/cert.pem" \
@@ -442,7 +442,7 @@ PY
         err "Let's Encrypt не положил файлы по пути ${live}"
         return 1
     fi
-    chmod 600 "${WEB_TLS_DIR}/cert.pem" "${WEB_TLS_DIR}/key.pem"
+    chmod 600 "${WEB_TLS_DIR}/cert.pem" "${WEB_TLS_DIR}/key.pem" || return 1
     ok "Сертификат Let's Encrypt установлен (автопродление — встроено)"
 }
 
@@ -450,7 +450,7 @@ PY
 gen_self_signed() {
     local cn="$1"
     if [[ ! -d "$INSTALL_DIR/data/runtime" ]]; then
-        mkdir -p "$WEB_TLS_DIR"
+        mkdir -p "$WEB_TLS_DIR" || return 1
     fi
     if ! app_python "$INSTALL_DIR/core/web_tls.py" --gen-self-signed "$cn"; then
         err "Не удалось сгенерировать сертификат."
@@ -459,15 +459,71 @@ gen_self_signed() {
     ok "Самоподписанный сертификат создан (${WEB_TLS_DIR})"
 }
 
-# Спрашивает про HTTPS и подготавливает TLS_ARGS + config web.tls.
-# Сертификат выпускается СРАЗУ (порт 80 нужен только LE, панель ещё не
-# слушает порт) — до записи юнита и старта сервиса.
-setup_https() {
-    local web_port="$1"
+# После ошибки настройки HTTPS требуется отдельное согласие на HTTP.
+confirm_http_fallback() {
+    local allow_http
+    ask "Продолжить по HTTP без HTTPS? [y/N]: " allow_http "N"
+    if [[ "${allow_http,,}" != "y" ]]; then
+        err "Web UI не запущен: настройте HTTPS и повторите операцию."
+        return 1
+    fi
     TLS_ARGS=""
-    # Режим HTTPS для report_web_status: сообщение о сертификате
-    # браузера зависит от происхождения сертификата, не только от схемы.
+    WEB_SCHEME="http"
     WEB_TLS_MODE=""
+}
+
+load_web_tls() {
+    local expected_mode="${1:-}" probe mode flags=""
+    if ! probe=$(app_python - "$expected_mode" <<'PY'
+import sys
+from core.config import TLS_MODES, get_tls_config, get_web_config, normalize_trusted_proxies
+from core.web_tls import tls_asset_paths, unit_tls_flags
+
+raw = get_web_config().get("tls")
+if raw is not None:
+    if not isinstance(raw, dict):
+        sys.exit("Некорректная секция web.tls.")
+    if (raw.get("mode") or "off") not in TLS_MODES:
+        sys.exit("Неизвестный режим в web.tls.")
+    if raw.get("mode") == "proxy":
+        normalize_trusted_proxies(raw.get("trusted_proxies"))
+
+tls = get_tls_config()
+mode = tls["mode"]
+if sys.argv[1] and mode != sys.argv[1]:
+    sys.exit("Режим HTTPS не сохранился в конфигурации.")
+if any(not path.is_file() for path in tls_asset_paths(tls)):
+    sys.exit("Файлы сертификата HTTPS не найдены.")
+flags = unit_tls_flags(tls)
+if mode != "off" and not flags:
+    sys.exit("Не удалось подготовить параметры запуска HTTPS.")
+print(mode)
+print(flags, end="")
+PY
+    ); then
+        warn "Не удалось применить настройки HTTPS."
+        return 1
+    fi
+
+    mode="${probe%%$'\n'*}"
+    if [[ "$probe" == *$'\n'* ]]; then
+        flags="${probe#*$'\n'}"
+    fi
+    TLS_ARGS="$flags"
+    WEB_SCHEME="http"
+    WEB_TLS_MODE=""
+    if [[ "$mode" != "off" ]]; then
+        WEB_TLS_MODE="$mode"
+        # В режиме proxy TLS завершается на прокси.
+        [[ "$mode" == "proxy" ]] || WEB_SCHEME="https"
+    fi
+}
+
+setup_https() {
+    TLS_ARGS=""
+    WEB_SCHEME="http"
+    WEB_TLS_MODE=""
+    local want_https
 
     echo
     echo -e "${CYAN}── HTTPS для Web UI ────────────────────${NC}"
@@ -479,6 +535,14 @@ setup_https() {
         return 0
     fi
 
+    if ! configure_https; then
+        confirm_http_fallback
+    fi
+}
+
+# Сертификат готовится до открытия порта Web и записи юнита.
+configure_https() {
+    local tls_choice
     echo
     echo "  1) Let's Encrypt — бесплатный, нужен домен, указывающий на"
     echo "     этот сервер, и свободный порт 80 (продлевается сам)"
@@ -499,30 +563,17 @@ setup_https() {
                 warn "Домен выглядит некорректно."
             done
             ask "E-mail для Let's Encrypt (Enter — без e-mail): " email ""
-
-            if ! issue_letsencrypt "$domain" "$email"; then
-                warn "Продолжаю без HTTPS — настроить можно позже:"
-                echo "  Web: Настройки → Безопасность → Сеть и доступ"
-                echo "  CLI: bot4vps → Безопасность → HTTPS сертификат"
-                return 0
-            fi
-            TLS_ARGS="--ssl-certfile ${WEB_TLS_DIR}/cert.pem --ssl-keyfile ${WEB_TLS_DIR}/key.pem"
-            set_tls_config_mode letsencrypt "$domain"
-            WEB_SCHEME="https"
-            WEB_TLS_MODE="letsencrypt"
+            issue_letsencrypt "$domain" "$email" || return 1
+            set_tls_config_mode letsencrypt "$domain" || return 1
+            load_web_tls letsencrypt
             ;;
         2)
-            local cn
+            local cn cn_in
             cn=$(detect_ip)
             ask "Имя в сертификате (домен или IP) [${cn}]: " cn_in "$cn"
-            if ! gen_self_signed "$cn_in"; then
-                warn "Продолжаю без HTTPS — настроить можно позже (см. выше)."
-                return 0
-            fi
-            TLS_ARGS="--ssl-certfile ${WEB_TLS_DIR}/cert.pem --ssl-keyfile ${WEB_TLS_DIR}/key.pem"
-            set_tls_config_mode self-signed ""
-            WEB_SCHEME="https"
-            WEB_TLS_MODE="self-signed"
+            gen_self_signed "$cn_in" || return 1
+            set_tls_config_mode self-signed "" || return 1
+            load_web_tls self-signed
             ;;
         3)
             local cert_path key_path
@@ -537,9 +588,8 @@ setup_https() {
                 warn "Файл не найден: $key_path"
             done
             if [[ "$cert_path" == *'"'* || "$key_path" == *'"'* ]]; then
-                warn "Путь с двойной кавычкой не поддерживается —"
-                echo "  переименуйте файл. Продолжаю без HTTPS (см. выше)."
-                return 0
+                warn "Путь с двойной кавычкой не поддерживается. Переименуйте файл."
+                return 1
             fi
             if ! app_python - "$cert_path" "$key_path" <<'PY'
 import sys
@@ -551,33 +601,15 @@ except ValueError as e:
     sys.exit(1)
 PY
             then
-                warn "Пара не прошла проверку. Продолжаю без HTTPS —"
-                echo "  настроить можно позже (см. выше)."
-                return 0
+                warn "Пара сертификата и ключа не прошла проверку."
+                return 1
             fi
-            # ВАЖНО: сигнатура set_tls_config_mode — mode domain cert key.
-            # Раньше пути передавались со сдвигом (cert_path попадал в
-            # domain): config получал {custom, domain: <путь>} без путей,
-            # и enable-web затем молча включал Web без HTTPS.
-            set_tls_config_mode custom "" "$cert_path" "$key_path"
-            # Флаги строит ядро (core.web_tls.unit_tls_flags): пути с
-            # пробелами квотируются там же, что и для enable-web.
-            if ! TLS_ARGS=$(app_python <<'PY'
-from core.config import get_tls_config
-from core.web_tls import unit_tls_flags
-print(unit_tls_flags(get_tls_config()), end="")
-PY
-            ); then
-                warn "Не удалось собрать TLS-флаги. Продолжаю без HTTPS —"
-                echo "  настроить можно позже (см. выше)."
-                return 0
-            fi
-            WEB_SCHEME="https"
-            WEB_TLS_MODE="custom"
+            set_tls_config_mode custom "" "$cert_path" "$key_path" || return 1
+            load_web_tls custom
             ;;
         *)
-            warn "Неверный выбор — продолжаю без HTTPS."
-            return 0
+            warn "Неверный вариант настройки HTTPS."
+            return 1
             ;;
     esac
 }
@@ -822,47 +854,13 @@ do_enable_web() {
     source venv/bin/activate
     pip install --isolated --require-hashes --no-input -q -r requirements.txt
 
+    if ! load_web_tls; then
+        echo "  Настройки HTTPS: bot4vps → Безопасность → HTTPS сертификат."
+        confirm_http_fallback || return 1
+    fi
+
     info "Включаю авторизацию Web UI..."
     setup_web_auth "$WEB_PORT"
-
-    # HTTPS: режим мог быть настроен раньше (config web.tls). Юнит
-    # переписывается — TLS-флаги обязаны пережить включение Web.
-    WEB_SCHEME="http"
-    WEB_TLS_MODE=""
-    if ! TLS_PROBE=$(app_python <<'PY'
-import sys
-from core.config import get_tls_config
-from core.web_tls import tls_asset_paths, unit_tls_flags
-
-tls = get_tls_config()
-if any(not p.is_file() for p in tls_asset_paths(tls)):
-    # Управляемая пара исчезла — юнит со ssl-флагами не стартовал бы.
-    print("__MISSING__")
-else:
-    # Первая строка — режим (для сообщения о сертификате), вторая — флаги
-    print(tls.get("mode") or "off")
-    print(unit_tls_flags(tls), end="")
-PY
-); then
-        warn "Не удалось прочитать настройки HTTPS — включаю Web без HTTPS."
-        echo "  Перевыпустите: bot4vps → Безопасность → HTTPS сертификат."
-        TLS_PROBE=""
-    fi
-    if [[ "$(head -n 1 <<<"$TLS_PROBE")" == "__MISSING__" ]]; then
-        warn "Сертификат HTTPS не найден — включаю Web без HTTPS."
-        echo "  Перевыпустите: bot4vps → Безопасность → HTTPS сертификат."
-        TLS_ARGS=""
-    else
-        TLS_ARGS="$(tail -n +2 <<<"$TLS_PROBE")"
-        if [[ -n "$TLS_ARGS" && "$(head -n 1 <<<"$TLS_PROBE")" == "proxy" ]]; then
-            # TLS терминирует прокси: панель слушает плоский HTTP,
-            # ssl-флагов в юните нет (только --proxy-headers).
-            WEB_TLS_MODE="proxy"
-        elif [[ -n "$TLS_ARGS" ]]; then
-            WEB_SCHEME="https"
-            WEB_TLS_MODE="$(head -n 1 <<<"$TLS_PROBE")"
-        fi
-    fi
 
     open_web_port "$WEB_PORT"
 
@@ -995,12 +993,9 @@ do_install() {
         update_tg_config "$BOT_TOKEN" "$USER_ID"
         ok "Токен, User ID и telegram_enabled=true записаны в config.json"
     else
+        setup_https || return 1
         info "Подготавливаю авторизацию Web UI..."
         setup_web_auth "$WEB_PORT"
-        # Сертификат — до записи юнита: TLS_ARGS попадает в ExecStart,
-        # LE-проверке нужен только порт 80 (панель его не слушает).
-        WEB_SCHEME="http"
-        setup_https "$WEB_PORT"
     fi
 
     # Конфигурация записана: если переустановка с существующим

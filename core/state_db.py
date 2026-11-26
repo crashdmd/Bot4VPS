@@ -29,6 +29,7 @@ json-файл на запись» (как в ``logs/events``) для рядов 
 """
 from __future__ import annotations
 
+import json
 import math
 import sqlite3
 import threading
@@ -45,7 +46,7 @@ DB_NAME = "state.db"
 DB_PATH = Path("data") / DB_NAME
 
 # Версия схемы, которую знает этот код. Поднимается вместе с новой миграцией.
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 8
 
 # Периодические метрики не входят в архив Bot4VPS (§16.1 ТЗ). Список имён, а не «всё,
 # кроме audit_records»: новая таблица по умолчанию остаётся в слепке, чтобы не
@@ -54,6 +55,7 @@ METRIC_TABLES: tuple[str, ...] = (
     "metric_samples",
     "metric_disks",
     "metric_hourly",
+    "gateway_traffic_samples",
 )
 
 
@@ -73,6 +75,8 @@ _PRAGMAS = (
 # Ретенция (§9 ТЗ). Обрезаются только ряды метрик; аудит — бессрочно.
 RAW_METRICS_DAYS = 90
 HOURLY_METRICS_MONTHS = 24
+GATEWAY_TRAFFIC_RETENTION_SECONDS = 86400
+_GATEWAY_TRAFFIC_SAMPLE_SECONDS = 5
 
 
 # ------------------------------------------------------------------
@@ -308,6 +312,19 @@ def _migration_007(conn: sqlite3.Connection) -> None:
     conn.execute("DROP TABLE IF EXISTS operation_metric_observations")
 
 
+def _migration_008(conn: sqlite3.Connection) -> None:
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS gateway_traffic_samples (
+            gateway_id TEXT NOT NULL,
+            bucket INTEGER NOT NULL,
+            ts INTEGER NOT NULL,
+            counters TEXT NOT NULL,
+            PRIMARY KEY (gateway_id, bucket)
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_gateway_traffic_ts ON gateway_traffic_samples(ts)")
+
+
 # (версия, шаг). Применяются по возрастанию, по одной транзакции на шаг.
 MIGRATIONS: tuple[tuple[int, Callable[[sqlite3.Connection], None]], ...] = (
     (1, _migration_001),
@@ -316,6 +333,7 @@ MIGRATIONS: tuple[tuple[int, Callable[[sqlite3.Connection], None]], ...] = (
     (5, _migration_005),
     (6, _migration_006),
     (7, _migration_007),
+    (8, _migration_008),
 )
 
 
@@ -1212,6 +1230,37 @@ def counts(path: Optional[Path] = None) -> dict:
 # Ретенция
 # ------------------------------------------------------------------
 
+def record_gateway_traffic(gateway_id: str, ts: int, counters: dict) -> None:
+    bucket = ts // _GATEWAY_TRAFFIC_SAMPLE_SECONDS
+
+    def work(conn: sqlite3.Connection) -> None:
+        conn.execute("""
+            INSERT INTO gateway_traffic_samples (gateway_id, bucket, ts, counters)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT (gateway_id, bucket) DO UPDATE
+            SET ts = excluded.ts, counters = excluded.counters
+            WHERE excluded.ts >= gateway_traffic_samples.ts
+        """, (gateway_id, bucket, ts, json.dumps(counters, separators=(",", ":"))))
+        conn.execute("DELETE FROM gateway_traffic_samples WHERE ts < ?",
+                     (ts - GATEWAY_TRAFFIC_RETENTION_SECONDS,))
+
+    _write(work, None)
+
+
+def iter_gateway_traffic(gateway_id: str, since: int, until: int) -> list[dict]:
+    try:
+        rows = get_connection().execute("""
+            SELECT ts, counters FROM gateway_traffic_samples
+            WHERE gateway_id = ? AND bucket BETWEEN ? AND ? AND ts BETWEEN ? AND ?
+            ORDER BY bucket
+        """, (gateway_id, since // _GATEWAY_TRAFFIC_SAMPLE_SECONDS,
+              until // _GATEWAY_TRAFFIC_SAMPLE_SECONDS, since, until))
+        return [{"at": row["ts"], **json.loads(row["counters"])} for row in rows]
+    except (sqlite3.Error, ValueError) as exc:
+        print(f"[{NAME}] чтение трафика шлюза не удалось: {exc}", flush=True)
+        return []
+
+
 def _days_ago(days: int, now: Optional[int] = None) -> int:
     return int(now if now is not None else time.time()) - int(days) * 86400
 
@@ -1229,6 +1278,7 @@ def prune_metrics(
     """
     raw_cutoff = _days_ago(raw_days, now)
     hourly_cutoff = _days_ago(hourly_months * 30, now)
+    traffic_cutoff = int(now if now is not None else time.time()) - GATEWAY_TRAFFIC_RETENTION_SECONDS
 
     def work(conn: sqlite3.Connection) -> dict:
         samples = conn.execute("DELETE FROM metric_samples WHERE ts < ?", (raw_cutoff,)).rowcount
@@ -1242,12 +1292,14 @@ def prune_metrics(
             "DELETE FROM operation_metric_peaks WHERE captured_ts < ?", (raw_cutoff,)
         ).rowcount
         hourly = conn.execute("DELETE FROM metric_hourly WHERE hour_ts < ?", (hourly_cutoff,)).rowcount
+        traffic = conn.execute("DELETE FROM gateway_traffic_samples WHERE ts < ?", (traffic_cutoff,)).rowcount
         return {
             "metric_samples": max(0, samples),
             "metric_disks": max(0, disks),
             "operation_metric_peaks": max(0, peaks),
             "operation_metric_peak_disks": max(0, peak_disks),
             "metric_hourly": max(0, hourly),
+            "gateway_traffic_samples": max(0, traffic),
         }
 
     return _write(
@@ -1258,6 +1310,7 @@ def prune_metrics(
             "operation_metric_peaks": 0,
             "operation_metric_peak_disks": 0,
             "metric_hourly": 0,
+            "gateway_traffic_samples": 0,
         },
         path,
     )

@@ -1711,7 +1711,7 @@ function notificationModalMarkup(cat, values) {
    Bot4VPS), живёт в одной строке с «Уведомлять об операциях бэкапа». */
 function protectToggleMarkup(settings) {
   const encrypt = settings?.encrypt === true;
-  return `<label class="backup-check backup-protect-toggle" title="Шифровать новые резервные копии этой цели паролем резервных копий"><input name="encrypt_enabled" type="checkbox" ${encrypt ? 'checked' : ''}> <span class="backup-notification-row-text">🔒 Защищать паролем</span></label>`;
+  return `<label class="backup-check backup-protect-toggle" title="Шифровать новые копии этой цели. Если пароль недоступен, копия создаётся без шифрования с предупреждением."><input name="encrypt_enabled" type="checkbox" ${encrypt ? 'checked' : ''}> <span class="backup-notification-row-text">🔒 Защищать паролем</span></label>`;
 }
 
 function renderSettingsTab() {

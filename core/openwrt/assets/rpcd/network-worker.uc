@@ -41,12 +41,27 @@ function swap(config, source, expected) {
     put('/etc/config/' + config + '.bot4vps-new', readfile(dir + '/' + source));
     if (!rename('/etc/config/' + config + '.bot4vps-new', '/etc/config/' + config)) die('Не удалось применить конфигурацию');
 }
-function action(name, method) {
+function interface_object(name) {
     if (!match(name || '', /^[a-zA-Z][a-zA-Z0-9_]{0,30}$/) || name == 'loopback') die('Интерфейс не разрешён');
-    let result = connect().call('network.interface.' + name, method, {});
-    if (result == null) die('netifd не подтвердил действие ' + method);
+    return 'network.interface.' + name;
 }
-let changed = false;
+function interface_status(object) {
+    let bus = connect();
+    return bus ? bus.call(object, 'status', {}) : null;
+}
+function action(object, method) {
+    // netifd returns a ubus status code without a reply payload for up/down.
+    command('ubus -t 10 call ' + quote(object) + ' ' + quote(method));
+}
+function wait_interface(object, up, seconds) {
+    for (let i = 0; i < seconds; i++) {
+        let status = interface_status(object);
+        if (type(status?.up) == 'bool' && status.up == up && !status.pending) return true;
+        sleep(1000);
+    }
+    return false;
+}
+let changed = false, previous_up, interface;
 try {
     command('usign -V -p ' + quote('/etc/bot4vps/keys/' + username + '.pub') + ' -m ' + quote(dir + '/manifest.json') + ' -x ' + quote(dir + '/manifest.sig'));
     if (plan.kind != 'network' || message.service != 'network' || message.username != username || message.nonce != nonce || message.action != plan.action || message.expected != plan.expected || time() > plan.expires)
@@ -67,10 +82,17 @@ try {
         else if (plan.reload == 'wireless') command('/sbin/wifi reload');
         else die('Служба применения не разрешена');
     } else if (plan.action == 'up' || plan.action == 'down' || plan.action == 'reconnect') {
+        interface = interface_object(plan.interface);
+        let before = interface_status(interface);
+        if (type(before?.up) != 'bool') die('netifd не сообщил состояние интерфейса ' + plan.interface);
+        previous_up = before.up || !!before.pending;
         changed = true;
         log('netifd: ' + plan.interface + ' / ' + plan.action);
-        if (plan.action == 'reconnect') { action(plan.interface, 'down'); sleep(1000); action(plan.interface, 'up'); }
-        else action(plan.interface, plan.action);
+        if (plan.action == 'reconnect') {
+            action(interface, 'down');
+            if (!wait_interface(interface, false, 15)) die('Интерфейс не отключился перед переподключением');
+            action(interface, 'up');
+        } else action(interface, plan.action);
     } else {
         if (index(['edit', 'delete', 'routes'], plan.action) < 0) die('Сетевое действие не разрешено');
         if (hash(dir + '/network.before') != plan.before_hash || hash(dir + '/network.after') != plan.after_hash) die('Снимок UCI повреждён');
@@ -105,7 +127,8 @@ try {
             else command('/etc/init.d/dnsmasq restart');
         } else if (plan.action == 'up' || plan.action == 'down' || plan.action == 'reconnect') {
             if (hash('/etc/config/network') != plan.before_hash) die('Сеть изменена параллельно; требуется ручная проверка');
-            action(plan.interface, plan.previous_up ? 'up' : 'down');
+            action(interface, previous_up ? 'up' : 'down');
+            if (!wait_interface(interface, previous_up, 45)) die('Интерфейс не вернулся в прежнее состояние');
         } else {
             let current = hash('/etc/config/network');
             if (current != plan.after_hash && current != plan.before_hash) die('Сеть изменена параллельно; чужие изменения не перезаписываются');

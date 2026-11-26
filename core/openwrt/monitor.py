@@ -6,8 +6,7 @@ import hashlib
 import json
 import time
 import math
-from collections import deque
-
+from core import state_db
 from core.openwrt.rpc import RpcClient, RpcError
 
 _clock = time.monotonic
@@ -17,7 +16,7 @@ _locks = {}
 _previous = {}
 _retry_at = {}
 _removed = set()
-_traffic_history = {}
+TRAFFIC_PERIODS = (900, 3600, 21600, 43200, 86400)
 
 
 async def _availability(node, online, error='', system=None):
@@ -64,16 +63,15 @@ def snapshot(node_id):
     return data
 
 
-def traffic_series(node_id, seconds=3600, limit=240):
+def traffic_series(node_id, seconds=3600, limit=240, *, now=None):
     """Return a bounded series for the requested window without router calls."""
-    if seconds not in (3600, 21600, 43200, 86400):
-        raise ValueError('Период трафика: час, 6 часов, 12 часов или сутки')
-    history = list(_traffic_history.get(node_id) or [])
-    if not history: return []
-    end = history[-1]['at']; start = end - seconds
+    if seconds not in TRAFFIC_PERIODS:
+        raise ValueError('Выберите период трафика: 15 минут, час, 6 часов, 12 часов или сутки')
+    end = int(time.time() if now is None else now)
+    start = end - seconds
+    history = state_db.iter_gateway_traffic(node_id, start, end)
     step = max(1, seconds / limit); groups = {}
     for point in history:
-        if point['at'] < start or point['at'] > end: continue
         key = min(limit - 1, int((point['at'] - start) / step))
         groups.setdefault(key, []).append(point)
     result = []
@@ -87,6 +85,11 @@ def traffic_series(node_id, seconds=3600, limit=240):
                 point[role][field] = sum(values) / len(values) if values else None
         result.append(point)
     return result
+
+
+def _record_traffic(node_id, ts, totals):
+    state_db.record_gateway_traffic(node_id, ts, totals)
+    return traffic_series(node_id, now=ts)
 
 
 def _object(value):
@@ -251,13 +254,10 @@ async def refresh(node, *, force=False):
             totals[role] = {key: sum(values) if values else None for key in ('rx_bps','tx_bps','rx_bytes','tx_bytes')
                 for values in [[item[key] for item in members if isinstance(item.get(key),(int,float))]]}
             totals[role]['up'] = any(item['up'] for item in members)
-        # Even explicit refreshes are coalesced to one point per five seconds.
-        history = _traffic_history.setdefault(sid,deque(maxlen=18000))
-        point = {'at':result['checked_at'],**totals}
-        if history and point['at']-history[-1]['at'] < 5: history[-1] = point
-        else: history.append(point)
-        while history and point['at'] - history[0]['at'] > 86400: history.popleft()
-        result['traffic'] = totals; result['traffic_history'] = traffic_series(sid)
+        result['traffic'] = totals
+        result['traffic_history'] = await asyncio.to_thread(_record_traffic, sid, result['checked_at'], totals)
+        if sid in _removed:
+            return {'ok': False, 'error': 'Шлюз удалён', 'error_code': 'removed'}
         _samples[sid] = result
         # Persist the existing native probe for Monitoring; no extra router calls.
         from core.metrics import record_sample
@@ -314,5 +314,5 @@ async def forget(node_id):
     previous = _clients.pop(node_id, None)
     if previous:
         await previous[1].close()
-    for data in (_samples, _previous, _retry_at, _traffic_history):
+    for data in (_samples, _previous, _retry_at):
         data.pop(node_id, None)

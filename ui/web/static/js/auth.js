@@ -336,7 +336,7 @@ async function confirmRecovery() {
     if (data && data.otp_required) {
       // 2FA включена: сервер НЕ залогинил (смена пароля не должна
       // обходить второй фактор) — просим войти паролем + кодом.
-      toast('Пароль изменён. Войдите с ним и кодом из приложения', true);
+      toast('Пароль изменён. Войдите с новым паролем и подтвердите второй фактор', true);
       cancelRecovery();
       const oldPass = document.getElementById('li-pass');
       if (oldPass) oldPass.value = ''; // там прежний (уже неверный) пароль

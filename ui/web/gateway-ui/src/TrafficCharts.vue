@@ -5,7 +5,13 @@ import type { GatewayMonitor, TrafficCounters, TrafficHistory } from './types/ga
 type TrafficRole = 'lan' | 'wan';
 const roles: TrafficRole[] = ['lan', 'wan'];
 const props = defineProps<{ monitor: GatewayMonitor; nodeId?: string; bridge?: Bridge }>();
-const span = ref(3600), hovered = ref<Record<TrafficRole,number|null>>({lan:null,wan:null}), history = ref<TrafficHistory[] | null>(null), error = ref('');
+const selectedSpan = ref<number | null>(null);
+const hovered = ref<Record<TrafficRole,number|null>>({lan:null,wan:null}), history = ref<TrafficHistory[] | null>(null), error = ref('');
+const hasQuarterHour = ref(false);
+const span = computed({
+  get: () => selectedSpan.value ?? (hasQuarterHour.value ? 900 : 3600),
+  set: value => { selectedSpan.value = value; },
+});
 let alive = true, generation = 0;
 let historyTimer: ReturnType<typeof setInterval> | undefined;
 async function load() {
@@ -13,7 +19,11 @@ async function load() {
   const current = ++generation;
   try {
     const data = await props.bridge.request('/api/gateways/' + encodeURIComponent(props.nodeId) + '/traffic?seconds=' + span.value);
-    if (alive && current === generation && Array.isArray(data.traffic_history)) { history.value = data.traffic_history; error.value = ''; }
+    if (alive && current === generation && Array.isArray(data.traffic_history)) {
+      history.value = data.traffic_history;
+      hasQuarterHour.value = Array.isArray(data.available_periods) && data.available_periods.includes(900);
+      error.value = '';
+    }
   } catch (e: unknown) { if (alive && current === generation) error.value = e instanceof Error ? e.message : String(e); }
 }
 watch([span, () => props.nodeId], () => { hovered.value = {lan:null,wan:null}; history.value = null; void load(); }, { immediate: true });
@@ -52,7 +62,7 @@ function hover(event:PointerEvent,role:TrafficRole){
 function point(role:TrafficRole){const index=hovered.value[role];return index==null?null:points.value[index];}
 </script>
 <template>
-  <section class="gw-traffic-overview"><header class="gw-section-header"><h3>Трафик сети</h3><div class="gw-traffic-tools"><p class="gw-hint">Скорость и объём данных через LAN и WAN</p><select v-model="span" aria-label="Период графиков"><option :value="3600">Час</option><option :value="21600">6 часов</option><option :value="43200">12 часов</option><option :value="86400">Сутки</option></select></div></header>
+  <section class="gw-traffic-overview"><header class="gw-section-header"><h3>Трафик сети</h3><div class="gw-traffic-tools"><p class="gw-hint">Скорость и объём данных через LAN и WAN</p><select v-model="span" aria-label="Период графиков"><option v-if="hasQuarterHour" :value="900">15 минут</option><option :value="3600">Час</option><option :value="21600">6 часов</option><option :value="43200">12 часов</option><option :value="86400">Сутки</option></select></div></header>
     <p v-if="error" class="gw-chart-note">{{ error }}</p>
     <div class="gw-traffic-grid"><article v-for="role in roles" :key="role" class="gw-panel gw-traffic-card">
       <header class="gw-section-header"><h3>{{ role.toUpperCase() }}</h3><span class="gw-status" :class="monitor.traffic?.[role]?.up ? 'good':'warn'">{{ monitor.traffic?.[role]?.up ? 'Подключён':'Отключён' }}</span></header>

@@ -195,7 +195,7 @@ function renderResults(box, results) {
         const cat = searchResults.find(r => r.type === 'settings' && r.data.id === id);
         setPage('settings');
         showPage('settings');
-        import('./settings.js?v=20261114-primary-phone-v1').then(m => {
+        import('./settings.js?v=20261126-openwrt-access').then(m => {
           m.selectSettingsCategory?.(id);
         });
       }

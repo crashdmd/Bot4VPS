@@ -1,5 +1,5 @@
 import { j, esc } from '../../api.js?v=20260821-telegram-health-v1';
-import { toast, confirmAction, infoModal } from '../../ui.js';
+import { toast, confirmAction, infoModal, bindPasswordToggles } from '../../ui.js';
 
 const ROOT = '/api/settings/mobile-access';
 let closePairCode = null;
@@ -10,6 +10,7 @@ let requiredPrimaryDialog = false;
 let connectionChangeDialog = null;
 let connectionChangeId = null;
 const CONNECTION_CHANGE_KEY = 'bot4vps_pending_mobile_connection_change';
+const adminPasswordField = '<label>Пароль администратора<span class="pw-wrap"><input id="mobile-security-password" data-password type="password" autocomplete="current-password"><button type="button" class="eye" data-pw-toggle="mobile-security-password">👁</button></span></label>';
 
 export function resumePendingMobileConnectionChange() {
   if (connectionChangeDialog) return;
@@ -298,6 +299,7 @@ function securityDialog(title, body, { required = false } = {}) {
     }
   };
   document.body.append(modal);
+  bindPasswordToggles(modal);
   document.addEventListener('keydown', key);
   modal.querySelector('[data-close]').onclick = required ? () => {} : close;
   requiredPrimaryDialog = required;
@@ -337,7 +339,7 @@ function unlinkRoleHint(data, deviceId) {
 }
 function primarySelectionDialog(view) {
   if (requiredPrimaryDialog) return;
-  const { modal, close } = securityDialog('Выберите основной телефон', `<p>Основной телефон отвязан. Выберите новый основной телефон и подтвердите выбор только паролем администратора.</p><label>Телефон<select data-device>${view.data.devices.map(device => `<option value="${esc(device.id)}">${esc(device.name)}</option>`).join('')}</select></label><label>Пароль администратора<input data-password type="password" autocomplete="current-password"></label>`, { required: true });
+  const { modal, close } = securityDialog('Выберите основной телефон', `<p>Основной телефон отвязан. Выберите новый основной телефон и подтвердите выбор только паролем администратора.</p><label>Телефон<select data-device>${view.data.devices.map(device => `<option value="${esc(device.id)}">${esc(device.name)}</option>`).join('')}</select></label>${adminPasswordField}`, { required: true });
   modal.querySelector('[data-confirm]').onclick = async event => {
     const button = event.currentTarget;
     button.disabled = true;
@@ -361,7 +363,7 @@ function bindDeviceActions(view) {
     button.onclick = () => {
       const passwordOnly = view.data.primary_selection_pending && !view.data.primary_device_id;
       const needsCode = !passwordOnly && (view.data.totp_registered || view.data.telegram_available);
-      const { modal, close } = securityDialog('Назначить основной телефон', `<p>Основной телефон подтверждает вход при 2FA, отзыв устройств и смену Mobile API. При переносе кода прежний телефон сохраняет права до установки нового TOTP.</p><label>Пароль администратора<input data-password type="password" autocomplete="current-password"></label>${needsCode ? `<label><span data-code-label>${view.data.totp_registered ? 'TOTP-код' : 'Код из Telegram'}</span><input data-code inputmode="numeric" maxlength="6" autocomplete="one-time-code"></label>` : ''}${!passwordOnly && view.data.telegram_available ? '<button type="button" class="secondary" data-telegram>Получить код Telegram</button>' : ''}`);
+      const { modal, close } = securityDialog('Назначить основной телефон', `<p>Основной телефон подтверждает вход при 2FA, отзыв устройств и смену Mobile API. При переносе кода прежний телефон сохраняет права до установки нового TOTP.</p>${adminPasswordField}${needsCode ? `<label><span data-code-label>${view.data.totp_registered ? 'TOTP-код' : 'Код из Telegram'}</span><input data-code inputmode="numeric" maxlength="6" autocomplete="one-time-code"></label>` : ''}${!passwordOnly && view.data.telegram_available ? '<button type="button" class="secondary" data-telegram>Получить код Telegram</button>' : ''}`);
       let telegramId = null;
       modal.querySelector('[data-telegram]')?.addEventListener('click', async event => {
         const trigger = event.currentTarget;
@@ -416,7 +418,7 @@ function disableProtectionDialog(view) {
   const primary = view.data.devices.find(device => device.is_primary);
   const telegram = view.data.two_factor_channel === 'telegram';
   const totp = view.data.two_factor_enabled && !telegram;
-  const { modal, close } = securityDialog('Отключить защиту от отвязки', `<label>Подтверждение<select data-method><option value="web">Пароль администратора${telegram ? ' и код Telegram' : totp ? ' и TOTP' : ''}</option><option value="mobile" ${primary ? '' : 'disabled'}>На основном телефоне</option></select></label><div data-web><label>Пароль администратора<input type="password" data-password autocomplete="current-password"></label>${totp ? '<label>TOTP-код<input data-code inputmode="numeric" maxlength="6" autocomplete="one-time-code"></label>' : ''}</div><p data-phone hidden>Запрос будет отправлен на основной телефон «${esc(primary?.name || 'не назначен')}».</p><p>После отключения защиты отвязка из веб-панели будет выполняться сразу.</p>`);
+  const { modal, close } = securityDialog('Отключить защиту от отвязки', `<label>Подтверждение<select data-method><option value="web">Пароль администратора${telegram ? ' и код Telegram' : totp ? ' и TOTP' : ''}</option><option value="mobile" ${primary ? '' : 'disabled'}>На основном телефоне</option></select></label><div data-web>${adminPasswordField}${totp ? '<label>TOTP-код<input data-code inputmode="numeric" maxlength="6" autocomplete="one-time-code"></label>' : ''}</div><p data-phone hidden>Запрос будет отправлен на основной телефон «${esc(primary?.name || 'не назначен')}».</p><p>После отключения защиты отвязка из веб-панели будет выполняться сразу.</p>`);
   modal.querySelector('[data-method]').onchange = event => {
     modal.querySelector('[data-web]').hidden = event.target.value === 'mobile';
     modal.querySelector('[data-phone]').hidden = event.target.value !== 'mobile';

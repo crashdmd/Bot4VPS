@@ -1,8 +1,16 @@
 from __future__ import annotations
 
+import base64
+import hashlib
 import json
+import os
 import posixpath
+import signal
+import subprocess
+import sys
 import tarfile
+import tempfile
+import threading
 from pathlib import Path, PurePosixPath
 
 from .errors import BackupError, ErrorCode
@@ -13,6 +21,7 @@ from .validation import normalize_exclusions
 
 
 MAX_MANIFEST_BYTES = 1024 * 1024
+MAX_RESTORE_UNIT_BYTES = 32 * 1024
 MAX_LABEL_LENGTH = 200
 MAX_METADATA_LENGTH = 200
 _ALLOWED_TYPES = {"server", "bot4vps"}
@@ -517,53 +526,91 @@ def validate_archive_inventory_members(members: object) -> list[dict]:
     return _validate_managed_members(checked)
 
 
-def _inspect_archive(archive_path: str | Path) -> tuple[dict, BackupError | None]:
+_DEFAULT_INDEX_MEMBERS = 250_000
+_DEFAULT_INDEX_BYTES = 256 * 1024 ** 3
+_INDEX_METADATA_READ = 8 * 1024 ** 2
+_INDEX_OUTPUT_BYTES = 96 * 1024 ** 2
+_INDEX_MEMORY_BYTES = 640 * 1024 ** 2
+_INDEX_CPU_SECONDS = 120
+_INDEX_WALL_SECONDS = 180
+_index_slots = threading.BoundedSemaphore(2)
+
+
+class _MeteredTarInput:
+    """Cap decompressed offsets and individual reads, including TAR metadata."""
+
+    def __init__(self, stream, limit):
+        self.stream = stream
+        self.limit = limit
+
+    def __getattr__(self, name):
+        return getattr(self.stream, name)
+
+    def read(self, size):
+        if not 0 <= size <= _INDEX_METADATA_READ:
+            raise BackupError(ErrorCode.ARCHIVE_LIMIT_EXCEEDED, "Слишком большой блок метаданных TAR")
+        if self.stream.tell() + size > self.limit:
+            raise BackupError(ErrorCode.ARCHIVE_LIMIT_EXCEEDED, "Превышен распакованный объём TAR")
+        return self.stream.read(size)
+
+    def seek(self, offset, whence=os.SEEK_SET):
+        if whence != os.SEEK_SET or not 0 <= offset <= self.limit:
+            raise BackupError(ErrorCode.ARCHIVE_LIMIT_EXCEEDED, "Превышен распакованный объём TAR")
+        return self.stream.seek(offset)
+
+
+class _InspectionTar(tarfile.TarFile):
+    @classmethod
+    def taropen(cls, name, mode="r", fileobj=None, *, unpacked_limit, **kwargs):
+        return super().taropen(name, mode, _MeteredTarInput(fileobj, unpacked_limit), **kwargs)
+
+
+def _bounded_members(archive, member_limit, unpacked_limit):
+    member_count = 0
+    source_bytes = 0
+    while (member := archive.next()) is not None:
+        member_count += 1
+        if member_count > member_limit:
+            raise BackupError(ErrorCode.ARCHIVE_LIMIT_EXCEEDED, "Превышено допустимое число записей TAR")
+        if member.isfile():
+            source_bytes += member.size
+            if source_bytes > unpacked_limit:
+                raise BackupError(ErrorCode.ARCHIVE_LIMIT_EXCEEDED, "Превышен распакованный объём файлов TAR")
+        yield member
+        # Drop raw TarInfo objects and PAX metadata as we advance.
+        archive.members.clear()
+
+
+def _inspect_archive_local(archive_path, member_limit, unpacked_limit) -> tuple[dict, BackupError | None]:
     """Read TAR members and retain, but do not raise, optional Manifest errors."""
     archive_path = Path(archive_path)
     members: list[dict] = []
-    manifest_members: list[tarfile.TarInfo] = []
+    manifest_found = False
     raw_manifest: bytes | None = None
     manifest_error: BackupError | None = None
     try:
-        with open_backup_tar(archive_path) as archive:
+        with open_backup_tar(archive_path, tar_class=_InspectionTar, unpacked_limit=unpacked_limit) as archive:
             self_container = archive.self_container
-            for member in archive:
+            for member in _bounded_members(archive, member_limit, unpacked_limit):
                 members.append(_member_metadata(member))
                 if _manifest_logical_name(member.name):
-                    manifest_members.append(member)
-
-            if len(manifest_members) > 1:
-                raise BackupError(
-                    ErrorCode.MANIFEST_DUPLICATE,
-                    "Archive содержит несколько manifest.json",
-                )
-            if manifest_members:
-                manifest_member = manifest_members[0]
-                if not manifest_member.isfile():
-                    manifest_error = BackupError(
-                        ErrorCode.MANIFEST_INVALID,
-                        "manifest.json должен быть regular file",
-                    )
-                elif not 0 <= manifest_member.size <= MAX_MANIFEST_BYTES:
-                    manifest_error = BackupError(
-                        ErrorCode.MANIFEST_INVALID,
-                        "manifest.json превышает допустимый размер",
-                    )
-                else:
-                    stream = archive.extractfile(manifest_member)
-                    if stream is None:
-                        manifest_error = BackupError(
-                            ErrorCode.MANIFEST_INVALID,
-                            "manifest.json недоступен для чтения",
-                        )
+                    if manifest_found:
+                        raise BackupError(ErrorCode.MANIFEST_DUPLICATE, "Archive содержит несколько manifest.json")
+                    manifest_found = True
+                    if not member.isfile():
+                        manifest_error = BackupError(ErrorCode.MANIFEST_INVALID, "manifest.json должен быть regular file")
+                    elif not 0 <= member.size <= MAX_MANIFEST_BYTES:
+                        manifest_error = BackupError(ErrorCode.MANIFEST_INVALID, "manifest.json превышает допустимый размер")
                     else:
-                        raw_manifest = stream.read(MAX_MANIFEST_BYTES + 1)
-                        if len(raw_manifest) > MAX_MANIFEST_BYTES:
-                            raw_manifest = None
-                            manifest_error = BackupError(
-                                ErrorCode.MANIFEST_INVALID,
-                                "manifest.json превышает допустимый размер",
-                            )
+                        stream = archive.extractfile(member)
+                        if stream is None:
+                            manifest_error = BackupError(ErrorCode.MANIFEST_INVALID, "manifest.json недоступен для чтения")
+                        else:
+                            with stream:
+                                raw_manifest = stream.read(MAX_MANIFEST_BYTES + 1)
+                            if len(raw_manifest) > MAX_MANIFEST_BYTES:
+                                raw_manifest = None
+                                manifest_error = BackupError(ErrorCode.MANIFEST_INVALID, "manifest.json превышает допустимый размер")
     except BackupError:
         raise
     except (tarfile.TarError, OSError, EOFError) as exc:
@@ -597,6 +644,154 @@ def _inspect_archive(archive_path: str | Path) -> tuple[dict, BackupError | None
             raise BackupError(ErrorCode.MANIFEST_INVALID, "Контейнер Bot4VPS требует manifest v3")
         validate_manifest(manifest, expected_type="bot4vps")
     return {"manifest": manifest, "members": members}, manifest_error
+
+
+def _read_archive_files_local(path, member_limit, unpacked_limit, requested, unique_path):
+    """Read only specified regular files, with an optional normalized unique path."""
+    files = {}
+    parents = set()
+    if unique_path:
+        parent = posixpath.dirname(unique_path)
+        while parent and parent != "." and parent not in parents:
+            parents.add(parent)
+            parent = posixpath.dirname(parent)
+    unique_matches = 0
+    substituted = False
+    try:
+        with open_backup_tar(path, tar_class=_InspectionTar, unpacked_limit=unpacked_limit) as archive:
+            for member in _bounded_members(archive, member_limit, unpacked_limit):
+                name = member.name
+                if unique_path:
+                    normalized = posixpath.normpath(name)
+                    if normalized in parents and not member.isdir():
+                        substituted = True
+                    if normalized == unique_path:
+                        unique_matches += 1
+                        name = unique_path
+                request = requested.get(name)
+                if request is None:
+                    continue
+                # For exact names, match tarfile.getmember()'s last occurrence.
+                files.pop(name, None)
+                if member.isdir() and isinstance(request, str):
+                    files[name] = "directory"
+                elif member.isfile() and request == "sha256":
+                    digest = hashlib.sha256()
+                    with archive.extractfile(member) as stream:
+                        while chunk := stream.read(256 * 1024):
+                            digest.update(chunk)
+                    files[name] = digest.hexdigest()
+                elif member.isfile() and isinstance(request, int) and 0 <= member.size <= request:
+                    with archive.extractfile(member) as stream:
+                        data = stream.read(request + 1)
+                    if len(data) == member.size:
+                        files[name] = base64.b64encode(data).decode("ascii")
+    except (tarfile.TarError, OSError, EOFError) as exc:
+        raise BackupError(ErrorCode.ARCHIVE_INVALID, "Archive tar.gz повреждён или недоступен") from exc
+    if unique_path and (unique_matches != 1 or substituted):
+        files.pop(unique_path, None)
+    return files
+
+
+def _restore_inspection_error(error):
+    if error is None:
+        return None
+    return BackupError(
+        error["code"], error["message"], retryable=error["retryable"],
+        correlation_id=error["correlation_id"], details=error.get("details"),
+    )
+
+
+def _run_archive_inspector():
+    import resource
+
+    for resource_id, bound in (
+        (resource.RLIMIT_AS, _INDEX_MEMORY_BYTES),
+        (resource.RLIMIT_CPU, _INDEX_CPU_SECONDS),
+        (resource.RLIMIT_FSIZE, _INDEX_OUTPUT_BYTES),
+    ):
+        soft, hard = resource.getrlimit(resource_id)
+        ceilings = (bound, *(limit for limit in (soft, hard) if limit != resource.RLIM_INFINITY))
+        resource.setrlimit(resource_id, (min(ceilings), hard))
+
+    path, member_limit, unpacked_limit = sys.argv[1:]
+    file_request = sys.stdin.read()
+    limits = int(member_limit), int(unpacked_limit)
+    try:
+        if file_request:
+            requested, unique_path = json.loads(file_request)
+            result = {"files": _read_archive_files_local(path, *limits, requested, unique_path)}
+        else:
+            inspected, manifest_error = _inspect_archive_local(path, *limits)
+            result = {
+                "inspection": inspected,
+                "manifest_error": manifest_error.to_safe_error().to_dict() if manifest_error else None,
+            }
+    except BackupError as exc:
+        result = {"error": exc.to_safe_error().to_dict()}
+    except MemoryError:
+        result = {"error": BackupError(
+            ErrorCode.ARCHIVE_LIMIT_EXCEEDED, "При индексировании TAR превышен лимит памяти"
+        ).to_safe_error().to_dict()}
+    except (ValueError, OverflowError, RecursionError):
+        result = {"error": BackupError(
+            ErrorCode.ARCHIVE_INVALID, "Некорректные метаданные TAR"
+        ).to_safe_error().to_dict()}
+    json.dump(result, sys.stdout, ensure_ascii=True, separators=(",", ":"))
+
+
+def _call_archive_inspector(archive_path: str | Path, file_request: str = "") -> dict:
+    from core.config import get_backup_config
+
+    limits = get_backup_config()["bot4vps"]["limits"]
+    member_limit = limits.get("max_index_members") or _DEFAULT_INDEX_MEMBERS
+    unpacked_limit = limits.get("max_index_unpacked_bytes") or _DEFAULT_INDEX_BYTES
+    cmd = [
+        sys.executable, "-B", "-c", "from core.backup.manifest import _run_archive_inspector; _run_archive_inspector()",
+        str(Path(archive_path).absolute()), str(member_limit), str(unpacked_limit),
+    ]
+    if not _index_slots.acquire(timeout=_INDEX_WALL_SECONDS):
+        raise BackupError(ErrorCode.OPERATION_CONFLICT, "Индексаторы TAR заняты. Повторите операцию.", retryable=True)
+    try:
+        with tempfile.TemporaryFile() as output:
+            try:
+                completed = subprocess.run(
+                    cmd, cwd=Path(__file__).resolve().parents[2], input=file_request.encode("ascii"),
+                    stdout=output, stderr=subprocess.DEVNULL, timeout=_INDEX_WALL_SECONDS,
+                )
+            except subprocess.TimeoutExpired:
+                raise BackupError(ErrorCode.ARCHIVE_LIMIT_EXCEEDED, "Превышено время индексирования TAR") from None
+            if completed.returncode:
+                if completed.returncode in (-signal.SIGXCPU, -signal.SIGKILL, -signal.SIGXFSZ) or output.tell() >= _INDEX_OUTPUT_BYTES:
+                    raise BackupError(ErrorCode.ARCHIVE_LIMIT_EXCEEDED, "Индексирование TAR превысило лимит ресурсов")
+                raise BackupError(ErrorCode.ARCHIVE_INVALID, "Не удалось прочитать метаданные TAR")
+            output.seek(0)
+            try:
+                result = json.load(output)
+            except (ValueError, UnicodeError):
+                raise BackupError(ErrorCode.ARCHIVE_INVALID, "Не удалось прочитать результат индексирования TAR") from None
+    finally:
+        _index_slots.release()
+
+    if (error := _restore_inspection_error(result.get("error"))) is not None:
+        raise error
+    return result
+
+
+def _inspect_archive(archive_path: str | Path) -> tuple[dict, BackupError | None]:
+    result = _call_archive_inspector(archive_path)
+    return result["inspection"], _restore_inspection_error(result["manifest_error"])
+
+
+def read_archive_files(archive_path, requested, *, unique_path=None) -> dict[str, bytes]:
+    result = inspect_archive_entries(archive_path, requested, unique_path=unique_path)
+    return {name: base64.b64decode(data) for name, data in result.items()}
+
+
+def inspect_archive_entries(archive_path, requested, *, unique_path=None) -> dict[str, str]:
+    """Read bounded metadata, hash chosen regular files or check directories."""
+    request = json.dumps([requested, unique_path], ensure_ascii=True)
+    return _call_archive_inspector(archive_path, request)["files"]
 
 
 def inspect_archive(archive_path: str | Path) -> dict:

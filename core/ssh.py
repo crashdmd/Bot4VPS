@@ -63,7 +63,22 @@ def create_ssh_client(server, timeout=8):
 def _ssh_connect(ssh, server, timeout=8):
     """Низкоуровневое connect с реквизитами сервера (без host-key слоя)."""
     auth_type = server.get("auth_type", "password")
-    if auth_type == "key":
+    if auth_type == "none":
+        if not server.get("_gateway_node_id") or server.get("user") != "root":
+            raise ValueError("Вход без пароля доступен только для root OpenWrt")
+        from paramiko.auth_strategy import AuthFailure, AuthStrategy, NoneAuth
+
+        class OpenWrtNoPassword(AuthStrategy):
+            def get_sources(self):
+                yield NoneAuth("root")
+
+        try:
+            ssh.connect(hostname=server["host"], port=server.get("port", 22),
+                        username="root", timeout=timeout, auth_timeout=timeout,
+                        auth_strategy=OpenWrtNoPassword(None))
+        except AuthFailure:
+            raise ValueError("Роутер не разрешил вход без пароля. Укажите пароль root или SSH-ключ.") from None
+    elif auth_type == "key":
         ssh.connect(
             hostname=server["host"], port=server.get("port", 22),
             username=server["user"], key_filename=server["key_path"], timeout=timeout,
@@ -161,15 +176,31 @@ def test_connection(server):
         return False, str(e)
 
 
-def _sudo_argv(server, argv: Sequence[str], *, privileged: bool = True) -> str:
-    """Собрать shell wrapper только из безопасно quoted argv."""
-    if not argv or any("\x00" in str(value) for value in argv):
-        raise ValueError("Некорректный binary command argv")
-    command = shlex.join([str(value) for value in argv])
+def _sudo_command(server, command: str, *, privileged: bool = True) -> tuple[str, str | None]:
     wrapped = f"bash -c {shlex.quote(command)}"
-    if privileged and (server.get("user", "") or "").lower() != "root":
-        wrapped = f"sudo -S -p '' {wrapped}"
-    return wrapped
+    if not privileged or (server.get("user", "") or "").lower() == "root":
+        return wrapped, None
+
+    # Sudo may skip authentication (NOPASSWD or a valid timestamp). Replace
+    # stdin inside the privileged wrapper before starting the actual command.
+    # The password travels only in the input of this dedicated SSH channel.
+    isolated = "exec </dev/null || exit 1\n" + command
+    password = server.get("password") or ""
+    if not password:
+        return f"sudo -n -p '' bash -c {shlex.quote(isolated)}", None
+    return f"sudo -S -p '' bash -c {shlex.quote(isolated)}", password + "\n"
+
+
+def _write_command_input(stdin, data: str) -> None:
+    try:
+        stdin.write(data)
+        stdin.flush()
+        stdin.channel.shutdown_write()
+    except OSError:
+        # An authenticated or NOPASSWD command can finish before SSH accepts
+        # input. Preserve the exit status and diagnostics in that case.
+        if not stdin.channel.closed and not stdin.channel.exit_status_ready():
+            raise
 
 
 def exec_binary_stream(
@@ -187,13 +218,12 @@ def exec_binary_stream(
     stderr дренируется параллельно, чтобы он не заполнил SSH channel. stdout
     никогда не декодируется; stderr ограничен безопасным диагностическим буфером.
     """
-    command = _sudo_argv(server, argv, privileged=privileged)
+    if not argv or any("\x00" in str(value) for value in argv):
+        raise ValueError("Некорректный binary command argv")
+    command, sudo_input = _sudo_command(server, shlex.join([str(value) for value in argv]), privileged=privileged)
     stdin, stdout, stderr = ssh.exec_command(command, timeout=timeout)
-    is_root = (server.get("user", "") or "").lower() == "root"
-    if privileged and not is_root:
-        stdin.write((server.get("password", "") or "") + "\n")
-        stdin.flush()
-        stdin.channel.shutdown_write()
+    if sudo_input is not None:
+        _write_command_input(stdin, sudo_input)
     channel = stdout.channel
     stderr_chunks: list[bytes] = []
     stderr_size = 0
@@ -457,9 +487,7 @@ def _exec_remote(
     """Общий прогон команды: чтение stdout/stderr и exit status."""
     stdin, stdout, stderr = ssh.exec_command(full_command, timeout=timeout)
     if stdin_data is not None:
-        stdin.write(stdin_data)
-        stdin.flush()
-        stdin.channel.shutdown_write()
+        _write_command_input(stdin, stdin_data)
     from core import cancel_flags
     import codecs
 
@@ -536,10 +564,7 @@ def exec_sudo(
     timeout: int = 600,
 ) -> Tuple[int, str, str]:
     """Выполнить текстовую команду на SSH с учётом sudo для не-root."""
-    is_root = (server.get("user", "") or "").lower() == "root"
-    quoted = shlex.quote(command)
-    full = f"bash -c {quoted}" if is_root else f"sudo -S -p '' bash -c {quoted}"
-    stdin_data = None if is_root else (server.get("password", "") or "") + "\n"
+    full, stdin_data = _sudo_command(server, command)
     code, out, err = _exec_remote(ssh, full, timeout, emit=emit, stdin_data=stdin_data)
     reason = sudo_failure_message(err) if code != 0 else None
     if reason:

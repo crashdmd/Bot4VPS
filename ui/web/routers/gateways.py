@@ -11,6 +11,7 @@ from fastapi import APIRouter, HTTPException, Request, Depends, UploadFile, File
 from pydantic import BaseModel, Field
 
 from core.openwrt import bootstrap
+from core.openwrt import password as gateway_password
 from core.openwrt import service_updates as service_update_jobs
 from core.openwrt import integration_updates
 from core.openwrt import backups as gateway_backups
@@ -31,7 +32,7 @@ class ProbeBody(BaseModel):
     host: str = Field(min_length=1, max_length=253)
     port: int = Field(default=22, ge=1, le=65535)
     user: str = Field(default="root", min_length=1, max_length=64)
-    auth_type: Literal["password", "key"] = "password"
+    auth_type: Literal["password", "key", "none"] = "password"
     password: str | None = Field(default=None, repr=False)
     key_path: str | None = None
     group: str = ""
@@ -59,9 +60,15 @@ class DeleteBody(BaseModel):
 class SSHBody(BaseModel):
     user: str = Field(default='root', min_length=1, max_length=64)
     port: int = Field(default=22, ge=1, le=65535)
-    auth_type: Literal['password', 'key'] = 'password'
+    auth_type: Literal['password', 'key', 'none'] = 'password'
     password: str | None = Field(default=None, max_length=512, repr=False)
     key_path: str | None = None
+
+
+class RootPasswordBody(BaseModel):
+    current_password: str = Field(default='', repr=False)
+    password: str = Field(repr=False)
+    confirmation: str = Field(repr=False)
 
 
 class ReserveBody(BaseModel):
@@ -119,6 +126,7 @@ def public(node):
         "luci_url": config.get("url", "").removesuffix("/ubus") + "/cgi-bin/luci/",
         "access_url": config.get("url", "").removesuffix("/ubus") + config.get("luci_path", "/cgi-bin/luci/admin/services/bot4vps").replace('/admin/system/bot4vps', '/admin/services/bot4vps'),
         "ssh_configured": bool(ssh), "ssh_user": ssh.get('user'), "ssh_port": ssh.get('port', 22), "ssh_auth_type": ssh.get('auth_type', 'password'),
+        "root_password_configured": node.get('root_password_configured'),
         "managed": bool(config.get("managed")), "bootstrap_state": node.get("bootstrap_state", "ready"), "deletion_pending": bool(node.get("deletion_pending")), "monitor": snapshot(node["id"]),
         "service_update_tasks": service_update_jobs.task_states(node['id'])}
 
@@ -132,6 +140,8 @@ def gateway(node_id):
 
 
 def editing_allowed(node_id):
+    if gateway_password.changing(node_id):
+        raise HTTPException(409, 'Дождитесь завершения смены пароля root.')
     from core.task_manager import task_manager
     tasks = [task_manager.get_running(node_id), *task_manager.get_queue(node_id)]
     if any(task and task.kind in ('openwrt-disconnect', 'openwrt-router-operation', 'openwrt-operation', 'openwrt-integration-update', 'openwrt-backup') and not task.is_done for task in tasks):
@@ -217,7 +227,7 @@ async def list_gateways(compact: bool = False):
 
 @router.post("/probe")
 async def probe(body: ProbeBody, request: Request):
-    if body.auth_type == "password" and not body.password:
+    if body.user != 'root' and (body.auth_type == 'none' or (body.auth_type == 'password' and not body.password)):
         raise HTTPException(400, "Введите SSH-пароль")
     if any(node["host"] == body.host for node in load_gateways()):
         raise HTTPException(409, "Этот шлюз уже добавлен")
@@ -435,9 +445,11 @@ async def get_gateway(node_id: str):
 
 @router.get('/{node_id}/traffic')
 async def gateway_traffic(node_id: str, seconds: int = 3600):
-    from core.openwrt.monitor import traffic_series
+    from core.openwrt.monitor import TRAFFIC_PERIODS, traffic_series
     gateway(node_id)
-    try: return {'seconds': seconds, 'traffic_history': traffic_series(node_id, seconds)}
+    try:
+        points = await asyncio.to_thread(traffic_series, node_id, seconds)
+        return {'seconds': seconds, 'traffic_history': points, 'available_periods': TRAFFIC_PERIODS}
     except ValueError as exc: raise HTTPException(400, str(exc)) from None
 
 
@@ -566,7 +578,7 @@ async def refresh_gateway(node_id: str):
 
 @router.put("/{node_id}/credentials")
 async def replace_credentials(node_id: str, body: ManualBody):
-    from core.storage import commit_server
+    from core.storage import commit_server, data_lock
     node = gateway(node_id)
     editing_allowed(node_id)
     try:
@@ -582,14 +594,20 @@ async def replace_credentials(node_id: str, body: ManualBody):
             if node["openwrt"].get(name): config[name] = node["openwrt"][name]
         if node['openwrt'].get('ssh'): config['ssh'] = node['openwrt']['ssh']
         config["luci_path"] = node["openwrt"].get("luci_path", "/cgi-bin/luci/admin/services/bot4vps")
-        editing_allowed(node_id)
-        host = urlsplit(config['url']).hostname
-        node.update(name=bootstrap.gateway_name(body.name, config['board'], host), host=host, openwrt=config, deletion_pending=False)
-        if 'group' in body.model_fields_set: node['group'] = body.group
-        node.pop('revocation_requested', None)
-        commit_server(node)
-        await refresh(node, force=True)
-        return public(node)
+        with data_lock():
+            editing_allowed(node_id)
+            current = gateway(node_id)
+            if current['openwrt'] != node['openwrt']:
+                raise ValueError('Реквизиты шлюза изменились. Откройте вкладку «Доступ» заново.')
+            host = urlsplit(config['url']).hostname
+            if host != current['host']:
+                current.pop('root_password_configured', None)
+            current.update(name=bootstrap.gateway_name(body.name, config['board'], host), host=host, openwrt=config, deletion_pending=False)
+            if 'group' in body.model_fields_set: current['group'] = body.group
+            current.pop('revocation_requested', None)
+            commit_server(current)
+        await refresh(current, force=True)
+        return public(current)
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from None
 
@@ -613,12 +631,12 @@ async def save_ssh(node_id: str, body: SSHBody):
     node = gateway(node_id)
     editing_allowed(node_id)
     previous = node['openwrt'].get('ssh') or {}
-    credentials = {'id': node['id'], 'name': node['name'], 'host': node['host'], 'user': body.user, 'port': body.port, 'auth_type': body.auth_type}
+    credentials = {'id': node['id'], '_gateway_node_id': node_id, 'name': node['name'], 'host': node['host'], 'user': body.user, 'port': body.port, 'auth_type': body.auth_type}
     if previous.get('host_key'): credentials['host_key'] = previous['host_key']
     if body.auth_type == 'password':
         credentials['password'] = body.password or (previous.get('password') if previous.get('auth_type') == 'password' else None)
         if not credentials['password']: raise HTTPException(400, 'Введите SSH-пароль')
-    else:
+    elif body.auth_type == 'key':
         from pathlib import Path
         path = Path(body.key_path or previous.get('key_path') or '')
         keys = (get_install_path() / 'keys').resolve()
@@ -634,10 +652,27 @@ async def save_ssh(node_id: str, body: SSHBody):
             editing_allowed(node_id)
             current = gateway(node_id)
             if current['host'] != node['host']: raise ValueError('Адрес шлюза изменился; повторите проверку SSH')
+            if (current['openwrt'].get('ssh') or {}) != previous:
+                raise ValueError('SSH-доступ изменился. Откройте вкладку «Доступ» заново.')
             current['openwrt']['ssh'] = {key: credentials[key] for key in ('port', 'user', 'auth_type', 'password', 'key_path', 'host_key') if key in credentials}
+            current['root_password_configured'] = inspected[0].get('root_password_configured')
             commit_server(current)
         return public(current)
     except Exception as exc:
+        raise HTTPException(400, str(exc)) from None
+
+
+@router.get('/{node_id}/root-password')
+def root_password_status(node_id: str):
+    return {'configured': gateway_password.read(gateway(node_id))}
+
+
+@router.put('/{node_id}/root-password')
+def change_root_password(node_id: str, body: RootPasswordBody):
+    editing_allowed(node_id)
+    try:
+        return public(gateway_password.change(gateway(node_id), body.current_password, body.password, body.confirmation))
+    except ValueError as exc:
         raise HTTPException(400, str(exc)) from None
 
 

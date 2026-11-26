@@ -13,7 +13,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 from .._internal.auth_flows import AuthFlows, browser_id
 from .._internal.device_access.access import MobileAccess
-from ..security import (auth_enabled, establish_web_session, require_auth,
+from ..security import (auth_enabled, browser_origin_matches, establish_web_session, require_auth,
                         set_request_actor, verified_mobile_device_id)
 
 
@@ -30,9 +30,8 @@ class AuthTransportMiddleware(BaseHTTPMiddleware):
             if request.url.scheme != "https" and (https_required or mobile_device):
                 return JSONResponse({"detail": "Для авторизации и управления защитой откройте панель по HTTPS"}, status_code=400)
             if not mobile_device:
-                origin = f"{request.url.scheme}://{request.url.netloc}"
                 if (request.headers.get("sec-fetch-site", "") not in ("", "same-origin", "none") or
-                    (request.method != "GET" and request.headers.get("origin") != origin)):
+                    (request.method != "GET" and not browser_origin_matches(request))):
                     return JSONResponse({"detail": "Откройте действие в самой панели"}, status_code=403)
         response = await call_next(request)
         if protected:
@@ -323,7 +322,13 @@ async def start_two_factor(request: Request, body: TwoFactorBody):
 
 
 def _two_factor_browser(request, flow_id):
-    if request.session.get("two_factor_flow") != flow_id or not request.session.get("user") or "recovery_until" in request.session:
+    from ..security import web_session_active
+
+    session = request.session
+    if (
+        session.get("two_factor_flow") != flow_id or not session.get("user")
+        or "recovery_until" in session or not web_session_active(session)
+    ):
         raise HTTPException(403, "Запрос принадлежит другой браузерной сессии")
     return browser_id(request)
 

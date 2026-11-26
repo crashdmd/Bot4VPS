@@ -567,12 +567,19 @@ export function metricTile(l, v, p) {
 
 export function bindPasswordToggles(root = document) {
   root.querySelectorAll('[data-pw-toggle]').forEach(btn => {
+    const id = btn.getAttribute('data-pw-toggle');
+    const input = document.getElementById(id);
+    if (!input) return;
+    const updateLabel = () => {
+      const visible = input.type === 'text';
+      btn.setAttribute('aria-label', visible ? 'Скрыть введённое' : 'Показать введённое');
+      btn.setAttribute('aria-pressed', String(visible));
+    };
+    updateLabel();
     btn.onclick = () => {
-      const id = btn.getAttribute('data-pw-toggle');
-      const input = document.getElementById(id);
-      if (!input) return;
       const show = input.type === 'password';
       input.type = show ? 'text' : 'password';
+      updateLabel();
       btn.textContent = show ? '🙈' : '👁';
       // Возвращаем twemoji: сырой юникод-эмодзи системный шрифт рисует
       // крупнее img.emoji (1em) — иконка «распухала» после первого клика.

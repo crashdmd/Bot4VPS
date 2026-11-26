@@ -6,7 +6,7 @@ import threading
 from collections import deque
 
 from core.storage import find_server
-from core.ssh import create_ssh_client, exec_plain, _exec_remote, BinaryStreamCancelled
+from core.ssh import create_ssh_client, exec_plain, _exec_remote, _sudo_command, BinaryStreamCancelled
 from core.script_utils import load_scripts, get_script_info, read_script, get_script_params, validate_script_path, validate_script_values
 
 
@@ -71,24 +71,15 @@ def _run_script_sync(
             f"{key}={shlex.quote(str(value))}"
             for key, value in values.items()
         )
-        is_root = server.get("user", "").lower() == "root"
-
+        command = f"timeout 600 bash {shlex.quote(remote_script)}"
         if env:
-            command = (
-                f"{env} timeout 600 bash {shlex.quote(remote_script)}"
-                if is_root
-                else f"sudo -S -p '' env {env} timeout 600 bash {shlex.quote(remote_script)}"
-            )
-        else:
-            command = (
-                f"timeout 600 bash {shlex.quote(remote_script)}"
-                if is_root
-                else f"sudo -S -p '' timeout 600 bash {shlex.quote(remote_script)}"
-            )
+            command = f"{env} {command}"
+        stdin_data = None
+        if (server.get("user") or "").lower() != "root":
+            command, stdin_data = _sudo_command(server, command)
 
         emit("🚀 Запускаем скрипт...")
         emit("⏳ Ожидаем завершения...")
-        stdin_data = None if is_root else server.get("password", "") + "\n"
         exit_code, out, err = _exec_remote(
             ssh, command, 620, emit=emit, stdin_data=stdin_data,
             cancel_flag=cancel_flag, stream_stderr=True,

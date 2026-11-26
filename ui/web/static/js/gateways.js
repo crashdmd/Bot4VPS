@@ -2,17 +2,16 @@ import { j } from './api.js';
 import { toast, confirmAction } from './ui.js';
 
 let bridge = null, pageUnmount = null, modalUnmount = null, viewModule = null;
-let returnNodeId = null;
+let pageGeneration = 0, terminalGatewayId = null;
 export function openGatewayFromDashboard(id) {
-  returnNodeId=id;
-  window.b4vNav?.('gateways');
+  window.b4vNav?.('gateways', { nodeId: id });
 }
 async function view() {
   if (!document.getElementById('gateway-vue-css')) {
     const css = document.createElement('link'); css.id = 'gateway-vue-css'; css.rel = 'stylesheet';
-    css.href = '/static/gateways/gateways.css?v=20261125-port-forward-v1'; document.head.append(css);
+    css.href = '/static/gateways/gateways.css?v=20261126-gateway-15m'; document.head.append(css);
   }
-  viewModule ||= import('/static/gateways/gateways.js?v=20261125-port-forward-v1');
+  viewModule ||= import('/static/gateways/gateways.js?v=20261126-gateway-15m');
   return viewModule;
 }
 export async function refreshGatewayNav() {
@@ -22,15 +21,18 @@ export async function refreshGatewayNav() {
     if (button) button.hidden = data.enabled === false || data.enabled == null && !(data.gateways?.length);
   } catch (_) { /* Login gate may not have opened yet. */ }
 }
-export async function openGatewayPage() {
+export async function openGatewayPage({ restore = false, nodeId = null } = {}) {
+  const generation = ++pageGeneration;
   try {
     const module = await view();
+    if (generation !== pageGeneration) return;
     pageUnmount?.();
-    pageUnmount = module.mount(document.getElementById('gateway-root'), bridge, false, returnNodeId ? { return_node_id: returnNodeId } : null);
-    returnNodeId = null;
+    pageUnmount = module.mount(document.getElementById('gateway-root'), bridge, false, {
+      restore_location: restore, return_node_id: nodeId,
+    });
   } catch (error) { toast(error.message, false); }
 }
-export function stopGatewayPage() { pageUnmount?.(); pageUnmount = null; }
+export function stopGatewayPage() { pageGeneration++; pageUnmount?.(); pageUnmount = null; }
 export async function openGatewayWizard(plan = null) {
   if (!bridge) return;
   try {
@@ -48,14 +50,16 @@ export function bindGateways(options) {
   window.addEventListener('bot4vps:openwrt-feature-changed', refreshGatewayNav);
   bridge = { request: j, task: options.task, navigate: options.navigate, changed: refreshGatewayNav, add: openGatewayWizard,
     console: async node => {
-      returnNodeId = node.id;
+      terminalGatewayId = node.id;
       const terminal = await import('./terminal.js?v=20260905-glassblue-v2');
       options.navigate('terminal');
       requestAnimationFrame(() => terminal.openGatewayTerminal(node));
     } };
   document.getElementById('btn-back-from-terminal')?.addEventListener('click', event => {
     if (event.currentTarget.dataset.nodeKind !== 'gateways') return;
-    event.preventDefault(); event.stopImmediatePropagation(); options.navigate('gateways');
+    event.preventDefault(); event.stopImmediatePropagation();
+    options.navigate('gateways', { nodeId: terminalGatewayId });
+    terminalGatewayId = null;
   }, { capture: true });
   document.getElementById('header-add-node')?.addEventListener('click', () => {
     const menu = document.getElementById('header-add-node-menu'); menu.hidden = !menu.hidden;

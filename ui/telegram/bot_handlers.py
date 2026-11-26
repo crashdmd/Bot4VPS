@@ -1,6 +1,7 @@
 import asyncio
 import logging
 from telegram import Update
+from telegram.constants import ChatType
 from telegram.ext import ContextTypes
 from telegram.error import BadRequest
 
@@ -32,8 +33,14 @@ logger = logging.getLogger(__name__)
 async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Главный роутер callback-запросов."""
     query = update.callback_query
+    allowed = is_allowed(query.from_user.id)
+    chat = update.effective_chat
+    deny_individually = not allowed and (chat is None or chat.type != ChatType.PRIVATE)
     try:
-        await query.answer()
+        if deny_individually:
+            await query.answer("⛔ Доступ запрещён.", show_alert=True)
+        else:
+            await query.answer()
     except BadRequest:
         # Query is too old / already answered — игнорируем
         pass
@@ -47,8 +54,9 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Накопленные уведомления доставляет фоновый дрейн ядра
     # (notifications.drain_pending_notifications, раз в 5с) — кнопки к
     # доставке больше не имеют отношения.
-    if not is_allowed(query.from_user.id):
-        await query.edit_message_text("⛔ Доступ запрещён.")
+    if not allowed:
+        if not deny_individually:
+            await query.edit_message_text("⛔ Доступ запрещён.")
         return
 
     # Главный роутер кнопок: через него идёт почти всё, что человек делает

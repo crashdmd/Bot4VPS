@@ -5,14 +5,53 @@ import asyncio
 import time
 
 from fastapi import HTTPException
+from itsdangerous import BadSignature
 from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.middleware.sessions import SessionMiddleware
+from starlette.requests import HTTPConnection
+from starlette.routing import get_route_path
+
+from ..security import verified_mobile_device_id, web_session_active
+
+
+class BrowserSessionMiddleware(SessionMiddleware):
+    """Keep the original cookie deadline for WebSocket and SSE authorization."""
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "websocket" or (
+            scope["type"] == "http" and get_route_path(scope) == "/api/stream"
+        ):
+            connection = HTTPConnection(scope)
+            cookie = connection.cookies.get(self.session_cookie)
+            if cookie and not verified_mobile_device_id(connection):
+                try:
+                    _, issued = self.signer.unsign(cookie, max_age=self.max_age, return_timestamp=True)
+                except BadSignature:
+                    pass  # SessionMiddleware treats this cookie as anonymous.
+                else:
+                    scope["web_session_expires"] = issued.timestamp() + self.max_age
+        await super().__call__(scope, receive, send)
 
 
 class BrowserContinuityMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request, call_next):
-        if request.url.path.startswith('/api/'):
+        path = get_route_path(request.scope)
+        if path != "/" and not path.startswith("/api/"):
+            return await call_next(request)
+
+        session = request.session
+        if session.get("user") and not web_session_active(session):
+            # Discard a revoked Web identity before any handler can re-sign it,
+            # including when the request has an independent Mobile identity.
+            session.clear()
+        elif not verified_mobile_device_id(request):
             await resume_approved_browser_session(request)
-        return await call_next(request)
+
+        response = await call_next(request)
+        if session.modified and session.get("user") and not web_session_active(session):
+            # An API handler may have updated the cookie while logout was in progress.
+            session.clear()
+        return response
 
 
 def _approved_version(session):
@@ -48,11 +87,11 @@ def _approved_version(session):
 
 
 async def resume_approved_browser_session(request):
-    from ..security import auth_enabled, session_valid, verified_mobile_device_id, auth_version
+    from ..security import auth_enabled, session_valid, auth_version
     from core.config import get_web_config
+
     session = request.session
-    if (verified_mobile_device_id(request) or not auth_enabled() or not session.get("user")
-            or "recovery_until" in session or session_valid(session)
+    if (not session.get("user") or not auth_enabled() or "recovery_until" in session or session_valid(session)
             or session.get("user") != get_web_config().get("username")):
         return
     try:

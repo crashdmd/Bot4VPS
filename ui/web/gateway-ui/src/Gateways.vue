@@ -12,6 +12,7 @@ import WirelessEditor from './WirelessEditor.vue';
 import GatewayServices from './components/GatewayServices.vue';
 import GatewayHeader from './components/GatewayHeader.vue';
 import GatewayBackups from './components/GatewayBackups.vue';
+import PasswordInput from './components/PasswordInput.vue';
 import OperationPlanDialog from './dialogs/OperationPlan.vue';
 import IntegrationUpdateDialog from './dialogs/IntegrationUpdate.vue';
 import TlsTrustDialog from './dialogs/TlsTrust.vue';
@@ -23,7 +24,7 @@ const firewallRestartNode = ref<any>(null);
 const props = defineProps<{ bridge: Bridge; wizard: boolean; initialPlan: any }>();
 const locationKey = 'bot4vps_gateway_location';
 function readLocation(): { nodeId: string; tab: string } | null {
-  if (props.wizard || props.initialPlan?.return_node_id) return null;
+  if (props.wizard || !props.initialPlan?.restore_location || props.initialPlan?.return_node_id) return null;
   try {
     const value = JSON.parse(sessionStorage.getItem(locationKey) || 'null');
     return value && typeof value.nodeId === 'string' && ['overview', 'network', 'wifi', 'services', 'packages', 'backups', 'logs', 'access'].includes(value.tab) ? value : null;
@@ -63,10 +64,33 @@ const operationFromCatalog = ref(false);
 const cachedBundles = ref<any[]>([]), versions = ref<Record<string, string[]>>({ podkop: [], ssclash: [], adguardhome: [] });
 const chosen = ref<Record<string, string>>({ podkop: '', ssclash: '', adguardhome: '' });
 const form = ref({ name: '', host: '', port: 22, user: 'root', password: '', url: '', username: '', tls_sha256: '' });
+watch(mode, () => { form.value.password = ''; });
 const sshForm = ref({ user: 'root', port: 22, auth_type: 'password', password: '', key_path: '' });
 const pinChange = ref<TlsTrustChange|null>(null);
 const integrationPlan = ref<IntegrationUpdatePlan|null>(null);
 const active = computed(() => nodes.value.find(n => n.id === selected.value));
+const rootPassword = ref({ current_password: '', password: '', confirmation: '' });
+const rootDialog = ref(false);
+const rootError = ref('');
+const rootState = ref<{ id: string; configured: boolean | null }>();
+const rootConfigured = computed(() => rootState.value && rootState.value.id === active.value?.id ?
+  rootState.value.configured : active.value?.root_password_configured);
+let rootCheck = 0;
+async function readRootState() {
+  const node = active.value;
+  if (!node || node.ssh_user !== 'root' || !node.ssh_configured) return;
+  const check = ++rootCheck;
+  try {
+    const data = await props.bridge.request('/api/gateways/' + node.id + '/root-password');
+    if (alive && active.value?.id === node.id && check === rootCheck) rootState.value = { id: node.id, configured: data.configured };
+  } catch (_) { /* Existing panels may not yet expose the live password status. */ }
+}
+watch(() => active.value?.id, () => {
+  rootState.value = undefined;
+  rootDialog.value = false;
+  rootPassword.value = { current_password: '', password: '', confirmation: '' };
+  void readRootState();
+});
 const monitor = computed(() => active.value?.monitor || {});
 const wireguard = computed<any[]>(() => Object.values(monitor.value.wireguard || {}));
 const query = ref('');
@@ -124,7 +148,7 @@ async function pollMonitor() {
     taskSnapshot(data.gateways);
   } catch(e:unknown) { if(alive)error.value=e instanceof Error?e.message:String(e); }
 }
-function refocus() { if (!document.hidden && !adding.value && !props.wizard) void load(); }
+function refocus() { if (!document.hidden && !adding.value && !props.wizard) { void load(); void readRootState(); } }
 async function perform(action: () => Promise<void>) {
   if (busy.value) return; busy.value = true; error.value = '';
   try { await action(); } catch (e: any) { error.value = e.message; } finally { busy.value = false; }
@@ -337,9 +361,39 @@ async function openConsole() {
 }
 async function saveSSH() {
   await perform(async () => {
-    await post('/api/gateways/' + active.value.id + '/ssh', { ...sshForm.value, password: sshForm.value.password || null }, 'PUT');
-    sshForm.value.password = ''; saved.value = 'SSH-доступ проверен и сохранён. Пароль зашифрован мастер-ключом панели.'; await load();
+    const result = await post('/api/gateways/' + active.value.id + '/ssh', { ...sshForm.value, password: sshForm.value.password || null }, 'PUT');
+    ++rootCheck;
+    rootState.value = { id: result.id, configured: result.root_password_configured };
+    sshForm.value.password = ''; saved.value = 'SSH-доступ проверен и сохранён.'; await load();
   });
+}
+function showRootDialog() {
+  rootError.value = '';
+  rootPassword.value = { current_password: '', password: '', confirmation: '' };
+  rootDialog.value = true;
+}
+function closeRootDialog() {
+  rootPassword.value = { current_password: '', password: '', confirmation: '' };
+  rootDialog.value = false;
+}
+async function saveRootPassword() {
+  const node = active.value;
+  if (!node || busy.value) return;
+  rootError.value = '';
+  if (rootPassword.value.password !== rootPassword.value.confirmation) {
+    rootError.value = 'Пароли не совпадают.';
+    return;
+  }
+  busy.value = true;
+  try {
+    const result = await post('/api/gateways/' + node.id + '/root-password', rootPassword.value, 'PUT');
+    ++rootCheck;
+    rootState.value = { id: node.id, configured: result.root_password_configured };
+    closeRootDialog();
+    saved.value = result.ssh_auth_type === 'key' ? 'Пароль root изменён. Консоль подключается по SSH-ключу.' : 'Пароль root и SSH для консоли обновлены.';
+    await load();
+    if (active.value?.id === node.id) sshForm.value.auth_type = result.ssh_auth_type;
+  } catch (e: any) { rootError.value = e.message; } finally { busy.value = false; }
 }
 async function deletionPlan() {
   await perform(async () => { deleting.value = await props.bridge.request('/api/gateways/' + active.value.id + '/deletion-plan'); });
@@ -366,6 +420,15 @@ onUnmounted(() => { alive = false; if (timer) clearInterval(timer); document.rem
   <div v-if="error" class="gw-error" role="alert">{{ error }}</div>
   <IntegrationUpdateDialog v-if="integrationPlan" :plan="integrationPlan" :busy="busy" :error="error" @cancel="cancelIntegration" @apply="applyIntegration" />
   <TlsTrustDialog v-if="pinChange" :change="pinChange" :busy="busy" @cancel="pinChange=null" @apply="submitAccess(true)" />
+  <GatewayDialog v-if="rootDialog" :title="rootConfigured === false ? 'Задать пароль root' : 'Сменить пароль root'" :busy="busy" compact @close="closeRootDialog">
+    <form class="gw-form" @submit.prevent="saveRootPassword">
+      <label v-if="rootConfigured !== false">Текущий пароль<PasswordInput v-model="rootPassword.current_password" required autocomplete="current-password" :disabled="busy" /></label>
+      <label>Новый пароль<PasswordInput v-model="rootPassword.password" required autocomplete="new-password" :disabled="busy" /></label>
+      <label>Повторите пароль<PasswordInput v-model="rootPassword.confirmation" required autocomplete="new-password" :disabled="busy" /></label>
+      <p v-if="rootError" class="gw-error" role="alert">{{ rootError }}</p>
+      <div class="gw-actions"><button class="gw-primary" :disabled="busy">{{ busy ? 'Сохраняем…' : 'Сохранить' }}</button></div>
+    </form>
+  </GatewayDialog>
   <template v-if="adding">
     <header class="gw-header"><div><span class="gw-eyebrow">НОВОЕ ПОДКЛЮЧЕНИЕ</span><h2>Добавить шлюз</h2><p>Подключение OpenWrt к вашей инфраструктуре</p></div></header>
     <template v-if="!plan">
@@ -375,13 +438,13 @@ onUnmounted(() => { alive = false; if (timer) clearInterval(timer); document.rem
         <template v-if="mode === 'ssh'">
           <label>Адрес роутера<input v-model="form.host" required placeholder="192.168.1.1" /></label>
           <div class="gw-two"><label>SSH-порт<input v-model="form.port" required type="number" min="1" max="65535" /></label><label>Логин<input v-model="form.user" required autocomplete="username" /></label></div>
-          <label>SSH-пароль<input v-model="form.password" required type="password" autocomplete="off" /></label>
+          <label>SSH-пароль<PasswordInput v-model="form.password" :required="form.user !== 'root'" autocomplete="off" placeholder="Оставьте пустым, если пароль root ещё не задан" /></label>
           <p class="gw-hint">Сначала панель проверит устройство и покажет необходимые изменения. Проверка ничего не устанавливает.</p>
         </template>
         <template v-else>
           <label>HTTPS API<input v-model="form.url" required type="url" placeholder="https://192.168.1.1/ubus" /></label>
           <label>Логин API<input v-model="form.username" required autocomplete="username" /></label>
-          <label>Секрет API<input v-model="form.password" required type="password" autocomplete="off" /></label>
+          <label>Секрет API<PasswordInput v-model="form.password" required autocomplete="off" /></label>
           <label>SHA-256 сертификата<input v-model="form.tls_sha256" placeholder="Для собственного сертификата роутера" /></label>
         </template>
         <div class="gw-actions"><button class="gw-primary" :disabled="busy">{{ busy ? 'Проверяем…' : mode === 'ssh' ? 'Проверить роутер' : 'Проверить и подключить' }}</button><button type="button" @click="adding = false; bridge.close?.()" :disabled="busy">Отмена</button></div>
@@ -389,6 +452,7 @@ onUnmounted(() => { alive = false; if (timer) clearInterval(timer); document.rem
     </template>
     <template v-else>
       <div class="gw-detected"><span class="gw-status good">OpenWrt обнаружен</span><h3>{{ plan.board.model }}</h3><p v-if="plan.name">Имя шлюза: {{ plan.name }}</p><p>{{ plan.board.release?.version }} · {{ plan.board.release?.target }}</p></div>
+      <div v-if="plan.board.root_password_configured === false" class="gw-root-warning">Пароль root не задан. После подключения задайте его во вкладке «Доступ».</div>
       <div class="gw-panel"><h3>Для подключения панель выполнит</h3>
         <ul><li v-for="pkg in plan.missing_packages" :key="pkg">Установит пакет <strong>{{ pkg }}</strong></li><li v-if="!plan.missing_packages?.length">Необходимые пакеты уже установлены</li><li v-for="change in plan.changes" :key="change">{{ change }}</li><li v-if="plan.https_configuration_required">Включит HTTPS на адресе LAN</li></ul>
         <p class="gw-hint">Прошивка и установленные пакеты не обновляются. Сетевые интерфейсы не перенастраиваются. Ход настройки будет виден в журнале.</p>
@@ -417,6 +481,10 @@ onUnmounted(() => { alive = false; if (timer) clearInterval(timer); document.rem
       <GatewayHeader :node="active" :busy="busy" @console="openConsole" />
       <p v-if="!monitor.ok" class="gw-error">{{ monitor.error }}. {{ monitor.error_code === 'permission' ? 'Проверьте доступ в LuCI или укажите новый секрет во вкладке «Доступ».' : 'Проверьте доступность API роутера. Панель повторит проверку автоматически.' }}</p>
       <p v-if="active.bootstrap_state === 'commit_pending'" class="gw-hint">Шлюз подключён. Фиксация транзакции не подтверждена; завершите её во вкладке «Доступ».</p>
+      <div v-if="rootConfigured === false" class="gw-root-warning" role="status">
+        <span><strong>Пароль root не задан.</strong> Задайте пароль для защиты доступа к роутеру.</span>
+        <button type="button" @click="selectTab('access')">Открыть «Доступ»</button>
+      </div>
       <div class="gw-tabs"><button v-for="item in tabs" :key="item.id" :class="{ on: tab === item.id }" @click="selectTab(item.id)">{{ item.name }}</button></div>
       <template v-if="tab === 'overview'">      <div class="gw-metrics"><div class="gw-panel"><span>Загрузка CPU</span><strong>{{ monitor.cpu_pct == null ? '—' : monitor.cpu_pct + '%' }}</strong></div><div class="gw-panel"><span>Оперативная память</span><strong>{{ monitor.ram_pct == null ? '—' : monitor.ram_pct + '%' }}</strong><small>{{ bytes(monitor.ram_used) }} / {{ bytes(monitor.ram_total) }}</small></div><div class="gw-panel"><span>Свободное место</span><strong>{{ bytes(monitor.storage_free) }}</strong><small>из {{ bytes(monitor.storage_total) }}</small></div><div class="gw-panel"><span>Время работы</span><strong>{{ uptime(monitor.uptime) }}</strong></div><div class="gw-panel"><span>Температура</span><strong>{{ monitor.temperature == null ? 'Нет датчика' : monitor.temperature + '°C' }}</strong><small v-if="monitor.temperature_support?.virtual">Виртуальная машина</small><button v-if="monitor.temperature_support?.package" @click="packageQuery = monitor.temperature_support.package; selectTab('packages')">Проверить пакет датчика</button></div></div><TrafficCharts :monitor="monitor" :node-id="active.id" :bridge="bridge" /></template>
       <template v-if="tab === 'network'">
@@ -454,13 +522,20 @@ onUnmounted(() => { alive = false; if (timer) clearInterval(timer); document.rem
       <PackageManager v-if="tab === 'packages'" :key="active.id" :node="active" :bridge="bridge" :initial-query="packageQuery" @changed="load" />
       <div v-if="tab === 'logs'" class="gw-panel"><div class="gw-actions"><h3>Системный журнал</h3><button :disabled="busy" @click="selectTab('logs')">Обновить</button></div><pre class="gw-log">{{ log || 'Нет записей' }}</pre></div>
       <section v-if="tab === 'access'" class="gw-access">
-        <div v-if="active.managed && active.ssh_configured" class="gw-section-header"><p class="gw-hint">RPC-компоненты и интерфейс LuCI Bot4VPS</p><button :disabled="busy" @click="reviewIntegration">Обновить интеграцию Bot4VPS</button></div>
+        <div v-if="active.ssh_configured && (active.managed || active.ssh_user === 'root')" class="gw-section-header gw-access-tools">
+          <p v-if="active.managed" class="gw-hint">RPC-компоненты и интерфейс LuCI Bot4VPS</p>
+          <div class="gw-actions">
+            <button v-if="active.managed" type="button" :disabled="busy" @click="reviewIntegration">Обновить интеграцию Bot4VPS</button>
+            <button type="button" :disabled="busy || active.ssh_user !== 'root'" @click="showRootDialog">{{ rootConfigured === false ? 'Задать пароль root' : 'Сменить пароль root' }}</button>
+          </div>
+        </div>
         <button v-if="active.bootstrap_state === 'commit_pending'" :disabled="busy" @click="finalizeBootstrap">Завершить фиксацию подключения</button>
         <header class="gw-section-header"><div><h3>Доступ к шлюзу</h3><p class="gw-hint">Данные API и SSH для подключения панели</p></div><button class="gw-danger" :disabled="busy" @click="deletionPlan">{{ active.deletion_pending ? 'Повторить отзыв и удаление' : 'Удалить шлюз' }}</button></header>
+        <p v-if="!active.ssh_configured || active.ssh_user !== 'root'" class="gw-hint">Для смены пароля роутера сохраните SSH-доступ под root.</p>
         <p v-if="saved" class="gw-hint" role="status">{{ saved }}</p>
         <div class="gw-access-columns">
-          <form class="gw-form" @submit.prevent="saveAccess"><h4>API OpenWrt</h4><p class="gw-hint">Управление секретом: <a :href="active.access_url" target="_blank" rel="noopener noreferrer">LuCI → Службы → Bot4VPS ↗</a></p><label>Имя шлюза<input v-model="form.name" placeholder="Определится по модели роутера" maxlength="100" /></label><label>Адрес API<input v-model="form.url" required /></label><label>Логин API<input v-model="form.username" required /></label><label>Новый секрет<input v-model="form.password" type="password" required autocomplete="off" /></label><label>SHA-256 сертификата<input v-model="form.tls_sha256" /></label><div class="gw-actions"><button class="gw-primary" :disabled="busy">Проверить и сохранить API</button></div></form>
-          <form class="gw-form" @submit.prevent="saveSSH"><h4>SSH для консоли</h4><p class="gw-hint">Пароль хранится зашифрованным мастер-ключом панели.</p><div class="gw-two"><label>SSH-логин<input v-model="sshForm.user" required /></label><label>SSH-порт<input v-model="sshForm.port" type="number" min="1" max="65535" required /></label></div><label>Авторизация<select v-model="sshForm.auth_type"><option value="password">Пароль</option><option value="key">SSH-ключ панели</option></select></label><label v-if="sshForm.auth_type === 'password'">SSH-пароль<input v-model="sshForm.password" type="password" autocomplete="off" :placeholder="active.ssh_configured ? 'Оставьте пустым, чтобы сохранить текущий' : ''" /></label><label v-else>Путь к SSH-ключу<input v-model="sshForm.key_path" placeholder="/opt/bot4vps/keys/имя_ключа" /></label><div class="gw-actions"><button class="gw-primary" :disabled="busy">Проверить и сохранить SSH</button></div></form>
+          <form class="gw-form" @submit.prevent="saveAccess"><h4>API OpenWrt</h4><p class="gw-hint">Управление секретом: <a :href="active.access_url" target="_blank" rel="noopener noreferrer">LuCI → Службы → Bot4VPS ↗</a></p><label>Имя шлюза<input v-model="form.name" placeholder="Определится по модели роутера" maxlength="100" /></label><label>Адрес API<input v-model="form.url" required /></label><label>Логин API<input v-model="form.username" required /></label><label>Новый секрет<PasswordInput v-model="form.password" required autocomplete="off" /></label><label>SHA-256 сертификата<input v-model="form.tls_sha256" /></label><div class="gw-actions"><button class="gw-primary" :disabled="busy">Проверить и сохранить API</button></div></form>
+          <form class="gw-form" @submit.prevent="saveSSH"><h4>SSH для консоли</h4><p class="gw-hint">Пароль хранится зашифрованным мастер-ключом панели.</p><div class="gw-two"><label>SSH-логин<input v-model="sshForm.user" required /></label><label>SSH-порт<input v-model="sshForm.port" type="number" min="1" max="65535" required /></label></div><label>Авторизация<select v-model="sshForm.auth_type"><option value="password">Пароль</option><option value="key">SSH-ключ панели</option><option value="none" :disabled="sshForm.user !== 'root'">Без пароля (первый вход root)</option></select></label><label v-if="sshForm.auth_type === 'password'">SSH-пароль<PasswordInput v-model="sshForm.password" autocomplete="off" :placeholder="active.ssh_auth_type === 'password' && active.ssh_configured ? 'Оставьте пустым, чтобы сохранить текущий' : ''" /></label><label v-else-if="sshForm.auth_type === 'key'">Путь к SSH-ключу<input v-model="sshForm.key_path" placeholder="/opt/bot4vps/keys/имя_ключа" /></label><div class="gw-actions"><button class="gw-primary" :disabled="busy">Проверить и сохранить SSH</button></div></form>
         </div>
       </section>
       <template v-if="tab === 'network'">
@@ -503,7 +578,7 @@ onUnmounted(() => { alive = false; if (timer) clearInterval(timer); document.rem
 .gw-shell .gw-catalog-list .gw-catalog-item{padding:0}.gw-catalog-summary{display:flex;align-items:center;gap:10px;padding:10px 0;cursor:pointer;list-style:none}.gw-catalog-summary::-webkit-details-marker{display:none}.gw-catalog-summary::before{content:'›';font-size:20px;color:var(--text-muted,#98a8bd);transition:transform .15s}.gw-catalog-item[open]>.gw-catalog-summary::before{transform:rotate(90deg)}.gw-catalog-summary>div{flex:1;min-width:0}.gw-catalog-summary h3{font-size:14px;font-weight:500}.gw-shell .gw-catalog-summary p{font-size:11px;line-height:1.4;margin:3px 0 0}.gw-catalog-summary:focus-visible{outline:2px solid var(--gw-accent);outline-offset:2px}.gw-catalog-body{padding:0 0 10px 20px}.gw-catalog-controls{display:flex;align-items:flex-end;gap:10px;flex-wrap:wrap}.gw-catalog-controls .gw-field{gap:4px;font-size:11px;margin:0;min-width:140px}.gw-catalog-controls select{padding:6px 9px;font-size:12px}.gw-shell .gw-catalog-controls .gw-actions{margin:0;gap:5px}.gw-shell .gw-catalog-controls button{padding:6px 9px;font-size:11px}.gw-shell .gw-catalog-body p{font-size:11px;line-height:1.4;margin:6px 0 0}.gw-shell .gw-reserve-settings{padding-top:12px;margin-top:14px}.gw-reserve-settings h3{font-size:14px;margin:0 0 8px}.gw-shell .gw-reserve-settings p,.gw-shell .gw-reserve-settings label{font-size:11px;line-height:1.4}.gw-shell .gw-reserve-settings .gw-actions{margin-top:9px;gap:6px}.gw-shell .gw-reserve-settings button,.gw-shell .gw-reserve-settings select{padding:6px 9px;font-size:11px}@media(max-width:600px){.gw-catalog-controls .gw-field{flex:1}.gw-catalog-summary h3{font-size:13px}}
 
 
-.gw-shell .gw-detail>.gw-tabs{margin:8px 0 10px;padding-bottom:5px}.gw-shell .gw-detail>.gw-tabs button{font-size:12px;padding:6px 10px}
+.gw-root-warning{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;padding:9px 12px;margin:8px 0;color:var(--text,#e6edf7);background:#dba14c19;border:1px solid #dba14c66;border-radius:8px;font-size:13px}.gw-shell .gw-root-warning button{padding:4px 9px}.gw-shell .gw-detail>.gw-tabs{margin:8px 0 10px;padding-bottom:5px}.gw-shell .gw-detail>.gw-tabs button{font-size:12px;padding:6px 10px}
 .gw-shell .gw-catalog-list .gw-catalog-item{padding:0}.gw-catalog-summary{display:flex;align-items:center;gap:10px;padding:10px 0;cursor:pointer;list-style:none}.gw-catalog-summary::-webkit-details-marker{display:none}.gw-catalog-summary::before{content:'›';font-size:20px;color:var(--text-muted,#98a8bd);transition:transform .15s}.gw-catalog-item[open]>.gw-catalog-summary::before{transform:rotate(90deg)}.gw-catalog-summary>div{flex:1;min-width:0}.gw-catalog-summary h3{font-size:14px;font-weight:500}.gw-shell .gw-catalog-summary p{font-size:11px;line-height:1.4;margin:3px 0 0}.gw-catalog-summary:focus-visible{outline:2px solid var(--gw-accent);outline-offset:2px}.gw-catalog-body{padding:0 0 10px 20px}.gw-catalog-controls{display:flex;align-items:flex-end;gap:10px;flex-wrap:wrap}.gw-catalog-controls .gw-field{gap:4px;font-size:11px;margin:0;min-width:140px}.gw-catalog-controls select{padding:6px 9px;font-size:12px}.gw-shell .gw-catalog-controls .gw-actions{margin:0;gap:5px}.gw-shell .gw-catalog-controls button{padding:6px 9px;font-size:11px}.gw-shell .gw-catalog-body p{font-size:11px;line-height:1.4;margin:6px 0 0}.gw-shell .gw-reserve-settings{padding-top:12px;margin-top:14px}.gw-reserve-settings h3{font-size:14px;margin:0 0 8px}.gw-shell .gw-reserve-settings p,.gw-shell .gw-reserve-settings label{font-size:11px;line-height:1.4}.gw-shell .gw-reserve-settings .gw-actions{margin-top:9px;gap:6px}.gw-shell .gw-reserve-settings button,.gw-shell .gw-reserve-settings select{padding:6px 9px;font-size:11px}@media(max-width:600px){.gw-catalog-controls .gw-field{flex:1}.gw-catalog-summary h3{font-size:13px}}
 
 
@@ -522,6 +597,10 @@ onUnmounted(() => { alive = false; if (timer) clearInterval(timer); document.rem
 .gw-shell .gw-catalog-list .gw-catalog-item{padding:0}.gw-catalog-summary{display:flex;align-items:center;gap:10px;padding:10px 0;cursor:pointer;list-style:none}.gw-catalog-summary::-webkit-details-marker{display:none}.gw-catalog-summary::before{content:'›';font-size:20px;color:var(--text-muted,#98a8bd);transition:transform .15s}.gw-catalog-item[open]>.gw-catalog-summary::before{transform:rotate(90deg)}.gw-catalog-summary>div{flex:1;min-width:0}.gw-catalog-summary h3{font-size:14px;font-weight:500}.gw-shell .gw-catalog-summary p{font-size:11px;line-height:1.4;margin:3px 0 0}.gw-catalog-summary:focus-visible{outline:2px solid var(--gw-accent);outline-offset:2px}.gw-catalog-body{padding:0 0 10px 20px}.gw-catalog-controls{display:flex;align-items:flex-end;gap:10px;flex-wrap:wrap}.gw-catalog-controls .gw-field{gap:4px;font-size:11px;margin:0;min-width:140px}.gw-catalog-controls select{padding:6px 9px;font-size:12px}.gw-shell .gw-catalog-controls .gw-actions{margin:0;gap:5px}.gw-shell .gw-catalog-controls button{padding:6px 9px;font-size:11px}.gw-shell .gw-catalog-body p{font-size:11px;line-height:1.4;margin:6px 0 0}.gw-shell .gw-reserve-settings{padding-top:12px;margin-top:14px}.gw-reserve-settings h3{font-size:14px;margin:0 0 8px}.gw-shell .gw-reserve-settings p,.gw-shell .gw-reserve-settings label{font-size:11px;line-height:1.4}.gw-shell .gw-reserve-settings .gw-actions{margin-top:9px;gap:6px}.gw-shell .gw-reserve-settings button,.gw-shell .gw-reserve-settings select{padding:6px 9px;font-size:11px}@media(max-width:600px){.gw-catalog-controls .gw-field{flex:1}.gw-catalog-summary h3{font-size:13px}}
 
 .gw-shell .gw-server-table-wrap{background:var(--panel)}.gw-shell .gw-server-table tbody tr{background:var(--field)}
+.gw-shell .gw-access-tools{flex-wrap:wrap}
+.gw-shell .gw-access-tools .gw-actions{margin-left:auto;gap:6px;flex-wrap:nowrap}
+.gw-shell .gw-access-tools button{white-space:nowrap}
+@media(max-width:480px){.gw-shell .gw-access .gw-access-tools button{font-size:11px;padding:5px 6px}}
 </style>
 
 <style>

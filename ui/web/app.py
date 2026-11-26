@@ -37,7 +37,6 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.middleware.sessions import SessionMiddleware
 
 from .deps import VERSION
 from ._internal.device_access.preview import private_web_request
@@ -59,6 +58,8 @@ from .security import (
     session_valid,
     auth_version,
     refresh_web_session,
+    revoke_web_session,
+    WEB_SESSION_MAX_AGE,
     set_request_actor,
     set_web_auth,
     set_web_password,
@@ -536,12 +537,16 @@ _tls_unit_state = _unit_tls_state()
 _tls_https_only = _tls_unit_state["ssl"] or _tls_unit_state["proxy"]
 app.state.auth_https_required = _tls_https_only
 
-from ._internal.browser_continuity import BrowserContinuityMiddleware
+from ._internal.browser_continuity import BrowserContinuityMiddleware, BrowserSessionMiddleware
+from .uploads import WebRequestGuard
+
+# Run after cookie parsing and browser continuity, before FastAPI reads the body.
+app.add_middleware(WebRequestGuard)
 # SessionMiddleware wraps this layer, so an approved continuation updates
 # both the request's authorization and its outgoing session cookie.
 app.add_middleware(BrowserContinuityMiddleware)
 app.add_middleware(
-    SessionMiddleware,
+    BrowserSessionMiddleware,
     # Пустой secret_key бывает только в аварийном режиме (битый
     # config.json): load_config не смог прочитать настройки, и
     # ensure_web_secrets нечего гарантировать. Литерал здесь быть не
@@ -550,7 +555,7 @@ app.add_middleware(
     # per-boot ключ ничего не ломает — но и предсказуемого секрета нет.
     secret_key=_web_cfg.get("secret_key") or secrets.token_urlsafe(32),
     session_cookie="bot4vps_sid",
-    max_age=60 * 60 * 24 * 7,  # 7 дней
+    max_age=WEB_SESSION_MAX_AGE,
     same_site="lax",
     https_only=_tls_https_only,
 )
@@ -854,6 +859,8 @@ async def api_me(request: Request):
 _LOGIN_WINDOW = 15 * 60
 _LOGIN_MAX_FAILURES = 10
 _login_failures: dict[str, list[float]] = {}
+_login_checks_in_flight: dict[str, int] = {}
+_MAX_CONCURRENT_LOGIN_CHECKS = 16
 _login_telegram_sent: dict[str, float] = {}
 
 
@@ -864,6 +871,8 @@ def _login_wait_seconds(ip: str) -> int | None:
     _login_failures[ip] = stamps
     if len(stamps) >= _LOGIN_MAX_FAILURES:
         return max(1, int(_LOGIN_WINDOW - (now - stamps[0])))
+    if len(stamps) + _login_checks_in_flight.get(ip, 0) >= _LOGIN_MAX_FAILURES:
+        return 1
     return None
 
 
@@ -882,21 +891,42 @@ async def api_login(request: Request, body: LoginBody):
         return {"ok": True, "auth_enabled": False}
     ip = _client_ip(request) or "unknown"
     wait = _login_wait_seconds(ip)
+    if wait is None and sum(_login_checks_in_flight.values()) >= _MAX_CONCURRENT_LOGIN_CHECKS:
+        wait = 1
     if wait is not None:
         raise HTTPException(429, "Слишком много попыток входа", headers={"Retry-After": str(wait)})
+
     from core.config import get_web_config
     from ._internal.auth_flows import AuthFlows, browser_id
-    web = await asyncio.to_thread(get_web_config)
-    valid = body.username == web.get("username") and await asyncio.to_thread(
-        verify_password, body.password, web.get("password_hash", ""))
+
+    def check_password():
+        web = get_web_config()
+        valid = body.username == web.get("username") and verify_password(
+            body.password, web.get("password_hash", ""))
+        return web, valid
+
+    # One event loop owns the budget. Reserve now and account for the result
+    # before any other request can use the same slot.
+    _login_checks_in_flight[ip] = _login_checks_in_flight.get(ip, 0) + 1
+    try:
+        web, valid = await asyncio.to_thread(check_password)
+        if valid:
+            _login_failures.pop(ip, None)
+        else:
+            _login_register_failure(ip)
+    finally:
+        remaining = _login_checks_in_flight[ip] - 1
+        if remaining:
+            _login_checks_in_flight[ip] = remaining
+        else:
+            _login_checks_in_flight.pop(ip, None)
+
     if not valid:
-        _login_register_failure(ip)
         from core import audit
         from core.actor import Actor
         await asyncio.to_thread(audit.record, "web.login_attempt", result="failed",
                                 actor=Actor.web(None, ip=ip), params={"method": "password"})
         raise HTTPException(401, "Неверный логин или пароль")
-    _login_failures.pop(ip, None)
     flows = AuthFlows()
     if second_factor_enabled():
         channel = second_factor_channel()
@@ -957,6 +987,10 @@ async def api_login_otp(request: Request, body: OtpBody):
 @app.post("/api/logout")
 async def api_logout(request: Request):
     from ._internal.auth_flows import AuthFlows, browser_id
+    try:
+        await asyncio.to_thread(revoke_web_session, request.session)
+    except (ValueError, OSError):
+        raise HTTPException(503, "Не удалось закрыть Web-сеанс. Повторите выход.") from None
     await asyncio.to_thread(AuthFlows().cancel_login, browser_id(request))
     request.session.clear()
     return {"ok": True}
@@ -1240,14 +1274,11 @@ async def api_recover_confirm(request: Request, body: RecoverConfirmBody):
     from core.config import get_web_config
     username = get_web_config().get("username", "admin")
 
-    # При включённой 2FA автологина нет: смена пароля не должна обходить
-    # второй фактор. Пользователь входит заново: пароль + код приложения.
-    if totp_enabled():
+    if second_factor_enabled():
         try:
             await _send_recovery_message(
                 "🔐 <b>Пароль панели Bot4VPS изменён</b>\n\n"
-                "Включена двухфакторная аутентификация: для входа "
-                "по-прежнему нужен код из приложения-аутентификатора."
+                "Войдите с новым паролем и подтвердите настроенный второй фактор."
             )
         except HTTPException:
             pass

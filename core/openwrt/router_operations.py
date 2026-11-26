@@ -102,7 +102,8 @@ async def _verify_network(node, record, rpc):
     if remote.get('after_hash') and state.get('config_hash') != remote['after_hash']: return False
     if record['action'] in ('up', 'down', 'reconnect'):
         interface = next((item for item in state.get('interfaces', []) if item['name'] == remote['interface']), None)
-        if not interface or bool(interface.get('up')) != (record['action'] != 'down'): return False
+        if not interface or interface.get('up') is not (record['action'] != 'down') or interface.get('pending'):
+            return False
     from core.storage import find_server
     current = find_server(node['id'])
     if not current or config_hash(current) != record['config_hash']:

@@ -1300,7 +1300,9 @@ def verify_applied_restore(
 # Telegram-бота. Лок-файлы живут вне дерева (/run/lock/bot4vps) и в архив не
 # входят; running/, disk_state, automatic_state архив тоже не содержит.
 SELF_RESTORE_LIVE_STATE_FILES = ("maintenance_state.json", "inventory-index-jobs.json")
-SELF_RESTORE_INSTALL_LIVE_STATE_FILES = ("key_integrity.json", "telegram_state.json")
+SELF_RESTORE_INSTALL_LIVE_STATE_FILES = (
+    "key_integrity.json", "telegram_state.json", "web_session_revocations.json",
+)
 
 
 def self_restore_live_state_paths(data_root) -> set[str]:

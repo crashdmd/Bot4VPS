@@ -1,4 +1,4 @@
-import { bindGateways, openGatewayPage, stopGatewayPage, refreshGatewayNav } from './gateways.js?v=20261125-port-forward-v1';
+import { bindGateways, openGatewayPage, stopGatewayPage, refreshGatewayNav } from './gateways.js?v=20261126-gateway-15m';
 import { tickClock, syncServerClock, showPage, toast, parseEmoji, initEmojiObserver, confirmAction, bindTelegramHealthDialog } from './ui.js';
 import { loadDashboard, loadSummary, bindDashboard, stopDashMetrics, updateDashboardData, updateDashboardState } from './dashboard.js?v=20261125-four-servers-v1';
 import { loadEvents, EVENTS_LIMIT, openEventDetail, applyEventsSnapshot, initSystemMonitor, stopSystemMonitor } from './monitor.js?v=20261001-mobile-charts-v1';
@@ -60,7 +60,7 @@ async function openQuickSetupFromCard(serverId) {
 
 // Settings — отдельная подсистема. Загружаем её лениво, чтобы ошибка нового
 // модуля не останавливала Dashboard, Servers и остальные страницы.
-const settingsModule = import('./settings.js?v=20261114-primary-phone-v1')
+const settingsModule = import('./settings.js?v=20261126-openwrt-access')
   .catch(error => {
     console.error('[settings] module unavailable:', error);
     return null;
@@ -170,7 +170,7 @@ function bindHistoryTabs() {
 
 let navigationVersion = 0;
 
-function onNav(page) {
+function onNav(page, gatewayLocation) {
   navigationVersion++;
   if (state.page === 'quick-setup' && page !== 'quick-setup') {
     clearQuickSetupServer();
@@ -209,7 +209,7 @@ function onNav(page) {
     else if (historyTab() === 'queues') { loadQueues(); loadHistory(); }
     else openAuditFromUrl();
   }
-  if (page === 'gateways') openGatewayPage();
+  if (page === 'gateways') openGatewayPage(gatewayLocation);
   if (page === 'servers') { loadServers(); startSshProbeLoop(); }
   if (page === 'metrics') {
     const target = metricsFromUrl() || {};
@@ -524,7 +524,7 @@ async function restoreSession() {
   if (page && page !== 'server'
       && page !== 'wireguard-server' && page !== 'docker-server'
       && page !== 'xui-server') {
-    onNav(page);
+    onNav(page, { restore: true });
   }
 }
 
@@ -770,26 +770,36 @@ async function loadNotificationsDropdown() {
     const unread = allUnread.slice(0, 5);   // в списке показываем 5 свежих
 
     const list = document.getElementById('notif-list');
+    list.replaceChildren();
     if (unread.length === 0) {
-      list.innerHTML = '<div class="dropdown-empty">Нет новых уведомлений</div>';
+      const empty = document.createElement('div');
+      empty.className = 'dropdown-empty';
+      empty.textContent = 'Нет новых уведомлений';
+      list.appendChild(empty);
     } else {
-      list.innerHTML = unread.map(e => `
-        <div class="dropdown-item" data-event-id="${e.id}">
-          <div class="dropdown-item-icon"></div>
-          <div class="dropdown-item-content">
-            <div class="dropdown-item-title">${e.title || 'Уведомление'}</div>
-            <div class="dropdown-item-text">${e.message || ''}</div>
-          </div>
-        </div>
-      `).join('');
+      for (const event of unread) {
+        const item = document.createElement('div');
+        item.className = 'dropdown-item';
+        item.dataset.eventId = String(event.id ?? '');
 
-      // Добавляем обработчики кликов (теперь передаём ID)
-      list.querySelectorAll('.dropdown-item').forEach(item => {
-        item.addEventListener('click', e => {
-          e.stopPropagation();
+        const icon = document.createElement('div');
+        icon.className = 'dropdown-item-icon';
+        const content = document.createElement('div');
+        content.className = 'dropdown-item-content';
+        const title = document.createElement('div');
+        title.className = 'dropdown-item-title';
+        title.textContent = event.title || 'Уведомление';
+        const message = document.createElement('div');
+        message.className = 'dropdown-item-text';
+        message.textContent = event.message || '';
+        content.append(title, message);
+        item.append(icon, content);
+        item.addEventListener('click', click => {
+          click.stopPropagation();
           notificationClick(item.dataset.eventId);
         });
-      });
+        list.appendChild(item);
+      }
 
       // Действие относится ко всем непрочитанным, а не только к показанной
       // пятёрке. Сами события остаются в журнале. Подпись короткая: в узком

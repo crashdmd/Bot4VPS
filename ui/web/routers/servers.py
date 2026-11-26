@@ -1010,6 +1010,24 @@ async def api_test_connection(body: TestConnBody):
         return err(e)
 
 
+def _apply_ssh_test_host_key(saved: dict | None, target: dict, *, saved_credentials: bool) -> None:
+    if saved is None:
+        return
+
+    from core.host_keys import stored_record
+
+    same_endpoint = (
+        str(saved.get("host") or "").strip().casefold() == target["host"].casefold()
+        and int(saved.get("port") or 22) == target["port"]
+    )
+    if same_endpoint or saved_credentials:
+        expected = stored_record(saved)
+        if expected is not None:
+            target["host_key"] = expected
+        elif not same_endpoint:
+            raise HTTPException(400, "Для проверки нового адреса или порта введите пароль или выберите ключ заново")
+
+
 class TestDraftBody(BaseModel):
     host: Optional[str] = None
     port: Optional[int] = None
@@ -1068,6 +1086,8 @@ async def api_test_draft(server_id: str, body: TestDraftBody):
                 raise HTTPException(400, f"Ключ не найден: {key}")
             tmp["key_path"] = str(key)
 
+        supplied = bool(body.password) if auth == "password" else bool((body.key_path or "").strip())
+        _apply_ssh_test_host_key(saved, tmp, saved_credentials=not supplied)
         ok, msg = await asyncio.to_thread(test_connection, tmp)
         return {
             "ok": bool(ok),
@@ -1130,6 +1150,8 @@ async def api_ssh_test(body: SshTestBody):
                 raise HTTPException(400, f"Ключ не найден: {key}")
             tmp["key_path"] = str(key)
 
+        supplied = bool(body.password) if auth == "password" else bool((body.key_path or "").strip())
+        _apply_ssh_test_host_key(saved, tmp, saved_credentials=not supplied)
         ok, msg = await asyncio.to_thread(test_connection, tmp)
         return {
             "ok": bool(ok),

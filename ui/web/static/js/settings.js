@@ -15,11 +15,11 @@ let mobileSettingsModule = null;
 export async function resumePendingMobileConnectionChange() {
   try { if (!sessionStorage.getItem('bot4vps_pending_mobile_connection_change')) return; }
   catch (_) { return; }
-  const mobile = await import('./_internal/device_access/panel.js?v=20261114-primary-phone-v1');
+  const mobile = await import('./_internal/device_access/panel.js?v=20261126-openwrt-access');
   mobile.resumePendingMobileConnectionChange();
 }
 export async function resumeRequiredPrimarySelection() {
-  const mobile = await import('./_internal/device_access/panel.js?v=20261114-primary-phone-v1');
+  const mobile = await import('./_internal/device_access/panel.js?v=20261126-openwrt-access');
   try { await mobile.resumeRequiredPrimarySelection(); }
   catch (error) {
     // The private pairing endpoint can be unavailable on older panels or
@@ -130,7 +130,7 @@ const categories = [
   categories.splice(categories.findIndex(item => item.id === 'web') + 1, 0, {
     id: 'mobile', icon: '▣', title: 'Мобильное приложение', subtitle: 'Подключение и телефоны',
     render: async renderVersion => {
-      const mobile = await import('./_internal/device_access/panel.js?v=20261114-primary-phone-v1');
+      const mobile = await import('./_internal/device_access/panel.js?v=20261126-openwrt-access');
       if (renderVersion !== categoryRenderVersion) return;
       mobileSettingsModule = mobile;
       await mobile.renderMobileAccess(document.getElementById('settings-content'), {
@@ -1705,7 +1705,8 @@ function showTotpSetup(data) {
 async function renderTotpReplaceForm() {
   const state = await j('/api/auth/totp');
   const body = document.getElementById('totp-body');
-  body.innerHTML = `<p class="set-desc">Замена создаст новый TOTP-секрет. Старые приложения-аутентификаторы перестанут принимать коды только после подтверждения нового секрета. Состояние 2FA сохраняется.</p><label>Пароль администратора<input type="password" id="totp-replace-password" autocomplete="current-password"></label>${state.enabled ? '<label>Текущий TOTP-код<input id="totp-replace-code" inputmode="numeric" maxlength="6" autocomplete="one-time-code"></label>' : ''}<div class="set-form-actions"><button type="button" id="totp-replace-confirm">Настроить новый TOTP</button><button type="button" class="secondary" id="totp-replace-cancel">Отмена</button></div>`;
+  body.innerHTML = `<p class="set-desc">Замена создаст новый TOTP-секрет. Старые приложения-аутентификаторы перестанут принимать коды только после подтверждения нового секрета. Состояние 2FA сохраняется.</p><label>Пароль администратора<span class="pw-wrap"><input type="password" id="totp-replace-password" autocomplete="current-password"><button type="button" class="eye" data-pw-toggle="totp-replace-password">👁</button></span></label>${state.enabled ? '<label>Текущий TOTP-код<input id="totp-replace-code" inputmode="numeric" maxlength="6" autocomplete="one-time-code"></label>' : ''}<div class="set-form-actions"><button type="button" id="totp-replace-confirm">Настроить новый TOTP</button><button type="button" class="secondary" id="totp-replace-cancel">Отмена</button></div>`;
+  bindPasswordToggles(body);
   document.getElementById('totp-replace-cancel').onclick = loadTotp;
   document.getElementById('totp-replace-confirm').onclick = async () => {
     try {

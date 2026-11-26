@@ -127,6 +127,11 @@ def inspect_target(credentials):
         board["package_manager"] = manager
         board["lan_ip"] = _read(ssh, "uci -q get network.lan.ipaddr || true").strip()
         board["https_listen"] = _read(ssh, "uci -q get uhttpd.main.listen_https || true").strip()
+        if credentials.get('user') == 'root':
+            from core.openwrt.password import password_configured
+            board['root_password_configured'] = password_configured(ssh)
+            if credentials.get('auth_type') == 'none' and board['root_password_configured'] is not False:
+                raise ValueError('Вход без пароля доступен только на OpenWrt с незаданным паролем root')
         return board, packages
     finally:
         ssh.close()
@@ -146,6 +151,9 @@ async def prepare(credentials, owner):
     credentials = dict(credentials)
     credentials["id"] = secrets.token_hex(8)
     credentials['_gateway_node_id'] = credentials['id']
+    if credentials.get('auth_type') == 'password' and not credentials.get('password'):
+        if credentials.get('user') != 'root': raise ValueError('Введите SSH-пароль')
+        credentials.update(auth_type='none', password=None)
     inspected = await asyncio.to_thread(inspect_target, credentials)
     if inspected is None:
         return None
@@ -316,6 +324,7 @@ def _configure(draft, emit):
         url = "https://" + authority + (":" + str(https_port) if https_port != 443 else "") + "/ubus"
         return {"id": node_id, "name": credentials["name"], "host": host,
             "group": credentials.get("group", ""), "node_type": "openwrt",
+            "root_password_configured": draft.board.get('root_password_configured'),
             "openwrt": {"url": url, "username": account, "password": secret,
                 "tls_certificate": pem, "tls_sha256": hashlib.sha256(der).hexdigest(),
                 "board": draft.board, "managed": True, **signing_config,

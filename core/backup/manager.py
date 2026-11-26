@@ -486,9 +486,9 @@ class BackupManager:
         срывается — отсутствующий бэкап хуже нешифрованного, поэтому создаётся
         plain-архив с warning-записью в журнал. От человека (``missing_ok``
         False) тихий plain был бы обманом выбора — чистый отказ. Если
-        сохранённый пароль не может быть расшифрован (мастер-ключ
-        недоступен/утерян), фолбэк plain+warning — в обоих режимах. Сам пароль
-        нигде не логируется.
+        сохранённый пароль не может быть расшифрован, plain+warning допустим
+        для унаследованной политики. Явное требование шифрования даёт отказ.
+        Сам пароль нигде не логируется.
         """
         if encrypt is False:
             return None
@@ -501,7 +501,12 @@ class BackupManager:
             return explicit
         try:
             resolved = get_stored_backup_password() or None
-        except SecretBoxError:
+        except SecretBoxError as exc:
+            if encrypt is True and not missing_ok:
+                raise BackupError(
+                    ErrorCode.ENCRYPTION_PASSWORD_REQUIRED,
+                    "Не удалось получить пароль для шифрования. Восстановите мастер-ключ или введите разовый пароль.",
+                ) from exc
             create_event(
                 EventType.BACKUP,
                 EventLevel.WARNING,
