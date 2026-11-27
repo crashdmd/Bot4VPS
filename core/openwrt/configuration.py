@@ -7,6 +7,7 @@ import re
 ID = re.compile(r'[A-Za-z0-9_]{1,64}')
 ZONE_NAME = re.compile(r'[A-Za-z0-9_-]{1,64}')
 DHCP = {'ignore', 'start', 'limit', 'leasetime', 'dns'}
+DHCP_HOST = {'name', 'mac', 'ip'}
 DNS = {'port', 'server', 'noresolv', 'cachesize', 'domain', 'local', 'rebind_protection', 'domainneeded', 'boguspriv'}
 DEFAULTS = {'input', 'output', 'forward', 'synflood_protect'}
 ZONE = {'id', 'input', 'output', 'forward', 'masq', 'mtu_fix'}
@@ -63,6 +64,8 @@ def fields(values, allowed):
 
 
 def normalise(action, data):
+    if action == 'dhcp_reservation':
+        return dhcp_reservation(data)
     if not isinstance(data, dict) or data.keys() - {'config_hash', 'section', 'interface', 'settings', 'zones', 'rules', 'deleted_rules', 'redirects', 'deleted_redirects'}:
         raise ValueError('Некорректный запрос конфигурации')
     if not isinstance(data.get('config_hash'), str) or not re.fullmatch(r'[a-f0-9]{64}', data['config_hash']):
@@ -122,4 +125,47 @@ def normalise(action, data):
             result.update(redirects=redirects, deleted_redirects=deleted)
     elif action != 'firewall_restart':
         raise ValueError('Действие не поддерживается')
+    return result
+
+
+def dhcp_reservation(data):
+    if not isinstance(data, dict):
+        raise ValueError('Некорректный запрос резервирования DHCP')
+    mode = data.get('mode')
+    if mode not in ('add', 'edit', 'delete'):
+        raise ValueError('Укажите действие для статической аренды')
+    required = {'config_hash', 'mode'}
+    if mode != 'add':
+        required.add('section')
+    if mode != 'delete':
+        required.add('settings')
+    if data.keys() != required:
+        raise ValueError('Некорректный запрос резервирования DHCP')
+    fingerprint = data.get('config_hash')
+    if not isinstance(fingerprint, str) or not re.fullmatch(r'[a-f0-9]{64}', fingerprint):
+        raise ValueError('Обновите конфигурацию перед изменением')
+    result = {'config_hash': fingerprint, 'mode': mode}
+    if mode != 'add':
+        section = data.get('section')
+        if not isinstance(section, str) or not ID.fullmatch(section):
+            raise ValueError('Некорректный идентификатор статической аренды')
+        result['section'] = section
+    if mode == 'delete':
+        return result
+    settings = fields(data['settings'], DHCP_HOST)
+    name, mac, ip = (settings.get(key) for key in ('name', 'mac', 'ip'))
+    if name and not re.fullmatch(r'[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?', name):
+        raise ValueError('Имя устройства должно быть корректным именем хоста')
+    macs = mac.lower().split() if mac else []
+    if (not macs and mode == 'add') or len(macs) != len(set(macs)) or any(
+        not re.fullmatch(r'(?:[0-9a-f]{2}:){5}[0-9a-f]{2}', item) or item == '00:00:00:00:00:00' or int(item[:2], 16) & 1
+        for item in macs
+    ):
+        raise ValueError('Укажите MAC-адрес устройства')
+    if not ip:
+        raise ValueError('Укажите IPv4-адрес')
+    address = ipaddress.IPv4Address(ip)
+    if int(address) >= 224 << 24 or address.is_loopback or address.is_unspecified:
+        raise ValueError('Укажите IPv4-адрес устройства')
+    result['settings'] = {'name': name, 'mac': ' '.join(macs), 'ip': str(address)}
     return result

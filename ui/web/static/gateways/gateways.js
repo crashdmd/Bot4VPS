@@ -1,97 +1,97 @@
 // @__NO_SIDE_EFFECTS__
-function Bn(e) {
+function Gl(e) {
   const t = /* @__PURE__ */ Object.create(null);
-  for (const l of e.split(",")) t[l] = 1;
-  return (l) => l in t;
+  for (const n of e.split(",")) t[n] = 1;
+  return (n) => n in t;
 }
-const ye = {}, Qt = [], Ct = () => {
-}, Qs = () => !1, nn = (e) => e.charCodeAt(0) === 111 && e.charCodeAt(1) === 110 && // uppercase letter
-(e.charCodeAt(2) > 122 || e.charCodeAt(2) < 97), sn = (e) => e.startsWith("onUpdate:"), De = Object.assign, Kn = (e, t) => {
-  const l = e.indexOf(t);
-  l > -1 && e.splice(l, 1);
-}, Ui = Object.prototype.hasOwnProperty, be = (e, t) => Ui.call(e, t), ce = Array.isArray, jt = (e) => rl(e) === "[object Map]", Rt = (e) => rl(e) === "[object Set]", ms = (e) => rl(e) === "[object Date]", fe = (e) => typeof e == "function", Ae = (e) => typeof e == "string", ht = (e) => typeof e == "symbol", Se = (e) => e !== null && typeof e == "object", Zs = (e) => (Se(e) || fe(e)) && fe(e.then) && fe(e.catch), eo = Object.prototype.toString, rl = (e) => eo.call(e), Pi = (e) => rl(e).slice(8, -1), to = (e) => rl(e) === "[object Object]", Gn = (e) => Ae(e) && e !== "NaN" && e[0] !== "-" && "" + parseInt(e, 10) === e, ml = /* @__PURE__ */ Bn(
+const _e = {}, Zt = [], xt = () => {
+}, eo = () => !1, ol = (e) => e.charCodeAt(0) === 111 && e.charCodeAt(1) === 110 && // uppercase letter
+(e.charCodeAt(2) > 122 || e.charCodeAt(2) < 97), il = (e) => e.startsWith("onUpdate:"), De = Object.assign, zl = (e, t) => {
+  const n = e.indexOf(t);
+  n > -1 && e.splice(n, 1);
+}, Vi = Object.prototype.hasOwnProperty, we = (e, t) => Vi.call(e, t), pe = Array.isArray, Lt = (e) => rn(e) === "[object Map]", Rt = (e) => rn(e) === "[object Set]", bs = (e) => rn(e) === "[object Date]", ge = (e) => typeof e == "function", Ee = (e) => typeof e == "string", ht = (e) => typeof e == "symbol", Ve = (e) => e !== null && typeof e == "object", to = (e) => (Ve(e) || ge(e)) && ge(e.then) && ge(e.catch), no = Object.prototype.toString, rn = (e) => no.call(e), Pi = (e) => rn(e).slice(8, -1), lo = (e) => rn(e) === "[object Object]", Jl = (e) => Ee(e) && e !== "NaN" && e[0] !== "-" && "" + parseInt(e, 10) === e, bn = /* @__PURE__ */ Gl(
   // the leading comma is intentional so empty string "" is also included
   ",key,ref,ref_for,ref_key,onVnodeBeforeMount,onVnodeMounted,onVnodeBeforeUpdate,onVnodeUpdated,onVnodeBeforeUnmount,onVnodeUnmounted"
-), Ai = 1e4, on = (e) => {
-  let t = /* @__PURE__ */ Object.create(null), l = 0;
+), Ui = 1e4, al = (e) => {
+  let t = /* @__PURE__ */ Object.create(null), n = 0;
   return ((o) => {
     const s = t[o];
-    return s !== void 0 ? s : (++l > Ai && (t = /* @__PURE__ */ Object.create(null), l = 1), t[o] = e(o));
+    return s !== void 0 ? s : (++n > Ui && (t = /* @__PURE__ */ Object.create(null), n = 1), t[o] = e(o));
   });
-}, Ii = /-\w/g, at = /* @__PURE__ */ on((e) => e.replace(Ii, (t) => t.slice(1).toUpperCase())), Mi = /\B([A-Z])/g, Dt = /* @__PURE__ */ on(
-  (e) => e.replace(Mi, "-$1").toLowerCase()
-), lo = /* @__PURE__ */ on((e) => e.charAt(0).toUpperCase() + e.slice(1)), bn = /* @__PURE__ */ on((e) => e ? `on${lo(e)}` : ""), je = (e, t) => !Object.is(e, t), Bl = (e, ...t) => {
-  for (let l = 0; l < e.length; l++)
-    e[l](...t);
-}, no = (e, t, l, o = !1) => {
+}, Ai = /-\w/g, ut = /* @__PURE__ */ al((e) => e.replace(Ai, (t) => t.slice(1).toUpperCase())), Ei = /\B([A-Z])/g, Dt = /* @__PURE__ */ al(
+  (e) => e.replace(Ei, "-$1").toLowerCase()
+), so = /* @__PURE__ */ al((e) => e.charAt(0).toUpperCase() + e.slice(1)), yl = /* @__PURE__ */ al((e) => e ? `on${so(e)}` : ""), Le = (e, t) => !Object.is(e, t), Gn = (e, ...t) => {
+  for (let n = 0; n < e.length; n++)
+    e[n](...t);
+}, oo = (e, t, n, o = !1) => {
   Object.defineProperty(e, t, {
     configurable: !0,
     enumerable: !1,
     writable: o,
-    value: l
+    value: n
   });
-}, Al = (e) => {
+}, En = (e) => {
   const t = parseFloat(e);
   return isNaN(t) ? e : t;
 };
-let bs;
-const an = () => bs || (bs = typeof globalThis < "u" ? globalThis : typeof self < "u" ? self : typeof window < "u" ? window : typeof global < "u" ? global : {});
-function Cl(e) {
-  if (ce(e)) {
+let ys;
+const rl = () => ys || (ys = typeof globalThis < "u" ? globalThis : typeof self < "u" ? self : typeof window < "u" ? window : typeof global < "u" ? global : {});
+function jt(e) {
+  if (pe(e)) {
     const t = {};
-    for (let l = 0; l < e.length; l++) {
-      const o = e[l], s = Ae(o) ? Ni(o) : Cl(o);
+    for (let n = 0; n < e.length; n++) {
+      const o = e[n], s = Ee(o) ? Ri(o) : jt(o);
       if (s)
         for (const i in s)
           t[i] = s[i];
     }
     return t;
-  } else if (Ae(e) || Se(e))
+  } else if (Ee(e) || Ve(e))
     return e;
 }
-const Oi = /;(?![^(]*\))/g, Ri = /:([^]+)/, Di = /"(?:[^"\\]|\\[^])*"|'(?:[^'\\]|\\[^])*'|\\[^]|\/\*[^]*?\*\//g;
-function Ni(e) {
+const Ii = /;(?![^(]*\))/g, Mi = /:([^]+)/, Oi = /"(?:[^"\\]|\\[^])*"|'(?:[^'\\]|\\[^])*'|\\[^]|\/\*[^]*?\*\//g;
+function Ri(e) {
   const t = {};
-  return e.replace(Di, (l) => l.startsWith("/*") ? "" : l).split(Oi).forEach((l) => {
-    if (l) {
-      const o = l.split(Ri);
+  return e.replace(Oi, (n) => n.startsWith("/*") ? "" : n).split(Ii).forEach((n) => {
+    if (n) {
+      const o = n.split(Mi);
       o.length > 1 && (t[o[0].trim()] = o[1].trim());
     }
   }), t;
 }
-function Ue(e) {
+function Te(e) {
   let t = "";
-  if (Ae(e))
+  if (Ee(e))
     t = e;
-  else if (ce(e))
-    for (let l = 0; l < e.length; l++) {
-      const o = Ue(e[l]);
+  else if (pe(e))
+    for (let n = 0; n < e.length; n++) {
+      const o = Te(e[n]);
       o && (t += o + " ");
     }
-  else if (Se(e))
-    for (const l in e)
-      e[l] && (t += l + " ");
+  else if (Ve(e))
+    for (const n in e)
+      e[n] && (t += n + " ");
   return t.trim();
 }
-const qi = "itemscope,allowfullscreen,disablepictureinpicture,disableremoteplayback,formnovalidate,ismap,nomodule,novalidate,playsinline,readonly", Hi = /* @__PURE__ */ Bn(qi);
-function so(e) {
+const Di = "itemscope,allowfullscreen,disablepictureinpicture,disableremoteplayback,formnovalidate,ismap,nomodule,novalidate,playsinline,readonly", Fi = /* @__PURE__ */ Gl(Di);
+function io(e) {
   return !!e || e === "";
 }
-function Fi(e, t, l) {
+function qi(e, t, n) {
   if (e.length !== t.length) return !1;
   let o = !0;
   for (let s = 0; o && s < e.length; s++)
-    o = mt(e[s], t[s], l);
+    o = mt(e[s], t[s], n);
   return o;
 }
-function ys(e, t, l) {
+function ws(e, t, n) {
   if (e.size !== t.size) return !1;
   const o = Array.from(t), s = new Uint8Array(o.length);
   for (const i of e) {
     let a = -1;
-    for (let r = 0; r < o.length; r++)
-      if (!s[r] && mt(i, o[r], l)) {
-        a = r;
+    for (let u = 0; u < o.length; u++)
+      if (!s[u] && mt(i, o[u], n)) {
+        a = u;
         break;
       }
     if (a < 0) return !1;
@@ -99,60 +99,60 @@ function ys(e, t, l) {
   }
   return !0;
 }
-function Li(e, t, l) {
-  let o = jt(e), s = jt(t);
+function Ni(e, t, n) {
+  let o = Lt(e), s = Lt(t);
   if (o || s || (o = Rt(e), s = Rt(t), o || s))
-    return o && s ? ys(e, t, l) : !1;
+    return o && s ? ws(e, t, n) : !1;
   const i = Object.keys(e).length, a = Object.keys(t).length;
   if (i !== a)
     return !1;
-  for (const r in e) {
-    const c = be(e, r), g = be(t, r);
-    if (c && !g || !c && g || !mt(e[r], t[r], l))
+  for (const u in e) {
+    const c = we(e, u), g = we(t, u);
+    if (c && !g || !c && g || !mt(e[u], t[u], n))
       return !1;
   }
-  return _s(e) === _s(t);
+  return ks(e) === ks(t);
 }
-function ws(e, t, l, o) {
-  l || (l = [/* @__PURE__ */ new Map(), /* @__PURE__ */ new Map()]);
-  const [s, i] = l;
+function _s(e, t, n, o) {
+  n || (n = [/* @__PURE__ */ new Map(), /* @__PURE__ */ new Map()]);
+  const [s, i] = n;
   if (s.has(e) || i.has(t))
     return s.get(e) === t && i.get(t) === e;
   s.set(e, t), i.set(t, e);
-  const a = o(e, t, l);
+  const a = o(e, t, n);
   return s.delete(e), i.delete(t), a;
 }
-function mt(e, t, l) {
+function mt(e, t, n) {
   if (e === t) return !0;
-  let o = ms(e), s = ms(t);
-  return o || s ? o && s ? e.getTime() === t.getTime() : !1 : (o = ht(e), s = ht(t), o || s ? e === t : (o = ce(e), s = ce(t), o || s ? o && s ? ws(e, t, l, Fi) : !1 : (o = Se(e), s = Se(t), o || s ? !o || !s ? !1 : ws(e, t, l, Li) : String(e) === String(t))));
+  let o = bs(e), s = bs(t);
+  return o || s ? o && s ? e.getTime() === t.getTime() : !1 : (o = ht(e), s = ht(t), o || s ? e === t : (o = pe(e), s = pe(t), o || s ? o && s ? _s(e, t, n, qi) : !1 : (o = Ve(e), s = Ve(t), o || s ? !o || !s ? !1 : _s(e, t, n, Ni) : String(e) === String(t))));
 }
-function zn(e, t) {
-  return e.findIndex((l) => mt(l, t));
+function Yl(e, t) {
+  return e.findIndex((n) => mt(n, t));
 }
-function _s(e) {
-  return Object.getPrototypeOf(e) === null && e[Symbol.toPrimitive] == null && typeof e.toString != "function" && typeof e.valueOf != "function" ? rl(e) : String(e);
+function ks(e) {
+  return Object.getPrototypeOf(e) === null && e[Symbol.toPrimitive] == null && typeof e.toString != "function" && typeof e.valueOf != "function" ? rn(e) : String(e);
 }
-const oo = (e) => !!(e && e.__v_isRef === !0), w = (e) => Ae(e) ? e : e == null ? "" : ce(e) || Se(e) && (e.toString === eo || !fe(e.toString)) ? oo(e) ? w(e.value) : JSON.stringify(e, io, 2) : String(e), io = (e, t) => oo(t) ? io(e, t.value) : jt(t) ? {
+const ao = (e) => !!(e && e.__v_isRef === !0), b = (e) => Ee(e) ? e : e == null ? "" : pe(e) || Ve(e) && (e.toString === no || !ge(e.toString)) ? ao(e) ? b(e.value) : JSON.stringify(e, ro, 2) : String(e), ro = (e, t) => ao(t) ? ro(e, t.value) : Lt(t) ? {
   [`Map(${t.size})`]: [...t.entries()].reduce(
-    (l, [o, s], i) => (l[yn(o, i) + " =>"] = s, l),
+    (n, [o, s], i) => (n[wl(o, i) + " =>"] = s, n),
     {}
   )
 } : Rt(t) ? {
-  [`Set(${t.size})`]: [...t.values()].map((l) => yn(l))
-} : ht(t) ? yn(t) : Se(t) && !ce(t) && !to(t) ? String(t) : t, yn = (e, t = "") => {
-  var l;
+  [`Set(${t.size})`]: [...t.values()].map((n) => wl(n))
+} : ht(t) ? wl(t) : Ve(t) && !pe(t) && !lo(t) ? String(t) : t, wl = (e, t = "") => {
+  var n;
   return (
     // Symbol.description in es2019+ so we need to cast here to pass
     // the lib: es2016 check
-    ht(e) ? `Symbol(${(l = e.description) != null ? l : t})` : e
+    ht(e) ? `Symbol(${(n = e.description) != null ? n : t})` : e
   );
 };
-let Fe;
-class ji {
+let Ne;
+class Hi {
   // TODO isolatedDeclarations "__v_skip"
   constructor(t = !1) {
-    this.detached = t, this._active = !0, this._on = 0, this.effects = [], this.cleanups = [], this._isPaused = !1, this._warnOnRun = !0, this.__v_skip = !0, !t && Fe && (Fe.active ? (this.parent = Fe, this.index = (Fe.scopes || (Fe.scopes = [])).push(
+    this.detached = t, this._active = !0, this._on = 0, this.effects = [], this.cleanups = [], this._isPaused = !1, this._warnOnRun = !0, this.__v_skip = !0, !t && Ne && (Ne.active ? (this.parent = Ne, this.index = (Ne.scopes || (Ne.scopes = [])).push(
       this
     ) - 1) : (this._active = !1, this._warnOnRun = !1));
   }
@@ -162,13 +162,13 @@ class ji {
   pause() {
     if (this._active) {
       this._isPaused = !0;
-      let t, l;
+      let t, n;
       if (this.scopes) {
         const o = this.scopes.slice();
-        for (t = 0, l = o.length; t < l; t++)
+        for (t = 0, n = o.length; t < n; t++)
           o[t].pause();
       }
-      for (t = 0, l = this.effects.length; t < l; t++)
+      for (t = 0, n = this.effects.length; t < n; t++)
         this.effects[t].pause();
     }
   }
@@ -178,24 +178,24 @@ class ji {
   resume() {
     if (this._active && this._isPaused) {
       this._isPaused = !1;
-      let t, l;
+      let t, n;
       if (this.scopes) {
         const s = this.scopes.slice();
-        for (t = 0, l = s.length; t < l; t++)
+        for (t = 0, n = s.length; t < n; t++)
           s[t].resume();
       }
       const o = this.effects.slice();
-      for (t = 0, l = o.length; t < l; t++)
+      for (t = 0, n = o.length; t < n; t++)
         o[t].resume();
     }
   }
   run(t) {
     if (this._active) {
-      const l = Fe;
+      const n = Ne;
       try {
-        return Fe = this, t();
+        return Ne = this, t();
       } finally {
-        Fe = l;
+        Ne = n;
       }
     }
   }
@@ -204,7 +204,7 @@ class ji {
    * @internal
    */
   on() {
-    ++this._on === 1 && (this.prevScope = Fe, Fe = this);
+    ++this._on === 1 && (this.prevScope = Ne, Ne = this);
   }
   /**
    * This should only be called on non-detached scopes
@@ -212,10 +212,10 @@ class ji {
    */
   off() {
     if (this._on > 0 && --this._on === 0) {
-      if (Fe === this)
-        Fe = this.prevScope;
+      if (Ne === this)
+        Ne = this.prevScope;
       else {
-        let t = Fe;
+        let t = Ne;
         for (; t; ) {
           if (t.prevScope === this) {
             t.prevScope = this.prevScope;
@@ -230,15 +230,15 @@ class ji {
   stop(t) {
     if (this._active) {
       this._active = !1;
-      let l, o;
-      for (l = 0, o = this.effects.length; l < o; l++)
-        this.effects[l].stop();
-      for (this.effects.length = 0, l = 0, o = this.cleanups.length; l < o; l++)
-        this.cleanups[l]();
+      let n, o;
+      for (n = 0, o = this.effects.length; n < o; n++)
+        this.effects[n].stop();
+      for (this.effects.length = 0, n = 0, o = this.cleanups.length; n < o; n++)
+        this.cleanups[n]();
       if (this.cleanups.length = 0, this.scopes) {
         const s = this.scopes.slice();
-        for (l = 0, o = s.length; l < o; l++)
-          s[l].stop(!0);
+        for (n = 0, o = s.length; n < o; n++)
+          s[n].stop(!0);
         this.scopes.length = 0;
       }
       if (!this.detached && this.parent && !t) {
@@ -249,629 +249,629 @@ class ji {
     }
   }
 }
-function Wi() {
-  return Fe;
+function Li() {
+  return Ne;
 }
-let Te;
-const wn = /* @__PURE__ */ new WeakSet();
-class ao {
+let Ue;
+const _l = /* @__PURE__ */ new WeakSet();
+class uo {
   constructor(t) {
-    this.fn = t, this.deps = void 0, this.depsTail = void 0, this.flags = 5, this.next = void 0, this.cleanup = void 0, this.scheduler = void 0, Fe && (Fe.active ? Fe.effects.push(this) : this.flags &= -2);
+    this.fn = t, this.deps = void 0, this.depsTail = void 0, this.flags = 5, this.next = void 0, this.cleanup = void 0, this.scheduler = void 0, Ne && (Ne.active ? Ne.effects.push(this) : this.flags &= -2);
   }
   pause() {
     this.flags |= 64;
   }
   resume() {
-    this.flags & 64 && (this.flags &= -65, wn.has(this) && (wn.delete(this), this.trigger()));
+    this.flags & 64 && (this.flags &= -65, _l.has(this) && (_l.delete(this), this.trigger()));
   }
   /**
    * @internal
    */
   notify() {
-    this.flags & 2 && !(this.flags & 32) || this.flags & 8 || uo(this);
+    this.flags & 2 && !(this.flags & 32) || this.flags & 8 || fo(this);
   }
   run() {
     if (!(this.flags & 1))
       return this.fn();
-    this.flags |= 2, ks(this), co(this);
-    const t = Te, l = gt;
-    Te = this, gt = !0;
+    this.flags |= 2, $s(this), po(this);
+    const t = Ue, n = gt;
+    Ue = this, gt = !0;
     try {
       return this.fn();
     } finally {
-      fo(this), Te = t, gt = l, this.flags &= -3;
+      vo(this), Ue = t, gt = n, this.flags &= -3;
     }
   }
   stop() {
     if (this.flags & 1) {
       for (let t = this.deps; t; t = t.nextDep)
-        Xn(t);
-      this.deps = this.depsTail = void 0, ks(this), this.onStop && this.onStop(), this.flags &= -2;
+        Ql(t);
+      this.deps = this.depsTail = void 0, $s(this), this.onStop && this.onStop(), this.flags &= -2;
     }
   }
   trigger() {
-    this.flags & 64 ? wn.add(this) : this.scheduler ? this.scheduler() : this.runIfDirty();
+    this.flags & 64 ? _l.add(this) : this.scheduler ? this.scheduler() : this.runIfDirty();
   }
   /**
    * @internal
    */
   runIfDirty() {
-    An(this) && this.run();
+    Ml(this) && this.run();
   }
   get dirty() {
-    return An(this);
+    return Ml(this);
   }
 }
-let ro = 0, bl, yl;
-function uo(e, t = !1) {
+let co = 0, yn, wn;
+function fo(e, t = !1) {
   if (e.flags |= 8, t) {
-    e.next = yl, yl = e;
+    e.next = wn, wn = e;
     return;
   }
-  e.next = bl, bl = e;
+  e.next = yn, yn = e;
 }
-function Jn() {
-  ro++;
+function Xl() {
+  co++;
 }
-function Yn() {
-  if (--ro > 0)
+function Zl() {
+  if (--co > 0)
     return;
-  if (yl) {
-    let t = yl;
-    for (yl = void 0; t; ) {
-      const l = t.next;
-      t.next = void 0, t.flags &= -9, t = l;
+  if (wn) {
+    let t = wn;
+    for (wn = void 0; t; ) {
+      const n = t.next;
+      t.next = void 0, t.flags &= -9, t = n;
     }
   }
   let e;
-  for (; bl; ) {
-    let t = bl;
-    for (bl = void 0; t; ) {
-      const l = t.next;
+  for (; yn; ) {
+    let t = yn;
+    for (yn = void 0; t; ) {
+      const n = t.next;
       if (t.next = void 0, t.flags &= -9, t.flags & 1)
         try {
           t.trigger();
         } catch (o) {
           e || (e = o);
         }
-      t = l;
+      t = n;
     }
   }
   if (e) throw e;
 }
-function co(e) {
+function po(e) {
   for (let t = e.deps; t; t = t.nextDep)
     t.version = -1, t.prevActiveLink = t.dep.activeLink, t.dep.activeLink = t;
 }
-function fo(e) {
-  let t, l = e.depsTail, o = l;
+function vo(e) {
+  let t, n = e.depsTail, o = n;
   for (; o; ) {
     const s = o.prevDep;
-    o.version === -1 ? (o === l && (l = s), Xn(o), Bi(o)) : t = o, o.dep.activeLink = o.prevActiveLink, o.prevActiveLink = void 0, o = s;
+    o.version === -1 ? (o === n && (n = s), Ql(o), ji(o)) : t = o, o.dep.activeLink = o.prevActiveLink, o.prevActiveLink = void 0, o = s;
   }
-  e.deps = t, e.depsTail = l;
+  e.deps = t, e.depsTail = n;
 }
-function An(e) {
+function Ml(e) {
   for (let t = e.deps; t; t = t.nextDep)
-    if (t.dep.version !== t.version || t.dep.computed && (po(t.dep.computed) || t.dep.version !== t.version))
+    if (t.dep.version !== t.version || t.dep.computed && (go(t.dep.computed) || t.dep.version !== t.version))
       return !0;
   return !!e._dirty;
 }
-function po(e) {
-  if (e.flags & 4 && !(e.flags & 16) || (e.flags &= -17, e.globalVersion === xl) || (e.globalVersion = xl, !e.isSSR && e.flags & 128 && (!e.deps && !e._dirty || !An(e))))
+function go(e) {
+  if (e.flags & 4 && !(e.flags & 16) || (e.flags &= -17, e.globalVersion === xn) || (e.globalVersion = xn, !e.isSSR && e.flags & 128 && (!e.deps && !e._dirty || !Ml(e))))
     return;
   e.flags |= 2;
-  const t = e.dep, l = Te, o = gt;
-  Te = e, gt = !0;
+  const t = e.dep, n = Ue, o = gt;
+  Ue = e, gt = !0;
   try {
-    co(e);
+    po(e);
     const s = e.fn(e._value);
-    (t.version === 0 || je(s, e._value)) && (e.flags |= 128, e._value = s, t.version++);
+    (t.version === 0 || Le(s, e._value)) && (e.flags |= 128, e._value = s, t.version++);
   } catch (s) {
     throw t.version++, s;
   } finally {
-    Te = l, gt = o, fo(e), e.flags &= -3;
+    Ue = n, gt = o, vo(e), e.flags &= -3;
   }
 }
-function Xn(e, t = !1) {
-  const { dep: l, prevSub: o, nextSub: s } = e;
-  if (o && (o.nextSub = s, e.prevSub = void 0), s && (s.prevSub = o, e.nextSub = void 0), l.subs === e && (l.subs = o, !o && l.computed)) {
-    l.computed.flags &= -5;
-    for (let i = l.computed.deps; i; i = i.nextDep)
-      Xn(i, !0);
+function Ql(e, t = !1) {
+  const { dep: n, prevSub: o, nextSub: s } = e;
+  if (o && (o.nextSub = s, e.prevSub = void 0), s && (s.prevSub = o, e.nextSub = void 0), n.subs === e && (n.subs = o, !o && n.computed)) {
+    n.computed.flags &= -5;
+    for (let i = n.computed.deps; i; i = i.nextDep)
+      Ql(i, !0);
   }
-  !t && !--l.sc && l.map && l.map.delete(l.key);
+  !t && !--n.sc && n.map && n.map.delete(n.key);
 }
-function Bi(e) {
-  const { prevDep: t, nextDep: l } = e;
-  t && (t.nextDep = l, e.prevDep = void 0), l && (l.prevDep = t, e.nextDep = void 0);
+function ji(e) {
+  const { prevDep: t, nextDep: n } = e;
+  t && (t.nextDep = n, e.prevDep = void 0), n && (n.prevDep = t, e.nextDep = void 0);
 }
 let gt = !0;
-const vo = [];
-function xt() {
-  vo.push(gt), gt = !1;
-}
+const ho = [];
 function St() {
-  const e = vo.pop();
+  ho.push(gt), gt = !1;
+}
+function Tt() {
+  const e = ho.pop();
   gt = e === void 0 ? !0 : e;
 }
-function ks(e) {
+function $s(e) {
   const { cleanup: t } = e;
   if (e.cleanup = void 0, t) {
-    const l = Te;
-    Te = void 0;
+    const n = Ue;
+    Ue = void 0;
     try {
       t();
     } finally {
-      Te = l;
+      Ue = n;
     }
   }
 }
-let xl = 0;
-class Ki {
-  constructor(t, l) {
-    this.sub = t, this.dep = l, this.version = l.version, this.nextDep = this.prevDep = this.nextSub = this.prevSub = this.prevActiveLink = void 0;
+let xn = 0;
+class Wi {
+  constructor(t, n) {
+    this.sub = t, this.dep = n, this.version = n.version, this.nextDep = this.prevDep = this.nextSub = this.prevSub = this.prevActiveLink = void 0;
   }
 }
-class rn {
+class ul {
   // TODO isolatedDeclarations "__v_skip"
   constructor(t) {
     this.computed = t, this.version = 0, this.activeLink = void 0, this.subs = void 0, this.map = void 0, this.key = void 0, this.sc = 0, this.__v_skip = !0;
   }
   track(t) {
-    if (!Te || !gt || Te === this.computed)
+    if (!Ue || !gt || Ue === this.computed)
       return;
-    let l = this.activeLink;
-    if (l === void 0 || l.sub !== Te)
-      l = this.activeLink = new Ki(Te, this), Te.deps ? (l.prevDep = Te.depsTail, Te.depsTail.nextDep = l, Te.depsTail = l) : Te.deps = Te.depsTail = l, go(l);
-    else if (l.version === -1 && (l.version = this.version, l.nextDep)) {
-      const o = l.nextDep;
-      o.prevDep = l.prevDep, l.prevDep && (l.prevDep.nextDep = o), l.prevDep = Te.depsTail, l.nextDep = void 0, Te.depsTail.nextDep = l, Te.depsTail = l, Te.deps === l && (Te.deps = o);
+    let n = this.activeLink;
+    if (n === void 0 || n.sub !== Ue)
+      n = this.activeLink = new Wi(Ue, this), Ue.deps ? (n.prevDep = Ue.depsTail, Ue.depsTail.nextDep = n, Ue.depsTail = n) : Ue.deps = Ue.depsTail = n, mo(n);
+    else if (n.version === -1 && (n.version = this.version, n.nextDep)) {
+      const o = n.nextDep;
+      o.prevDep = n.prevDep, n.prevDep && (n.prevDep.nextDep = o), n.prevDep = Ue.depsTail, n.nextDep = void 0, Ue.depsTail.nextDep = n, Ue.depsTail = n, Ue.deps === n && (Ue.deps = o);
     }
-    return l;
+    return n;
   }
   trigger(t) {
-    this.version++, xl++, this.notify(t);
+    this.version++, xn++, this.notify(t);
   }
   notify(t) {
-    Jn();
+    Xl();
     try {
-      for (let l = this.subs; l; l = l.prevSub)
-        l.sub.notify() && l.sub.dep.notify();
+      for (let n = this.subs; n; n = n.prevSub)
+        n.sub.notify() && n.sub.dep.notify();
     } finally {
-      Yn();
+      Zl();
     }
   }
 }
-function go(e) {
+function mo(e) {
   if (e.dep.sc++, e.sub.flags & 4) {
     const t = e.dep.computed;
     if (t && !e.dep.subs) {
       t.flags |= 20;
       for (let o = t.deps; o; o = o.nextDep)
-        go(o);
+        mo(o);
     }
-    const l = e.dep.subs;
-    l !== e && (e.prevSub = l, l && (l.nextSub = e)), e.dep.subs = e;
+    const n = e.dep.subs;
+    n !== e && (e.prevSub = n, n && (n.nextSub = e)), e.dep.subs = e;
   }
 }
-const In = /* @__PURE__ */ new WeakMap(), Zt = /* @__PURE__ */ Symbol(
+const Ol = /* @__PURE__ */ new WeakMap(), Qt = /* @__PURE__ */ Symbol(
   ""
-), Mn = /* @__PURE__ */ Symbol(
+), Rl = /* @__PURE__ */ Symbol(
   ""
-), Sl = /* @__PURE__ */ Symbol(
+), Sn = /* @__PURE__ */ Symbol(
   ""
 );
-function Ke(e, t, l) {
-  if (gt && Te) {
-    let o = In.get(e);
-    o || In.set(e, o = /* @__PURE__ */ new Map());
-    let s = o.get(l);
-    s || (o.set(l, s = new rn()), s.map = o, s.key = l), s.track();
+function Ge(e, t, n) {
+  if (gt && Ue) {
+    let o = Ol.get(e);
+    o || Ol.set(e, o = /* @__PURE__ */ new Map());
+    let s = o.get(n);
+    s || (o.set(n, s = new ul()), s.map = o, s.key = n), s.track();
   }
 }
-function At(e, t, l, o, s, i) {
-  const a = In.get(e);
+function Et(e, t, n, o, s, i) {
+  const a = Ol.get(e);
   if (!a) {
-    xl++;
+    xn++;
     return;
   }
-  const r = (c) => {
+  const u = (c) => {
     c && c.trigger();
   };
-  if (Jn(), t === "clear")
-    a.forEach(r);
+  if (Xl(), t === "clear")
+    a.forEach(u);
   else {
-    const c = ce(e), g = c && Gn(l);
-    if (c && l === "length") {
+    const c = pe(e), g = c && Jl(n);
+    if (c && n === "length") {
       const m = Number(o);
-      a.forEach((y, T) => {
-        (T === "length" || T === Sl || !ht(T) && T >= m) && r(y);
+      a.forEach((w, A) => {
+        (A === "length" || A === Sn || !ht(A) && A >= m) && u(w);
       });
     } else
-      switch ((l !== void 0 || a.has(void 0)) && r(a.get(l)), g && r(a.get(Sl)), t) {
+      switch ((n !== void 0 || a.has(void 0)) && u(a.get(n)), g && u(a.get(Sn)), t) {
         case "add":
-          c ? g && r(a.get("length")) : (r(a.get(Zt)), jt(e) && r(a.get(Mn)));
+          c ? g && u(a.get("length")) : (u(a.get(Qt)), Lt(e) && u(a.get(Rl)));
           break;
         case "delete":
-          c || (r(a.get(Zt)), jt(e) && r(a.get(Mn)));
+          c || (u(a.get(Qt)), Lt(e) && u(a.get(Rl)));
           break;
         case "set":
-          jt(e) && r(a.get(Zt));
+          Lt(e) && u(a.get(Qt));
           break;
       }
   }
-  Yn();
+  Zl();
 }
-function ll(e) {
-  const t = /* @__PURE__ */ $e(e);
-  return t === e || (Ke(t, "iterate", Sl), /* @__PURE__ */ rt(e)) ? t : /* @__PURE__ */ Vt(e) ? /* @__PURE__ */ Wt(e) ? t.map((l) => Bt(ut(l))) : t.map(Bt) : t.map(ut);
+function tn(e) {
+  const t = /* @__PURE__ */ Ce(e);
+  return t === e || (Ge(t, "iterate", Sn), /* @__PURE__ */ dt(e)) ? t : /* @__PURE__ */ Vt(e) ? /* @__PURE__ */ Wt(e) ? t.map((n) => Bt(ct(n))) : t.map(Bt) : t.map(ct);
 }
-function un(e) {
-  return Ke(e = /* @__PURE__ */ $e(e), "iterate", Sl), e;
+function dl(e) {
+  return Ge(e = /* @__PURE__ */ Ce(e), "iterate", Sn), e;
 }
-function _t(e, t) {
-  return /* @__PURE__ */ Vt(e) ? Bt(/* @__PURE__ */ Wt(e) ? ut(t) : t) : ut(t);
+function kt(e, t) {
+  return /* @__PURE__ */ Vt(e) ? Bt(/* @__PURE__ */ Wt(e) ? ct(t) : t) : ct(t);
 }
-const Gi = {
+const Bi = {
   __proto__: null,
   [Symbol.iterator]() {
-    return _n(this, Symbol.iterator, (e) => _t(this, e));
+    return kl(this, Symbol.iterator, (e) => kt(this, e));
   },
   concat(...e) {
-    return ll(this).concat(
-      ...e.map((t) => ce(t) ? ll(t) : t)
+    return tn(this).concat(
+      ...e.map((t) => pe(t) ? tn(t) : t)
     );
   },
   entries() {
-    return _n(this, "entries", (e) => (e[1] = _t(this, e[1]), e));
+    return kl(this, "entries", (e) => (e[1] = kt(this, e[1]), e));
   },
   every(e, t) {
-    return Et(this, "every", e, t, void 0, arguments);
+    return Pt(this, "every", e, t, void 0, arguments);
   },
   filter(e, t) {
-    return Et(
+    return Pt(
       this,
       "filter",
       e,
       t,
-      (l) => l.map((o) => _t(this, o)),
+      (n) => n.map((o) => kt(this, o)),
       arguments
     );
   },
   find(e, t) {
-    return Et(
+    return Pt(
       this,
       "find",
       e,
       t,
-      (l) => _t(this, l),
+      (n) => kt(this, n),
       arguments
     );
   },
   findIndex(e, t) {
-    return Et(this, "findIndex", e, t, void 0, arguments);
+    return Pt(this, "findIndex", e, t, void 0, arguments);
   },
   findLast(e, t) {
-    return Et(
+    return Pt(
       this,
       "findLast",
       e,
       t,
-      (l) => _t(this, l),
+      (n) => kt(this, n),
       arguments
     );
   },
   findLastIndex(e, t) {
-    return Et(this, "findLastIndex", e, t, void 0, arguments);
+    return Pt(this, "findLastIndex", e, t, void 0, arguments);
   },
   // flat, flatMap could benefit from ARRAY_ITERATE but are not straight-forward to implement
   forEach(e, t) {
-    return Et(this, "forEach", e, t, void 0, arguments);
+    return Pt(this, "forEach", e, t, void 0, arguments);
   },
   includes(...e) {
-    return kn(this, "includes", e);
+    return $l(this, "includes", e);
   },
   indexOf(...e) {
-    return kn(this, "indexOf", e);
+    return $l(this, "indexOf", e);
   },
   join(e) {
-    return ll(this).join(e);
+    return tn(this).join(e);
   },
   // keys() iterator only reads `length`, no optimization required
   lastIndexOf(...e) {
-    return kn(this, "lastIndexOf", e);
+    return $l(this, "lastIndexOf", e);
   },
   map(e, t) {
-    return Et(this, "map", e, t, void 0, arguments);
+    return Pt(this, "map", e, t, void 0, arguments);
   },
   pop() {
-    return cl(this, "pop");
+    return dn(this, "pop");
   },
   push(...e) {
-    return cl(this, "push", e);
+    return dn(this, "push", e);
   },
   reduce(e, ...t) {
-    return Cs(this, "reduce", e, t);
+    return xs(this, "reduce", e, t);
   },
   reduceRight(e, ...t) {
-    return Cs(this, "reduceRight", e, t);
+    return xs(this, "reduceRight", e, t);
   },
   shift() {
-    return cl(this, "shift");
+    return dn(this, "shift");
   },
   // slice could use ARRAY_ITERATE but also seems to beg for range tracking
   some(e, t) {
-    return Et(this, "some", e, t, void 0, arguments);
+    return Pt(this, "some", e, t, void 0, arguments);
   },
   splice(...e) {
-    return cl(this, "splice", e);
+    return dn(this, "splice", e);
   },
   toReversed() {
-    return ll(this).toReversed();
+    return tn(this).toReversed();
   },
   toSorted(e) {
-    return ll(this).toSorted(e);
+    return tn(this).toSorted(e);
   },
   toSpliced(...e) {
-    return ll(this).toSpliced(...e);
+    return tn(this).toSpliced(...e);
   },
   unshift(...e) {
-    return cl(this, "unshift", e);
+    return dn(this, "unshift", e);
   },
   values() {
-    return _n(this, "values", (e) => _t(this, e));
+    return kl(this, "values", (e) => kt(this, e));
   }
 };
-function _n(e, t, l) {
-  const o = un(e), s = o[t], i = s.call(o);
-  if (o !== e && !/* @__PURE__ */ rt(e)) {
+function kl(e, t, n) {
+  const o = dl(e), s = o[t], i = s.call(o);
+  if (o !== e && !/* @__PURE__ */ dt(e)) {
     if (i[Symbol.toStringTag] === "Array Iterator") {
       const a = Object.create(Object.getPrototypeOf(i));
-      return a.next = () => $s(i.next(), l), s !== ho[t] && Object.defineProperties(a, {
+      return a.next = () => Cs(i.next(), n), s !== bo[t] && Object.defineProperties(a, {
         return: {
           get() {
-            const r = i.return;
-            return typeof r == "function" ? r.bind(i) : r;
+            const u = i.return;
+            return typeof u == "function" ? u.bind(i) : u;
           }
         },
         throw: {
           get() {
-            const r = i.throw;
-            return typeof r == "function" ? r.bind(i) : r;
+            const u = i.throw;
+            return typeof u == "function" ? u.bind(i) : u;
           }
         }
       }), a;
     }
-    i._next = i.next, i.next = () => $s(i._next(), l);
+    i._next = i.next, i.next = () => Cs(i._next(), n);
   }
   return i;
 }
-function $s(e, t) {
+function Cs(e, t) {
   return e.done || (e.value = t(e.value)), e;
 }
-const ho = Array.prototype;
-function Et(e, t, l, o, s, i) {
-  const a = un(e), r = a !== e && !/* @__PURE__ */ rt(e), c = a[t];
-  if (c !== ho[t]) {
-    const y = c.apply(e, i);
-    return r ? ut(y) : y;
+const bo = Array.prototype;
+function Pt(e, t, n, o, s, i) {
+  const a = dl(e), u = a !== e && !/* @__PURE__ */ dt(e), c = a[t];
+  if (c !== bo[t]) {
+    const w = c.apply(e, i);
+    return u ? ct(w) : w;
   }
-  let g = l;
-  a !== e && (r ? g = function(y, T) {
-    return l.call(this, _t(e, y), T, e);
-  } : l.length > 2 && (g = function(y, T) {
-    return l.call(this, y, T, e);
+  let g = n;
+  a !== e && (u ? g = function(w, A) {
+    return n.call(this, kt(e, w), A, e);
+  } : n.length > 2 && (g = function(w, A) {
+    return n.call(this, w, A, e);
   }));
   const m = c.call(a, g, o);
-  return r && s ? s(m) : m;
+  return u && s ? s(m) : m;
 }
-function Cs(e, t, l, o) {
-  const s = un(e), i = s !== e && !/* @__PURE__ */ rt(e);
-  let a = l, r = !1;
-  s !== e && (i ? (r = o.length === 0, a = function(g, m, y) {
-    return r && (r = !1, g = _t(e, g)), l.call(this, g, _t(e, m), y, e);
-  }) : l.length > 3 && (a = function(g, m, y) {
-    return l.call(this, g, m, y, e);
+function xs(e, t, n, o) {
+  const s = dl(e), i = s !== e && !/* @__PURE__ */ dt(e);
+  let a = n, u = !1;
+  s !== e && (i ? (u = o.length === 0, a = function(g, m, w) {
+    return u && (u = !1, g = kt(e, g)), n.call(this, g, kt(e, m), w, e);
+  }) : n.length > 3 && (a = function(g, m, w) {
+    return n.call(this, g, m, w, e);
   }));
   const c = s[t](a, ...o);
-  return r ? _t(e, c) : c;
+  return u ? kt(e, c) : c;
 }
-function kn(e, t, l) {
-  const o = /* @__PURE__ */ $e(e);
-  Ke(o, "iterate", Sl);
-  const s = o[t](...l);
-  return (s === -1 || s === !1) && /* @__PURE__ */ ts(l[0]) ? (l[0] = /* @__PURE__ */ $e(l[0]), o[t](...l)) : s;
+function $l(e, t, n) {
+  const o = /* @__PURE__ */ Ce(e);
+  Ge(o, "iterate", Sn);
+  const s = o[t](...n);
+  return (s === -1 || s === !1) && /* @__PURE__ */ ls(n[0]) ? (n[0] = /* @__PURE__ */ Ce(n[0]), o[t](...n)) : s;
 }
-function cl(e, t, l = []) {
-  xt(), Jn();
-  const o = (/* @__PURE__ */ $e(e))[t].apply(e, l);
-  return Yn(), St(), o;
+function dn(e, t, n = []) {
+  St(), Xl();
+  const o = (/* @__PURE__ */ Ce(e))[t].apply(e, n);
+  return Zl(), Tt(), o;
 }
-const zi = /* @__PURE__ */ Bn("__proto__,__v_isRef,__isVue"), mo = /* @__PURE__ */ new Set(
+const Ki = /* @__PURE__ */ Gl("__proto__,__v_isRef,__isVue"), yo = /* @__PURE__ */ new Set(
   /* @__PURE__ */ Object.getOwnPropertyNames(Symbol).filter((e) => e !== "arguments" && e !== "caller").map((e) => Symbol[e]).filter(ht)
 );
-function Ji(e) {
+function Gi(e) {
   ht(e) || (e = String(e));
-  const t = /* @__PURE__ */ $e(this);
-  return Ke(t, "has", e), t.hasOwnProperty(e);
+  const t = /* @__PURE__ */ Ce(this);
+  return Ge(t, "has", e), t.hasOwnProperty(e);
 }
-class bo {
-  constructor(t = !1, l = !1) {
-    this._isReadonly = t, this._isShallow = l;
+class wo {
+  constructor(t = !1, n = !1) {
+    this._isReadonly = t, this._isShallow = n;
   }
-  get(t, l, o) {
-    if (l === "__v_skip") return t.__v_skip;
+  get(t, n, o) {
+    if (n === "__v_skip") return t.__v_skip;
     const s = this._isReadonly, i = this._isShallow;
-    if (l === "__v_isReactive")
+    if (n === "__v_isReactive")
       return !s;
-    if (l === "__v_isReadonly")
+    if (n === "__v_isReadonly")
       return s;
-    if (l === "__v_isShallow")
+    if (n === "__v_isShallow")
       return i;
-    if (l === "__v_raw")
-      return o === (s ? i ? oa : ko : i ? _o : wo).get(t) || // receiver is not the reactive proxy, but has the same prototype
+    if (n === "__v_raw")
+      return o === (s ? i ? la : Co : i ? $o : ko).get(t) || // receiver is not the reactive proxy, but has the same prototype
       // this means the receiver is a user proxy of the reactive proxy
       Object.getPrototypeOf(t) === Object.getPrototypeOf(o) ? t : void 0;
-    const a = ce(t);
+    const a = pe(t);
     if (!s) {
       let c;
-      if (a && (c = Gi[l]))
+      if (a && (c = Bi[n]))
         return c;
-      if (l === "hasOwnProperty")
-        return Ji;
+      if (n === "hasOwnProperty")
+        return Gi;
     }
-    const r = Reflect.get(
+    const u = Reflect.get(
       t,
-      l,
+      n,
       // if this is a proxy wrapping a ref, return methods using the raw ref
       // as receiver so that we don't have to call `toRaw` on the ref in all
       // its class methods
-      /* @__PURE__ */ ze(t) ? t : o
+      /* @__PURE__ */ Je(t) ? t : o
     );
-    if ((ht(l) ? mo.has(l) : zi(l)) || (s || Ke(t, "get", l), i))
-      return r;
-    if (/* @__PURE__ */ ze(r)) {
-      const c = a && Gn(l) ? r : r.value;
-      return s && Se(c) ? /* @__PURE__ */ Rn(c) : c;
+    if ((ht(n) ? yo.has(n) : Ki(n)) || (s || Ge(t, "get", n), i))
+      return u;
+    if (/* @__PURE__ */ Je(u)) {
+      const c = a && Jl(n) ? u : u.value;
+      return s && Ve(c) ? /* @__PURE__ */ Fl(c) : c;
     }
-    return Se(r) ? s ? /* @__PURE__ */ Rn(r) : /* @__PURE__ */ Zn(r) : r;
+    return Ve(u) ? s ? /* @__PURE__ */ Fl(u) : /* @__PURE__ */ ts(u) : u;
   }
 }
-class yo extends bo {
+class _o extends wo {
   constructor(t = !1) {
     super(!1, t);
   }
-  set(t, l, o, s) {
-    let i = t[l];
-    const a = ce(t) && Gn(l);
+  set(t, n, o, s) {
+    let i = t[n];
+    const a = pe(t) && Jl(n);
     if (!this._isShallow) {
       const g = /* @__PURE__ */ Vt(i);
-      if (!/* @__PURE__ */ rt(o) && !/* @__PURE__ */ Vt(o) && (i = /* @__PURE__ */ $e(i), o = /* @__PURE__ */ $e(o)), !a && /* @__PURE__ */ ze(i) && !/* @__PURE__ */ ze(o))
+      if (!/* @__PURE__ */ dt(o) && !/* @__PURE__ */ Vt(o) && (i = /* @__PURE__ */ Ce(i), o = /* @__PURE__ */ Ce(o)), !a && /* @__PURE__ */ Je(i) && !/* @__PURE__ */ Je(o))
         return g || (i.value = o), !0;
     }
-    const r = a ? Number(l) < t.length : be(t, l), c = Reflect.set(
+    const u = a ? Number(n) < t.length : we(t, n), c = Reflect.set(
       t,
-      l,
+      n,
       o,
-      /* @__PURE__ */ ze(t) ? t : s
+      /* @__PURE__ */ Je(t) ? t : s
     );
-    return t === /* @__PURE__ */ $e(s) && c && (r ? je(o, i) && At(t, "set", l, o) : At(t, "add", l, o)), c;
+    return t === /* @__PURE__ */ Ce(s) && c && (u ? Le(o, i) && Et(t, "set", n, o) : Et(t, "add", n, o)), c;
   }
-  deleteProperty(t, l) {
-    const o = be(t, l);
-    t[l];
-    const s = Reflect.deleteProperty(t, l);
-    return s && o && At(t, "delete", l, void 0), s;
+  deleteProperty(t, n) {
+    const o = we(t, n);
+    t[n];
+    const s = Reflect.deleteProperty(t, n);
+    return s && o && Et(t, "delete", n, void 0), s;
   }
-  has(t, l) {
-    const o = Reflect.has(t, l);
-    return (!ht(l) || !mo.has(l)) && Ke(t, "has", l), o;
+  has(t, n) {
+    const o = Reflect.has(t, n);
+    return (!ht(n) || !yo.has(n)) && Ge(t, "has", n), o;
   }
   ownKeys(t) {
-    return Ke(
+    return Ge(
       t,
       "iterate",
-      ce(t) ? "length" : Zt
+      pe(t) ? "length" : Qt
     ), Reflect.ownKeys(t);
   }
 }
-class Yi extends bo {
+class zi extends wo {
   constructor(t = !1) {
     super(!0, t);
   }
-  set(t, l) {
+  set(t, n) {
     return !0;
   }
-  deleteProperty(t, l) {
+  deleteProperty(t, n) {
     return !0;
   }
 }
-const Xi = /* @__PURE__ */ new yo(), Qi = /* @__PURE__ */ new Yi(), Zi = /* @__PURE__ */ new yo(!0);
-const On = (e) => e, Rl = (e) => Reflect.getPrototypeOf(e);
-function ea(e, t, l) {
+const Ji = /* @__PURE__ */ new _o(), Yi = /* @__PURE__ */ new zi(), Xi = /* @__PURE__ */ new _o(!0);
+const Dl = (e) => e, Fn = (e) => Reflect.getPrototypeOf(e);
+function Zi(e, t, n) {
   return function(...o) {
-    const s = this.__v_raw, i = /* @__PURE__ */ $e(s), a = jt(i), r = e === "entries" || e === Symbol.iterator && a, c = e === "keys" && a, g = s[e](...o), m = l ? On : t ? Bt : ut;
-    return !t && Ke(
+    const s = this.__v_raw, i = /* @__PURE__ */ Ce(s), a = Lt(i), u = e === "entries" || e === Symbol.iterator && a, c = e === "keys" && a, g = s[e](...o), m = n ? Dl : t ? Bt : ct;
+    return !t && Ge(
       i,
       "iterate",
-      c ? Mn : Zt
+      c ? Rl : Qt
     ), De(
       // inheriting all iterator properties
       Object.create(g),
       {
         // iterator protocol
         next() {
-          const { value: y, done: T } = g.next();
-          return T ? { value: y, done: T } : {
-            value: r ? [m(y[0]), m(y[1])] : m(y),
-            done: T
+          const { value: w, done: A } = g.next();
+          return A ? { value: w, done: A } : {
+            value: u ? [m(w[0]), m(w[1])] : m(w),
+            done: A
           };
         }
       }
     );
   };
 }
-function Dl(e) {
+function qn(e) {
   return function(...t) {
     return e === "delete" ? !1 : e === "clear" ? void 0 : this;
   };
 }
-function ta(e, t) {
-  const l = {
+function Qi(e, t) {
+  const n = {
     get(s) {
-      const i = this.__v_raw, a = /* @__PURE__ */ $e(i), r = /* @__PURE__ */ $e(s);
-      e || (je(s, r) && Ke(a, "get", s), Ke(a, "get", r));
-      const { has: c } = Rl(a), g = t ? On : e ? Bt : ut;
+      const i = this.__v_raw, a = /* @__PURE__ */ Ce(i), u = /* @__PURE__ */ Ce(s);
+      e || (Le(s, u) && Ge(a, "get", s), Ge(a, "get", u));
+      const { has: c } = Fn(a), g = t ? Dl : e ? Bt : ct;
       if (c.call(a, s))
         return g(i.get(s));
-      if (c.call(a, r))
-        return g(i.get(r));
+      if (c.call(a, u))
+        return g(i.get(u));
       i !== a && i.get(s);
     },
     get size() {
       const s = this.__v_raw;
-      return !e && Ke(/* @__PURE__ */ $e(s), "iterate", Zt), s.size;
+      return !e && Ge(/* @__PURE__ */ Ce(s), "iterate", Qt), s.size;
     },
     has(s) {
-      const i = this.__v_raw, a = /* @__PURE__ */ $e(i), r = /* @__PURE__ */ $e(s);
-      return e || (je(s, r) && Ke(a, "has", s), Ke(a, "has", r)), s === r ? i.has(s) : i.has(s) || i.has(r);
+      const i = this.__v_raw, a = /* @__PURE__ */ Ce(i), u = /* @__PURE__ */ Ce(s);
+      return e || (Le(s, u) && Ge(a, "has", s), Ge(a, "has", u)), s === u ? i.has(s) : i.has(s) || i.has(u);
     },
     forEach(s, i) {
-      const a = this, r = a.__v_raw, c = /* @__PURE__ */ $e(r), g = t ? On : e ? Bt : ut;
-      return !e && Ke(c, "iterate", Zt), r.forEach((m, y) => s.call(i, g(m), g(y), a));
+      const a = this, u = a.__v_raw, c = /* @__PURE__ */ Ce(u), g = t ? Dl : e ? Bt : ct;
+      return !e && Ge(c, "iterate", Qt), u.forEach((m, w) => s.call(i, g(m), g(w), a));
     }
   };
   return De(
-    l,
+    n,
     e ? {
-      add: Dl("add"),
-      set: Dl("set"),
-      delete: Dl("delete"),
-      clear: Dl("clear")
+      add: qn("add"),
+      set: qn("set"),
+      delete: qn("delete"),
+      clear: qn("clear")
     } : {
       add(s) {
-        const i = /* @__PURE__ */ $e(this), a = Rl(i), r = /* @__PURE__ */ $e(s), c = !t && !/* @__PURE__ */ rt(s) && !/* @__PURE__ */ Vt(s) ? r : s;
-        return a.has.call(i, c) || je(s, c) && a.has.call(i, s) || je(r, c) && a.has.call(i, r) || (i.add(c), At(i, "add", c, c)), this;
+        const i = /* @__PURE__ */ Ce(this), a = Fn(i), u = /* @__PURE__ */ Ce(s), c = !t && !/* @__PURE__ */ dt(s) && !/* @__PURE__ */ Vt(s) ? u : s;
+        return a.has.call(i, c) || Le(s, c) && a.has.call(i, s) || Le(u, c) && a.has.call(i, u) || (i.add(c), Et(i, "add", c, c)), this;
       },
       set(s, i) {
-        !t && !/* @__PURE__ */ rt(i) && !/* @__PURE__ */ Vt(i) && (i = /* @__PURE__ */ $e(i));
-        const a = /* @__PURE__ */ $e(this), { has: r, get: c } = Rl(a);
-        let g = r.call(a, s);
-        g || (s = /* @__PURE__ */ $e(s), g = r.call(a, s));
+        !t && !/* @__PURE__ */ dt(i) && !/* @__PURE__ */ Vt(i) && (i = /* @__PURE__ */ Ce(i));
+        const a = /* @__PURE__ */ Ce(this), { has: u, get: c } = Fn(a);
+        let g = u.call(a, s);
+        g || (s = /* @__PURE__ */ Ce(s), g = u.call(a, s));
         const m = c.call(a, s);
-        return a.set(s, i), g ? je(i, m) && At(a, "set", s, i) : At(a, "add", s, i), this;
+        return a.set(s, i), g ? Le(i, m) && Et(a, "set", s, i) : Et(a, "add", s, i), this;
       },
       delete(s) {
-        const i = /* @__PURE__ */ $e(this), { has: a, get: r } = Rl(i);
+        const i = /* @__PURE__ */ Ce(this), { has: a, get: u } = Fn(i);
         let c = a.call(i, s);
-        c || (s = /* @__PURE__ */ $e(s), c = a.call(i, s)), r && r.call(i, s);
+        c || (s = /* @__PURE__ */ Ce(s), c = a.call(i, s)), u && u.call(i, s);
         const g = i.delete(s);
-        return c && At(i, "delete", s, void 0), g;
+        return c && Et(i, "delete", s, void 0), g;
       },
       clear() {
-        const s = /* @__PURE__ */ $e(this), i = s.size !== 0, a = s.clear();
-        return i && At(
+        const s = /* @__PURE__ */ Ce(this), i = s.size !== 0, a = s.clear();
+        return i && Et(
           s,
           "clear",
           void 0,
@@ -885,26 +885,26 @@ function ta(e, t) {
     "entries",
     Symbol.iterator
   ].forEach((s) => {
-    l[s] = ea(s, e, t);
-  }), l;
+    n[s] = Zi(s, e, t);
+  }), n;
 }
-function Qn(e, t) {
-  const l = ta(e, t);
+function es(e, t) {
+  const n = Qi(e, t);
   return (o, s, i) => s === "__v_isReactive" ? !e : s === "__v_isReadonly" ? e : s === "__v_isShallow" ? t : s === "__v_raw" ? o : Reflect.get(
-    be(l, s) && s in o ? l : o,
+    we(n, s) && s in o ? n : o,
     s,
     i
   );
 }
-const la = {
-  get: /* @__PURE__ */ Qn(!1, !1)
+const ea = {
+  get: /* @__PURE__ */ es(!1, !1)
+}, ta = {
+  get: /* @__PURE__ */ es(!1, !0)
 }, na = {
-  get: /* @__PURE__ */ Qn(!1, !0)
-}, sa = {
-  get: /* @__PURE__ */ Qn(!0, !1)
+  get: /* @__PURE__ */ es(!0, !1)
 };
-const wo = /* @__PURE__ */ new WeakMap(), _o = /* @__PURE__ */ new WeakMap(), ko = /* @__PURE__ */ new WeakMap(), oa = /* @__PURE__ */ new WeakMap();
-function ia(e) {
+const ko = /* @__PURE__ */ new WeakMap(), $o = /* @__PURE__ */ new WeakMap(), Co = /* @__PURE__ */ new WeakMap(), la = /* @__PURE__ */ new WeakMap();
+function sa(e) {
   switch (e) {
     case "Object":
     case "Array":
@@ -919,49 +919,49 @@ function ia(e) {
   }
 }
 // @__NO_SIDE_EFFECTS__
-function Zn(e) {
-  return /* @__PURE__ */ Vt(e) ? e : es(
+function ts(e) {
+  return /* @__PURE__ */ Vt(e) ? e : ns(
     e,
     !1,
-    Xi,
-    la,
-    wo
-  );
-}
-// @__NO_SIDE_EFFECTS__
-function aa(e) {
-  return es(
-    e,
-    !1,
-    Zi,
-    na,
-    _o
-  );
-}
-// @__NO_SIDE_EFFECTS__
-function Rn(e) {
-  return es(
-    e,
-    !0,
-    Qi,
-    sa,
+    Ji,
+    ea,
     ko
   );
 }
-function es(e, t, l, o, s) {
-  if (!Se(e) || e.__v_raw && !(t && e.__v_isReactive) || e.__v_skip || !Object.isExtensible(e))
+// @__NO_SIDE_EFFECTS__
+function oa(e) {
+  return ns(
+    e,
+    !1,
+    Xi,
+    ta,
+    $o
+  );
+}
+// @__NO_SIDE_EFFECTS__
+function Fl(e) {
+  return ns(
+    e,
+    !0,
+    Yi,
+    na,
+    Co
+  );
+}
+function ns(e, t, n, o, s) {
+  if (!Ve(e) || e.__v_raw && !(t && e.__v_isReactive) || e.__v_skip || !Object.isExtensible(e))
     return e;
   const i = s.get(e);
   if (i)
     return i;
-  const a = ia(Pi(e));
+  const a = sa(Pi(e));
   if (a === 0)
     return e;
-  const r = new Proxy(
+  const u = new Proxy(
     e,
-    a === 2 ? o : l
+    a === 2 ? o : n
   );
-  return s.set(e, r), r;
+  return s.set(e, u), u;
 }
 // @__NO_SIDE_EFFECTS__
 function Wt(e) {
@@ -972,62 +972,62 @@ function Vt(e) {
   return !!(e && e.__v_isReadonly);
 }
 // @__NO_SIDE_EFFECTS__
-function rt(e) {
+function dt(e) {
   return !!(e && e.__v_isShallow);
 }
 // @__NO_SIDE_EFFECTS__
-function ts(e) {
+function ls(e) {
   return e ? !!e.__v_raw : !1;
 }
 // @__NO_SIDE_EFFECTS__
-function $e(e) {
+function Ce(e) {
   const t = e && e.__v_raw;
-  return t ? /* @__PURE__ */ $e(t) : e;
+  return t ? /* @__PURE__ */ Ce(t) : e;
 }
-function ra(e) {
-  return !be(e, "__v_skip") && Object.isExtensible(e) && no(e, "__v_skip", !0), e;
+function ia(e) {
+  return !we(e, "__v_skip") && Object.isExtensible(e) && oo(e, "__v_skip", !0), e;
 }
-const ut = (e) => Se(e) ? /* @__PURE__ */ Zn(e) : e, Bt = (e) => Se(e) ? /* @__PURE__ */ Rn(e) : e;
+const ct = (e) => Ve(e) ? /* @__PURE__ */ ts(e) : e, Bt = (e) => Ve(e) ? /* @__PURE__ */ Fl(e) : e;
 // @__NO_SIDE_EFFECTS__
-function ze(e) {
+function Je(e) {
   return e ? e.__v_isRef === !0 : !1;
 }
 // @__NO_SIDE_EFFECTS__
-function H(e) {
-  return ua(e, !1);
+function D(e) {
+  return aa(e, !1);
 }
-function ua(e, t) {
-  return /* @__PURE__ */ ze(e) ? e : new da(e, t);
+function aa(e, t) {
+  return /* @__PURE__ */ Je(e) ? e : new ra(e, t);
 }
-class da {
-  constructor(t, l) {
-    this.dep = new rn(), this.__v_isRef = !0, this.__v_isShallow = !1, this._rawValue = l ? t : /* @__PURE__ */ $e(t), this._value = l ? t : ut(t), this.__v_isShallow = l;
+class ra {
+  constructor(t, n) {
+    this.dep = new ul(), this.__v_isRef = !0, this.__v_isShallow = !1, this._rawValue = n ? t : /* @__PURE__ */ Ce(t), this._value = n ? t : ct(t), this.__v_isShallow = n;
   }
   get value() {
     return this.dep.track(), this._value;
   }
   set value(t) {
-    const l = this._rawValue, o = this.__v_isShallow || /* @__PURE__ */ rt(t) || /* @__PURE__ */ Vt(t);
-    t = o ? t : /* @__PURE__ */ $e(t), je(t, l) && (this._rawValue = t, this._value = o ? t : ut(t), this.dep.trigger());
+    const n = this._rawValue, o = this.__v_isShallow || /* @__PURE__ */ dt(t) || /* @__PURE__ */ Vt(t);
+    t = o ? t : /* @__PURE__ */ Ce(t), Le(t, n) && (this._rawValue = t, this._value = o ? t : ct(t), this.dep.trigger());
   }
 }
-function ca(e) {
-  return /* @__PURE__ */ ze(e) ? e.value : e;
+function ua(e) {
+  return /* @__PURE__ */ Je(e) ? e.value : e;
 }
-const fa = {
-  get: (e, t, l) => t === "__v_raw" ? e : ca(Reflect.get(e, t, l)),
-  set: (e, t, l, o) => {
+const da = {
+  get: (e, t, n) => t === "__v_raw" ? e : ua(Reflect.get(e, t, n)),
+  set: (e, t, n, o) => {
     const s = e[t];
-    return /* @__PURE__ */ ze(s) && !/* @__PURE__ */ ze(l) ? (s.value = l, !0) : Reflect.set(e, t, l, o);
+    return /* @__PURE__ */ Je(s) && !/* @__PURE__ */ Je(n) ? (s.value = n, !0) : Reflect.set(e, t, n, o);
   }
 };
-function $o(e) {
-  return /* @__PURE__ */ Wt(e) ? e : new Proxy(e, fa);
+function xo(e) {
+  return /* @__PURE__ */ Wt(e) ? e : new Proxy(e, da);
 }
-class pa {
+class ca {
   constructor(t) {
     this.__v_isRef = !0, this._value = void 0;
-    const l = this.dep = new rn(), { get: o, set: s } = t(l.track.bind(l), l.trigger.bind(l));
+    const n = this.dep = new ul(), { get: o, set: s } = t(n.track.bind(n), n.trigger.bind(n));
     this._get = o, this._set = s;
   }
   get value() {
@@ -1037,779 +1037,779 @@ class pa {
     this._set(t);
   }
 }
-function va(e) {
-  return new pa(e);
+function fa(e) {
+  return new ca(e);
 }
-class ga {
-  constructor(t, l, o) {
-    this.fn = t, this.setter = l, this._value = void 0, this.dep = new rn(this), this.__v_isRef = !0, this.deps = void 0, this.depsTail = void 0, this.flags = 16, this.globalVersion = xl - 1, this.next = void 0, this.effect = this, this.__v_isReadonly = !l, this.isSSR = o;
+class pa {
+  constructor(t, n, o) {
+    this.fn = t, this.setter = n, this._value = void 0, this.dep = new ul(this), this.__v_isRef = !0, this.deps = void 0, this.depsTail = void 0, this.flags = 16, this.globalVersion = xn - 1, this.next = void 0, this.effect = this, this.__v_isReadonly = !n, this.isSSR = o;
   }
   /**
    * @internal
    */
   notify() {
     if (this.flags |= 16, !(this.flags & 8) && // avoid infinite self recursion
-    Te !== this)
-      return uo(this, !0), !0;
+    Ue !== this)
+      return fo(this, !0), !0;
   }
   get value() {
     const t = this.dep.track();
-    return po(this), t && (t.version = this.dep.version), this._value;
+    return go(this), t && (t.version = this.dep.version), this._value;
   }
   set value(t) {
     this.setter && this.setter(t);
   }
 }
 // @__NO_SIDE_EFFECTS__
-function ha(e, t, l = !1) {
+function va(e, t, n = !1) {
   let o, s;
-  return fe(e) ? o = e : (o = e.get, s = e.set), new ga(o, s, l);
+  return ge(e) ? o = e : (o = e.get, s = e.set), new pa(o, s, n);
 }
-const Nl = {}, zl = /* @__PURE__ */ new WeakMap();
+const Nn = {}, Yn = /* @__PURE__ */ new WeakMap();
 let Yt;
-function ma(e, t = !1, l = Yt) {
-  if (l) {
-    let o = zl.get(l);
-    o || zl.set(l, o = []), o.push(e);
+function ga(e, t = !1, n = Yt) {
+  if (n) {
+    let o = Yn.get(n);
+    o || Yn.set(n, o = []), o.push(e);
   }
 }
-function ba(e, t, l = ye) {
-  const { immediate: o, deep: s, once: i, scheduler: a, augmentJob: r, call: c } = l, g = (j) => s ? j : /* @__PURE__ */ rt(j) || s === !1 || s === 0 ? It(j, 1) : It(j);
-  let m, y, T, E, B = !1, I = !1;
-  if (/* @__PURE__ */ ze(e) ? (y = () => e.value, B = /* @__PURE__ */ rt(e)) : /* @__PURE__ */ Wt(e) ? (y = () => g(e), B = !0) : ce(e) ? (I = !0, B = e.some((j) => /* @__PURE__ */ Wt(j) || /* @__PURE__ */ rt(j)), y = () => e.map((j) => {
-    if (/* @__PURE__ */ ze(j))
+function ha(e, t, n = _e) {
+  const { immediate: o, deep: s, once: i, scheduler: a, augmentJob: u, call: c } = n, g = (j) => s ? j : /* @__PURE__ */ dt(j) || s === !1 || s === 0 ? It(j, 1) : It(j);
+  let m, w, A, V, L = !1, R = !1;
+  if (/* @__PURE__ */ Je(e) ? (w = () => e.value, L = /* @__PURE__ */ dt(e)) : /* @__PURE__ */ Wt(e) ? (w = () => g(e), L = !0) : pe(e) ? (R = !0, L = e.some((j) => /* @__PURE__ */ Wt(j) || /* @__PURE__ */ dt(j)), w = () => e.map((j) => {
+    if (/* @__PURE__ */ Je(j))
       return j.value;
     if (/* @__PURE__ */ Wt(j))
       return g(j);
-    if (fe(j))
+    if (ge(j))
       return c ? c(j, 2) : j();
-  })) : fe(e) ? t ? y = c ? () => c(e, 2) : e : y = () => {
-    if (T) {
-      xt();
+  })) : ge(e) ? t ? w = c ? () => c(e, 2) : e : w = () => {
+    if (A) {
+      St();
       try {
-        T();
+        A();
       } finally {
-        St();
+        Tt();
       }
     }
     const j = Yt;
     Yt = m;
     try {
-      return c ? c(e, 3, [E]) : e(E);
+      return c ? c(e, 3, [V]) : e(V);
     } finally {
       Yt = j;
     }
-  } : y = Ct, t && s) {
-    const j = y, te = s === !0 ? 1 / 0 : s;
-    y = () => It(j(), te);
+  } : w = xt, t && s) {
+    const j = w, le = s === !0 ? 1 / 0 : s;
+    w = () => It(j(), le);
   }
-  const Q = Wi(), X = () => {
-    m.stop(), Q && Q.active && Kn(Q.effects, m);
+  const ne = Li(), X = () => {
+    m.stop(), ne && ne.active && zl(ne.effects, m);
   };
   if (i && t) {
     const j = t;
-    t = (...te) => {
+    t = (...le) => {
       try {
-        return j(...te);
+        return j(...le);
       } finally {
         X();
       }
     };
   }
-  let Z = I ? new Array(e.length).fill(Nl) : Nl;
-  const le = (j) => {
+  let Z = R ? new Array(e.length).fill(Nn) : Nn;
+  const ee = (j) => {
     if (!(!(m.flags & 1) || !m.dirty && !j))
       if (t) {
-        const te = m.run();
-        if (j || s || B || (I ? te.some((O, S) => je(O, Z[S])) : je(te, Z))) {
-          const O = Yt;
-          xt();
+        const le = m.run();
+        if (j || s || L || (R ? le.some((Q, I) => Le(Q, Z[I])) : Le(le, Z))) {
+          const Q = Yt;
+          St();
           try {
-            T && T(), Yt = m;
-            const S = [
-              te,
+            A && A(), Yt = m;
+            const I = [
+              le,
               // pass undefined as the old value when it's changed for the first time
-              Z === Nl ? void 0 : I && Z[0] === Nl ? [] : Z,
-              E
+              Z === Nn ? void 0 : R && Z[0] === Nn ? [] : Z,
+              V
             ];
-            Z = te, c ? c(t, 3, S) : (
+            Z = le, c ? c(t, 3, I) : (
               // @ts-expect-error
-              t(...S)
+              t(...I)
             );
           } finally {
-            Yt = O, St();
+            Yt = Q, Tt();
           }
         }
       } else
         m.run();
   };
-  return r && r(le), m = new ao(y), m.scheduler = a ? () => a(le, !1) : le, E = (j) => ma(j, !1, m), T = m.onStop = () => {
-    const j = zl.get(m);
+  return u && u(ee), m = new uo(w), m.scheduler = a ? () => a(ee, !1) : ee, V = (j) => ga(j, !1, m), A = m.onStop = () => {
+    const j = Yn.get(m);
     if (j) {
       if (c)
         c(j, 4);
       else
-        for (const te of j) te();
-      zl.delete(m);
+        for (const le of j) le();
+      Yn.delete(m);
     }
-  }, t ? o ? le(!0) : Z = m.run() : a ? a(le.bind(null, !0), !0) : m.run(), X.pause = m.pause.bind(m), X.resume = m.resume.bind(m), X.stop = X, X;
+  }, t ? o ? ee(!0) : Z = m.run() : a ? a(ee.bind(null, !0), !0) : m.run(), X.pause = m.pause.bind(m), X.resume = m.resume.bind(m), X.stop = X, X;
 }
-function It(e, t = 1 / 0, l) {
-  if (t <= 0 || !Se(e) || e.__v_skip || (l = l || /* @__PURE__ */ new Map(), (l.get(e) || 0) >= t))
+function It(e, t = 1 / 0, n) {
+  if (t <= 0 || !Ve(e) || e.__v_skip || (n = n || /* @__PURE__ */ new Map(), (n.get(e) || 0) >= t))
     return e;
-  if (l.set(e, t), t--, /* @__PURE__ */ ze(e))
-    It(e.value, t, l);
-  else if (ce(e))
+  if (n.set(e, t), t--, /* @__PURE__ */ Je(e))
+    It(e.value, t, n);
+  else if (pe(e))
     for (let o = 0; o < e.length; o++)
-      It(e[o], t, l);
-  else if (Rt(e) || jt(e))
+      It(e[o], t, n);
+  else if (Rt(e) || Lt(e))
     e.forEach((o) => {
-      It(o, t, l);
+      It(o, t, n);
     });
-  else if (to(e)) {
+  else if (lo(e)) {
     for (const o in e)
-      It(e[o], t, l);
+      It(e[o], t, n);
     for (const o of Object.getOwnPropertySymbols(e))
-      Object.prototype.propertyIsEnumerable.call(e, o) && It(e[o], t, l);
+      Object.prototype.propertyIsEnumerable.call(e, o) && It(e[o], t, n);
   }
   return e;
 }
-function Il(e, t, l, o) {
+function In(e, t, n, o) {
   try {
     return o ? e(...o) : e();
   } catch (s) {
-    dn(s, t, l);
+    cl(s, t, n);
   }
 }
-function bt(e, t, l, o) {
-  if (fe(e)) {
-    const s = Il(e, t, l, o);
-    return s && Zs(s) && s.catch((i) => {
-      dn(i, t, l, void 0, !0);
+function bt(e, t, n, o) {
+  if (ge(e)) {
+    const s = In(e, t, n, o);
+    return s && to(s) && s.catch((i) => {
+      cl(i, t, n, void 0, !0);
     }), s;
   }
-  if (ce(e)) {
+  if (pe(e)) {
     const s = [];
     for (let i = 0; i < e.length; i++)
-      s.push(bt(e[i], t, l, o));
+      s.push(bt(e[i], t, n, o));
     return s;
   }
 }
-function dn(e, t, l, o = !0, s = !1) {
-  const i = t ? t.vnode : null, { errorHandler: a, throwUnhandledErrorInProduction: r } = t && t.appContext.config || ye;
+function cl(e, t, n, o = !0, s = !1) {
+  const i = t ? t.vnode : null, { errorHandler: a, throwUnhandledErrorInProduction: u } = t && t.appContext.config || _e;
   if (t) {
     let c = t.parent;
-    const g = t.proxy, m = `https://vuejs.org/error-reference/#runtime-${l}`;
+    const g = t.proxy, m = `https://vuejs.org/error-reference/#runtime-${n}`;
     for (; c; ) {
-      const y = c.ec;
-      if (y && !c.isUnmounted && // Async failures may outlive stopped scopes whose unmount effects
+      const w = c.ec;
+      if (w && !c.isUnmounted && // Async failures may outlive stopped scopes whose unmount effects
       // are deferred or discarded by Suspense.
       (!s || c.scope.active)) {
-        for (let T = 0; T < y.length; T++)
-          if (y[T](e, g, m) === !1)
+        for (let A = 0; A < w.length; A++)
+          if (w[A](e, g, m) === !1)
             return;
       }
       c = c.parent;
     }
     if (a) {
-      xt(), Il(a, null, 10, [
+      St(), In(a, null, 10, [
         e,
         g,
         m
-      ]), St();
+      ]), Tt();
       return;
     }
   }
-  ya(e, l, i, o, r);
+  ma(e, n, i, o, u);
 }
-function ya(e, t, l, o = !0, s = !1) {
+function ma(e, t, n, o = !0, s = !1) {
   if (s)
     throw e;
   console.error(e);
 }
-const Ye = [];
+const Qe = [];
 let pt = -1;
-const kt = [];
-let Lt = null, nl = 0;
-const Co = /* @__PURE__ */ Promise.resolve();
-let Jl = null;
-function ls(e) {
-  const t = Jl || Co;
+const $t = [];
+let Ht = null, nn = 0;
+const So = /* @__PURE__ */ Promise.resolve();
+let Xn = null;
+function ss(e) {
+  const t = Xn || So;
   return e ? t.then(this ? e.bind(this) : e) : t;
 }
-function wa(e) {
-  let t = pt + 1, l = Ye.length;
-  for (; t < l; ) {
-    const o = t + l >>> 1, s = Ye[o], i = Vl(s);
-    i < e || i === e && s.flags & 2 ? t = o + 1 : l = o;
+function ba(e) {
+  let t = pt + 1, n = Qe.length;
+  for (; t < n; ) {
+    const o = t + n >>> 1, s = Qe[o], i = Tn(s);
+    i < e || i === e && s.flags & 2 ? t = o + 1 : n = o;
   }
   return t;
 }
-function ns(e) {
+function os(e) {
   if (!(e.flags & 1)) {
-    const t = Vl(e), l = Ye[Ye.length - 1];
-    !l || // fast path when the job id is larger than the tail
-    !(e.flags & 2) && t >= Vl(l) ? Ye.push(e) : Ye.splice(wa(t), 0, e), e.flags |= 1, xo();
+    const t = Tn(e), n = Qe[Qe.length - 1];
+    !n || // fast path when the job id is larger than the tail
+    !(e.flags & 2) && t >= Tn(n) ? Qe.push(e) : Qe.splice(ba(t), 0, e), e.flags |= 1, To();
   }
 }
-function xo() {
-  Jl || (Jl = Co.then(To));
+function To() {
+  Xn || (Xn = So.then(Uo));
 }
-function _a(e) {
-  if (!ce(e))
-    Lt && e.id === -1 ? Lt.splice(nl + 1, 0, e) : e.flags & 1 || (kt.push(e), e.flags |= 1);
+function ya(e) {
+  if (!pe(e))
+    Ht && e.id === -1 ? Ht.splice(nn + 1, 0, e) : e.flags & 1 || ($t.push(e), e.flags |= 1);
   else
     for (let t = 0; t < e.length; t++)
-      kt.push(e[t]);
-  xo();
+      $t.push(e[t]);
+  To();
 }
-function So(e, t, l, o = pt + 1) {
-  for (; o < Ye.length; o++) {
-    const s = Ye[o];
+function Vo(e, t, n, o = pt + 1) {
+  for (; o < Qe.length; o++) {
+    const s = Qe[o];
     if (s && s.flags & 2) {
       if (e && s.id !== e.uid || t !== void 0 && !(s.id >= t))
         continue;
-      Ye.splice(o, 1), o = e ? o - 1 : pt, s.flags & 4 && (s.flags &= -2), s(), s.flags & 4 || (s.flags &= -2);
+      Qe.splice(o, 1), o = e ? o - 1 : pt, s.flags & 4 && (s.flags &= -2), s(), s.flags & 4 || (s.flags &= -2);
     }
   }
 }
-function Vo(e, t, l = 0) {
-  if (kt.length) {
-    let o = kt, s = 0;
+function Po(e, t, n = 0) {
+  if ($t.length) {
+    let o = $t, s = 0;
     if (t) {
       o = [];
-      for (let a = 0; a < kt.length; a++) {
-        const r = kt[a];
-        (r.i !== void 0 ? !r.i || r.i.uid < l : t.has(r)) ? kt[s++] = r : o.push(r);
+      for (let a = 0; a < $t.length; a++) {
+        const u = $t[a];
+        (u.i !== void 0 ? !u.i || u.i.uid < n : t.has(u)) ? $t[s++] = u : o.push(u);
       }
     }
-    const i = [...new Set(o)].sort((a, r) => Vl(a) - Vl(r));
-    if (kt.length = s, Lt) {
+    const i = [...new Set(o)].sort((a, u) => Tn(a) - Tn(u));
+    if ($t.length = s, Ht) {
       for (let a = 0; a < i.length; a++)
-        Lt.push(i[a]);
+        Ht.push(i[a]);
       return;
     }
-    for (Lt = i, nl = 0; nl < Lt.length; nl++) {
-      const a = Lt[nl];
+    for (Ht = i, nn = 0; nn < Ht.length; nn++) {
+      const a = Ht[nn];
       a.flags & 4 && (a.flags &= -2), a.flags & 8 || a(), a.flags &= -2;
     }
-    Lt = null, nl = 0;
+    Ht = null, nn = 0;
   }
 }
-let $n = !1;
-function ka(e, t) {
-  if ($n) {
+let Cl = !1;
+function wa(e, t) {
+  if (Cl) {
     e();
     return;
   }
-  const l = t === void 0 ? void 0 : new Set(kt);
-  e(), $n = !0;
+  const n = t === void 0 ? void 0 : new Set($t);
+  e(), Cl = !0;
   try {
-    So(void 0, t), Vo(void 0, l, t);
+    Vo(void 0, t), Po(void 0, n, t);
   } finally {
-    $n = !1;
+    Cl = !1;
   }
 }
-const Vl = (e) => e.id == null ? e.flags & 2 ? -1 : 1 / 0 : e.id;
-function To(e) {
+const Tn = (e) => e.id == null ? e.flags & 2 ? -1 : 1 / 0 : e.id;
+function Uo(e) {
   try {
-    for (pt = 0; pt < Ye.length; pt++) {
-      const t = Ye[pt];
-      t && !(t.flags & 8) && (t.flags & 4 && (t.flags &= -2), Il(
+    for (pt = 0; pt < Qe.length; pt++) {
+      const t = Qe[pt];
+      t && !(t.flags & 8) && (t.flags & 4 && (t.flags &= -2), In(
         t,
         t.i,
         t.i ? 15 : 14
       ), t.flags & 4 || (t.flags &= -2));
     }
   } finally {
-    for (; pt < Ye.length; pt++) {
-      const t = Ye[pt];
+    for (; pt < Qe.length; pt++) {
+      const t = Qe[pt];
       t && (t.flags &= -2);
     }
-    pt = -1, Ye.length = 0, Vo(), Jl = null, (Ye.length || kt.length) && To();
+    pt = -1, Qe.length = 0, Po(), Xn = null, (Qe.length || $t.length) && Uo();
   }
 }
-let Ge = null, Eo = null;
-function Yl(e) {
-  const t = Ge;
-  return Ge = e, Eo = e && e.type.__scopeId || null, t;
+let ze = null, Ao = null;
+function Zn(e) {
+  const t = ze;
+  return ze = e, Ao = e && e.type.__scopeId || null, t;
 }
-function Re(e, t = Ge, l) {
+function Ie(e, t = ze, n) {
   if (!t || e._n)
     return e;
   const o = (...s) => {
-    o._d && Ds(-1);
-    const i = Yl(t), a = Ot.length;
-    let r;
+    o._d && Fs(-1);
+    const i = Zn(t), a = Ot.length;
+    let u;
     try {
-      r = e(...s);
+      u = e(...s);
     } finally {
-      for (let c = Ot.length; c > a; c--) us();
-      Yl(i), o._d && Ds(1);
+      for (let c = Ot.length; c > a; c--) cs();
+      Zn(i), o._d && Fs(1);
     }
-    return r;
+    return u;
   };
   return o._n = !0, o._c = !0, o._d = !0, o;
 }
-function F(e, t) {
-  if (Ge === null)
+function H(e, t) {
+  if (ze === null)
     return e;
-  const l = gn(Ge), o = e.dirs || (e.dirs = []);
+  const n = hl(ze), o = e.dirs || (e.dirs = []);
   for (let s = 0; s < t.length; s++) {
-    let [i, a, r, c = ye] = t[s];
-    i && (fe(i) && (i = {
+    let [i, a, u, c = _e] = t[s];
+    i && (ge(i) && (i = {
       mounted: i,
       updated: i
     }), i.deep && It(a), o.push({
       dir: i,
-      instance: l,
+      instance: n,
       value: a,
       oldValue: void 0,
-      arg: r,
+      arg: u,
       modifiers: c
     }));
   }
   return e;
 }
-function zt(e, t, l, o) {
+function zt(e, t, n, o) {
   let s = e;
   if (o === "beforeMount")
     e._mount = e;
   else if (o === "beforeUpdate") {
-    const r = t && t._mount;
-    r && (r._latest = e, e._mount = r);
+    const u = t && t._mount;
+    u && (u._latest = e, e._mount = u);
   } else if (o === "mounted") {
-    const r = e._latest;
-    e._mount = e._latest = void 0, r && (s = r, r._mount = void 0);
+    const u = e._latest;
+    e._mount = e._latest = void 0, u && (s = u, u._mount = void 0);
   }
   const i = s.dirs, a = t && t.dirs;
-  for (let r = 0; r < i.length; r++) {
-    let c = i[r];
-    a ? c.oldValue = a[r].value : o === "mounted" && c.oldValue !== void 0 && (c = De({}, c, { oldValue: void 0 }));
+  for (let u = 0; u < i.length; u++) {
+    let c = i[u];
+    a ? c.oldValue = a[u].value : o === "mounted" && c.oldValue !== void 0 && (c = De({}, c, { oldValue: void 0 }));
     let g = c.dir[o];
-    g && (xt(), bt(g, l, 8, [
+    g && (St(), bt(g, n, 8, [
       e.el,
       c,
       s,
       t
-    ]), St());
+    ]), Tt());
   }
 }
-function $a(e, t) {
-  if (Qe) {
-    let l = Qe.provides;
-    const o = Qe.parent && Qe.parent.provides;
-    o === l && (l = Qe.provides = Object.create(o)), l[e] = t;
+function _a(e, t) {
+  if (et) {
+    let n = et.provides;
+    const o = et.parent && et.parent.provides;
+    o === n && (n = et.provides = Object.create(o)), n[e] = t;
   }
 }
-function Kl(e, t, l = !1) {
-  const o = si();
-  if (o || ol) {
-    let s = ol ? ol._context.provides : o ? o.parent == null || o.ce ? o.vnode.appContext && o.vnode.appContext.provides : o.parent.provides : void 0;
+function zn(e, t, n = !1) {
+  const o = ii();
+  if (o || sn) {
+    let s = sn ? sn._context.provides : o ? o.parent == null || o.ce ? o.vnode.appContext && o.vnode.appContext.provides : o.parent.provides : void 0;
     if (s && e in s)
       return s[e];
     if (arguments.length > 1)
-      return l && fe(t) ? t.call(o && o.proxy) : t;
+      return n && ge(t) ? t.call(o && o.proxy) : t;
   }
 }
-const Ca = /* @__PURE__ */ Symbol.for("v-scx"), xa = () => Kl(Ca);
-function Sa(e, t) {
-  return ss(
+const ka = /* @__PURE__ */ Symbol.for("v-scx"), $a = () => zn(ka);
+function Ca(e, t) {
+  return is(
     e,
     null,
     { flush: "sync" }
   );
 }
-function Xe(e, t, l) {
-  return ss(e, t, l);
+function We(e, t, n) {
+  return is(e, t, n);
 }
-function ss(e, t, l = ye) {
-  const { immediate: o, deep: s, flush: i, once: a } = l, r = De({}, l), c = t && o || !t && i !== "post";
+function is(e, t, n = _e) {
+  const { immediate: o, deep: s, flush: i, once: a } = n, u = De({}, n), c = t && o || !t && i !== "post";
   let g;
-  if (Pl) {
+  if (An) {
     if (i === "sync") {
-      const E = xa();
-      g = E.__watcherHandles || (E.__watcherHandles = []);
+      const V = $a();
+      g = V.__watcherHandles || (V.__watcherHandles = []);
     } else if (!c) {
-      const E = () => {
+      const V = () => {
       };
-      return E.stop = Ct, E.resume = Ct, E.pause = Ct, E;
+      return V.stop = xt, V.resume = xt, V.pause = xt, V;
     }
   }
-  const m = Qe;
-  r.call = (E, B, I) => bt(E, m, B, I);
-  let y = !1;
-  i === "post" ? r.scheduler = (E) => {
-    E.i = m, Be(E, m && m.suspense);
-  } : i !== "sync" && (y = !0, r.scheduler = (E, B) => {
-    B ? E() : ns(E);
-  }), r.augmentJob = (E) => {
-    t && (E.flags |= 4), y && (E.flags |= 2, m && (E.id = m.uid, E.i = m));
+  const m = et;
+  u.call = (V, L, R) => bt(V, m, L, R);
+  let w = !1;
+  i === "post" ? u.scheduler = (V) => {
+    V.i = m, Ke(V, m && m.suspense);
+  } : i !== "sync" && (w = !0, u.scheduler = (V, L) => {
+    L ? V() : os(V);
+  }), u.augmentJob = (V) => {
+    t && (V.flags |= 4), w && (V.flags |= 2, m && (V.id = m.uid, V.i = m));
   };
-  const T = ba(e, t, r);
-  return Pl && (g ? g.push(T) : c && T()), T;
+  const A = ha(e, t, u);
+  return An && (g ? g.push(A) : c && A()), A;
 }
-function Va(e, t, l) {
-  const o = this.proxy, s = Ae(e) ? e.includes(".") ? Uo(o, e) : () => o[e] : e.bind(o, o);
+function xa(e, t, n) {
+  const o = this.proxy, s = Ee(e) ? e.includes(".") ? Eo(o, e) : () => o[e] : e.bind(o, o);
   let i;
-  fe(t) ? i = t : (i = t.handler, l = t);
-  const a = Ml(this), r = ss(s, i.bind(o), l);
-  return a(), r;
+  ge(t) ? i = t : (i = t.handler, n = t);
+  const a = Mn(this), u = is(s, i.bind(o), n);
+  return a(), u;
 }
-function Uo(e, t) {
-  const l = t.split(".");
+function Eo(e, t) {
+  const n = t.split(".");
   return () => {
     let o = e;
-    for (let s = 0; s < l.length && o; s++)
-      o = o[l[s]];
+    for (let s = 0; s < n.length && o; s++)
+      o = o[n[s]];
     return o;
   };
 }
-const Ft = /* @__PURE__ */ new WeakMap(), Po = /* @__PURE__ */ Symbol("_vte"), cn = (e) => e.__isTeleport, Xt = (e) => e && (e.disabled || e.disabled === ""), Ta = (e) => e && (e.defer || e.defer === ""), xs = (e) => typeof SVGElement < "u" && e instanceof SVGElement, Ss = (e) => typeof MathMLElement == "function" && e instanceof MathMLElement, Dn = (e, t) => {
-  const l = e && e.to;
-  return Ae(l) ? t ? t(l) : null : l;
-}, Ea = {
+const Nt = /* @__PURE__ */ new WeakMap(), Io = /* @__PURE__ */ Symbol("_vte"), fl = (e) => e.__isTeleport, Xt = (e) => e && (e.disabled || e.disabled === ""), Sa = (e) => e && (e.defer || e.defer === ""), Ss = (e) => typeof SVGElement < "u" && e instanceof SVGElement, Ts = (e) => typeof MathMLElement == "function" && e instanceof MathMLElement, ql = (e, t) => {
+  const n = e && e.to;
+  return Ee(n) ? t ? t(n) : null : n;
+}, Ta = {
   name: "Teleport",
   __isTeleport: !0,
-  process(e, t, l, o, s, i, a, r, c, g) {
+  process(e, t, n, o, s, i, a, u, c, g) {
     const {
       mc: m,
-      pc: y,
-      pbc: T,
-      o: { insert: E, querySelector: B, createText: I, createComment: Q, parentNode: X }
+      pc: w,
+      pbc: A,
+      o: { insert: V, querySelector: L, createText: R, createComment: ne, parentNode: X }
     } = g, Z = Xt(t.props);
-    let { dynamicChildren: le } = t;
-    const j = (S, k, R) => {
-      S.shapeFlag & 16 && m(
-        S.children,
-        k,
-        R,
+    let { dynamicChildren: ee } = t;
+    const j = (I, E, P) => {
+      I.shapeFlag & 16 && m(
+        I.children,
+        E,
+        P,
         s,
         i,
         a,
-        r,
+        u,
         c
       );
-    }, te = (S = t) => {
-      const k = Xt(S.props), R = S.target = Dn(S.props, B), z = Nn(R, S, I, E);
-      R && (a !== "svg" && xs(R) ? a = "svg" : a !== "mathml" && Ss(R) && (a = "mathml"), s && s.isCE && (s.ce._teleportTargets || (s.ce._teleportTargets = /* @__PURE__ */ new Set())).add(R), k || (j(S, R, z), vl(S, !1)));
-    }, O = (S) => {
-      const k = () => {
-        if (Ft.get(S) === k) {
-          if (Ft.delete(S), Xt(S.props)) {
-            const R = X(S.el) || l;
-            j(S, R, S.anchor), vl(S, !0);
+    }, le = (I = t) => {
+      const E = Xt(I.props), P = I.target = ql(I.props, L), S = Nl(P, I, R, V);
+      P && (a !== "svg" && Ss(P) ? a = "svg" : a !== "mathml" && Ts(P) && (a = "mathml"), s && s.isCE && (s.ce._teleportTargets || (s.ce._teleportTargets = /* @__PURE__ */ new Set())).add(P), E || (j(I, P, S), vn(I, !1)));
+    }, Q = (I) => {
+      const E = () => {
+        if (Nt.get(I) === E) {
+          if (Nt.delete(I), Xt(I.props)) {
+            const P = X(I.el) || n;
+            j(I, P, I.anchor), vn(I, !0);
           }
-          te(S);
+          le(I);
         }
       };
-      Ft.set(S, k), Be(k, i);
+      Nt.set(I, E), Ke(E, i);
     };
     if (e == null) {
-      const S = t.el = I(""), k = t.anchor = I("");
-      if (E(S, l, o), E(k, l, o), Ta(t.props) || i && i.pendingBranch) {
-        O(t);
+      const I = t.el = R(""), E = t.anchor = R("");
+      if (V(I, n, o), V(E, n, o), Sa(t.props) || i && i.pendingBranch) {
+        Q(t);
         return;
       }
-      Z && (j(t, l, k), vl(t, !0)), te();
+      Z && (j(t, n, E), vn(t, !0)), le();
     } else {
       t.el = e.el;
-      const S = t.anchor = e.anchor, k = Ft.get(e);
-      if (k) {
-        k.flags |= 8, Ft.delete(e), O(t);
+      const I = t.anchor = e.anchor, E = Nt.get(e);
+      if (E) {
+        E.flags |= 8, Nt.delete(e), Q(t);
         return;
       }
       t.targetStart = e.targetStart;
-      const R = t.target = e.target, z = t.targetAnchor = e.targetAnchor, pe = Xt(e.props), he = pe ? l : R, Pe = pe ? S : z;
-      if (a === "svg" || xs(R) ? a = "svg" : (a === "mathml" || Ss(R)) && (a = "mathml"), le ? (T(
+      const P = t.target = e.target, S = t.targetAnchor = e.targetAnchor, C = Xt(e.props), ie = C ? n : P, ke = C ? I : S;
+      if (a === "svg" || Ss(P) ? a = "svg" : (a === "mathml" || Ts(P)) && (a = "mathml"), ee ? (A(
         e.dynamicChildren,
-        le,
-        he,
+        ee,
+        ie,
         s,
         i,
         a,
-        r
-      ), rs(e, t, !0)) : c || y(
+        u
+      ), ds(e, t, !0)) : c || w(
         e,
         t,
-        he,
-        Pe,
+        ie,
+        ke,
         s,
         i,
         a,
-        r,
+        u,
         !1
       ), Z)
-        pe ? t.props && e.props && t.props.to !== e.props.to && (t.props.to = e.props.to) : ql(
+        C ? t.props && e.props && t.props.to !== e.props.to && (t.props.to = e.props.to) : Hn(
           t,
-          l,
-          S,
+          n,
+          I,
           g,
           1
         );
       else if ((t.props && t.props.to) !== (e.props && e.props.to)) {
-        const Me = Dn(t.props, B);
-        Me && (t.target = Me, ql(
+        const ae = ql(t.props, L);
+        ae && (t.target = ae, Hn(
           t,
-          Me,
+          ae,
           null,
           g,
           0
         ));
-      } else pe && ql(
+      } else C && Hn(
         t,
-        R,
-        z,
+        P,
+        S,
         g,
         1
       );
-      vl(t, Z);
+      vn(t, Z);
     }
   },
-  remove(e, t, l, { um: o, o: { remove: s } }, i) {
+  remove(e, t, n, { um: o, o: { remove: s } }, i) {
     const {
       shapeFlag: a,
-      children: r,
+      children: u,
       anchor: c,
       targetStart: g,
       targetAnchor: m,
-      target: y,
-      props: T
-    } = e, E = Xt(T), B = i || !E, I = Ft.get(e);
-    if (I && (I.flags |= 8, Ft.delete(e)), y && (s(g), s(m)), i && s(c), !I && (E || y) && a & 16)
-      for (let Q = 0; Q < r.length; Q++) {
-        const X = r[Q];
+      target: w,
+      props: A
+    } = e, V = Xt(A), L = i || !V, R = Nt.get(e);
+    if (R && (R.flags |= 8, Nt.delete(e)), w && (s(g), s(m)), i && s(c), !R && (V || w) && a & 16)
+      for (let ne = 0; ne < u.length; ne++) {
+        const X = u[ne];
         o(
           X,
           t,
-          l,
-          B,
+          n,
+          L,
           !!X.dynamicChildren
         );
       }
   },
-  move: ql,
-  hydrate: Ua
+  move: Hn,
+  hydrate: Va
 };
-function ql(e, t, l, { o: { insert: o }, m: s }, i = 2) {
-  i === 0 && (e.targetStart && o(e.targetStart, t, l), o(e.targetAnchor, t, l), l = e.targetAnchor);
-  const { el: a, anchor: r, shapeFlag: c, children: g, props: m } = e, y = i === 2;
-  if (y && o(a, t, l), !Ft.has(e) && (!y || Xt(m)) && c & 16)
-    for (let T = 0; T < g.length; T++)
+function Hn(e, t, n, { o: { insert: o }, m: s }, i = 2) {
+  i === 0 && (e.targetStart && o(e.targetStart, t, n), o(e.targetAnchor, t, n), n = e.targetAnchor);
+  const { el: a, anchor: u, shapeFlag: c, children: g, props: m } = e, w = i === 2;
+  if (w && o(a, t, n), !Nt.has(e) && (!w || Xt(m)) && c & 16)
+    for (let A = 0; A < g.length; A++)
       s(
-        g[T],
+        g[A],
         t,
-        l,
+        n,
         2
       );
-  y && o(r, t, l);
+  w && o(u, t, n);
 }
-function Ua(e, t, l, o, s, i, {
-  o: { nextSibling: a, parentNode: r, querySelector: c, insert: g, createText: m }
-}, y) {
-  function T(Q, X) {
+function Va(e, t, n, o, s, i, {
+  o: { nextSibling: a, parentNode: u, querySelector: c, insert: g, createText: m }
+}, w) {
+  function A(ne, X) {
     let Z = X;
     for (; Z; ) {
       if (Z && Z.nodeType === 8) {
         if (Z.data === "teleport start anchor")
           t.targetStart = Z;
         else if (Z.data === "teleport anchor") {
-          t.targetAnchor = Z, Q._lpa = t.targetAnchor && a(t.targetAnchor);
+          t.targetAnchor = Z, ne._lpa = t.targetAnchor && a(t.targetAnchor);
           break;
         }
       }
       Z = a(Z);
     }
   }
-  function E(Q, X) {
-    X.anchor = y(
-      a(Q),
+  function V(ne, X) {
+    X.anchor = w(
+      a(ne),
       X,
-      r(Q),
-      l,
+      u(ne),
+      n,
       o,
       s,
       i
     );
   }
-  const B = t.target = Dn(
+  const L = t.target = ql(
     t.props,
     c
-  ), I = Xt(t.props);
-  if (B) {
-    const Q = B._lpa || B.firstChild;
-    t.shapeFlag & 16 && (I ? (T(B, Q), E(e, t), t.targetAnchor || Nn(
-      B,
+  ), R = Xt(t.props);
+  if (L) {
+    const ne = L._lpa || L.firstChild;
+    t.shapeFlag & 16 && (R ? (A(L, ne), V(e, t), t.targetAnchor || Nl(
+      L,
       t,
       m,
       g,
       // if target is the same as the main view, insert anchors before current node
       // to avoid hydrating mismatch
-      r(e) === B ? e : null
-    )) : (t.anchor = a(e), T(B, Q), t.targetAnchor || Nn(B, t, m, g), y(
-      Q && a(Q),
+      u(e) === L ? e : null
+    )) : (t.anchor = a(e), A(L, ne), t.targetAnchor || Nl(L, t, m, g), w(
+      ne && a(ne),
       t,
-      B,
-      l,
+      L,
+      n,
       o,
       s,
       i
-    ))), vl(t, I);
-  } else I && t.shapeFlag & 16 && (E(e, t), t.targetStart = e, t.targetAnchor = a(e));
+    ))), vn(t, R);
+  } else R && t.shapeFlag & 16 && (V(e, t), t.targetStart = e, t.targetAnchor = a(e));
   return t.anchor && a(t.anchor);
 }
-const Pa = Ea;
-function vl(e, t) {
-  const l = e.ctx;
-  l && l.ut && (t ? l.ut(e.el, e.anchor) : l.ut(e.targetStart, e.targetAnchor));
+const Pa = Ta;
+function vn(e, t) {
+  const n = e.ctx;
+  n && n.ut && (t ? n.ut(e.el, e.anchor) : n.ut(e.targetStart, e.targetAnchor));
 }
-function Nn(e, t, l, o, s = null) {
-  const i = t.targetStart = l(""), a = t.targetAnchor = l("");
-  return i[Po] = a, e && (o(i, e, s), o(a, e, s)), a;
+function Nl(e, t, n, o, s = null) {
+  const i = t.targetStart = n(""), a = t.targetAnchor = n("");
+  return i[Io] = a, e && (o(i, e, s), o(a, e, s)), a;
 }
-const Cn = /* @__PURE__ */ Symbol("_leaveCb");
-function Aa(e) {
+const xl = /* @__PURE__ */ Symbol("_leaveCb");
+function Ua(e) {
   let t = e[0];
   if (e.length > 1) {
-    for (const l of e)
-      if (l.type !== dt) {
-        t = l;
+    for (const n of e)
+      if (n.type !== ft) {
+        t = n;
         break;
       }
   }
   return t;
 }
-function Ao(e) {
-  if (!os(e))
-    return cn(e.type) && e.children ? Aa(e.children) : e;
+function Mo(e) {
+  if (!as(e))
+    return fl(e.type) && e.children ? Ua(e.children) : e;
   if (e.component)
     return e.component.subTree;
-  const { shapeFlag: t, children: l } = e;
-  if (l) {
+  const { shapeFlag: t, children: n } = e;
+  if (n) {
     if (t & 16)
-      return l[0];
-    if (t & 32 && fe(l.default))
-      return l.default();
+      return n[0];
+    if (t & 32 && ge(n.default))
+      return n.default();
   }
 }
-function wl(e, t) {
+function _n(e, t) {
   if (e.shapeFlag & 6 && e.component) {
     e.transition = t;
-    const l = e.component.subTree;
-    wl(
-      cn(l.type) && Ao(l) || l,
+    const n = e.component.subTree;
+    _n(
+      fl(n.type) && Mo(n) || n,
       t
     );
   } else if (e.shapeFlag & 128) {
-    const l = e.suspense;
-    if (l) {
-      const o = l.isHydrating ? l.pendingBranch : l.activeBranch;
-      o && wl(o, t.clone(o));
+    const n = e.suspense;
+    if (n) {
+      const o = n.isHydrating ? n.pendingBranch : n.activeBranch;
+      o && _n(o, t.clone(o));
     } else
       e.ssContent.transition = t.clone(e.ssContent), e.ssFallback.transition = t.clone(e.ssFallback);
-  } else if (e.transition = t, e.type === N && ce(e.children)) {
-    const l = Lo(e.children, !1);
-    l && wl(l, t);
+  } else if (e.transition = t, e.type === q && pe(e.children)) {
+    const n = Wo(e.children, !1);
+    n && _n(n, t);
   }
 }
-function qn(e) {
+function Hl(e) {
   if (e.component)
-    return qn(e.component.subTree);
-  if (e.type === N) {
-    const t = ce(e.children) && Lo(e.children, !1);
-    return t ? qn(t) : void 0;
+    return Hl(e.component.subTree);
+  if (e.type === q) {
+    const t = pe(e.children) && Wo(e.children, !1);
+    return t ? Hl(t) : void 0;
   }
-  if (e.type !== dt)
+  if (e.type !== ft)
     return e;
 }
 // @__NO_SIDE_EFFECTS__
-function He(e, t) {
-  return fe(e) ? (
+function Me(e, t) {
+  return ge(e) ? (
     // #8236: extend call and options.name access are considered side-effects
     // by Rollup, so we have to wrap it in a pure-annotated IIFE.
     De({ name: e.name }, t, { setup: e })
   ) : e;
 }
-function Io(e) {
+function Oo(e) {
   e.ids = [e.ids[0] + e.ids[2]++ + "-", 0, 0];
 }
 function Vs(e, t) {
-  let l;
-  return !!((l = Object.getOwnPropertyDescriptor(e, t)) && !l.configurable);
+  let n;
+  return !!((n = Object.getOwnPropertyDescriptor(e, t)) && !n.configurable);
 }
-const Xl = /* @__PURE__ */ new WeakMap();
-function _l(e, t, l, o, s = !1) {
-  if (ce(e)) {
+const Qn = /* @__PURE__ */ new WeakMap();
+function kn(e, t, n, o, s = !1) {
+  if (pe(e)) {
     e.forEach(
-      (I, Q) => _l(
-        I,
-        t && (ce(t) ? t[Q] : t),
-        l,
+      (R, ne) => kn(
+        R,
+        t && (pe(t) ? t[ne] : t),
+        n,
         o,
         s
       )
     );
     return;
   }
-  if (sl(o) && !s) {
-    o.shapeFlag & 512 && o.type.__asyncResolved && o.component.subTree.component && _l(e, t, l, o.component.subTree);
+  if (ln(o) && !s) {
+    o.shapeFlag & 512 && o.type.__asyncResolved && o.component.subTree.component && kn(e, t, n, o.component.subTree);
     return;
   }
-  const i = o.shapeFlag & 4 ? gn(o.component) : o.el, a = s ? null : i, { i: r, r: c } = e, g = t && t.r, m = r.refs === ye ? r.refs = {} : r.refs, y = r.setupState, T = /* @__PURE__ */ $e(y), E = y === ye ? Qs : (I) => Vs(m, I) ? !1 : be(T, I), B = (I, Q) => !(Q && Vs(m, Q));
+  const i = o.shapeFlag & 4 ? hl(o.component) : o.el, a = s ? null : i, { i: u, r: c } = e, g = t && t.r, m = u.refs === _e ? u.refs = {} : u.refs, w = u.setupState, A = /* @__PURE__ */ Ce(w), V = w === _e ? eo : (R) => Vs(m, R) ? !1 : we(A, R), L = (R, ne) => !(ne && Vs(m, ne));
   if (g != null && g !== c) {
-    if (Ts(t), Ae(g))
-      m[g] = null, E(g) && (y[g] = null);
-    else if (/* @__PURE__ */ ze(g)) {
-      const I = t;
-      B(g, I.k) && (g.value = null), I.k && (m[I.k] = null);
+    if (Ps(t), Ee(g))
+      m[g] = null, V(g) && (w[g] = null);
+    else if (/* @__PURE__ */ Je(g)) {
+      const R = t;
+      L(g, R.k) && (g.value = null), R.k && (m[R.k] = null);
     }
   }
-  if (fe(c))
-    Il(c, r, 12, [a, m]);
+  if (ge(c))
+    In(c, u, 12, [a, m]);
   else {
-    const I = Ae(c), Q = /* @__PURE__ */ ze(c);
-    if (I || Q) {
+    const R = Ee(c), ne = /* @__PURE__ */ Je(c);
+    if (R || ne) {
       const X = () => {
         if (e.f) {
-          const Z = I ? E(c) ? y[c] : m[c] : B() || !e.k ? c.value : m[e.k];
+          const Z = R ? V(c) ? w[c] : m[c] : L() || !e.k ? c.value : m[e.k];
           if (s)
-            ce(Z) && Kn(Z, i);
-          else if (ce(Z))
+            pe(Z) && zl(Z, i);
+          else if (pe(Z))
             Z.includes(i) || Z.push(i);
-          else if (I)
-            m[c] = [i], E(c) && (y[c] = m[c]);
+          else if (R)
+            m[c] = [i], V(c) && (w[c] = m[c]);
           else {
-            const le = [i];
-            B(c, e.k) && (c.value = le), e.k && (m[e.k] = le);
+            const ee = [i];
+            L(c, e.k) && (c.value = ee), e.k && (m[e.k] = ee);
           }
-        } else I ? (m[c] = a, E(c) && (y[c] = a)) : Q && (B(c, e.k) && (c.value = a), e.k && (m[e.k] = a));
+        } else R ? (m[c] = a, V(c) && (w[c] = a)) : ne && (L(c, e.k) && (c.value = a), e.k && (m[e.k] = a));
       };
       if (a) {
         const Z = () => {
-          X(), Xl.delete(e);
+          X(), Qn.delete(e);
         };
-        Z.id = -1, Xl.set(e, Z), Be(Z, l);
+        Z.id = -1, Qn.set(e, Z), Ke(Z, n);
       } else
-        Ts(e), X();
+        Ps(e), X();
     }
   }
 }
-function Ts(e) {
-  const t = Xl.get(e);
-  t && (t.flags |= 8, Xl.delete(e));
+function Ps(e) {
+  const t = Qn.get(e);
+  t && (t.flags |= 8, Qn.delete(e));
 }
-an().requestIdleCallback;
-an().cancelIdleCallback;
-const sl = (e) => !!e.type.__asyncLoader, os = (e) => e.type.__isKeepAlive;
-function Ia(e, t) {
-  Mo(e, "a", t);
+rl().requestIdleCallback;
+rl().cancelIdleCallback;
+const ln = (e) => !!e.type.__asyncLoader, as = (e) => e.type.__isKeepAlive;
+function Aa(e, t) {
+  Ro(e, "a", t);
 }
-function Ma(e, t) {
-  Mo(e, "da", t);
+function Ea(e, t) {
+  Ro(e, "da", t);
 }
-function Mo(e, t, l = Qe) {
+function Ro(e, t, n = et) {
   const o = e.__wdc || (e.__wdc = () => {
-    let s = l;
+    let s = n;
     for (; s; ) {
       if (s.isDeactivated)
         return;
@@ -1817,59 +1817,59 @@ function Mo(e, t, l = Qe) {
     }
     return e();
   });
-  if (Tl(t, o, l), l) {
-    let s = l.parent;
+  if (Vn(t, o, n), n) {
+    let s = n.parent;
     for (; s && s.parent; )
-      os(s.parent.vnode) && Oa(o, t, l, s), s = s.parent;
+      as(s.parent.vnode) && Ia(o, t, n, s), s = s.parent;
   }
 }
-function Oa(e, t, l, o) {
-  const s = Tl(
+function Ia(e, t, n, o) {
+  const s = Vn(
     t,
     e,
     o,
     !0
     /* prepend */
-  ), i = Tl(
+  ), i = Vn(
     "um",
-    () => Kn(o[t], s),
-    l
+    () => zl(o[t], s),
+    n
   );
   i.flags = 16;
 }
-function Tl(e, t, l = Qe, o = !1) {
-  if (l) {
-    const s = l[e] || (l[e] = []), i = t.__weh || (t.__weh = (...a) => {
-      xt();
-      const r = Ml(l), c = bt(t, l, e, a);
-      return r(), St(), c;
+function Vn(e, t, n = et, o = !1) {
+  if (n) {
+    const s = n[e] || (n[e] = []), i = t.__weh || (t.__weh = (...a) => {
+      St();
+      const u = Mn(n), c = bt(t, n, e, a);
+      return u(), Tt(), c;
     });
     return o ? s.unshift(i) : s.push(i), i;
   }
 }
-const Nt = (e) => (t, l = Qe) => {
-  (!Pl || e === "sp") && Tl(e, (...o) => t(...o), l);
-}, Ra = Nt("bm"), ct = Nt("m"), Da = Nt(
+const Ft = (e) => (t, n = et) => {
+  (!An || e === "sp") && Vn(e, (...o) => t(...o), n);
+}, Ma = Ft("bm"), ot = Ft("m"), Oa = Ft(
   "bu"
-), Na = Nt("u"), Oo = Nt(
+), Ra = Ft("u"), Do = Ft(
   "bum"
-), qt = Nt("um"), qa = Nt(
+), yt = Ft("um"), Da = Ft(
   "sp"
-), Ha = Nt("rtg"), Fa = Nt("rtc");
-function La(e, t = Qe) {
-  Tl("ec", e, t);
+), Fa = Ft("rtg"), qa = Ft("rtc");
+function Na(e, t = et) {
+  Vn("ec", e, t);
 }
-const ja = /* @__PURE__ */ Symbol.for("v-ndc");
-function se(e, t, l, o) {
+const Ha = /* @__PURE__ */ Symbol.for("v-ndc");
+function oe(e, t, n, o) {
   let s;
-  const i = l, a = ce(e);
-  if (a || Ae(e)) {
-    const r = a && /* @__PURE__ */ Wt(e);
+  const i = n, a = pe(e);
+  if (a || Ee(e)) {
+    const u = a && /* @__PURE__ */ Wt(e);
     let c = !1, g = !1;
-    r && (c = !/* @__PURE__ */ rt(e), g = /* @__PURE__ */ Vt(e), e = un(e)), s = new Array(e.length);
-    for (let m = 0, y = e.length; m < y; m++)
+    u && (c = !/* @__PURE__ */ dt(e), g = /* @__PURE__ */ Vt(e), e = dl(e)), s = new Array(e.length);
+    for (let m = 0, w = e.length; m < w; m++)
       s[m] = t(
-        c ? g ? Bt(ut(e[m])) : ut(e[m]) : e[m],
+        c ? g ? Bt(ct(e[m])) : ct(e[m]) : e[m],
         m,
         void 0,
         i
@@ -1879,20 +1879,20 @@ function se(e, t, l, o) {
       s = [];
     else {
       s = new Array(e);
-      for (let r = 0; r < e; r++)
-        s[r] = t(r + 1, r, void 0, i);
+      for (let u = 0; u < e; u++)
+        s[u] = t(u + 1, u, void 0, i);
     }
-  else if (Se(e))
+  else if (Ve(e))
     if (e[Symbol.iterator])
       s = Array.from(
         e,
-        (r, c) => t(r, c, void 0, i)
+        (u, c) => t(u, c, void 0, i)
       );
     else {
-      const r = Object.keys(e);
-      s = new Array(r.length);
-      for (let c = 0, g = r.length; c < g; c++) {
-        const m = r[c];
+      const u = Object.keys(e);
+      s = new Array(u.length);
+      for (let c = 0, g = u.length; c < g; c++) {
+        const m = u[c];
         s[c] = t(e[m], m, c, i);
       }
     }
@@ -1900,27 +1900,27 @@ function se(e, t, l, o) {
     s = [];
   return s;
 }
-function Wa(e, t, l, o, s, i) {
-  if (l == null && (l = {}), Ge.ce || Ge.parent && sl(Ge.parent) && Ge.parent.ce) {
-    const g = l, m = Object.keys(g).length > 0;
-    return p(), ge(
-      N,
+function La(e, t, n, o, s, i) {
+  if (n == null && (n = {}), ze.ce || ze.parent && ln(ze.parent) && ze.parent.ce) {
+    const g = n, m = Object.keys(g).length > 0;
+    return f(), me(
+      q,
       null,
-      [Ee("slot", g, o)],
+      [Ae("slot", g, o)],
       m ? -2 : 64
     );
   }
   let a = e[t];
   a && a._c && (a._d = !1);
-  const r = Ot.length;
-  p();
+  const u = Ot.length;
+  f();
   let c;
   try {
-    const g = a && Ro(a(l)), m = l.key || i || // slot content array of a dynamic conditional slot may have a branch
+    const g = a && Fo(a(n)), m = n.key || i || // slot content array of a dynamic conditional slot may have a branch
     // key attached in the `createSlots` helper, respect that
     g && g.key;
-    c = ge(
-      N,
+    c = me(
+      q,
       {
         key: (m && !ht(m) ? m : `_${t}`) + // #7256 force differentiate fallback content from actual content
         (!g && o ? "_fb" : "")
@@ -1929,17 +1929,17 @@ function Wa(e, t, l, o, s, i) {
       g && e._ === 1 ? 64 : -2
     );
   } catch (g) {
-    for (let m = Ot.length; m > r; m--) us();
+    for (let m = Ot.length; m > u; m--) cs();
     throw g;
   } finally {
     a && a._c && (a._d = !0);
   }
   return c.scopeId && (c.slotScopeIds = [c.scopeId + "-s"]), c;
 }
-function Ro(e) {
-  return e.some((t) => vn(t) ? !(t.type === dt || t.type === N && !Ro(t.children)) : !0) ? e : null;
+function Fo(e) {
+  return e.some((t) => gl(t) ? !(t.type === ft || t.type === q && !Fo(t.children)) : !0) ? e : null;
 }
-const Hn = (e) => e ? oi(e) ? gn(e) : Hn(e.parent) : null, kl = (
+const Ll = (e) => e ? ai(e) ? hl(e) : Ll(e.parent) : null, $n = (
   // Move PURE marker to new line to workaround compiler discarding it
   // due to type annotation
   /* @__PURE__ */ De(/* @__PURE__ */ Object.create(null), {
@@ -1950,179 +1950,179 @@ const Hn = (e) => e ? oi(e) ? gn(e) : Hn(e.parent) : null, kl = (
     $attrs: (e) => e.attrs,
     $slots: (e) => e.slots,
     $refs: (e) => e.refs,
-    $parent: (e) => Hn(e.parent),
-    $root: (e) => Hn(e.root),
+    $parent: (e) => Ll(e.parent),
+    $root: (e) => Ll(e.root),
     $host: (e) => e.ce,
     $emit: (e) => e.emit,
     $options: (e) => No(e),
     $forceUpdate: (e) => e.f || (e.f = () => {
-      ns(e.update);
+      os(e.update);
     }),
-    $nextTick: (e) => e.n || (e.n = ls.bind(e.proxy)),
-    $watch: (e) => Va.bind(e)
+    $nextTick: (e) => e.n || (e.n = ss.bind(e.proxy)),
+    $watch: (e) => xa.bind(e)
   })
-), xn = (e, t) => e !== ye && !e.__isScriptSetup && be(e, t), Ba = {
+), Sl = (e, t) => e !== _e && !e.__isScriptSetup && we(e, t), ja = {
   get({ _: e }, t) {
     if (t === "__v_skip")
       return !0;
-    const { ctx: l, setupState: o, data: s, props: i, accessCache: a, type: r, appContext: c } = e;
+    const { ctx: n, setupState: o, data: s, props: i, accessCache: a, type: u, appContext: c } = e;
     if (t[0] !== "$") {
-      const T = a[t];
-      if (T !== void 0)
-        switch (T) {
+      const A = a[t];
+      if (A !== void 0)
+        switch (A) {
           case 1:
             return o[t];
           case 2:
             return s[t];
           case 4:
-            return l[t];
+            return n[t];
           case 3:
             return i[t];
         }
       else {
-        if (xn(o, t))
+        if (Sl(o, t))
           return a[t] = 1, o[t];
-        if (s !== ye && be(s, t))
+        if (s !== _e && we(s, t))
           return a[t] = 2, s[t];
-        if (be(i, t))
+        if (we(i, t))
           return a[t] = 3, i[t];
-        if (l !== ye && be(l, t))
-          return a[t] = 4, l[t];
-        Fn && (a[t] = 0);
+        if (n !== _e && we(n, t))
+          return a[t] = 4, n[t];
+        jl && (a[t] = 0);
       }
     }
-    const g = kl[t];
-    let m, y;
+    const g = $n[t];
+    let m, w;
     if (g)
-      return t === "$attrs" && Ke(e.attrs, "get", ""), g(e);
+      return t === "$attrs" && Ge(e.attrs, "get", ""), g(e);
     if (
       // css module (injected by vue-loader)
-      (m = r.__cssModules) && (m = m[t])
+      (m = u.__cssModules) && (m = m[t])
     )
       return m;
-    if (l !== ye && be(l, t))
-      return a[t] = 4, l[t];
+    if (n !== _e && we(n, t))
+      return a[t] = 4, n[t];
     if (
       // global properties
-      y = c.config.globalProperties, be(y, t)
+      w = c.config.globalProperties, we(w, t)
     )
-      return y[t];
+      return w[t];
   },
-  set({ _: e }, t, l) {
+  set({ _: e }, t, n) {
     const { data: o, setupState: s, ctx: i } = e;
-    return xn(s, t) ? (s[t] = l, !0) : o !== ye && be(o, t) ? (o[t] = l, !0) : be(e.props, t) || t[0] === "$" && t.slice(1) in e ? !1 : (i[t] = l, !0);
+    return Sl(s, t) ? (s[t] = n, !0) : o !== _e && we(o, t) ? (o[t] = n, !0) : we(e.props, t) || t[0] === "$" && t.slice(1) in e ? !1 : (i[t] = n, !0);
   },
   has({
-    _: { data: e, setupState: t, accessCache: l, ctx: o, appContext: s, props: i, type: a }
-  }, r) {
+    _: { data: e, setupState: t, accessCache: n, ctx: o, appContext: s, props: i, type: a }
+  }, u) {
     let c;
-    return !!(l[r] || e !== ye && r[0] !== "$" && be(e, r) || xn(t, r) || be(i, r) || be(o, r) || be(kl, r) || be(s.config.globalProperties, r) || (c = a.__cssModules) && c[r]);
+    return !!(n[u] || e !== _e && u[0] !== "$" && we(e, u) || Sl(t, u) || we(i, u) || we(o, u) || we($n, u) || we(s.config.globalProperties, u) || (c = a.__cssModules) && c[u]);
   },
-  defineProperty(e, t, l) {
-    return l.get != null ? e._.accessCache[t] = 0 : be(l, "value") && this.set(e, t, l.value, null), Reflect.defineProperty(e, t, l);
+  defineProperty(e, t, n) {
+    return n.get != null ? e._.accessCache[t] = 0 : we(n, "value") && this.set(e, t, n.value, null), Reflect.defineProperty(e, t, n);
   }
 };
-function Es(e) {
-  return ce(e) ? e.reduce(
-    (t, l) => (t[l] = null, t),
+function Us(e) {
+  return pe(e) ? e.reduce(
+    (t, n) => (t[n] = null, t),
     {}
   ) : e;
 }
-let Fn = !0;
-function Ka(e) {
-  const t = No(e), l = e.proxy, o = e.ctx;
-  Fn = !1, t.beforeCreate && Us(t.beforeCreate, e, "bc");
+let jl = !0;
+function Wa(e) {
+  const t = No(e), n = e.proxy, o = e.ctx;
+  jl = !1, t.beforeCreate && As(t.beforeCreate, e, "bc");
   const {
     // state
     data: s,
     computed: i,
     methods: a,
-    watch: r,
+    watch: u,
     provide: c,
     inject: g,
     // lifecycle
     created: m,
-    beforeMount: y,
-    mounted: T,
-    beforeUpdate: E,
-    updated: B,
-    activated: I,
-    deactivated: Q,
+    beforeMount: w,
+    mounted: A,
+    beforeUpdate: V,
+    updated: L,
+    activated: R,
+    deactivated: ne,
     beforeDestroy: X,
     beforeUnmount: Z,
-    destroyed: le,
+    destroyed: ee,
     unmounted: j,
-    render: te,
-    renderTracked: O,
-    renderTriggered: S,
-    errorCaptured: k,
-    serverPrefetch: R,
+    render: le,
+    renderTracked: Q,
+    renderTriggered: I,
+    errorCaptured: E,
+    serverPrefetch: P,
     // public API
-    expose: z,
-    inheritAttrs: pe,
+    expose: S,
+    inheritAttrs: C,
     // assets
-    components: he,
-    directives: Pe,
-    filters: Me
+    components: ie,
+    directives: ke,
+    filters: ae
   } = t;
-  if (g && Ga(g, o, null), a)
+  if (g && Ba(g, o, null), a)
     for (const d in a) {
-      const u = a[d];
-      fe(u) && (o[d] = u.bind(l));
+      const r = a[d];
+      ge(r) && (o[d] = r.bind(n));
     }
   if (s) {
-    const d = s.call(l, l);
-    Se(d) && (e.data = /* @__PURE__ */ Zn(d));
+    const d = s.call(n, n);
+    Ve(d) && (e.data = /* @__PURE__ */ ts(d));
   }
-  if (Fn = !0, i)
+  if (jl = !0, i)
     for (const d in i) {
-      const u = i[d], v = fe(u) ? u.bind(l, l) : fe(u.get) ? u.get.bind(l, l) : Ct, _ = !fe(u) && fe(u.set) ? u.set.bind(l) : Ct, K = _e({
+      const r = i[d], v = ge(r) ? r.bind(n, n) : ge(r.get) ? r.get.bind(n, n) : xt, _ = !ge(r) && ge(r.set) ? r.set.bind(n) : xt, J = he({
         get: v,
         set: _
       });
       Object.defineProperty(o, d, {
         enumerable: !0,
         configurable: !0,
-        get: () => K.value,
-        set: (Ve) => K.value = Ve
+        get: () => J.value,
+        set: (Pe) => J.value = Pe
       });
     }
-  if (r)
-    for (const d in r)
-      Do(r[d], o, l, d);
+  if (u)
+    for (const d in u)
+      qo(u[d], o, n, d);
   if (c) {
-    const d = fe(c) ? c.call(l) : c;
-    Reflect.ownKeys(d).forEach((u) => {
-      $a(u, d[u]);
+    const d = ge(c) ? c.call(n) : c;
+    Reflect.ownKeys(d).forEach((r) => {
+      _a(r, d[r]);
     });
   }
-  m && Us(m, e, "c");
-  function U(d, u) {
-    ce(u) ? u.forEach((v) => d(v.bind(l))) : u && d(u.bind(l));
+  m && As(m, e, "c");
+  function U(d, r) {
+    pe(r) ? r.forEach((v) => d(v.bind(n))) : r && d(r.bind(n));
   }
-  if (U(Ra, y), U(ct, T), U(Da, E), U(Na, B), U(Ia, I), U(Ma, Q), U(La, k), U(Fa, O), U(Ha, S), U(Oo, Z), U(qt, j), U(qa, R), ce(z))
-    if (z.length) {
+  if (U(Ma, w), U(ot, A), U(Oa, V), U(Ra, L), U(Aa, R), U(Ea, ne), U(Na, E), U(qa, Q), U(Fa, I), U(Do, Z), U(yt, j), U(Da, P), pe(S))
+    if (S.length) {
       const d = e.exposed || (e.exposed = {});
-      z.forEach((u) => {
-        Object.defineProperty(d, u, {
-          get: () => l[u],
-          set: (v) => l[u] = v,
+      S.forEach((r) => {
+        Object.defineProperty(d, r, {
+          get: () => n[r],
+          set: (v) => n[r] = v,
           enumerable: !0
         });
       });
     } else e.exposed || (e.exposed = {});
-  te && e.render === Ct && (e.render = te), pe != null && (e.inheritAttrs = pe), he && (e.components = he), Pe && (e.directives = Pe), R && Io(e);
+  le && e.render === xt && (e.render = le), C != null && (e.inheritAttrs = C), ie && (e.components = ie), ke && (e.directives = ke), P && Oo(e);
 }
-function Ga(e, t, l = Ct) {
-  ce(e) && (e = Ln(e));
+function Ba(e, t, n = xt) {
+  pe(e) && (e = Wl(e));
   for (const o in e) {
     const s = e[o];
     let i;
-    Se(s) ? "default" in s ? i = Kl(
+    Ve(s) ? "default" in s ? i = zn(
       s.from || o,
       s.default,
       !0
-    ) : i = Kl(s.from || o) : i = Kl(s), /* @__PURE__ */ ze(i) ? Object.defineProperty(t, o, {
+    ) : i = zn(s.from || o) : i = zn(s), /* @__PURE__ */ Je(i) ? Object.defineProperty(t, o, {
       enumerable: !0,
       configurable: !0,
       get: () => i.value,
@@ -2130,128 +2130,128 @@ function Ga(e, t, l = Ct) {
     }) : t[o] = i;
   }
 }
-function Us(e, t, l) {
+function As(e, t, n) {
   bt(
-    ce(e) ? e.map((o) => o.bind(t.proxy)) : e.bind(t.proxy),
+    pe(e) ? e.map((o) => o.bind(t.proxy)) : e.bind(t.proxy),
     t,
-    l
+    n
   );
 }
-function Do(e, t, l, o) {
-  let s = o.includes(".") ? Uo(l, o) : () => l[o];
-  if (Ae(e)) {
+function qo(e, t, n, o) {
+  let s = o.includes(".") ? Eo(n, o) : () => n[o];
+  if (Ee(e)) {
     const i = t[e];
-    fe(i) && Xe(s, i);
-  } else if (fe(e))
-    Xe(s, e.bind(l));
-  else if (Se(e))
-    if (ce(e))
-      e.forEach((i) => Do(i, t, l, o));
+    ge(i) && We(s, i);
+  } else if (ge(e))
+    We(s, e.bind(n));
+  else if (Ve(e))
+    if (pe(e))
+      e.forEach((i) => qo(i, t, n, o));
     else {
-      const i = fe(e.handler) ? e.handler.bind(l) : t[e.handler];
-      fe(i) && Xe(s, i, e);
+      const i = ge(e.handler) ? e.handler.bind(n) : t[e.handler];
+      ge(i) && We(s, i, e);
     }
 }
 function No(e) {
-  const t = e.type, { mixins: l, extends: o } = t, {
+  const t = e.type, { mixins: n, extends: o } = t, {
     mixins: s,
     optionsCache: i,
     config: { optionMergeStrategies: a }
-  } = e.appContext, r = i.get(t);
+  } = e.appContext, u = i.get(t);
   let c;
-  return r ? c = r : !s.length && !l && !o ? c = t : (c = {}, s.length && s.forEach(
-    (g) => Ql(c, g, a, !0)
-  ), Ql(c, t, a)), Se(t) && i.set(t, c), c;
+  return u ? c = u : !s.length && !n && !o ? c = t : (c = {}, s.length && s.forEach(
+    (g) => el(c, g, a, !0)
+  ), el(c, t, a)), Ve(t) && i.set(t, c), c;
 }
-function Ql(e, t, l, o = !1) {
+function el(e, t, n, o = !1) {
   const { mixins: s, extends: i } = t;
-  i && Ql(e, i, l, !0), s && s.forEach(
-    (a) => Ql(e, a, l, !0)
+  i && el(e, i, n, !0), s && s.forEach(
+    (a) => el(e, a, n, !0)
   );
   for (const a in t)
     if (!(o && a === "expose")) {
-      const r = za[a] || l && l[a];
-      e[a] = r ? r(e[a], t[a]) : t[a];
+      const u = Ka[a] || n && n[a];
+      e[a] = u ? u(e[a], t[a]) : t[a];
     }
   return e;
 }
-const za = {
-  data: Ps,
-  props: As,
-  emits: As,
+const Ka = {
+  data: Es,
+  props: Is,
+  emits: Is,
   // objects
-  methods: gl,
-  computed: gl,
+  methods: gn,
+  computed: gn,
   // lifecycle
-  beforeCreate: Je,
-  created: Je,
-  beforeMount: Je,
-  mounted: Je,
-  beforeUpdate: Je,
-  updated: Je,
-  beforeDestroy: Je,
-  beforeUnmount: Je,
-  destroyed: Je,
-  unmounted: Je,
-  activated: Je,
-  deactivated: Je,
-  errorCaptured: Je,
-  serverPrefetch: Je,
+  beforeCreate: Ze,
+  created: Ze,
+  beforeMount: Ze,
+  mounted: Ze,
+  beforeUpdate: Ze,
+  updated: Ze,
+  beforeDestroy: Ze,
+  beforeUnmount: Ze,
+  destroyed: Ze,
+  unmounted: Ze,
+  activated: Ze,
+  deactivated: Ze,
+  errorCaptured: Ze,
+  serverPrefetch: Ze,
   // assets
-  components: gl,
-  directives: gl,
+  components: gn,
+  directives: gn,
   // watch
-  watch: Ya,
+  watch: za,
   // provide / inject
-  provide: Ps,
-  inject: Ja
+  provide: Es,
+  inject: Ga
 };
-function Ps(e, t) {
+function Es(e, t) {
   return t ? e ? function() {
     return De(
-      fe(e) ? e.call(this, this) : e,
-      fe(t) ? t.call(this, this) : t
+      ge(e) ? e.call(this, this) : e,
+      ge(t) ? t.call(this, this) : t
     );
   } : t : e;
 }
-function Ja(e, t) {
-  return gl(Ln(e), Ln(t));
+function Ga(e, t) {
+  return gn(Wl(e), Wl(t));
 }
-function Ln(e) {
-  if (ce(e)) {
+function Wl(e) {
+  if (pe(e)) {
     const t = {};
-    for (let l = 0; l < e.length; l++)
-      t[e[l]] = e[l];
+    for (let n = 0; n < e.length; n++)
+      t[e[n]] = e[n];
     return t;
   }
   return e;
 }
-function Je(e, t) {
+function Ze(e, t) {
   return e ? [...new Set([].concat(e, t))] : t;
 }
-function gl(e, t) {
+function gn(e, t) {
   return e ? De(/* @__PURE__ */ Object.create(null), e, t) : t;
 }
-function As(e, t) {
-  return e ? ce(e) && ce(t) ? [.../* @__PURE__ */ new Set([...e, ...t])] : De(
+function Is(e, t) {
+  return e ? pe(e) && pe(t) ? [.../* @__PURE__ */ new Set([...e, ...t])] : De(
     /* @__PURE__ */ Object.create(null),
-    Es(e),
-    Es(t ?? {})
+    Us(e),
+    Us(t ?? {})
   ) : t;
 }
-function Ya(e, t) {
+function za(e, t) {
   if (!e) return t;
   if (!t) return e;
-  const l = De(/* @__PURE__ */ Object.create(null), e);
+  const n = De(/* @__PURE__ */ Object.create(null), e);
   for (const o in t)
-    l[o] = Je(e[o], t[o]);
-  return l;
+    n[o] = Ze(e[o], t[o]);
+  return n;
 }
-function qo() {
+function Ho() {
   return {
     app: null,
     config: {
-      isNativeTag: Qs,
+      isNativeTag: eo,
       performance: !1,
       globalProperties: {},
       optionMergeStrategies: {},
@@ -2268,127 +2268,127 @@ function qo() {
     emitsCache: /* @__PURE__ */ new WeakMap()
   };
 }
-let Xa = 0;
-function Qa(e, t) {
+let Ja = 0;
+function Ya(e, t) {
   return function(o, s = null) {
-    fe(o) || (o = De({}, o)), s != null && !Se(s) && (s = null);
-    const i = qo(), a = /* @__PURE__ */ new WeakSet(), r = [];
+    ge(o) || (o = De({}, o)), s != null && !Ve(s) && (s = null);
+    const i = Ho(), a = /* @__PURE__ */ new WeakSet(), u = [];
     let c = !1;
     const g = i.app = {
-      _uid: Xa++,
+      _uid: Ja++,
       _component: o,
       _props: s,
       _container: null,
       _context: i,
       _instance: null,
-      version: Tr,
+      version: Sr,
       get config() {
         return i.config;
       },
       set config(m) {
       },
-      use(m, ...y) {
-        return a.has(m) || (m && fe(m.install) ? (a.add(m), m.install(g, ...y)) : fe(m) && (a.add(m), m(g, ...y))), g;
+      use(m, ...w) {
+        return a.has(m) || (m && ge(m.install) ? (a.add(m), m.install(g, ...w)) : ge(m) && (a.add(m), m(g, ...w))), g;
       },
       mixin(m) {
         return i.mixins.includes(m) || i.mixins.push(m), g;
       },
-      component(m, y) {
-        return y ? (i.components[m] = y, g) : i.components[m];
+      component(m, w) {
+        return w ? (i.components[m] = w, g) : i.components[m];
       },
-      directive(m, y) {
-        return y ? (i.directives[m] = y, g) : i.directives[m];
+      directive(m, w) {
+        return w ? (i.directives[m] = w, g) : i.directives[m];
       },
-      mount(m, y, T) {
+      mount(m, w, A) {
         if (!c) {
-          const E = g._ceVNode || Ee(o, s);
-          return E.appContext = i, T === !0 ? T = "svg" : T === !1 && (T = void 0), e(E, m, T), c = !0, g._container = m, m.__vue_app__ = g, gn(E.component);
+          const V = g._ceVNode || Ae(o, s);
+          return V.appContext = i, A === !0 ? A = "svg" : A === !1 && (A = void 0), e(V, m, A), c = !0, g._container = m, m.__vue_app__ = g, hl(V.component);
         }
       },
       onUnmount(m) {
-        r.push(m);
+        u.push(m);
       },
       unmount() {
         c && (bt(
-          r,
+          u,
           g._instance,
           16
         ), e(null, g._container), delete g._container.__vue_app__);
       },
-      provide(m, y) {
-        return i.provides[m] = y, g;
+      provide(m, w) {
+        return i.provides[m] = w, g;
       },
       runWithContext(m) {
-        const y = ol;
-        ol = g;
+        const w = sn;
+        sn = g;
         try {
           return m();
         } finally {
-          ol = y;
+          sn = w;
         }
       }
     };
     return g;
   };
 }
-let ol = null;
-function Za(e, t, l = ye) {
-  const o = si(), s = at(t), i = Dt(t), a = Ho(e, s), r = va((c, g) => {
-    let m, y = ye, T;
-    return Sa(() => {
-      const E = e[s];
-      je(m, E) && (m = E, g());
+let sn = null;
+function Xa(e, t, n = _e) {
+  const o = ii(), s = ut(t), i = Dt(t), a = Lo(e, s), u = fa((c, g) => {
+    let m, w = _e, A;
+    return Ca(() => {
+      const V = e[s];
+      Le(m, V) && (m = V, g());
     }), {
       get() {
-        return c(), l.get ? l.get(m) : m;
+        return c(), n.get ? n.get(m) : m;
       },
-      set(E) {
-        const B = l.set ? l.set(E) : E;
-        if (!je(B, m) && !(y !== ye && je(E, y)))
+      set(V) {
+        const L = n.set ? n.set(V) : V;
+        if (!Le(L, m) && !(w !== _e && Le(V, w)))
           return;
-        const I = o.vnode.props, Q = !!(I && // check if parent has passed v-model
-        (t in I || s in I || i in I) && (`onUpdate:${t}` in I || `onUpdate:${s}` in I || `onUpdate:${i}` in I));
-        Q || (m = E, g()), o.emit(`update:${t}`, B), je(E, y) && (je(E, B) && !je(B, T) || // #13524: browsers differ in when they flush microtasks between
+        const R = o.vnode.props, ne = !!(R && // check if parent has passed v-model
+        (t in R || s in R || i in R) && (`onUpdate:${t}` in R || `onUpdate:${s}` in R || `onUpdate:${i}` in R));
+        ne || (m = V, g()), o.emit(`update:${t}`, L), Le(V, w) && (Le(V, L) && !Le(L, A) || // #13524: browsers differ in when they flush microtasks between
         // event listeners. If a v-model listener emits an intermediate value
         // and a following listener restores the model to its previous prop
         // value before parent updates are flushed, the parent render can be
         // deduped as having no prop change. Force a local update so DOM state
         // such as an input's value is synchronized back to the current model.
-        Q && y !== ye && !je(B, m)) && g(), y = E, T = B;
+        ne && w !== _e && !Le(L, m)) && g(), w = V, A = L;
       }
     };
   });
-  return r[Symbol.iterator] = () => {
+  return u[Symbol.iterator] = () => {
     let c = 0;
     return {
       next() {
-        return c < 2 ? { value: c++ ? a || ye : r, done: !1 } : { done: !0 };
+        return c < 2 ? { value: c++ ? a || _e : u, done: !1 } : { done: !0 };
       }
     };
-  }, r;
+  }, u;
 }
-const Ho = (e, t) => t === "modelValue" || t === "model-value" ? e.modelModifiers : e[`${t}Modifiers`] || e[`${at(t)}Modifiers`] || e[`${Dt(t)}Modifiers`];
-function er(e, t, ...l) {
+const Lo = (e, t) => t === "modelValue" || t === "model-value" ? e.modelModifiers : e[`${t}Modifiers`] || e[`${ut(t)}Modifiers`] || e[`${Dt(t)}Modifiers`];
+function Za(e, t, ...n) {
   if (e.isUnmounted) return;
-  const o = e.vnode.props || ye;
-  let s = l;
-  const i = t.startsWith("update:"), a = i && Ho(o, t.slice(7));
-  a && (a.trim && (s = l.map((m) => Ae(m) ? m.trim() : m)), a.number && (s = s.map(Al)));
-  let r, c = o[r = bn(t)] || // also try camelCase event handler (#2249)
-  o[r = bn(at(t))];
-  !c && i && (c = o[r = bn(Dt(t))]), c && bt(
+  const o = e.vnode.props || _e;
+  let s = n;
+  const i = t.startsWith("update:"), a = i && Lo(o, t.slice(7));
+  a && (a.trim && (s = n.map((m) => Ee(m) ? m.trim() : m)), a.number && (s = s.map(En)));
+  let u, c = o[u = yl(t)] || // also try camelCase event handler (#2249)
+  o[u = yl(ut(t))];
+  !c && i && (c = o[u = yl(Dt(t))]), c && bt(
     c,
     e,
     6,
     s
   );
-  const g = o[r + "Once"];
+  const g = o[u + "Once"];
   if (g) {
     if (!e.emitted)
       e.emitted = {};
-    else if (e.emitted[r])
+    else if (e.emitted[u])
       return;
-    e.emitted[r] = !0, bt(
+    e.emitted[u] = !0, bt(
       g,
       e,
       6,
@@ -2396,150 +2396,150 @@ function er(e, t, ...l) {
     );
   }
 }
-const tr = /* @__PURE__ */ new WeakMap();
-function Fo(e, t, l = !1) {
-  const o = l ? tr : t.emitsCache, s = o.get(e);
+const Qa = /* @__PURE__ */ new WeakMap();
+function jo(e, t, n = !1) {
+  const o = n ? Qa : t.emitsCache, s = o.get(e);
   if (s !== void 0)
     return s;
   const i = e.emits;
-  let a = {}, r = !1;
-  if (!fe(e)) {
+  let a = {}, u = !1;
+  if (!ge(e)) {
     const c = (g) => {
-      const m = Fo(g, t, !0);
-      m && (r = !0, De(a, m));
+      const m = jo(g, t, !0);
+      m && (u = !0, De(a, m));
     };
-    !l && t.mixins.length && t.mixins.forEach(c), e.extends && c(e.extends), e.mixins && e.mixins.forEach(c);
+    !n && t.mixins.length && t.mixins.forEach(c), e.extends && c(e.extends), e.mixins && e.mixins.forEach(c);
   }
-  return !i && !r ? (Se(e) && o.set(e, null), null) : (ce(i) ? i.forEach((c) => a[c] = null) : De(a, i), Se(e) && o.set(e, a), a);
+  return !i && !u ? (Ve(e) && o.set(e, null), null) : (pe(i) ? i.forEach((c) => a[c] = null) : De(a, i), Ve(e) && o.set(e, a), a);
 }
-function fn(e, t) {
-  return !e || !nn(t) ? !1 : (t = t.slice(2), t = t === "Once" ? t : t.replace(/Once$/, ""), be(e, t[0].toLowerCase() + t.slice(1)) || be(e, Dt(t)) || be(e, t));
+function pl(e, t) {
+  return !e || !ol(t) ? !1 : (t = t.slice(2), t = t === "Once" ? t : t.replace(/Once$/, ""), we(e, t[0].toLowerCase() + t.slice(1)) || we(e, Dt(t)) || we(e, t));
 }
-function Is(e) {
+function Ms(e) {
   const {
     type: t,
-    vnode: l,
+    vnode: n,
     proxy: o,
     withProxy: s,
     propsOptions: [i],
     slots: a,
-    attrs: r,
+    attrs: u,
     emit: c,
     render: g,
     renderCache: m,
-    props: y,
-    data: T,
-    setupState: E,
-    ctx: B,
-    inheritAttrs: I
-  } = e, Q = Yl(e);
+    props: w,
+    data: A,
+    setupState: V,
+    ctx: L,
+    inheritAttrs: R
+  } = e, ne = Zn(e);
   let X, Z;
   try {
-    if (l.shapeFlag & 4) {
-      const j = s || o, te = j;
-      X = $t(
+    if (n.shapeFlag & 4) {
+      const j = s || o, le = j;
+      X = Ct(
         g.call(
-          te,
+          le,
           j,
           m,
-          y,
-          E,
-          T,
-          B
+          w,
+          V,
+          A,
+          L
         )
-      ), Z = r;
+      ), Z = u;
     } else {
       const j = t;
-      X = $t(
+      X = Ct(
         j.length > 1 ? j(
-          y,
-          { attrs: r, slots: a, emit: c }
+          w,
+          { attrs: u, slots: a, emit: c }
         ) : j(
-          y,
+          w,
           null
         )
-      ), Z = t.props ? r : lr(r);
+      ), Z = t.props ? u : er(u);
     }
   } catch (j) {
-    Ot.length = 0, dn(j, e, 1), X = Ee(dt);
+    Ot.length = 0, cl(j, e, 1), X = Ae(ft);
   }
-  let le = X;
-  if (Z && I !== !1) {
-    const j = Object.keys(Z), { shapeFlag: te } = le;
-    j.length && te & 7 && (i && j.some(sn) && (Z = nr(
+  let ee = X;
+  if (Z && R !== !1) {
+    const j = Object.keys(Z), { shapeFlag: le } = ee;
+    j.length && le & 7 && (i && j.some(il) && (Z = tr(
       Z,
       i
-    )), le = il(le, Z, !1, !0));
+    )), ee = on(ee, Z, !1, !0));
   }
-  if (l.dirs && (le = il(le, null, !1, !0), le.dirs = le.dirs ? le.dirs.concat(l.dirs) : l.dirs), l.transition) {
-    const j = cn(le.type) && Ao(le) || le;
-    wl(j, l.transition);
+  if (n.dirs && (ee = on(ee, null, !1, !0), ee.dirs = ee.dirs ? ee.dirs.concat(n.dirs) : n.dirs), n.transition) {
+    const j = fl(ee.type) && Mo(ee) || ee;
+    _n(j, n.transition);
   }
-  return X = le, Yl(Q), X;
+  return X = ee, Zn(ne), X;
 }
-function Lo(e, t = !0) {
-  let l;
+function Wo(e, t = !0) {
+  let n;
   for (let o = 0; o < e.length; o++) {
     const s = e[o];
-    if (vn(s)) {
-      if (s.type !== dt || s.children === "v-if") {
-        if (l)
+    if (gl(s)) {
+      if (s.type !== ft || s.children === "v-if") {
+        if (n)
           return;
-        l = s;
+        n = s;
       }
     } else
       return;
   }
-  return l;
+  return n;
 }
-const lr = (e) => {
+const er = (e) => {
   let t;
-  for (const l in e)
-    (l === "class" || l === "style" || nn(l)) && ((t || (t = {}))[l] = e[l]);
+  for (const n in e)
+    (n === "class" || n === "style" || ol(n)) && ((t || (t = {}))[n] = e[n]);
   return t;
-}, nr = (e, t) => {
-  const l = {};
+}, tr = (e, t) => {
+  const n = {};
   for (const o in e)
-    (!sn(o) || !(o.slice(9) in t)) && (l[o] = e[o]);
-  return l;
+    (!il(o) || !(o.slice(9) in t)) && (n[o] = e[o]);
+  return n;
 };
-function sr(e, t, l) {
-  const { props: o, children: s, component: i } = e, { props: a, children: r, patchFlag: c } = t, g = i.emitsOptions;
+function nr(e, t, n) {
+  const { props: o, children: s, component: i } = e, { props: a, children: u, patchFlag: c } = t, g = i.emitsOptions;
   if (t.dirs || t.transition)
     return !0;
-  if (l && c >= 0) {
+  if (n && c >= 0) {
     if (c & 1024)
       return !0;
     if (c & 16)
-      return o ? Ms(o, a, g) : !!a;
+      return o ? Os(o, a, g) : !!a;
     if (c & 8) {
       const m = t.dynamicProps;
-      for (let y = 0; y < m.length; y++) {
-        const T = m[y];
-        if (jo(a, o, T) && !fn(g, T))
+      for (let w = 0; w < m.length; w++) {
+        const A = m[w];
+        if (Bo(a, o, A) && !pl(g, A))
           return !0;
       }
     }
   } else
-    return (s || r) && (!r || !r.$stable) ? !0 : o === a ? !1 : o ? a ? Ms(o, a, g) : !0 : !!a;
+    return (s || u) && (!u || !u.$stable) ? !0 : o === a ? !1 : o ? a ? Os(o, a, g) : !0 : !!a;
   return !1;
 }
-function Ms(e, t, l) {
+function Os(e, t, n) {
   const o = Object.keys(t);
   if (o.length !== Object.keys(e).length)
     return !0;
   for (let s = 0; s < o.length; s++) {
     const i = o[s];
-    if (!be(e, i) || jo(t, e, i) && !fn(l, i))
+    if (!we(e, i) || Bo(t, e, i) && !pl(n, i))
       return !0;
   }
   return !1;
 }
-function jo(e, t, l) {
-  const o = e[l], s = t[l];
-  return l === "style" && Se(o) && Se(s) ? !mt(o, s) : o !== s;
+function Bo(e, t, n) {
+  const o = e[n], s = t[n];
+  return n === "style" && Ve(o) && Ve(s) ? !mt(o, s) : o !== s;
 }
-function or({ vnode: e, parent: t, suspense: l }, o) {
+function lr({ vnode: e, parent: t, suspense: n }, o) {
   for (; t; ) {
     const s = t.subTree;
     if (s.suspense && s.suspense.activeBranch === e && (s.suspense.vnode.el = s.el = o, e = s), s === e)
@@ -2547,22 +2547,22 @@ function or({ vnode: e, parent: t, suspense: l }, o) {
     else
       break;
   }
-  l && l.activeBranch === e && (l.vnode.el = o);
+  n && n.activeBranch === e && (n.vnode.el = o);
 }
-const Wo = {}, Bo = () => Object.create(Wo), Ko = (e) => Object.getPrototypeOf(e) === Wo;
-function ir(e, t, l, o = !1) {
-  const s = {}, i = Bo();
-  e.propsDefaults = /* @__PURE__ */ Object.create(null), Go(e, t, s, i);
+const Ko = {}, Go = () => Object.create(Ko), zo = (e) => Object.getPrototypeOf(e) === Ko;
+function sr(e, t, n, o = !1) {
+  const s = {}, i = Go();
+  e.propsDefaults = /* @__PURE__ */ Object.create(null), Jo(e, t, s, i);
   for (const a in e.propsOptions[0])
     a in s || (s[a] = void 0);
-  l ? e.props = o ? s : /* @__PURE__ */ aa(s) : e.type.props ? e.props = s : e.props = i, e.attrs = i;
+  n ? e.props = o ? s : /* @__PURE__ */ oa(s) : e.type.props ? e.props = s : e.props = i, e.attrs = i;
 }
-function ar(e, t, l, o) {
+function or(e, t, n, o) {
   const {
     props: s,
     attrs: i,
     vnode: { patchFlag: a }
-  } = e, r = /* @__PURE__ */ $e(s), [c] = e.propsOptions;
+  } = e, u = /* @__PURE__ */ Ce(s), [c] = e.propsOptions;
   let g = !1;
   if (
     // always force full diff in dev
@@ -2572,1117 +2572,1117 @@ function ar(e, t, l, o) {
   ) {
     if (a & 8) {
       const m = e.vnode.dynamicProps;
-      for (let y = 0; y < m.length; y++) {
-        let T = m[y];
-        if (fn(e.emitsOptions, T))
+      for (let w = 0; w < m.length; w++) {
+        let A = m[w];
+        if (pl(e.emitsOptions, A))
           continue;
-        const E = t[T];
+        const V = t[A];
         if (c)
-          if (be(i, T))
-            E !== i[T] && (i[T] = E, g = !0);
+          if (we(i, A))
+            V !== i[A] && (i[A] = V, g = !0);
           else {
-            const B = at(T);
-            s[B] = jn(
+            const L = ut(A);
+            s[L] = Bl(
               c,
-              r,
-              B,
-              E,
+              u,
+              L,
+              V,
               e,
               !1
             );
           }
         else
-          E !== i[T] && (i[T] = E, g = !0);
+          V !== i[A] && (i[A] = V, g = !0);
       }
     }
   } else {
-    Go(e, t, s, i) && (g = !0);
+    Jo(e, t, s, i) && (g = !0);
     let m;
-    for (const y in r)
+    for (const w in u)
       (!t || // for camelCase
-      !be(t, y) && // it's possible the original props was passed in as kebab-case
+      !we(t, w) && // it's possible the original props was passed in as kebab-case
       // and converted to camelCase (#955)
-      ((m = Dt(y)) === y || !be(t, m))) && (c ? l && // for camelCase
-      (l[y] !== void 0 || // for kebab-case
-      l[m] !== void 0) && (s[y] = jn(
+      ((m = Dt(w)) === w || !we(t, m))) && (c ? n && // for camelCase
+      (n[w] !== void 0 || // for kebab-case
+      n[m] !== void 0) && (s[w] = Bl(
         c,
-        r,
-        y,
+        u,
+        w,
         void 0,
         e,
         !0
-      )) : delete s[y]);
-    if (i !== r)
-      for (const y in i)
-        (!t || !be(t, y)) && (delete i[y], g = !0);
+      )) : delete s[w]);
+    if (i !== u)
+      for (const w in i)
+        (!t || !we(t, w)) && (delete i[w], g = !0);
   }
-  g && At(e.attrs, "set", "");
+  g && Et(e.attrs, "set", "");
 }
-function Go(e, t, l, o) {
+function Jo(e, t, n, o) {
   const [s, i] = e.propsOptions;
-  let a = !1, r;
+  let a = !1, u;
   if (t)
     for (let c in t) {
-      if (ml(c))
+      if (bn(c))
         continue;
       const g = t[c];
       let m;
-      s && be(s, m = at(c)) ? !i || !i.includes(m) ? l[m] = g : (r || (r = {}))[m] = g : fn(e.emitsOptions, c) || (!(c in o) || g !== o[c]) && (o[c] = g, a = !0);
+      s && we(s, m = ut(c)) ? !i || !i.includes(m) ? n[m] = g : (u || (u = {}))[m] = g : pl(e.emitsOptions, c) || (!(c in o) || g !== o[c]) && (o[c] = g, a = !0);
     }
   if (i) {
-    const c = /* @__PURE__ */ $e(l), g = r || ye;
+    const c = /* @__PURE__ */ Ce(n), g = u || _e;
     for (let m = 0; m < i.length; m++) {
-      const y = i[m];
-      l[y] = jn(
+      const w = i[m];
+      n[w] = Bl(
         s,
         c,
-        y,
-        g[y],
+        w,
+        g[w],
         e,
-        !be(g, y)
+        !we(g, w)
       );
     }
   }
   return a;
 }
-function jn(e, t, l, o, s, i) {
-  const a = e[l];
+function Bl(e, t, n, o, s, i) {
+  const a = e[n];
   if (a != null) {
-    const r = be(a, "default");
-    if (r && o === void 0) {
+    const u = we(a, "default");
+    if (u && o === void 0) {
       const c = a.default;
-      if (a.type !== Function && !a.skipFactory && fe(c)) {
+      if (a.type !== Function && !a.skipFactory && ge(c)) {
         const { propsDefaults: g } = s;
-        if (l in g)
-          o = g[l];
+        if (n in g)
+          o = g[n];
         else {
-          const m = Ml(s);
-          o = g[l] = c.call(
+          const m = Mn(s);
+          o = g[n] = c.call(
             null,
             t
           ), m();
         }
       } else
         o = c;
-      s.ce && s.ce._setProp(l, o);
+      s.ce && s.ce._setProp(n, o);
     }
     a[
       0
       /* shouldCast */
-    ] && (i && !r ? o = !1 : a[
+    ] && (i && !u ? o = !1 : a[
       1
       /* shouldCastTrue */
-    ] && (o === "" || o === Dt(l)) && (o = !0));
+    ] && (o === "" || o === Dt(n)) && (o = !0));
   }
   return o;
 }
-const rr = /* @__PURE__ */ new WeakMap();
-function zo(e, t, l = !1) {
-  const o = l ? rr : t.propsCache, s = o.get(e);
+const ir = /* @__PURE__ */ new WeakMap();
+function Yo(e, t, n = !1) {
+  const o = n ? ir : t.propsCache, s = o.get(e);
   if (s)
     return s;
-  const i = e.props, a = {}, r = [];
+  const i = e.props, a = {}, u = [];
   let c = !1;
-  if (!fe(e)) {
-    const m = (y) => {
+  if (!ge(e)) {
+    const m = (w) => {
       c = !0;
-      const [T, E] = zo(y, t, !0);
-      De(a, T), E && r.push(...E);
+      const [A, V] = Yo(w, t, !0);
+      De(a, A), V && u.push(...V);
     };
-    !l && t.mixins.length && t.mixins.forEach(m), e.extends && m(e.extends), e.mixins && e.mixins.forEach(m);
+    !n && t.mixins.length && t.mixins.forEach(m), e.extends && m(e.extends), e.mixins && e.mixins.forEach(m);
   }
   if (!i && !c)
-    return Se(e) && o.set(e, Qt), Qt;
-  if (ce(i))
+    return Ve(e) && o.set(e, Zt), Zt;
+  if (pe(i))
     for (let m = 0; m < i.length; m++) {
-      const y = at(i[m]);
-      Os(y) && (a[y] = ye);
+      const w = ut(i[m]);
+      Rs(w) && (a[w] = _e);
     }
   else if (i)
     for (const m in i) {
-      const y = at(m);
-      if (Os(y)) {
-        const T = i[m], E = a[y] = ce(T) || fe(T) ? { type: T } : De({}, T), B = E.type;
-        let I = !1, Q = !0;
-        if (ce(B))
-          for (let X = 0; X < B.length; ++X) {
-            const Z = B[X], le = fe(Z) && Z.name;
-            if (le === "Boolean") {
-              I = !0;
+      const w = ut(m);
+      if (Rs(w)) {
+        const A = i[m], V = a[w] = pe(A) || ge(A) ? { type: A } : De({}, A), L = V.type;
+        let R = !1, ne = !0;
+        if (pe(L))
+          for (let X = 0; X < L.length; ++X) {
+            const Z = L[X], ee = ge(Z) && Z.name;
+            if (ee === "Boolean") {
+              R = !0;
               break;
-            } else le === "String" && (Q = !1);
+            } else ee === "String" && (ne = !1);
           }
         else
-          I = fe(B) && B.name === "Boolean";
-        E[
+          R = ge(L) && L.name === "Boolean";
+        V[
           0
           /* shouldCast */
-        ] = I, E[
+        ] = R, V[
           1
           /* shouldCastTrue */
-        ] = Q, (I || be(E, "default")) && r.push(y);
+        ] = ne, (R || we(V, "default")) && u.push(w);
       }
     }
-  const g = [a, r];
-  return Se(e) && o.set(e, g), g;
+  const g = [a, u];
+  return Ve(e) && o.set(e, g), g;
 }
-function Os(e) {
-  return e[0] !== "$" && !ml(e);
+function Rs(e) {
+  return e[0] !== "$" && !bn(e);
 }
-const is = (e) => e === "_" || e === "_ctx" || e === "$stable", as = (e) => ce(e) ? e.map($t) : [$t(e)], ur = (e, t, l) => {
+const rs = (e) => e === "_" || e === "_ctx" || e === "$stable", us = (e) => pe(e) ? e.map(Ct) : [Ct(e)], ar = (e, t, n) => {
   if (t._n)
     return t;
-  const o = Re((...s) => as(t(...s)), l);
+  const o = Ie((...s) => us(t(...s)), n);
   return o._c = !1, o;
-}, Jo = (e, t, l) => {
+}, Xo = (e, t, n) => {
   const o = e._ctx;
   for (const s in e) {
-    if (is(s)) continue;
+    if (rs(s)) continue;
     const i = e[s];
-    if (fe(i))
-      t[s] = ur(s, i, o);
+    if (ge(i))
+      t[s] = ar(s, i, o);
     else if (i != null) {
-      const a = as(i);
+      const a = us(i);
       t[s] = () => a;
     }
   }
-}, Yo = (e, t) => {
-  const l = as(t);
-  e.slots.default = () => l;
-}, Xo = (e, t, l) => {
+}, Zo = (e, t) => {
+  const n = us(t);
+  e.slots.default = () => n;
+}, Qo = (e, t, n) => {
   for (const o in t)
-    (l || !is(o)) && (e[o] = t[o]);
-}, dr = (e, t, l) => {
-  const o = e.slots = Bo();
+    (n || !rs(o)) && (e[o] = t[o]);
+}, rr = (e, t, n) => {
+  const o = e.slots = Go();
   if (e.vnode.shapeFlag & 32) {
     const s = t._;
-    s ? (Xo(o, t, l), l && no(o, "_", s, !0)) : Jo(t, o);
-  } else t && Yo(e, t);
-}, cr = (e, t, l) => {
+    s ? (Qo(o, t, n), n && oo(o, "_", s, !0)) : Xo(t, o);
+  } else t && Zo(e, t);
+}, ur = (e, t, n) => {
   const { vnode: o, slots: s } = e;
-  let i = !0, a = ye;
+  let i = !0, a = _e;
   if (o.shapeFlag & 32) {
-    const r = t._;
-    r ? l && r === 1 ? i = !1 : Xo(s, t, l) : (i = !t.$stable, Jo(t, s)), a = t;
-  } else t && (Yo(e, t), a = { default: 1 });
+    const u = t._;
+    u ? n && u === 1 ? i = !1 : Qo(s, t, n) : (i = !t.$stable, Xo(t, s)), a = t;
+  } else t && (Zo(e, t), a = { default: 1 });
   if (i)
-    for (const r in s)
-      !is(r) && a[r] == null && delete s[r];
-}, Be = mr;
-function fr(e) {
-  return pr(e);
+    for (const u in s)
+      !rs(u) && a[u] == null && delete s[u];
+}, Ke = gr;
+function dr(e) {
+  return cr(e);
 }
-function pr(e, t) {
-  const l = an();
-  l.__VUE__ = !0;
+function cr(e, t) {
+  const n = rl();
+  n.__VUE__ = !0;
   const {
     insert: o,
     remove: s,
     patchProp: i,
     createElement: a,
-    createText: r,
+    createText: u,
     createComment: c,
     setText: g,
     setElementText: m,
-    parentNode: y,
-    nextSibling: T,
-    setScopeId: E = Ct,
-    insertStaticContent: B
-  } = e, I = (b, C, P, L = null, M = null, D = null, G = void 0, J = null, Y = !!C.dynamicChildren) => {
-    if (b === C)
+    parentNode: w,
+    nextSibling: A,
+    setScopeId: V = xt,
+    insertStaticContent: L
+  } = e, R = (y, k, O, G = null, N = null, W = null, te = void 0, Y = null, K = !!k.dynamicChildren) => {
+    if (y === k)
       return;
-    b && !fl(b, C) && (L = ot(b), Ve(b, M, D, !0), b = null), C.patchFlag === -2 && (Y = !1, C.dynamicChildren = null), C.dynamicChildren && b && b.dynamicChildren && b.dynamicChildren.hasOnce && (C.dynamicChildren === Qt && (C.dynamicChildren = []), C.dynamicChildren.hasOnce = !0);
-    const { type: q, ref: oe, shapeFlag: ee } = C;
-    switch (q) {
-      case pn:
-        Q(b, C, P, L);
+    y && !cn(y, k) && (G = at(y), Pe(y, N, W, !0), y = null), k.patchFlag === -2 && (K = !1, k.dynamicChildren = null), k.dynamicChildren && y && y.dynamicChildren && y.dynamicChildren.hasOnce && (k.dynamicChildren === Zt && (k.dynamicChildren = []), k.dynamicChildren.hasOnce = !0);
+    const { type: F, ref: ue, shapeFlag: se } = k;
+    switch (F) {
+      case vl:
+        ne(y, k, O, G);
         break;
-      case dt:
-        X(b, C, P, L);
+      case ft:
+        X(y, k, O, G);
         break;
-      case Vn:
-        b == null && Z(C, P, L, G);
+      case Vl:
+        y == null && Z(k, O, G, te);
         break;
-      case N:
-        he(
-          b,
-          C,
-          P,
-          L,
-          M,
-          D,
+      case q:
+        ie(
+          y,
+          k,
+          O,
           G,
-          J,
-          Y
+          N,
+          W,
+          te,
+          Y,
+          K
         );
         break;
       default:
-        ee & 1 ? te(
-          b,
-          C,
-          P,
-          L,
-          M,
-          D,
+        se & 1 ? le(
+          y,
+          k,
+          O,
           G,
-          J,
-          Y
-        ) : ee & 6 ? Pe(
-          b,
-          C,
-          P,
-          L,
-          M,
-          D,
-          G,
-          J,
-          Y
-        ) : (ee & 64 || ee & 128) && q.process(
-          b,
-          C,
-          P,
-          L,
-          M,
-          D,
-          G,
-          J,
+          N,
+          W,
+          te,
           Y,
-          yt
+          K
+        ) : se & 6 ? ke(
+          y,
+          k,
+          O,
+          G,
+          N,
+          W,
+          te,
+          Y,
+          K
+        ) : (se & 64 || se & 128) && F.process(
+          y,
+          k,
+          O,
+          G,
+          N,
+          W,
+          te,
+          Y,
+          K,
+          wt
         );
     }
-    oe != null && M ? _l(oe, b && b.ref, D, C || b, !C) : oe == null && b && b.ref != null && _l(b.ref, null, D, b, !0);
-  }, Q = (b, C, P, L) => {
-    if (b == null)
+    ue != null && N ? kn(ue, y && y.ref, W, k || y, !k) : ue == null && y && y.ref != null && kn(y.ref, null, W, y, !0);
+  }, ne = (y, k, O, G) => {
+    if (y == null)
       o(
-        C.el = r(C.children),
-        P,
-        L
+        k.el = u(k.children),
+        O,
+        G
       );
     else {
-      const M = C.el = b.el;
-      C.children !== b.children && g(M, C.children);
+      const N = k.el = y.el;
+      k.children !== y.children && g(N, k.children);
     }
-  }, X = (b, C, P, L) => {
-    b == null ? o(
-      C.el = c(C.children || ""),
-      P,
-      L
-    ) : C.el = b.el;
-  }, Z = (b, C, P, L) => {
-    [b.el, b.anchor] = B(
-      b.children,
-      C,
-      P,
-      L,
-      b.el,
-      b.anchor
+  }, X = (y, k, O, G) => {
+    y == null ? o(
+      k.el = c(k.children || ""),
+      O,
+      G
+    ) : k.el = y.el;
+  }, Z = (y, k, O, G) => {
+    [y.el, y.anchor] = L(
+      y.children,
+      k,
+      O,
+      G,
+      y.el,
+      y.anchor
     );
-  }, le = ({ el: b, anchor: C }, P, L) => {
-    let M;
-    for (; b && b !== C; )
-      M = T(b), o(b, P, L), b = M;
-    o(C, P, L);
-  }, j = ({ el: b, anchor: C }) => {
-    let P;
-    for (; b && b !== C; )
-      P = T(b), s(b), b = P;
-    s(C);
-  }, te = (b, C, P, L, M, D, G, J, Y) => {
-    if (C.type === "svg" ? G = "svg" : C.type === "math" && (G = "mathml"), b == null)
-      O(
-        C,
-        P,
-        L,
-        M,
-        D,
+  }, ee = ({ el: y, anchor: k }, O, G) => {
+    let N;
+    for (; y && y !== k; )
+      N = A(y), o(y, O, G), y = N;
+    o(k, O, G);
+  }, j = ({ el: y, anchor: k }) => {
+    let O;
+    for (; y && y !== k; )
+      O = A(y), s(y), y = O;
+    s(k);
+  }, le = (y, k, O, G, N, W, te, Y, K) => {
+    if (k.type === "svg" ? te = "svg" : k.type === "math" && (te = "mathml"), y == null)
+      Q(
+        k,
+        O,
         G,
-        J,
-        Y
+        N,
+        W,
+        te,
+        Y,
+        K
       );
     else {
-      const q = b.el && b.el._isVueCE ? b.el : null;
+      const F = y.el && y.el._isVueCE ? y.el : null;
       try {
-        q && q._beginPatch(), R(
-          b,
-          C,
-          M,
-          D,
-          G,
-          J,
-          Y
+        F && F._beginPatch(), P(
+          y,
+          k,
+          N,
+          W,
+          te,
+          Y,
+          K
         );
       } finally {
-        q && q._endPatch();
+        F && F._endPatch();
       }
     }
-  }, O = (b, C, P, L, M, D, G, J) => {
-    let Y, q;
-    const { props: oe, shapeFlag: ee, transition: ae, dirs: ie } = b;
-    if (Y = b.el = a(
-      b.type,
-      D,
-      oe && oe.is,
-      oe
-    ), ee & 8 ? m(Y, b.children) : ee & 16 && k(
-      b.children,
-      Y,
+  }, Q = (y, k, O, G, N, W, te, Y) => {
+    let K, F;
+    const { props: ue, shapeFlag: se, transition: de, dirs: ve } = y;
+    if (K = y.el = a(
+      y.type,
+      W,
+      ue && ue.is,
+      ue
+    ), se & 8 ? m(K, y.children) : se & 16 && E(
+      y.children,
+      K,
       null,
-      L,
-      M,
-      Sn(b, D),
       G,
-      J
-    ), ie && zt(b, null, L, "created"), S(Y, b, b.scopeId, G, L), oe) {
-      for (const ve in oe)
-        ve !== "value" && !ml(ve) && i(Y, ve, null, oe[ve], D, L);
-      "value" in oe && i(Y, "value", null, oe.value, D), (q = oe.onVnodeBeforeMount) && wt(q, L, b);
+      N,
+      Tl(y, W),
+      te,
+      Y
+    ), ve && zt(y, null, G, "created"), I(K, y, y.scopeId, te, G), ue) {
+      for (const Se in ue)
+        Se !== "value" && !bn(Se) && i(K, Se, null, ue[Se], W, G);
+      "value" in ue && i(K, "value", null, ue.value, W), (F = ue.onVnodeBeforeMount) && _t(F, G, y);
     }
-    ie && zt(b, null, L, "beforeMount");
-    const de = vr(M, ae);
-    de ? ae.beforeEnter(Y) : ae && !ae.persisted && (Y[hr] = !0), o(Y, C, P), ((q = oe && oe.onVnodeMounted) || de || ie) && Be(() => {
-      q && wt(q, L, b), de && ae.enter(Y), ie && zt(b, null, L, "mounted");
-    }, M);
-  }, S = (b, C, P, L, M) => {
-    if (P && E(b, P), L)
-      for (let D = 0; D < L.length; D++)
-        E(b, L[D]);
-    if (M) {
-      let D = M.subTree;
-      if (C === D || Zo(D.type) && (D.ssContent === C || D.ssFallback === C)) {
-        const G = M.vnode;
-        S(
-          b,
-          G,
-          G.scopeId,
-          G.slotScopeIds,
-          M.parent
+    ve && zt(y, null, G, "beforeMount");
+    const fe = fr(N, de);
+    fe ? de.beforeEnter(K) : de && !de.persisted && (K[vr] = !0), o(K, k, O), ((F = ue && ue.onVnodeMounted) || fe || ve) && Ke(() => {
+      F && _t(F, G, y), fe && de.enter(K), ve && zt(y, null, G, "mounted");
+    }, N);
+  }, I = (y, k, O, G, N) => {
+    if (O && V(y, O), G)
+      for (let W = 0; W < G.length; W++)
+        V(y, G[W]);
+    if (N) {
+      let W = N.subTree;
+      if (k === W || ti(W.type) && (W.ssContent === k || W.ssFallback === k)) {
+        const te = N.vnode;
+        I(
+          y,
+          te,
+          te.scopeId,
+          te.slotScopeIds,
+          N.parent
         );
       }
     }
-  }, k = (b, C, P, L, M, D, G, J, Y = 0) => {
-    for (let q = Y; q < b.length; q++) {
-      const oe = b[q] = J ? Pt(b[q]) : $t(b[q]);
-      I(
+  }, E = (y, k, O, G, N, W, te, Y, K = 0) => {
+    for (let F = K; F < y.length; F++) {
+      const ue = y[F] = Y ? At(y[F]) : Ct(y[F]);
+      R(
         null,
-        oe,
-        C,
-        P,
-        L,
-        M,
-        D,
+        ue,
+        k,
+        O,
         G,
-        J
+        N,
+        W,
+        te,
+        Y
       );
     }
-  }, R = (b, C, P, L, M, D, G) => {
-    const J = C.el = b.el;
-    let { patchFlag: Y, dynamicChildren: q, dirs: oe } = C;
-    Y |= b.patchFlag & 16;
-    const ee = b.props || ye, ae = C.props || ye;
-    let ie;
-    if (P && Jt(P, !1), (ie = ae.onVnodeBeforeUpdate) && wt(ie, P, C, b), oe && zt(C, b, P, "beforeUpdate"), P && Jt(P, !0), // #6385 the old vnode may be a user-wrapped non-isomorphic block
+  }, P = (y, k, O, G, N, W, te) => {
+    const Y = k.el = y.el;
+    let { patchFlag: K, dynamicChildren: F, dirs: ue } = k;
+    K |= y.patchFlag & 16;
+    const se = y.props || _e, de = k.props || _e;
+    let ve;
+    if (O && Jt(O, !1), (ve = de.onVnodeBeforeUpdate) && _t(ve, O, k, y), ue && zt(k, y, O, "beforeUpdate"), O && Jt(O, !0), // #6385 the old vnode may be a user-wrapped non-isomorphic block
     // Force full diff when block metadata is unstable.
-    q && (!b.dynamicChildren || b.dynamicChildren.length !== q.length) && (Y = 0, G = !1, q = null), (ee.innerHTML && ae.innerHTML == null || ee.textContent && ae.textContent == null) && m(J, ""), q ? z(
-      b.dynamicChildren,
-      q,
-      J,
-      P,
-      L,
-      Sn(C, M),
-      D
-    ) : G || u(
-      b,
-      C,
-      J,
+    F && (!y.dynamicChildren || y.dynamicChildren.length !== F.length) && (K = 0, te = !1, F = null), (se.innerHTML && de.innerHTML == null || se.textContent && de.textContent == null) && m(Y, ""), F ? S(
+      y.dynamicChildren,
+      F,
+      Y,
+      O,
+      G,
+      Tl(k, N),
+      W
+    ) : te || r(
+      y,
+      k,
+      Y,
       null,
-      P,
-      L,
-      Sn(C, M),
-      D,
+      O,
+      G,
+      Tl(k, N),
+      W,
       !1
-    ), Y > 0) {
-      if (Y & 16)
-        pe(J, ee, ae, P, M);
-      else if (Y & 2 && ee.class !== ae.class && i(J, "class", null, ae.class, M), Y & 4 && i(J, "style", ee.style, ae.style, M), Y & 8) {
-        const de = C.dynamicProps;
-        for (let ve = 0; ve < de.length; ve++) {
-          const ke = de[ve], Ie = ee[ke], Oe = ae[ke];
-          (Oe !== Ie || ke === "value") && i(J, ke, Ie, Oe, M, P);
+    ), K > 0) {
+      if (K & 16)
+        C(Y, se, de, O, N);
+      else if (K & 2 && se.class !== de.class && i(Y, "class", null, de.class, N), K & 4 && i(Y, "style", se.style, de.style, N), K & 8) {
+        const fe = k.dynamicProps;
+        for (let Se = 0; Se < fe.length; Se++) {
+          const $e = fe[Se], be = se[$e], Oe = de[$e];
+          (Oe !== be || $e === "value") && i(Y, $e, be, Oe, N, O);
         }
       }
-      Y & 1 && b.children !== C.children && m(J, C.children);
-    } else !G && q == null && pe(J, ee, ae, P, M);
-    ((ie = ae.onVnodeUpdated) || oe) && Be(() => {
-      ie && wt(ie, P, C, b), oe && zt(C, b, P, "updated");
-    }, L);
-  }, z = (b, C, P, L, M, D, G) => {
-    for (let J = 0; J < C.length; J++) {
-      const Y = b[J], q = C[J], oe = Y.el || $l(Y), ee = (
+      K & 1 && y.children !== k.children && m(Y, k.children);
+    } else !te && F == null && C(Y, se, de, O, N);
+    ((ve = de.onVnodeUpdated) || ue) && Ke(() => {
+      ve && _t(ve, O, k, y), ue && zt(k, y, O, "updated");
+    }, G);
+  }, S = (y, k, O, G, N, W, te) => {
+    for (let Y = 0; Y < k.length; Y++) {
+      const K = y[Y], F = k[Y], ue = K.el || Cn(K), se = (
         // oldVNode may be an errored async setup() component inside Suspense
         // which will not have a mounted element
-        oe && // - In the case of a Fragment, we need to provide the actual parent
+        ue && // - In the case of a Fragment, we need to provide the actual parent
         // of the Fragment itself so it can move its children.
-        (Y.type === N || // - In the case of different nodes, there is going to be a replacement
+        (K.type === q || // - In the case of different nodes, there is going to be a replacement
         // which also requires the correct parent container
-        !fl(Y, q) || // - In the case of a component, it could contain anything.
-        Y.shapeFlag & 198) ? y(oe) : (
+        !cn(K, F) || // - In the case of a component, it could contain anything.
+        K.shapeFlag & 198) ? w(ue) : (
           // In other cases, the parent container is not actually used so we
           // just pass the block element here to avoid a DOM parentNode call.
-          P
+          O
         )
       );
-      I(
-        Y,
-        q,
-        ee,
+      R(
+        K,
+        F,
+        se,
         null,
-        L,
-        M,
-        D,
         G,
+        N,
+        W,
+        te,
         !0
       );
     }
-  }, pe = (b, C, P, L, M) => {
-    if (C !== P) {
-      if (C !== ye)
-        for (const D in C)
-          !ml(D) && !(D in P) && i(
-            b,
-            D,
-            C[D],
+  }, C = (y, k, O, G, N) => {
+    if (k !== O) {
+      if (k !== _e)
+        for (const W in k)
+          !bn(W) && !(W in O) && i(
+            y,
+            W,
+            k[W],
             null,
-            M,
-            L
+            N,
+            G
           );
-      for (const D in P) {
-        if (ml(D)) continue;
-        const G = P[D], J = C[D];
-        G !== J && D !== "value" && i(b, D, J, G, M, L);
+      for (const W in O) {
+        if (bn(W)) continue;
+        const te = O[W], Y = k[W];
+        te !== Y && W !== "value" && i(y, W, Y, te, N, G);
       }
-      "value" in P && i(b, "value", C.value, P.value, M);
+      "value" in O && i(y, "value", k.value, O.value, N);
     }
-  }, he = (b, C, P, L, M, D, G, J, Y) => {
-    const q = C.el = b ? b.el : r(""), oe = C.anchor = b ? b.anchor : r("");
-    let { patchFlag: ee, dynamicChildren: ae, slotScopeIds: ie } = C;
-    ie && (J = J ? J.concat(ie) : ie), b == null ? (o(q, P, L), o(oe, P, L), k(
+  }, ie = (y, k, O, G, N, W, te, Y, K) => {
+    const F = k.el = y ? y.el : u(""), ue = k.anchor = y ? y.anchor : u("");
+    let { patchFlag: se, dynamicChildren: de, slotScopeIds: ve } = k;
+    ve && (Y = Y ? Y.concat(ve) : ve), y == null ? (o(F, O, G), o(ue, O, G), E(
       // #10007
       // such fragment like `<></>` will be compiled into
       // a fragment which doesn't have a children.
       // In this case fallback to an empty array
-      C.children || [],
-      P,
-      oe,
-      M,
-      D,
-      G,
-      J,
-      Y
-    )) : ee > 0 && ee & 64 && ae && // #2715 the previous fragment could've been a BAILed one as a result
+      k.children || [],
+      O,
+      ue,
+      N,
+      W,
+      te,
+      Y,
+      K
+    )) : se > 0 && se & 64 && de && // #2715 the previous fragment could've been a BAILed one as a result
     // of renderSlot() with no valid children
-    b.dynamicChildren && b.dynamicChildren.length === ae.length ? (z(
-      b.dynamicChildren,
-      ae,
-      P,
-      M,
-      D,
-      G,
-      J
+    y.dynamicChildren && y.dynamicChildren.length === de.length ? (S(
+      y.dynamicChildren,
+      de,
+      O,
+      N,
+      W,
+      te,
+      Y
     ), // #2080 if the stable fragment has a key, it's a <template v-for> that may
     //  get moved around. Make sure all root level vnodes inherit el.
     // #2134 or if it's a component root, it may also get moved around
     // as the component is being moved.
-    (C.key != null || M && C === M.subTree) && rs(
-      b,
-      C,
+    (k.key != null || N && k === N.subTree) && ds(
+      y,
+      k,
       !0
       /* shallow */
-    )) : u(
-      b,
-      C,
-      P,
-      oe,
-      M,
-      D,
-      G,
-      J,
-      Y
+    )) : r(
+      y,
+      k,
+      O,
+      ue,
+      N,
+      W,
+      te,
+      Y,
+      K
     );
-  }, Pe = (b, C, P, L, M, D, G, J, Y) => {
-    C.slotScopeIds = J, b == null ? C.shapeFlag & 512 ? M.ctx.activate(
-      C,
-      P,
-      L,
+  }, ke = (y, k, O, G, N, W, te, Y, K) => {
+    k.slotScopeIds = Y, y == null ? k.shapeFlag & 512 ? N.ctx.activate(
+      k,
+      O,
       G,
-      Y
-    ) : Me(
-      C,
-      P,
-      L,
-      M,
-      D,
+      te,
+      K
+    ) : ae(
+      k,
+      O,
       G,
-      Y
-    ) : ne(b, C, Y);
-  }, Me = (b, C, P, L, M, D, G) => {
-    const J = b.component = kr(
-      b,
-      L,
-      M
+      N,
+      W,
+      te,
+      K
+    ) : z(y, k, K);
+  }, ae = (y, k, O, G, N, W, te) => {
+    const Y = y.component = wr(
+      y,
+      G,
+      N
     );
-    if (os(b) && (J.ctx.renderer = yt), $r(J, !1, G), J.asyncDep) {
-      if (M && M.registerDep(
-        J,
+    if (as(y) && (Y.ctx.renderer = wt), _r(Y, !1, te), Y.asyncDep) {
+      if (N && N.registerDep(
+        Y,
         U,
-        G,
-        D
-      ), !b.el) {
-        const Y = J.subTree = Ee(dt);
-        X(null, Y, C, P), b.placeholder = Y.el;
+        te,
+        W
+      ), !y.el) {
+        const K = Y.subTree = Ae(ft);
+        X(null, K, k, O), y.placeholder = K.el;
       }
     } else
       U(
-        J,
-        b,
-        C,
-        P,
-        M,
-        D,
-        G
+        Y,
+        y,
+        k,
+        O,
+        N,
+        W,
+        te
       );
-  }, ne = (b, C, P) => {
-    const L = C.component = b.component;
-    if (sr(b, C, P))
-      if (L.asyncDep && !L.asyncResolved) {
-        C.el = b.el, C.placeholder = b.placeholder, d(L, C, P);
+  }, z = (y, k, O) => {
+    const G = k.component = y.component;
+    if (nr(y, k, O))
+      if (G.asyncDep && !G.asyncResolved) {
+        k.el = y.el, k.placeholder = y.placeholder, d(G, k, O);
         return;
       } else
-        L.next = C, L.update();
+        G.next = k, G.update();
     else
-      C.el = b.el, C.placeholder = b.placeholder, L.vnode = C;
-  }, U = (b, C, P, L, M, D, G) => {
-    const J = () => {
-      if (b.isMounted) {
-        let { next: ee, bu: ae, u: ie, parent: de, vnode: ve } = b;
+      k.el = y.el, k.placeholder = y.placeholder, G.vnode = k;
+  }, U = (y, k, O, G, N, W, te) => {
+    const Y = () => {
+      if (y.isMounted) {
+        let { next: se, bu: de, u: ve, parent: fe, vnode: Se } = y;
         {
-          const Ce = Qo(b);
-          if (Ce) {
-            ee && (ee.el = ve.el, d(b, ee, G)), Ce.asyncDep.then(() => {
-              const ft = () => {
-                b.job.flags & 8 || (M && M.pendingBranch ? Be(ft, M) : q());
+          const qe = ei(y);
+          if (qe) {
+            se && (se.el = Se.el, d(y, se, te)), qe.asyncDep.then(() => {
+              const Xe = () => {
+                y.job.flags & 8 || (N && N.pendingBranch ? Ke(Xe, N) : F());
               };
-              ft.flags = 48, Be(ft, M);
+              Xe.flags = 48, Ke(Xe, N);
             });
             return;
           }
         }
-        let ke = ee, Ie;
-        Jt(b, !1), ee ? (ee.el = ve.el, d(b, ee, G)) : ee = ve, ae && Bl(ae), (Ie = ee.props && ee.props.onVnodeBeforeUpdate) && wt(Ie, de, ee, ve), Jt(b, !0);
-        const Oe = Is(b), et = b.subTree;
-        b.subTree = Oe, I(
-          et,
+        let $e = se, be;
+        Jt(y, !1), se ? (se.el = Se.el, d(y, se, te)) : se = Se, de && Gn(de), (be = se.props && se.props.onVnodeBeforeUpdate) && _t(be, fe, se, Se), Jt(y, !0);
+        const Oe = Ms(y), Ye = y.subTree;
+        y.subTree = Oe, R(
+          Ye,
           Oe,
           // parent may have changed if it's in a teleport. a root that is a
           // pending async component only has its placeholder comment
-          y(
-            et.el || $l(et)
+          w(
+            Ye.el || Cn(Ye)
           ),
           // anchor may have changed if it's in a fragment
-          ot(et),
-          b,
-          M,
-          D
-        ), ee.el = Oe.el, ke === null && or(b, Oe.el), ie && Be(ie, M), (Ie = ee.props && ee.props.onVnodeUpdated) && Be(
-          () => wt(Ie, de, ee, ve),
-          M
+          at(Ye),
+          y,
+          N,
+          W
+        ), se.el = Oe.el, $e === null && lr(y, Oe.el), ve && Ke(ve, N), (be = se.props && se.props.onVnodeUpdated) && Ke(
+          () => _t(be, fe, se, Se),
+          N
         );
       } else {
-        let ee;
-        const { el: ae, props: ie } = C, { bm: de, m: ve, parent: ke, root: Ie, type: Oe } = b, et = sl(C);
-        Jt(b, !1), de && Bl(de), !et && (ee = ie && ie.onVnodeBeforeMount) && wt(ee, ke, C), Jt(b, !0);
+        let se;
+        const { el: de, props: ve } = k, { bm: fe, m: Se, parent: $e, root: be, type: Oe } = y, Ye = ln(k);
+        Jt(y, !1), fe && Gn(fe), !Ye && (se = ve && ve.onVnodeBeforeMount) && _t(se, $e, k), Jt(y, !0);
         {
-          Ie.ce && Ie.ce._hasShadowRoot() && Ie.ce._injectChildStyle(
+          be.ce && be.ce._hasShadowRoot() && be.ce._injectChildStyle(
             Oe,
-            b.parent ? b.parent.type : void 0
+            y.parent ? y.parent.type : void 0
           );
-          const Ce = b.subTree = Is(b);
-          I(
+          const qe = y.subTree = Ms(y);
+          R(
             null,
-            Ce,
-            P,
-            L,
-            b,
-            M,
-            D
-          ), C.el = Ce.el;
+            qe,
+            O,
+            G,
+            y,
+            N,
+            W
+          ), k.el = qe.el;
         }
-        if (ve && Be(ve, M), !et && (ee = ie && ie.onVnodeMounted)) {
-          const Ce = C;
-          Be(
-            () => wt(ee, ke, Ce),
-            M
+        if (Se && Ke(Se, N), !Ye && (se = ve && ve.onVnodeMounted)) {
+          const qe = k;
+          Ke(
+            () => _t(se, $e, qe),
+            N
           );
         }
-        (C.shapeFlag & 256 || ke && sl(ke.vnode) && ke.vnode.shapeFlag & 256) && b.a && Be(b.a, M), b.isMounted = !0, C = P = L = null;
+        (k.shapeFlag & 256 || $e && ln($e.vnode) && $e.vnode.shapeFlag & 256) && y.a && Ke(y.a, N), y.isMounted = !0, k = O = G = null;
       }
     };
-    b.scope.on();
-    const Y = b.effect = new ao(J);
-    b.scope.off();
-    const q = b.update = Y.run.bind(Y), oe = b.job = Y.runIfDirty.bind(Y);
-    oe.i = b, oe.id = b.uid, Y.scheduler = () => ns(oe), Jt(b, !0), q();
-  }, d = (b, C, P) => {
-    C.component = b;
-    const L = b.vnode.props;
-    b.vnode = C, b.next = null, ar(b, C.props, L, P), cr(b, C.children, P), xt(), So(b), St();
-  }, u = (b, C, P, L, M, D, G, J, Y = !1) => {
-    const q = b && b.children, oe = b ? b.shapeFlag : 0, ee = C.children, { patchFlag: ae, shapeFlag: ie } = C;
-    if (ae > 0) {
-      if (ae & 128) {
+    y.scope.on();
+    const K = y.effect = new uo(Y);
+    y.scope.off();
+    const F = y.update = K.run.bind(K), ue = y.job = K.runIfDirty.bind(K);
+    ue.i = y, ue.id = y.uid, K.scheduler = () => os(ue), Jt(y, !0), F();
+  }, d = (y, k, O) => {
+    k.component = y;
+    const G = y.vnode.props;
+    y.vnode = k, y.next = null, or(y, k.props, G, O), ur(y, k.children, O), St(), Vo(y), Tt();
+  }, r = (y, k, O, G, N, W, te, Y, K = !1) => {
+    const F = y && y.children, ue = y ? y.shapeFlag : 0, se = k.children, { patchFlag: de, shapeFlag: ve } = k;
+    if (de > 0) {
+      if (de & 128) {
         _(
-          q,
-          ee,
-          P,
-          L,
-          M,
-          D,
+          F,
+          se,
+          O,
           G,
-          J,
-          Y
+          N,
+          W,
+          te,
+          Y,
+          K
         );
         return;
-      } else if (ae & 256) {
+      } else if (de & 256) {
         v(
-          q,
-          ee,
-          P,
-          L,
-          M,
-          D,
+          F,
+          se,
+          O,
           G,
-          J,
-          Y
+          N,
+          W,
+          te,
+          Y,
+          K
         );
         return;
       }
     }
-    ie & 8 ? (oe & 16 && st(q, M, D), ee !== q && m(P, ee)) : oe & 16 ? ie & 16 ? _(
-      q,
-      ee,
-      P,
-      L,
-      M,
-      D,
+    ve & 8 ? (ue & 16 && it(F, N, W), se !== F && m(O, se)) : ue & 16 ? ve & 16 ? _(
+      F,
+      se,
+      O,
       G,
-      J,
-      Y
-    ) : st(q, M, D, !0) : (oe & 8 && m(P, ""), ie & 16 && k(
-      ee,
-      P,
-      L,
-      M,
-      D,
+      N,
+      W,
+      te,
+      Y,
+      K
+    ) : it(F, N, W, !0) : (ue & 8 && m(O, ""), ve & 16 && E(
+      se,
+      O,
       G,
-      J,
-      Y
+      N,
+      W,
+      te,
+      Y,
+      K
     ));
-  }, v = (b, C, P, L, M, D, G, J, Y) => {
-    b = b || Qt, C = C || Qt;
-    const q = b.length, oe = C.length, ee = Math.min(q, oe);
-    let ae;
-    for (ae = 0; ae < ee; ae++) {
-      const ie = C[ae] = Y ? Pt(C[ae]) : $t(C[ae]);
-      I(
-        b[ae],
-        ie,
-        P,
+  }, v = (y, k, O, G, N, W, te, Y, K) => {
+    y = y || Zt, k = k || Zt;
+    const F = y.length, ue = k.length, se = Math.min(F, ue);
+    let de;
+    for (de = 0; de < se; de++) {
+      const ve = k[de] = K ? At(k[de]) : Ct(k[de]);
+      R(
+        y[de],
+        ve,
+        O,
         null,
-        M,
-        D,
-        G,
-        J,
-        Y
+        N,
+        W,
+        te,
+        Y,
+        K
       );
     }
-    q > oe ? st(
-      b,
-      M,
-      D,
+    F > ue ? it(
+      y,
+      N,
+      W,
       !0,
       !1,
-      ee
-    ) : k(
-      C,
-      P,
-      L,
-      M,
-      D,
+      se
+    ) : E(
+      k,
+      O,
       G,
-      J,
+      N,
+      W,
+      te,
       Y,
-      ee
+      K,
+      se
     );
-  }, _ = (b, C, P, L, M, D, G, J, Y) => {
-    let q = 0;
-    const oe = C.length;
-    let ee = b.length - 1, ae = oe - 1;
-    for (; q <= ee && q <= ae; ) {
-      const ie = b[q], de = C[q] = Y ? Pt(C[q]) : $t(C[q]);
-      if (fl(ie, de))
-        I(
-          ie,
-          de,
-          P,
+  }, _ = (y, k, O, G, N, W, te, Y, K) => {
+    let F = 0;
+    const ue = k.length;
+    let se = y.length - 1, de = ue - 1;
+    for (; F <= se && F <= de; ) {
+      const ve = y[F], fe = k[F] = K ? At(k[F]) : Ct(k[F]);
+      if (cn(ve, fe))
+        R(
+          ve,
+          fe,
+          O,
           null,
-          M,
-          D,
-          G,
-          J,
-          Y
+          N,
+          W,
+          te,
+          Y,
+          K
         );
       else
         break;
-      q++;
+      F++;
     }
-    for (; q <= ee && q <= ae; ) {
-      const ie = b[ee], de = C[ae] = Y ? Pt(C[ae]) : $t(C[ae]);
-      if (fl(ie, de))
-        I(
-          ie,
-          de,
-          P,
+    for (; F <= se && F <= de; ) {
+      const ve = y[se], fe = k[de] = K ? At(k[de]) : Ct(k[de]);
+      if (cn(ve, fe))
+        R(
+          ve,
+          fe,
+          O,
           null,
-          M,
-          D,
-          G,
-          J,
-          Y
+          N,
+          W,
+          te,
+          Y,
+          K
         );
       else
         break;
-      ee--, ae--;
+      se--, de--;
     }
-    if (q > ee) {
-      if (q <= ae) {
-        const ie = ae + 1, de = ie < oe ? C[ie].el : L;
-        for (; q <= ae; )
-          I(
+    if (F > se) {
+      if (F <= de) {
+        const ve = de + 1, fe = ve < ue ? k[ve].el : G;
+        for (; F <= de; )
+          R(
             null,
-            C[q] = Y ? Pt(C[q]) : $t(C[q]),
-            P,
-            de,
-            M,
-            D,
-            G,
-            J,
-            Y
-          ), q++;
+            k[F] = K ? At(k[F]) : Ct(k[F]),
+            O,
+            fe,
+            N,
+            W,
+            te,
+            Y,
+            K
+          ), F++;
       }
-    } else if (q > ae)
-      for (; q <= ee; )
-        Ve(b[q], M, D, !0), q++;
+    } else if (F > de)
+      for (; F <= se; )
+        Pe(y[F], N, W, !0), F++;
     else {
-      const ie = q, de = q, ve = /* @__PURE__ */ new Map();
-      for (q = de; q <= ae; q++) {
-        const we = C[q] = Y ? Pt(C[q]) : $t(C[q]);
-        we.key != null && ve.set(we.key, q);
+      const ve = F, fe = F, Se = /* @__PURE__ */ new Map();
+      for (F = fe; F <= de; F++) {
+        const Be = k[F] = K ? At(k[F]) : Ct(k[F]);
+        Be.key != null && Se.set(Be.key, F);
       }
-      let ke, Ie = 0;
-      const Oe = ae - de + 1;
-      let et = !1, Ce = 0;
-      const ft = new Array(Oe);
-      for (q = 0; q < Oe; q++) ft[q] = 0;
-      for (q = ie; q <= ee; q++) {
-        const we = b[q];
-        if (Ie >= Oe) {
-          Ve(we, M, D, !0);
+      let $e, be = 0;
+      const Oe = de - fe + 1;
+      let Ye = !1, qe = 0;
+      const Xe = new Array(Oe);
+      for (F = 0; F < Oe; F++) Xe[F] = 0;
+      for (F = ve; F <= se; F++) {
+        const Be = y[F];
+        if (be >= Oe) {
+          Pe(Be, N, W, !0);
           continue;
         }
-        let it;
-        if (we.key != null)
-          it = ve.get(we.key);
+        let rt;
+        if (Be.key != null)
+          rt = Se.get(Be.key);
         else
-          for (ke = de; ke <= ae; ke++)
-            if (ft[ke - de] === 0 && fl(we, C[ke])) {
-              it = ke;
+          for ($e = fe; $e <= de; $e++)
+            if (Xe[$e - fe] === 0 && cn(Be, k[$e])) {
+              rt = $e;
               break;
             }
-        it === void 0 ? Ve(we, M, D, !0) : (ft[it - de] = q + 1, it >= Ce ? Ce = it : et = !0, I(
-          we,
-          C[it],
-          P,
+        rt === void 0 ? Pe(Be, N, W, !0) : (Xe[rt - fe] = F + 1, rt >= qe ? qe = rt : Ye = !0, R(
+          Be,
+          k[rt],
+          O,
           null,
-          M,
-          D,
-          G,
-          J,
-          Y
-        ), Ie++);
+          N,
+          W,
+          te,
+          Y,
+          K
+        ), be++);
       }
-      const ul = et ? gr(ft) : Qt;
-      for (ke = ul.length - 1, q = Oe - 1; q >= 0; q--) {
-        const we = de + q, it = C[we], el = C[we + 1], Tt = we + 1 < oe ? (
+      const un = Ye ? pr(Xe) : Zt;
+      for ($e = un.length - 1, F = Oe - 1; F >= 0; F--) {
+        const Be = fe + F, rt = k[Be], On = k[Be + 1], Rn = Be + 1 < ue ? (
           // #13559, #14173 fallback to el placeholder for unresolved async component
-          el.el || $l(el)
-        ) : L;
-        ft[q] === 0 ? I(
+          On.el || Cn(On)
+        ) : G;
+        Xe[F] === 0 ? R(
           null,
-          it,
-          P,
-          Tt,
-          M,
-          D,
-          G,
-          J,
-          Y
-        ) : et && (ke < 0 || q !== ul[ke] ? K(it, P, Tt, 2) : ke--);
+          rt,
+          O,
+          Rn,
+          N,
+          W,
+          te,
+          Y,
+          K
+        ) : Ye && ($e < 0 || F !== un[$e] ? J(rt, O, Rn, 2) : $e--);
       }
     }
-  }, K = (b, C, P, L, M = null) => {
-    const { el: D, type: G, transition: J, children: Y, shapeFlag: q } = b;
-    if (q & 6) {
-      K(b.component.subTree, C, P, L);
+  }, J = (y, k, O, G, N = null) => {
+    const { el: W, type: te, transition: Y, children: K, shapeFlag: F } = y;
+    if (F & 6) {
+      J(y.component.subTree, k, O, G);
       return;
     }
-    if (q & 128) {
-      b.suspense.move(C, P, L);
+    if (F & 128) {
+      y.suspense.move(k, O, G);
       return;
     }
-    if (q & 64) {
-      G.move(b, C, P, yt);
+    if (F & 64) {
+      te.move(y, k, O, wt);
       return;
     }
-    if (G === N) {
-      o(D, C, P);
-      for (let ee = 0; ee < Y.length; ee++)
-        K(Y[ee], C, P, L);
-      o(b.anchor, C, P);
+    if (te === q) {
+      o(W, k, O);
+      for (let se = 0; se < K.length; se++)
+        J(K[se], k, O, G);
+      o(y.anchor, k, O);
       return;
     }
-    if (G === Vn) {
-      le(b, C, P);
+    if (te === Vl) {
+      ee(y, k, O);
       return;
     }
-    if (L !== 2 && q & 1 && J)
-      if (L === 0)
-        J.persisted && !D[Cn] ? o(D, C, P) : (J.beforeEnter(D), o(D, C, P), Be(() => J.enter(D), M));
+    if (G !== 2 && F & 1 && Y)
+      if (G === 0)
+        Y.persisted && !W[xl] ? o(W, k, O) : (Y.beforeEnter(W), o(W, k, O), Ke(() => Y.enter(W), N));
       else {
-        const { leave: ee, delayLeave: ae, afterLeave: ie } = J, de = () => {
-          b.ctx.isUnmounted ? s(D) : o(D, C, P);
-        }, ve = () => {
-          const ke = D._isLeaving || !!D[Cn];
-          D._isLeaving && D[Cn](
+        const { leave: se, delayLeave: de, afterLeave: ve } = Y, fe = () => {
+          y.ctx.isUnmounted ? s(W) : o(W, k, O);
+        }, Se = () => {
+          const $e = W._isLeaving || !!W[xl];
+          W._isLeaving && W[xl](
             !0
             /* cancelled */
-          ), J.persisted && !ke ? de() : ee(D, () => {
-            de(), ie && ie();
+          ), Y.persisted && !$e ? fe() : se(W, () => {
+            fe(), ve && ve();
           });
         };
-        ae ? ae(D, de, ve) : ve();
+        de ? de(W, fe, Se) : Se();
       }
     else
-      o(D, C, P);
-  }, Ve = (b, C, P, L = !1, M = !1) => {
+      o(W, k, O);
+  }, Pe = (y, k, O, G = !1, N = !1) => {
     const {
-      type: D,
-      props: G,
-      ref: J,
-      children: Y,
-      dynamicChildren: q,
-      shapeFlag: oe,
-      patchFlag: ee,
-      dirs: ae,
-      cacheIndex: ie,
-      memo: de
-    } = b;
-    if ((ee === -2 || q && q.hasOnce) && (M = !1), J != null && (xt(), _l(J, null, P, b, !0), St()), ie != null && (!b.ctx || b.ctx === C) && (C.renderCache[ie] = void 0), oe & 256 && C.ctx.deactivate(b))
+      type: W,
+      props: te,
+      ref: Y,
+      children: K,
+      dynamicChildren: F,
+      shapeFlag: ue,
+      patchFlag: se,
+      dirs: de,
+      cacheIndex: ve,
+      memo: fe
+    } = y;
+    if ((se === -2 || F && F.hasOnce) && (N = !1), Y != null && (St(), kn(Y, null, O, y, !0), Tt()), ve != null && (!y.ctx || y.ctx === k) && (k.renderCache[ve] = void 0), ue & 256 && k.ctx.deactivate(y))
       return;
-    const ve = oe & 1 && ae, ke = !sl(b);
-    let Ie;
-    if (ke && (Ie = G && G.onVnodeBeforeUnmount) && wt(Ie, C, b), oe & 6)
-      Ht(b.component, P, L);
+    const Se = ue & 1 && de, $e = !ln(y);
+    let be;
+    if ($e && (be = te && te.onVnodeBeforeUnmount) && _t(be, k, y), ue & 6)
+      qt(y.component, O, G);
     else {
-      if (oe & 128) {
-        b.suspense.unmount(P, L);
+      if (ue & 128) {
+        y.suspense.unmount(O, G);
         return;
       }
-      ve && zt(b, null, C, "beforeUnmount"), oe & 64 ? b.type.remove(
-        b,
-        C,
-        P,
-        yt,
-        L
-      ) : q && // #5154
+      Se && zt(y, null, k, "beforeUnmount"), ue & 64 ? y.type.remove(
+        y,
+        k,
+        O,
+        wt,
+        G
+      ) : F && // #5154
       // when v-once is used inside a block, setBlockTracking(-1) marks the
       // parent block with hasOnce: true
       // so that it doesn't take the fast path during unmount - otherwise
       // components nested in v-once are never unmounted.
-      !q.hasOnce && // #1153: fast path should not be taken for non-stable (v-for) fragments
-      (D !== N || ee > 0 && ee & 64) ? st(
-        q,
-        C,
-        P,
+      !F.hasOnce && // #1153: fast path should not be taken for non-stable (v-for) fragments
+      (W !== q || se > 0 && se & 64) ? it(
+        F,
+        k,
+        O,
         !1,
         !0
-      ) : (D === N && ee & 384 || !M && oe & 16) && st(Y, C, P), L && W(b);
+      ) : (W === q && se & 384 || !N && ue & 16) && it(K, k, O), G && B(y);
     }
-    const Oe = de != null && ie == null;
-    (ke && (Ie = G && G.onVnodeUnmounted) || ve || Oe) && Be(() => {
-      Ie && wt(Ie, C, b), ve && zt(b, null, C, "unmounted"), Oe && (b.el = null);
-    }, P);
-  }, W = (b) => {
-    const { type: C, el: P, anchor: L, transition: M } = b, D = C === N;
-    if (D && !M) {
-      Ne(P, L);
+    const Oe = fe != null && ve == null;
+    ($e && (be = te && te.onVnodeUnmounted) || Se || Oe) && Ke(() => {
+      be && _t(be, k, y), Se && zt(y, null, k, "unmounted"), Oe && (y.el = null);
+    }, O);
+  }, B = (y) => {
+    const { type: k, el: O, anchor: G, transition: N } = y, W = k === q;
+    if (W && !N) {
+      Fe(O, G);
       return;
     }
-    if (C === Vn) {
-      j(b), M && !M.persisted && M.afterLeave && M.afterLeave();
+    if (k === Vl) {
+      j(y), N && !N.persisted && N.afterLeave && N.afterLeave();
       return;
     }
-    const G = D ? qn(b) : b, J = () => {
-      D ? y(P) && Ne(P, L) : s(P), M && !M.persisted && M.afterLeave && M.afterLeave();
+    const te = W ? Hl(y) : y, Y = () => {
+      W ? w(O) && Fe(O, G) : s(O), N && !N.persisted && N.afterLeave && N.afterLeave();
     };
-    if (G && G.shapeFlag & 1 && M && !M.persisted) {
-      const { leave: Y, delayLeave: q } = M, oe = G.el, ee = () => Y(oe, J);
-      q ? q(oe, J, ee) : ee();
+    if (te && te.shapeFlag & 1 && N && !N.persisted) {
+      const { leave: K, delayLeave: F } = N, ue = te.el, se = () => K(ue, Y);
+      F ? F(ue, Y, se) : se();
     } else
-      J();
-  }, Ne = (b, C) => {
-    let P;
-    for (; b !== C; )
-      P = T(b), s(b), b = P;
-    s(C);
-  }, Ht = (b, C, P) => {
-    const { bum: L, scope: M, job: D, subTree: G, um: J, m: Y, a: q } = b;
-    Rs(Y), Rs(q), L && Bl(L), M.stop(), D ? (D.flags |= 8, Ve(G, b, C, P)) : G && (G.transition = b.vnode.transition, Ve(G, b, C, P)), J && Be(J, C);
-    const oe = () => {
-      b.isUnmounted = !0;
+      Y();
+  }, Fe = (y, k) => {
+    let O;
+    for (; y !== k; )
+      O = A(y), s(y), y = O;
+    s(k);
+  }, qt = (y, k, O) => {
+    const { bum: G, scope: N, job: W, subTree: te, um: Y, m: K, a: F } = y;
+    Ds(K), Ds(F), G && Gn(G), N.stop(), W ? (W.flags |= 8, Pe(te, y, k, O)) : te && (te.transition = y.vnode.transition, Pe(te, y, k, O)), Y && Ke(Y, k);
+    const ue = () => {
+      y.isUnmounted = !0;
     };
-    oe.flags = 16, Be(oe, C);
-  }, st = (b, C, P, L = !1, M = !1, D = 0) => {
-    for (let G = D; G < b.length; G++)
-      Ve(b[G], C, P, L, M);
-  }, ot = (b) => {
-    if (b.shapeFlag & 6)
-      return ot(b.component.subTree);
-    if (b.shapeFlag & 128)
-      return b.suspense.next();
-    const C = T(b.anchor || b.el), P = C && C[Po];
-    return P ? T(P) : C;
-  }, Gt = (b, C, P) => {
-    const L = b && C._vnode ? void 0 : b && b.component ? b.component.uid : _r();
-    ka(() => {
-      b == null ? C._vnode && Ve(C._vnode, null, null, !0) : I(
-        C._vnode || null,
-        b,
-        C,
+    ue.flags = 16, Ke(ue, k);
+  }, it = (y, k, O, G = !1, N = !1, W = 0) => {
+    for (let te = W; te < y.length; te++)
+      Pe(y[te], k, O, G, N);
+  }, at = (y) => {
+    if (y.shapeFlag & 6)
+      return at(y.component.subTree);
+    if (y.shapeFlag & 128)
+      return y.suspense.next();
+    const k = A(y.anchor || y.el), O = k && k[Io];
+    return O ? A(O) : k;
+  }, Gt = (y, k, O) => {
+    const G = y && k._vnode ? void 0 : y && y.component ? y.component.uid : yr();
+    wa(() => {
+      y == null ? k._vnode && Pe(k._vnode, null, null, !0) : R(
+        k._vnode || null,
+        y,
+        k,
         null,
         null,
         null,
-        P
-      ), C._vnode = b;
-    }, L);
-  }, yt = {
-    p: I,
-    um: Ve,
-    m: K,
-    r: W,
-    mt: Me,
-    mc: k,
-    pc: u,
-    pbc: z,
-    n: ot,
+        O
+      ), k._vnode = y;
+    }, G);
+  }, wt = {
+    p: R,
+    um: Pe,
+    m: J,
+    r: B,
+    mt: ae,
+    mc: E,
+    pc: r,
+    pbc: S,
+    n: at,
     o: e
   };
   return {
     render: Gt,
     hydrate: void 0,
-    createApp: Qa(Gt)
+    createApp: Ya(Gt)
   };
 }
-function Sn({ type: e, props: t }, l) {
-  return l === "svg" && e === "foreignObject" || l === "mathml" && e === "annotation-xml" && t && t.encoding && t.encoding.includes("html") ? void 0 : l;
+function Tl({ type: e, props: t }, n) {
+  return n === "svg" && e === "foreignObject" || n === "mathml" && e === "annotation-xml" && t && t.encoding && t.encoding.includes("html") ? void 0 : n;
 }
-function Jt({ effect: e, job: t }, l) {
-  l ? (e.flags |= 32, t.flags |= 4) : (e.flags &= -33, t.flags &= -5);
+function Jt({ effect: e, job: t }, n) {
+  n ? (e.flags |= 32, t.flags |= 4) : (e.flags &= -33, t.flags &= -5);
 }
-function vr(e, t) {
+function fr(e, t) {
   return (!e || e && !e.pendingBranch) && t && !t.persisted;
 }
-function rs(e, t, l = !1) {
+function ds(e, t, n = !1) {
   const o = e.children, s = t.children;
-  if (ce(o) && ce(s))
+  if (pe(o) && pe(s))
     for (let i = 0; i < o.length; i++) {
       const a = o[i];
-      let r = s[i];
-      r.shapeFlag & 1 && !r.dynamicChildren && ((r.patchFlag <= 0 || r.patchFlag === 32) && (r = s[i] = Pt(s[i]), r.el = a.el), !l && r.patchFlag !== -2 && rs(a, r)), r.type === pn && (r.patchFlag === -1 && (r = s[i] = Pt(r)), r.el = a.el), r.type === dt && !r.el && (r.el = a.el);
+      let u = s[i];
+      u.shapeFlag & 1 && !u.dynamicChildren && ((u.patchFlag <= 0 || u.patchFlag === 32) && (u = s[i] = At(s[i]), u.el = a.el), !n && u.patchFlag !== -2 && ds(a, u)), u.type === vl && (u.patchFlag === -1 && (u = s[i] = At(u)), u.el = a.el), u.type === ft && !u.el && (u.el = a.el);
     }
 }
-function gr(e) {
-  const t = e.slice(), l = [0];
-  let o, s, i, a, r;
+function pr(e) {
+  const t = e.slice(), n = [0];
+  let o, s, i, a, u;
   const c = e.length;
   for (o = 0; o < c; o++) {
     const g = e[o];
     if (g !== 0) {
-      if (s = l[l.length - 1], e[s] < g) {
-        t[o] = s, l.push(o);
+      if (s = n[n.length - 1], e[s] < g) {
+        t[o] = s, n.push(o);
         continue;
       }
-      for (i = 0, a = l.length - 1; i < a; )
-        r = i + a >> 1, e[l[r]] < g ? i = r + 1 : a = r;
-      g < e[l[i]] && (i > 0 && (t[o] = l[i - 1]), l[i] = o);
+      for (i = 0, a = n.length - 1; i < a; )
+        u = i + a >> 1, e[n[u]] < g ? i = u + 1 : a = u;
+      g < e[n[i]] && (i > 0 && (t[o] = n[i - 1]), n[i] = o);
     }
   }
-  for (i = l.length, a = l[i - 1]; i-- > 0; )
-    l[i] = a, a = t[a];
-  return l;
+  for (i = n.length, a = n[i - 1]; i-- > 0; )
+    n[i] = a, a = t[a];
+  return n;
 }
-function Qo(e) {
+function ei(e) {
   const t = e.subTree.component;
   if (t)
-    return t.asyncDep && !t.asyncResolved ? t : Qo(t);
+    return t.asyncDep && !t.asyncResolved ? t : ei(t);
 }
-function Rs(e) {
+function Ds(e) {
   if (e)
     for (let t = 0; t < e.length; t++)
       e[t].flags |= 8;
 }
-function $l(e) {
+function Cn(e) {
   if (e.placeholder)
     return e.placeholder;
   const t = e.component;
   if (t)
-    return $l(t.subTree);
-  const l = e.suspense;
-  return l && l.activeBranch ? $l(l.activeBranch) : null;
+    return Cn(t.subTree);
+  const n = e.suspense;
+  return n && n.activeBranch ? Cn(n.activeBranch) : null;
 }
-const Zo = (e) => e.__isSuspense, hr = /* @__PURE__ */ Symbol("_deferredEnter");
-function mr(e, t) {
-  t && t.pendingBranch ? ce(e) ? t.effects.push(...e) : t.effects.push(e) : _a(e);
+const ti = (e) => e.__isSuspense, vr = /* @__PURE__ */ Symbol("_deferredEnter");
+function gr(e, t) {
+  t && t.pendingBranch ? pe(e) ? t.effects.push(...e) : t.effects.push(e) : ya(e);
 }
-const N = /* @__PURE__ */ Symbol.for("v-fgt"), pn = /* @__PURE__ */ Symbol.for("v-txt"), dt = /* @__PURE__ */ Symbol.for("v-cmt"), Vn = /* @__PURE__ */ Symbol.for("v-stc"), Ot = [];
+const q = /* @__PURE__ */ Symbol.for("v-fgt"), vl = /* @__PURE__ */ Symbol.for("v-txt"), ft = /* @__PURE__ */ Symbol.for("v-cmt"), Vl = /* @__PURE__ */ Symbol.for("v-stc"), Ot = [];
 let lt = null;
-function p(e = !1) {
+function f(e = !1) {
   Ot.push(lt = e ? null : []);
 }
-function us() {
+function cs() {
   Ot.pop(), lt = Ot[Ot.length - 1] || null;
 }
-let El = 1;
-function Ds(e, t = !1) {
-  El += e, e < 0 && lt && t && (lt.hasOnce = !0);
+let Pn = 1;
+function Fs(e, t = !1) {
+  Pn += e, e < 0 && lt && t && (lt.hasOnce = !0);
 }
-function ei(e) {
-  return e.dynamicChildren = El > 0 ? lt || Qt : null, us(), El > 0 && lt && lt.push(e), e;
+function ni(e) {
+  return e.dynamicChildren = Pn > 0 ? lt || Zt : null, cs(), Pn > 0 && lt && lt.push(e), e;
 }
-function h(e, t, l, o, s, i) {
-  return ei(
-    n(
+function h(e, t, n, o, s, i) {
+  return ni(
+    l(
       e,
       t,
-      l,
+      n,
       o,
       s,
       i,
@@ -3690,40 +3690,40 @@ function h(e, t, l, o, s, i) {
     )
   );
 }
-function ge(e, t, l, o, s) {
-  return ei(
-    Ee(
+function me(e, t, n, o, s) {
+  return ni(
+    Ae(
       e,
       t,
-      l,
+      n,
       o,
       s,
       !0
     )
   );
 }
-function vn(e) {
+function gl(e) {
   return e ? e.__v_isVNode === !0 : !1;
 }
-function fl(e, t) {
+function cn(e, t) {
   return e.type === t.type && e.key === t.key;
 }
-const ti = ({ key: e }) => e ?? null, Gl = ({
+const li = ({ key: e }) => e ?? null, Jn = ({
   ref: e,
   ref_key: t,
-  ref_for: l
-}) => (typeof e == "number" && (e = "" + e), e != null ? Ae(e) || /* @__PURE__ */ ze(e) || fe(e) ? { i: Ge, r: e, k: t, f: !!l } : e : null);
-function n(e, t = null, l = null, o = 0, s = null, i = e === N ? 0 : 1, a = !1, r = !1) {
+  ref_for: n
+}) => (typeof e == "number" && (e = "" + e), e != null ? Ee(e) || /* @__PURE__ */ Je(e) || ge(e) ? { i: ze, r: e, k: t, f: !!n } : e : null);
+function l(e, t = null, n = null, o = 0, s = null, i = e === q ? 0 : 1, a = !1, u = !1) {
   const c = {
     __v_isVNode: !0,
     __v_skip: !0,
     type: e,
     props: t,
-    key: t && ti(t),
-    ref: t && Gl(t),
-    scopeId: Eo,
+    key: t && li(t),
+    ref: t && Jn(t),
+    scopeId: Ao,
     slotScopeIds: null,
-    children: l,
+    children: n,
     component: null,
     suspense: null,
     ssContent: null,
@@ -3741,9 +3741,9 @@ function n(e, t = null, l = null, o = 0, s = null, i = e === N ? 0 : 1, a = !1, 
     dynamicProps: s,
     dynamicChildren: null,
     appContext: null,
-    ctx: Ge
+    ctx: ze
   };
-  return r ? (Zl(c, l), i & 128 && e.normalize(c)) : l && (c.shapeFlag |= Ae(l) ? 8 : 16), El > 0 && // avoid a block node from tracking itself
+  return u ? (tl(c, n), i & 128 && e.normalize(c)) : n && (c.shapeFlag |= Ee(n) ? 8 : 16), Pn > 0 && // avoid a block node from tracking itself
   !a && // has current parent block
   lt && // presence of a patch flag indicates this node needs patching on updates.
   // component nodes also should always be patched, because even if the
@@ -3753,27 +3753,27 @@ function n(e, t = null, l = null, o = 0, s = null, i = e === N ? 0 : 1, a = !1, 
   // vnode should not be considered dynamic due to handler caching.
   c.patchFlag !== 32 && lt.push(c), c;
 }
-const Ee = br;
-function br(e, t = null, l = null, o = 0, s = null, i = !1) {
-  if ((!e || e === ja) && (e = dt), vn(e)) {
-    const r = il(
+const Ae = hr;
+function hr(e, t = null, n = null, o = 0, s = null, i = !1) {
+  if ((!e || e === Ha) && (e = ft), gl(e)) {
+    const u = on(
       e,
       t,
       !0
       /* mergeRef: true */
     );
-    return l && Zl(r, l), El > 0 && !i && lt && (r.shapeFlag & 6 ? lt[lt.indexOf(e)] = r : lt.push(r)), r.patchFlag = -2, r;
+    return n && tl(u, n), Pn > 0 && !i && lt && (u.shapeFlag & 6 ? lt[lt.indexOf(e)] = u : lt.push(u)), u.patchFlag = -2, u;
   }
-  if (Vr(e) && (e = e.__vccOpts), t) {
-    t = yr(t);
-    let { class: r, style: c } = t;
-    r && !Ae(r) && (t.class = Ue(r)), Se(c) && (/* @__PURE__ */ ts(c) && !ce(c) && (c = De({}, c)), t.style = Cl(c));
+  if (xr(e) && (e = e.__vccOpts), t) {
+    t = mr(t);
+    let { class: u, style: c } = t;
+    u && !Ee(u) && (t.class = Te(u)), Ve(c) && (/* @__PURE__ */ ls(c) && !pe(c) && (c = De({}, c)), t.style = jt(c));
   }
-  const a = Ae(e) ? 1 : Zo(e) ? 128 : cn(e) ? 64 : Se(e) ? 4 : fe(e) ? 2 : 0;
-  return n(
+  const a = Ee(e) ? 1 : ti(e) ? 128 : fl(e) ? 64 : Ve(e) ? 4 : ge(e) ? 2 : 0;
+  return l(
     e,
     t,
-    l,
+    n,
     o,
     s,
     a,
@@ -3781,25 +3781,25 @@ function br(e, t = null, l = null, o = 0, s = null, i = !1) {
     !0
   );
 }
-function yr(e) {
-  return e ? /* @__PURE__ */ ts(e) ? De({}, e) : Ko(e) ? De({}, e[ai] || e) : e : null;
+function mr(e) {
+  return e ? /* @__PURE__ */ ls(e) ? De({}, e) : zo(e) ? De({}, e[ui] || e) : e : null;
 }
-function il(e, t, l = !1, o = !1) {
-  const { props: s, ref: i, patchFlag: a, children: r, transition: c } = e, g = t ? li(s || {}, t) : s, m = {
+function on(e, t, n = !1, o = !1) {
+  const { props: s, ref: i, patchFlag: a, children: u, transition: c } = e, g = t ? si(s || {}, t) : s, m = {
     __v_isVNode: !0,
     __v_skip: !0,
     type: e.type,
     props: g,
-    key: g && ti(g),
+    key: g && li(g),
     ref: t && t.ref ? (
       // #2078 in the case of <component :is="vnode" ref="extra"/>
       // if the vnode itself already has a ref, cloneVNode will need to merge
       // the refs so the single vnode can be set on multiple refs
-      l && i ? ce(i) ? i.concat(Gl(t)) : [i, Gl(t)] : Gl(t)
+      n && i ? pe(i) ? i.concat(Jn(t)) : [i, Jn(t)] : Jn(t)
     ) : i,
     scopeId: e.scopeId,
     slotScopeIds: e.slotScopeIds,
-    children: r,
+    children: u,
     target: e.target,
     targetStart: e.targetStart,
     targetAnchor: e.targetAnchor,
@@ -3809,7 +3809,7 @@ function il(e, t, l = !1, o = !1) {
     // existing patch flag to be reliable and need to add the FULL_PROPS flag.
     // note: preserve flag for fragments since they use the flag for children
     // fast paths only.
-    patchFlag: t && e.type !== N ? a === -1 ? 16 : a | 16 : a,
+    patchFlag: t && e.type !== q ? a === -1 ? 16 : a | 16 : a,
     dynamicProps: e.dynamicProps,
     dynamicChildren: e.dynamicChildren,
     appContext: e.appContext,
@@ -3821,8 +3821,8 @@ function il(e, t, l = !1, o = !1) {
     // they will simply be overwritten.
     component: e.component,
     suspense: e.suspense,
-    ssContent: e.ssContent && il(e.ssContent),
-    ssFallback: e.ssFallback && il(e.ssFallback),
+    ssContent: e.ssContent && on(e.ssContent),
+    ssFallback: e.ssFallback && on(e.ssFallback),
     placeholder: e.placeholder,
     el: e.el,
     anchor: e.anchor,
@@ -3830,87 +3830,87 @@ function il(e, t, l = !1, o = !1) {
     ce: e.ce,
     cacheIndex: e.cacheIndex
   };
-  return c && o && wl(
+  return c && o && _n(
     m,
     c.clone(m)
   ), m;
 }
-function A(e = " ", t = 0) {
-  return Ee(pn, null, e, t);
+function M(e = " ", t = 0) {
+  return Ae(vl, null, e, t);
 }
-function V(e = "", t = !1) {
-  return t ? (p(), ge(dt, null, e)) : Ee(dt, null, e);
+function x(e = "", t = !1) {
+  return t ? (f(), me(ft, null, e)) : Ae(ft, null, e);
 }
-function $t(e) {
-  return e == null || typeof e == "boolean" ? Ee(dt) : ce(e) ? Ee(
-    N,
+function Ct(e) {
+  return e == null || typeof e == "boolean" ? Ae(ft) : pe(e) ? Ae(
+    q,
     null,
     // #3666, avoid reference pollution when reusing vnode
     e.slice()
-  ) : vn(e) ? Pt(e) : Ee(pn, null, String(e));
+  ) : gl(e) ? At(e) : Ae(vl, null, String(e));
 }
-function Pt(e) {
-  return e.el === null && e.patchFlag !== -1 || e.memo ? e : il(e);
+function At(e) {
+  return e.el === null && e.patchFlag !== -1 || e.memo ? e : on(e);
 }
-function Zl(e, t) {
-  let l = 0;
+function tl(e, t) {
+  let n = 0;
   const { shapeFlag: o } = e;
   if (t == null)
     t = null;
-  else if (ce(t))
-    l = 16;
+  else if (pe(t))
+    n = 16;
   else if (typeof t == "object")
     if (o & 65) {
       const s = t.default;
-      s && (s._c && (s._d = !1), Zl(e, s()), s._c && (s._d = !0));
+      s && (s._c && (s._d = !1), tl(e, s()), s._c && (s._d = !0));
       return;
     } else {
-      l = 32;
+      n = 32;
       const s = t._;
-      !s && !Ko(t) ? t._ctx = Ge : s === 3 && Ge && (Ge.slots._ === 1 ? t._ = 1 : (t._ = 2, e.patchFlag |= 1024));
+      !s && !zo(t) ? t._ctx = ze : s === 3 && ze && (ze.slots._ === 1 ? t._ = 1 : (t._ = 2, e.patchFlag |= 1024));
     }
-  else if (fe(t)) {
+  else if (ge(t)) {
     if (o & 65) {
-      Zl(e, { default: t });
+      tl(e, { default: t });
       return;
     }
-    t = { default: t, _ctx: Ge }, l = 32;
+    t = { default: t, _ctx: ze }, n = 32;
   } else
-    t = String(t), o & 64 ? (l = 16, t = [A(t)]) : l = 8;
-  e.children = t, e.shapeFlag |= l;
+    t = String(t), o & 64 ? (n = 16, t = [M(t)]) : n = 8;
+  e.children = t, e.shapeFlag |= n;
 }
-function li(...e) {
+function si(...e) {
   const t = {};
-  for (let l = 0; l < e.length; l++) {
-    const o = e[l];
+  for (let n = 0; n < e.length; n++) {
+    const o = e[n];
     for (const s in o)
       if (s === "class")
-        t.class !== o.class && (t.class = Ue([t.class, o.class]));
+        t.class !== o.class && (t.class = Te([t.class, o.class]));
       else if (s === "style")
-        t.style = Cl([t.style, o.style]);
-      else if (nn(s)) {
+        t.style = jt([t.style, o.style]);
+      else if (ol(s)) {
         const i = t[s], a = o[s];
-        a && i !== a && !(ce(i) && i.includes(a)) ? t[s] = i ? [].concat(i, a) : a : a == null && i == null && // mergeProps({ 'onUpdate:modelValue': undefined }) should not retain
+        a && i !== a && !(pe(i) && i.includes(a)) ? t[s] = i ? [].concat(i, a) : a : a == null && i == null && // mergeProps({ 'onUpdate:modelValue': undefined }) should not retain
         // the model listener.
-        !sn(s) && (t[s] = a);
+        !il(s) && (t[s] = a);
       } else s !== "" && (t[s] = o[s]);
   }
   return t;
 }
-function wt(e, t, l, o = null) {
+function _t(e, t, n, o = null) {
   bt(e, t, 7, [
-    l,
+    n,
     o
   ]);
 }
-const wr = /* @__PURE__ */ qo();
-let ni = 0;
-function _r() {
-  return ni;
+const br = /* @__PURE__ */ Ho();
+let oi = 0;
+function yr() {
+  return oi;
 }
-function kr(e, t, l) {
-  const o = e.type, s = (t ? t.appContext : e.appContext) || wr, i = {
-    uid: ni++,
+function wr(e, t, n) {
+  const o = e.type, s = (t ? t.appContext : e.appContext) || br, i = {
+    uid: oi++,
     vnode: e,
     type: o,
     parent: t,
@@ -3924,7 +3924,7 @@ function kr(e, t, l) {
     update: null,
     // will be set synchronously right after creation
     job: null,
-    scope: new ji(
+    scope: new Hi(
       !0
       /* detached */
     ),
@@ -3941,28 +3941,28 @@ function kr(e, t, l) {
     components: null,
     directives: null,
     // resolved props and emits options
-    propsOptions: zo(o, s),
-    emitsOptions: Fo(o, s),
+    propsOptions: Yo(o, s),
+    emitsOptions: jo(o, s),
     // emit
     emit: null,
     // to be set immediately
     emitted: null,
     // props default value
-    propsDefaults: ye,
+    propsDefaults: _e,
     // inheritAttrs
     inheritAttrs: o.inheritAttrs,
     // state
-    ctx: ye,
-    data: ye,
-    props: ye,
-    attrs: ye,
-    slots: ye,
-    refs: ye,
-    setupState: ye,
+    ctx: _e,
+    data: _e,
+    props: _e,
+    attrs: _e,
+    slots: _e,
+    refs: _e,
+    setupState: _e,
     setupContext: null,
     // suspense related
-    suspense: l,
-    suspenseId: l ? l.pendingId : 0,
+    suspense: n,
+    suspenseId: n ? n.pendingId : 0,
     asyncDep: null,
     asyncResolved: !1,
     // lifecycle hooks
@@ -3985,52 +3985,52 @@ function kr(e, t, l) {
     ec: null,
     sp: null
   };
-  return i.ctx = { _: i }, i.root = t ? t.root : i, i.emit = er.bind(null, i), e.ce && e.ce(i), i;
+  return i.ctx = { _: i }, i.root = t ? t.root : i, i.emit = Za.bind(null, i), e.ce && e.ce(i), i;
 }
-let Qe = null;
-const si = () => Qe || Ge;
-let en, Ul;
+let et = null;
+const ii = () => et || ze;
+let nl, Un;
 {
-  const e = an(), t = (l, o) => {
+  const e = rl(), t = (n, o) => {
     let s;
-    return (s = e[l]) || (s = e[l] = []), s.push(o), (i) => {
+    return (s = e[n]) || (s = e[n] = []), s.push(o), (i) => {
       s.length > 1 ? s.forEach((a) => a(i)) : s[0](i);
     };
   };
-  en = t(
+  nl = t(
     "__VUE_INSTANCE_SETTERS__",
-    (l) => Qe = l
-  ), Ul = t(
+    (n) => et = n
+  ), Un = t(
     "__VUE_SSR_SETTERS__",
-    (l) => Pl = l
+    (n) => An = n
   );
 }
-const Ml = (e) => {
-  const t = Qe;
-  return en(e), e.scope.on(), () => {
-    e.scope.off(), en(t);
+const Mn = (e) => {
+  const t = et;
+  return nl(e), e.scope.on(), () => {
+    e.scope.off(), nl(t);
   };
-}, Ns = () => {
-  Qe && Qe.scope.off(), en(null);
+}, qs = () => {
+  et && et.scope.off(), nl(null);
 };
-function oi(e) {
+function ai(e) {
   return e.vnode.shapeFlag & 4;
 }
-let Pl = !1;
-function $r(e, t = !1, l = !1) {
-  t && Ul(t);
-  const { props: o, children: s } = e.vnode, i = oi(e);
-  ir(e, o, i, t), dr(e, s, l || t);
-  const a = i ? Cr(e, t) : void 0;
-  return t && Ul(!1), a;
+let An = !1;
+function _r(e, t = !1, n = !1) {
+  t && Un(t);
+  const { props: o, children: s } = e.vnode, i = ai(e);
+  sr(e, o, i, t), rr(e, s, n || t);
+  const a = i ? kr(e, t) : void 0;
+  return t && Un(!1), a;
 }
-function Cr(e, t) {
-  const l = e.type;
-  e.accessCache = /* @__PURE__ */ Object.create(null), e.proxy = new Proxy(e.ctx, Ba);
-  const { setup: o } = l;
+function kr(e, t) {
+  const n = e.type;
+  e.accessCache = /* @__PURE__ */ Object.create(null), e.proxy = new Proxy(e.ctx, ja);
+  const { setup: o } = n;
   if (o) {
-    xt();
-    const s = e.setupContext = o.length > 1 ? Sr(e) : null, i = Ml(e), a = Il(
+    St();
+    const s = e.setupContext = o.length > 1 ? Cr(e) : null, i = Mn(e), a = In(
       o,
       e,
       0,
@@ -4038,93 +4038,93 @@ function Cr(e, t) {
         e.props,
         s
       ]
-    ), r = Zs(a);
-    if (St(), i(), (r || e.sp) && !sl(e) && Io(e), r) {
-      if (a.then(Ns, Ns), t)
+    ), u = to(a);
+    if (Tt(), i(), (u || e.sp) && !ln(e) && Oo(e), u) {
+      if (a.then(qs, qs), t)
         return a.then((c) => {
-          Ul(!0);
+          Un(!0);
           try {
-            qs(e, c, t);
+            Ns(e, c, t);
           } finally {
-            Ul(!1);
+            Un(!1);
           }
         }).catch((c) => {
-          dn(c, e, 0, void 0, !0), e.ssrRender = (g, m) => m("<!---->");
+          cl(c, e, 0, void 0, !0), e.ssrRender = (g, m) => m("<!---->");
         });
       e.asyncDep = a;
     } else
-      qs(e, a);
+      Ns(e, a);
   } else
-    ii(e);
+    ri(e);
 }
-function qs(e, t, l) {
-  fe(t) ? e.type.__ssrInlineRender ? e.ssrRender = t : e.render = t : Se(t) && (e.setupState = $o(t)), ii(e);
+function Ns(e, t, n) {
+  ge(t) ? e.type.__ssrInlineRender ? e.ssrRender = t : e.render = t : Ve(t) && (e.setupState = xo(t)), ri(e);
 }
-function ii(e, t, l) {
+function ri(e, t, n) {
   const o = e.type;
-  e.render || (e.render = o.render || Ct);
+  e.render || (e.render = o.render || xt);
   {
-    const s = Ml(e);
-    xt();
+    const s = Mn(e);
+    St();
     try {
-      Ka(e);
+      Wa(e);
     } finally {
-      St(), s();
+      Tt(), s();
     }
   }
 }
-const ai = /* @__PURE__ */ Symbol(), xr = {
+const ui = /* @__PURE__ */ Symbol(), $r = {
   get(e, t) {
-    return Ke(e, "get", ""), t === ai ? e : e[t];
+    return Ge(e, "get", ""), t === ui ? e : e[t];
   }
 };
-function Sr(e) {
-  const t = (l) => {
-    e.exposed = l || {};
+function Cr(e) {
+  const t = (n) => {
+    e.exposed = n || {};
   };
   return {
-    attrs: new Proxy(e.attrs, xr),
+    attrs: new Proxy(e.attrs, $r),
     slots: e.slots,
     emit: e.emit,
     expose: t
   };
 }
-function gn(e) {
-  return e.exposed ? e.exposeProxy || (e.exposeProxy = new Proxy($o(ra(e.exposed)), {
-    get(t, l) {
-      if (l in t)
-        return t[l];
-      if (l in kl)
-        return kl[l](e);
+function hl(e) {
+  return e.exposed ? e.exposeProxy || (e.exposeProxy = new Proxy(xo(ia(e.exposed)), {
+    get(t, n) {
+      if (n in t)
+        return t[n];
+      if (n in $n)
+        return $n[n](e);
     },
-    has(t, l) {
-      return l in t || l in kl;
+    has(t, n) {
+      return n in t || n in $n;
     }
   })) : e.proxy;
 }
-function Vr(e) {
-  return fe(e) && "__vccOpts" in e;
+function xr(e) {
+  return ge(e) && "__vccOpts" in e;
 }
-const _e = (e, t) => /* @__PURE__ */ ha(e, t, Pl), Tr = "3.5.46";
-let Wn;
+const he = (e, t) => /* @__PURE__ */ va(e, t, An), Sr = "3.5.46";
+let Kl;
 const Hs = typeof window < "u" && window.trustedTypes;
 if (Hs)
   try {
-    Wn = /* @__PURE__ */ Hs.createPolicy("vue", {
+    Kl = /* @__PURE__ */ Hs.createPolicy("vue", {
       createHTML: (e) => e
     });
   } catch {
   }
-const ri = Wn ? (e) => Wn.createHTML(e) : (e) => e, Er = "http://www.w3.org/2000/svg", Ur = "http://www.w3.org/1998/Math/MathML", Ut = typeof document < "u" ? document : null, Fs = Ut && /* @__PURE__ */ Ut.createElement("template"), Pr = {
-  insert: (e, t, l) => {
-    t.insertBefore(e, l || null);
+const di = Kl ? (e) => Kl.createHTML(e) : (e) => e, Tr = "http://www.w3.org/2000/svg", Vr = "http://www.w3.org/1998/Math/MathML", Ut = typeof document < "u" ? document : null, Ls = Ut && /* @__PURE__ */ Ut.createElement("template"), Pr = {
+  insert: (e, t, n) => {
+    t.insertBefore(e, n || null);
   },
   remove: (e) => {
     const t = e.parentNode;
     t && t.removeChild(e);
   },
-  createElement: (e, t, l, o) => {
-    const s = t === "svg" ? Ut.createElementNS(Er, e) : t === "mathml" ? Ut.createElementNS(Ur, e) : l ? Ut.createElement(e, { is: l }) : Ut.createElement(e);
+  createElement: (e, t, n, o) => {
+    const s = t === "svg" ? Ut.createElementNS(Tr, e) : t === "mathml" ? Ut.createElementNS(Vr, e) : n ? Ut.createElement(e, { is: n }) : Ut.createElement(e);
     return e === "select" && o && o.multiple != null && s.setAttribute("multiple", o.multiple), s;
   },
   createText: (e) => Ut.createTextNode(e),
@@ -4145,208 +4145,208 @@ const ri = Wn ? (e) => Wn.createHTML(e) : (e) => e, Er = "http://www.w3.org/2000
   // Reason: innerHTML.
   // Static content here can only come from compiled templates.
   // As long as the user only uses trusted templates, this is safe.
-  insertStaticContent(e, t, l, o, s, i) {
-    const a = l ? l.previousSibling : t.lastChild;
+  insertStaticContent(e, t, n, o, s, i) {
+    const a = n ? n.previousSibling : t.lastChild;
     if (s && (s === i || s.nextSibling))
-      for (; t.insertBefore(s.cloneNode(!0), l), !(s === i || !(s = s.nextSibling)); )
+      for (; t.insertBefore(s.cloneNode(!0), n), !(s === i || !(s = s.nextSibling)); )
         ;
     else {
-      Fs.innerHTML = ri(
+      Ls.innerHTML = di(
         o === "svg" ? `<svg>${e}</svg>` : o === "mathml" ? `<math>${e}</math>` : e
       );
-      const r = Fs.content;
+      const u = Ls.content;
       if (o === "svg" || o === "mathml") {
-        const c = r.firstChild;
+        const c = u.firstChild;
         for (; c.firstChild; )
-          r.appendChild(c.firstChild);
-        r.removeChild(c);
+          u.appendChild(c.firstChild);
+        u.removeChild(c);
       }
-      t.insertBefore(r, l);
+      t.insertBefore(u, n);
     }
     return [
       // first
       a ? a.nextSibling : t.firstChild,
       // last
-      l ? l.previousSibling : t.lastChild
+      n ? n.previousSibling : t.lastChild
     ];
   }
-}, Ar = /* @__PURE__ */ Symbol("_vtc");
-function Ir(e, t, l) {
-  const o = e[Ar];
-  o && (t = (t ? [t, ...o] : [...o]).join(" ")), t == null ? e.removeAttribute("class") : l ? e.setAttribute("class", t) : e.className = t;
+}, Ur = /* @__PURE__ */ Symbol("_vtc");
+function Ar(e, t, n) {
+  const o = e[Ur];
+  o && (t = (t ? [t, ...o] : [...o]).join(" ")), t == null ? e.removeAttribute("class") : n ? e.setAttribute("class", t) : e.className = t;
 }
-const tn = /* @__PURE__ */ Symbol("_vod"), ui = /* @__PURE__ */ Symbol("_vsh"), Hl = {
+const ll = /* @__PURE__ */ Symbol("_vod"), ci = /* @__PURE__ */ Symbol("_vsh"), hn = {
   // used for prop mismatch check during hydration
   name: "show",
-  beforeMount(e, { value: t }, { transition: l }) {
-    e[tn] = e.style.display === "none" ? "" : e.style.display, l && t ? l.beforeEnter(e) : pl(e, t);
+  beforeMount(e, { value: t }, { transition: n }) {
+    e[ll] = e.style.display === "none" ? "" : e.style.display, n && t ? n.beforeEnter(e) : fn(e, t);
   },
-  mounted(e, { value: t }, { transition: l }) {
-    l && t && l.enter(e);
+  mounted(e, { value: t }, { transition: n }) {
+    n && t && n.enter(e);
   },
-  updated(e, { value: t, oldValue: l }, { transition: o }) {
-    !t != !l && (o ? t ? (o.beforeEnter(e), pl(e, !0), o.enter(e)) : o.leave(e, () => {
-      pl(e, !1);
-    }) : pl(e, t));
+  updated(e, { value: t, oldValue: n }, { transition: o }) {
+    !t != !n && (o ? t ? (o.beforeEnter(e), fn(e, !0), o.enter(e)) : o.leave(e, () => {
+      fn(e, !1);
+    }) : fn(e, t));
   },
   beforeUnmount(e, { value: t }) {
-    pl(e, t);
+    fn(e, t);
   }
 };
-function pl(e, t) {
-  e.style.display = t ? e[tn] : "none", e[ui] = !t;
+function fn(e, t) {
+  e.style.display = t ? e[ll] : "none", e[ci] = !t;
 }
-const Mr = /* @__PURE__ */ Symbol(""), Or = /(?:^|;)\s*display\s*:/;
-function Rr(e, t, l) {
-  const o = e.style, s = Ae(l);
+const Er = /* @__PURE__ */ Symbol(""), Ir = /(?:^|;)\s*display\s*:/;
+function Mr(e, t, n) {
+  const o = e.style, s = Ee(n);
   let i = !1;
-  if (l && !s) {
+  if (n && !s) {
     if (t)
-      if (Ae(t))
+      if (Ee(t))
         for (const a of t.split(";")) {
-          const r = a.slice(0, a.indexOf(":")).trim();
-          l[r] == null && hl(o, r, "");
+          const u = a.slice(0, a.indexOf(":")).trim();
+          n[u] == null && mn(o, u, "");
         }
       else
         for (const a in t)
-          l[a] == null && hl(o, a, "");
-    for (const a in l) {
+          n[a] == null && mn(o, a, "");
+    for (const a in n) {
       a === "display" && (i = !0);
-      const r = l[a];
-      r != null ? Nr(
+      const u = n[a];
+      u != null ? Rr(
         e,
         a,
-        !Ae(t) && t ? t[a] : void 0,
-        r
-      ) || hl(o, a, r) : hl(o, a, "");
+        !Ee(t) && t ? t[a] : void 0,
+        u
+      ) || mn(o, a, u) : mn(o, a, "");
     }
   } else if (s) {
-    if (t !== l) {
-      const a = o[Mr];
-      a && (l += ";" + a), o.cssText = l, i = Or.test(l);
+    if (t !== n) {
+      const a = o[Er];
+      a && (n += ";" + a), o.cssText = n, i = Ir.test(n);
     }
   } else t && e.removeAttribute("style");
-  tn in e && ((!s || t !== l) && (e[tn] = i ? o.display : ""), e[ui] && (o.display = "none"));
+  ll in e && ((!s || t !== n) && (e[ll] = i ? o.display : ""), e[ci] && (o.display = "none"));
 }
-const Fl = /\s*!important$/;
-function hl(e, t, l) {
-  if (ce(l))
-    l.forEach((o) => hl(e, t, o));
-  else if (l == null && (l = ""), t.startsWith("--"))
-    Fl.test(l) ? e.setProperty(t, l.replace(Fl, ""), "important") : e.setProperty(t, l);
+const Ln = /\s*!important$/;
+function mn(e, t, n) {
+  if (pe(n))
+    n.forEach((o) => mn(e, t, o));
+  else if (n == null && (n = ""), t.startsWith("--"))
+    Ln.test(n) ? e.setProperty(t, n.replace(Ln, ""), "important") : e.setProperty(t, n);
   else {
-    const o = Dr(e, t);
-    Fl.test(l) ? e.setProperty(
+    const o = Or(e, t);
+    Ln.test(n) ? e.setProperty(
       Dt(o),
-      l.replace(Fl, ""),
+      n.replace(Ln, ""),
       "important"
-    ) : e[o] = l;
+    ) : e[o] = n;
   }
 }
-const Ls = ["Webkit", "Moz", "ms"], Tn = {};
-function Dr(e, t) {
-  const l = Tn[t];
-  if (l)
-    return l;
-  let o = at(t);
+const js = ["Webkit", "Moz", "ms"], Pl = {};
+function Or(e, t) {
+  const n = Pl[t];
+  if (n)
+    return n;
+  let o = ut(t);
   if (o !== "filter" && o in e)
-    return Tn[t] = o;
-  o = lo(o);
-  for (let s = 0; s < Ls.length; s++) {
-    const i = Ls[s] + o;
+    return Pl[t] = o;
+  o = so(o);
+  for (let s = 0; s < js.length; s++) {
+    const i = js[s] + o;
     if (i in e)
-      return Tn[t] = i;
+      return Pl[t] = i;
   }
   return t;
 }
-function Nr(e, t, l, o) {
-  return e.tagName === "TEXTAREA" && (t === "width" || t === "height") && Ae(o) && l === o;
+function Rr(e, t, n, o) {
+  return e.tagName === "TEXTAREA" && (t === "width" || t === "height") && Ee(o) && n === o;
 }
-const js = "http://www.w3.org/1999/xlink";
-function Ws(e, t, l, o, s, i = Hi(t)) {
-  o && t.startsWith("xlink:") ? l == null ? e.removeAttributeNS(js, t.slice(6, t.length)) : e.setAttributeNS(js, t, l) : l == null || i && !so(l) ? e.removeAttribute(t) : e.setAttribute(
+const Ws = "http://www.w3.org/1999/xlink";
+function Bs(e, t, n, o, s, i = Fi(t)) {
+  o && t.startsWith("xlink:") ? n == null ? e.removeAttributeNS(Ws, t.slice(6, t.length)) : e.setAttributeNS(Ws, t, n) : n == null || i && !io(n) ? e.removeAttribute(t) : e.setAttribute(
     t,
-    i ? "" : ht(l) ? String(l) : l
+    i ? "" : ht(n) ? String(n) : n
   );
 }
-function Bs(e, t, l, o, s) {
+function Ks(e, t, n, o, s) {
   if (t === "innerHTML" || t === "textContent") {
-    l != null && (e[t] = t === "innerHTML" ? ri(l) : l);
+    n != null && (e[t] = t === "innerHTML" ? di(n) : n);
     return;
   }
   const i = e.tagName;
   if (t === "value" && i !== "PROGRESS" && // custom elements may use _value internally
   !i.includes("-")) {
-    const r = i === "OPTION" ? e.getAttribute("value") || "" : e.value, c = l == null ? (
+    const u = i === "OPTION" ? e.getAttribute("value") || "" : e.value, c = n == null ? (
       // #11647: value should be set as empty string for null and undefined,
       // but <input type="checkbox"> should be set as 'on'.
       e.type === "checkbox" ? "on" : ""
-    ) : String(l);
-    (r !== c || !("_value" in e)) && (e.value = c), l == null && e.removeAttribute(t), e._value = l;
+    ) : String(n);
+    (u !== c || !("_value" in e)) && (e.value = c), n == null && e.removeAttribute(t), e._value = n;
     return;
   }
   let a = !1;
-  if (l === "" || l == null) {
-    const r = typeof e[t];
-    r === "boolean" ? l = so(l) : l == null && r === "string" ? (l = "", a = !0) : r === "number" && (l = 0, a = !0);
+  if (n === "" || n == null) {
+    const u = typeof e[t];
+    u === "boolean" ? n = io(n) : n == null && u === "string" ? (n = "", a = !0) : u === "number" && (n = 0, a = !0);
   }
   try {
-    e[t] = l;
+    e[t] = n;
   } catch {
   }
   a && e.removeAttribute(s || t);
 }
-function Mt(e, t, l, o) {
-  e.addEventListener(t, l, o);
+function Mt(e, t, n, o) {
+  e.addEventListener(t, n, o);
 }
-function qr(e, t, l, o) {
-  e.removeEventListener(t, l, o);
+function Dr(e, t, n, o) {
+  e.removeEventListener(t, n, o);
 }
-const Ks = /* @__PURE__ */ Symbol("_vei");
-function Hr(e, t, l, o, s = null) {
-  const i = e[Ks] || (e[Ks] = {}), a = i[t];
+const Gs = /* @__PURE__ */ Symbol("_vei");
+function Fr(e, t, n, o, s = null) {
+  const i = e[Gs] || (e[Gs] = {}), a = i[t];
   if (o && a)
     a.value = o;
   else {
-    const [r, c] = jr(t);
+    const [u, c] = Hr(t);
     if (o) {
-      const g = i[t] = Kr(
+      const g = i[t] = Wr(
         o,
         s
       );
-      Mt(e, r, g, c);
-    } else a && (qr(e, r, a, c), i[t] = void 0);
+      Mt(e, u, g, c);
+    } else a && (Dr(e, u, a, c), i[t] = void 0);
   }
 }
-const Fr = /(Once|Passive|Capture)$/, Lr = /^on:?(?:Once|Passive|Capture)$/;
-function jr(e) {
-  let t, l;
-  for (; (l = e.match(Fr)) && !Lr.test(e); )
-    t || (t = {}), e = e.slice(0, e.length - l[1].length), t[l[1].toLowerCase()] = !0;
+const qr = /(Once|Passive|Capture)$/, Nr = /^on:?(?:Once|Passive|Capture)$/;
+function Hr(e) {
+  let t, n;
+  for (; (n = e.match(qr)) && !Nr.test(e); )
+    t || (t = {}), e = e.slice(0, e.length - n[1].length), t[n[1].toLowerCase()] = !0;
   return [e[2] === ":" ? e.slice(3) : Dt(e.slice(2)), t];
 }
-let En = 0;
-const Wr = /* @__PURE__ */ Promise.resolve(), Br = () => En || (Wr.then(() => En = 0), En = Date.now());
-function Kr(e, t) {
-  const l = (o) => {
+let Ul = 0;
+const Lr = /* @__PURE__ */ Promise.resolve(), jr = () => Ul || (Lr.then(() => Ul = 0), Ul = Date.now());
+function Wr(e, t) {
+  const n = (o) => {
     if (!o._vts)
       o._vts = Date.now();
-    else if (o._vts <= l.attached)
+    else if (o._vts <= n.attached)
       return;
-    const s = l.value;
-    if (ce(s)) {
+    const s = n.value;
+    if (pe(s)) {
       const i = o.stopImmediatePropagation;
       o.stopImmediatePropagation = () => {
         i.call(o), o._stopped = !0;
       };
-      const a = s.slice(), r = [o];
+      const a = s.slice(), u = [o];
       for (let c = 0; c < a.length && !o._stopped; c++) {
         const g = a[c];
         g && bt(
           g,
           t,
           5,
-          r
+          u
         );
       }
     } else
@@ -4357,18 +4357,18 @@ function Kr(e, t) {
         [o]
       );
   };
-  return l.value = e, l.attached = Br(), l;
+  return n.value = e, n.attached = jr(), n;
 }
-const Gs = (e) => e.charCodeAt(0) === 111 && e.charCodeAt(1) === 110 && // lowercase letter
-e.charCodeAt(2) > 96 && e.charCodeAt(2) < 123, Gr = (e, t, l, o, s, i) => {
+const zs = (e) => e.charCodeAt(0) === 111 && e.charCodeAt(1) === 110 && // lowercase letter
+e.charCodeAt(2) > 96 && e.charCodeAt(2) < 123, Br = (e, t, n, o, s, i) => {
   const a = s === "svg";
-  t === "class" ? Ir(e, o, a) : t === "style" ? Rr(e, l, o) : nn(t) ? sn(t) || Hr(e, t, l, o, i) : (t[0] === "." ? (t = t.slice(1), !0) : t[0] === "^" ? (t = t.slice(1), !1) : zr(e, t, o, a)) ? (Bs(e, t, o), !e.tagName.includes("-") && (t === "value" || t === "checked" || t === "selected") && Ws(e, t, o, a, i, t !== "value")) : /* #11081 force set props for possible async custom element */ e._isVueCE && // #12408 check if it's declared prop or it's async custom element
-  (Jr(e, t) || // @ts-expect-error _def is private
-  e._def.__asyncLoader && (/[A-Z]/.test(t) || !Ae(o))) ? Bs(e, at(t), o, i, t) : (t === "true-value" ? e._trueValue = o : t === "false-value" && (e._falseValue = o), Ws(e, t, o, a));
+  t === "class" ? Ar(e, o, a) : t === "style" ? Mr(e, n, o) : ol(t) ? il(t) || Fr(e, t, n, o, i) : (t[0] === "." ? (t = t.slice(1), !0) : t[0] === "^" ? (t = t.slice(1), !1) : Kr(e, t, o, a)) ? (Ks(e, t, o), !e.tagName.includes("-") && (t === "value" || t === "checked" || t === "selected") && Bs(e, t, o, a, i, t !== "value")) : /* #11081 force set props for possible async custom element */ e._isVueCE && // #12408 check if it's declared prop or it's async custom element
+  (Gr(e, t) || // @ts-expect-error _def is private
+  e._def.__asyncLoader && (/[A-Z]/.test(t) || !Ee(o))) ? Ks(e, ut(t), o, i, t) : (t === "true-value" ? e._trueValue = o : t === "false-value" && (e._falseValue = o), Bs(e, t, o, a));
 };
-function zr(e, t, l, o) {
+function Kr(e, t, n, o) {
   if (o)
-    return !!(t === "innerHTML" || t === "textContent" || t in e && Gs(t) && fe(l));
+    return !!(t === "innerHTML" || t === "textContent" || t in e && zs(t) && ge(n));
   if (t === "spellcheck" || t === "draggable" || t === "translate" || t === "autocorrect" || t === "sandbox" && e.tagName === "IFRAME" || t === "form" || t === "list" && e.tagName === "INPUT" || t === "type" && e.tagName === "TEXTAREA")
     return !1;
   if (t === "width" || t === "height") {
@@ -4376,141 +4376,141 @@ function zr(e, t, l, o) {
     if (s === "IMG" || s === "VIDEO" || s === "CANVAS" || s === "SOURCE")
       return !1;
   }
-  return Gs(t) && Ae(l) ? !1 : t in e;
+  return zs(t) && Ee(n) ? !1 : t in e;
 }
-function Jr(e, t) {
-  const l = (
+function Gr(e, t) {
+  const n = (
     // @ts-expect-error _def is private
     e._def.props
   );
-  if (!l)
+  if (!n)
     return !1;
-  const o = at(t);
-  return Array.isArray(l) ? l.some((s) => at(s) === o) : Object.keys(l).some((s) => at(s) === o);
+  const o = ut(t);
+  return Array.isArray(n) ? n.some((s) => ut(s) === o) : Object.keys(n).some((s) => ut(s) === o);
 }
 const Kt = (e) => {
   const t = e.props["onUpdate:modelValue"] || !1;
-  return ce(t) ? (l) => Bl(t, l) : t;
+  return pe(t) ? (n) => Gn(t, n) : t;
 };
-function Yr(e) {
+function zr(e) {
   e.target.composing = !0;
 }
-function zs(e) {
+function Js(e) {
   const t = e.target;
   t.composing && (t.composing = !1, t.dispatchEvent(new Event("input")));
 }
-const nt = /* @__PURE__ */ Symbol("_assign"), Ll = /* @__PURE__ */ Symbol("_initialValue");
-function Un(e, t, l) {
-  return t && (e = e.trim()), l && (e = Al(e)), e;
+const st = /* @__PURE__ */ Symbol("_assign"), jn = /* @__PURE__ */ Symbol("_initialValue");
+function Al(e, t, n) {
+  return t && (e = e.trim()), n && (e = En(e)), e;
 }
 const re = {
-  created(e, { modifiers: { lazy: t, trim: l, number: o } }, s) {
-    e.parentNode && (e.type === "text" ? e[Ll] = e.defaultValue.replace(/[\r\n]/g, "") : e.type === "textarea" && (e[Ll] = e.defaultValue.replace(/\r\n?/g, `
-`))), e[nt] = Kt(s);
+  created(e, { modifiers: { lazy: t, trim: n, number: o } }, s) {
+    e.parentNode && (e.type === "text" ? e[jn] = e.defaultValue.replace(/[\r\n]/g, "") : e.type === "textarea" && (e[jn] = e.defaultValue.replace(/\r\n?/g, `
+`))), e[st] = Kt(s);
     const i = o || s.props && s.props.type === "number";
     Mt(e, t ? "change" : "input", (a) => {
-      a.target.composing || e[nt](Un(e.value, l, i));
-    }), (l || i) && Mt(e, "change", () => {
-      e.value = Un(e.value, l, i);
-    }), t || (Mt(e, "compositionstart", Yr), Mt(e, "compositionend", zs), Mt(e, "change", zs));
+      a.target.composing || e[st](Al(e.value, n, i));
+    }), (n || i) && Mt(e, "change", () => {
+      e.value = Al(e.value, n, i);
+    }), t || (Mt(e, "compositionstart", zr), Mt(e, "compositionend", Js), Mt(e, "change", Js));
   },
   // set value on mounted so it's after min/max for type="range"
-  mounted(e, { value: t, modifiers: { trim: l, number: o } }) {
-    const s = t ?? "", i = e[Ll];
-    delete e[Ll], i !== void 0 && (e.type === "text" || e.type === "textarea") && e.value !== i ? e[nt](Un(e.value, l, o)) : e.value = s;
+  mounted(e, { value: t, modifiers: { trim: n, number: o } }) {
+    const s = t ?? "", i = e[jn];
+    delete e[jn], i !== void 0 && (e.type === "text" || e.type === "textarea") && e.value !== i ? e[st](Al(e.value, n, o)) : e.value = s;
   },
-  beforeUpdate(e, { value: t, oldValue: l, modifiers: { lazy: o, trim: s, number: i } }, a) {
-    if (e[nt] = Kt(a), e.composing) return;
-    const r = (i || e.type === "number") && !/^0\d/.test(e.value) ? Al(e.value) : e.value, c = t ?? "";
-    if (r === c)
+  beforeUpdate(e, { value: t, oldValue: n, modifiers: { lazy: o, trim: s, number: i } }, a) {
+    if (e[st] = Kt(a), e.composing) return;
+    const u = (i || e.type === "number") && !/^0\d/.test(e.value) ? En(e.value) : e.value, c = t ?? "";
+    if (u === c)
       return;
     const g = e.getRootNode();
-    (g instanceof Document || g instanceof ShadowRoot) && g.activeElement === e && e.type !== "range" && (o && t === l || s && e.value.trim() === c) || (e.value = c);
+    (g instanceof Document || g instanceof ShadowRoot) && g.activeElement === e && e.type !== "range" && (o && t === n || s && e.value.trim() === c) || (e.value = c);
   }
-}, We = {
+}, je = {
   // #4096 array checkboxes need to be deep traversed
   deep: !0,
-  created(e, t, l) {
-    e[nt] = Kt(l), Mt(e, "change", () => {
-      const o = e._modelValue, s = al(e), i = e.checked, a = e[nt];
-      if (ce(o)) {
-        const r = zn(o, s), c = r !== -1;
+  created(e, t, n) {
+    e[st] = Kt(n), Mt(e, "change", () => {
+      const o = e._modelValue, s = an(e), i = e.checked, a = e[st];
+      if (pe(o)) {
+        const u = Yl(o, s), c = u !== -1;
         if (i && !c)
           a(o.concat(s));
         else if (!i && c) {
           const g = [...o];
-          g.splice(r, 1), a(g);
+          g.splice(u, 1), a(g);
         }
       } else if (Rt(o)) {
-        const r = new Set(o);
-        i ? r.add(s) : r.delete(s), a(r);
+        const u = new Set(o);
+        i ? u.add(s) : u.delete(s), a(u);
       } else
-        a(di(e, i));
+        a(fi(e, i));
     });
   },
   // set initial checked on mount to wait for true-value/false-value
-  mounted: Js,
-  beforeUpdate(e, t, l) {
-    e[nt] = Kt(l), Js(e, t, l);
+  mounted: Ys,
+  beforeUpdate(e, t, n) {
+    e[st] = Kt(n), Ys(e, t, n);
   }
 };
-function Js(e, { value: t, oldValue: l }, o) {
+function Ys(e, { value: t, oldValue: n }, o) {
   e._modelValue = t;
   let s;
-  if (ce(t))
-    s = zn(t, o.props.value) > -1;
+  if (pe(t))
+    s = Yl(t, o.props.value) > -1;
   else if (Rt(t))
     s = t.has(o.props.value);
   else {
-    if (t === l) return;
-    s = mt(t, di(e, !0));
+    if (t === n) return;
+    s = mt(t, fi(e, !0));
   }
   e.checked !== s && (e.checked = s);
 }
-const Xr = {
-  created(e, { value: t }, l) {
-    e.checked = mt(t, l.props.value), e[nt] = Kt(l), Mt(e, "change", () => {
-      e[nt](al(e));
+const Jr = {
+  created(e, { value: t }, n) {
+    e.checked = mt(t, n.props.value), e[st] = Kt(n), Mt(e, "change", () => {
+      e[st](an(e));
     });
   },
-  beforeUpdate(e, { value: t, oldValue: l }, o) {
-    e[nt] = Kt(o), t !== l && (e.checked = mt(t, o.props.value));
+  beforeUpdate(e, { value: t, oldValue: n }, o) {
+    e[st] = Kt(o), t !== n && (e.checked = mt(t, o.props.value));
   }
 }, xe = {
   // <select multiple> value need to be deep traversed
   deep: !0,
-  created(e, { value: t, modifiers: { number: l } }, o) {
+  created(e, { value: t, modifiers: { number: n } }, o) {
     e._modelValue = t, Mt(e, "change", () => {
       const s = Array.prototype.filter.call(e.options, (c) => c.selected).map(
-        (c) => l ? Al(al(c)) : al(c)
-      ), i = e.multiple, a = i ? Rt(e._modelValue) ? new Set(s) : s : s[0], r = e._pendingValue = [
+        (c) => n ? En(an(c)) : an(c)
+      ), i = e.multiple, a = i ? Rt(e._modelValue) ? new Set(s) : s : s[0], u = e._pendingValue = [
         i,
-        i ? ce(a) ? s.slice() : s : a
+        i ? pe(a) ? s.slice() : s : a
       ];
       try {
-        e[nt](a);
+        e[st](a);
       } finally {
-        ls(() => {
-          e._pendingValue === r && (e._pendingValue = void 0);
+        ss(() => {
+          e._pendingValue === u && (e._pendingValue = void 0);
         });
       }
-    }), e[nt] = Kt(o);
+    }), e[st] = Kt(o);
   },
   // set value in mounted & updated because <select> relies on its children
   // <option>s.
-  mounted(e, { value: t, modifiers: { number: l } }) {
-    Ys(e, t, l);
+  mounted(e, { value: t, modifiers: { number: n } }) {
+    Xs(e, t, n);
   },
-  beforeUpdate(e, { value: t }, l) {
-    e._modelValue = t, e[nt] = Kt(l);
+  beforeUpdate(e, { value: t }, n) {
+    e._modelValue = t, e[st] = Kt(n);
   },
-  updated(e, { value: t, modifiers: { number: l } }) {
+  updated(e, { value: t, modifiers: { number: n } }) {
     const o = e._pendingValue;
-    e._pendingValue = void 0, (!o || o[0] !== e.multiple || !Qr(t, o[1], o[0])) && Ys(e, t, l);
+    e._pendingValue = void 0, (!o || o[0] !== e.multiple || !Yr(t, o[1], o[0])) && Xs(e, t, n);
   }
 };
-function Qr(e, t, l) {
-  if (!l || ce(e)) return mt(e, t);
+function Yr(e, t, n) {
+  if (!n || pe(e)) return mt(e, t);
   if (Rt(e)) {
     if (e.size !== t.length) return !1;
     for (const o of t)
@@ -4519,18 +4519,18 @@ function Qr(e, t, l) {
   }
   return !1;
 }
-function Ys(e, t, l = !1) {
-  const o = e.multiple, s = ce(t);
+function Xs(e, t, n = !1) {
+  const o = e.multiple, s = pe(t);
   if (!(o && !s && !Rt(t))) {
     for (let i = 0, a = e.options.length; i < a; i++) {
-      const r = e.options[i], c = al(r);
+      const u = e.options[i], c = an(u);
       if (o)
         if (s) {
           const g = typeof c;
-          g === "string" || g === "number" ? r.selected = t.some((m) => String(m) === String(c)) : r.selected = zn(t, c) > -1;
+          g === "string" || g === "number" ? u.selected = t.some((m) => String(m) === String(c)) : u.selected = Yl(t, c) > -1;
         } else
-          r.selected = t.has(c) || l && typeof c == "string" && t.has(Al(c));
-      else if (mt(al(r), t)) {
+          u.selected = t.has(c) || n && typeof c == "string" && t.has(En(c));
+      else if (mt(an(u), t)) {
         e.selectedIndex !== i && (e.selectedIndex = i);
         return;
       }
@@ -4538,28 +4538,28 @@ function Ys(e, t, l = !1) {
     !o && e.selectedIndex !== -1 && (e.selectedIndex = -1);
   }
 }
-function al(e) {
+function an(e) {
   return "_value" in e ? e._value : e.value;
 }
-function di(e, t) {
-  const l = t ? "_trueValue" : "_falseValue";
-  return l in e ? e[l] : t;
+function fi(e, t) {
+  const n = t ? "_trueValue" : "_falseValue";
+  return n in e ? e[n] : t;
 }
-const Zr = {
-  created(e, t, l) {
-    jl(e, t, l, null, "created");
+const Xr = {
+  created(e, t, n) {
+    Wn(e, t, n, null, "created");
   },
-  mounted(e, t, l) {
-    jl(e, t, l, null, "mounted");
+  mounted(e, t, n) {
+    Wn(e, t, n, null, "mounted");
   },
-  beforeUpdate(e, t, l, o) {
-    jl(e, t, l, o, "beforeUpdate");
+  beforeUpdate(e, t, n, o) {
+    Wn(e, t, n, o, "beforeUpdate");
   },
-  updated(e, t, l, o) {
-    jl(e, t, l, o, "updated");
+  updated(e, t, n, o) {
+    Wn(e, t, n, o, "updated");
   }
 };
-function eu(e, t) {
+function Zr(e, t) {
   switch (e) {
     case "SELECT":
       return xe;
@@ -4568,22 +4568,22 @@ function eu(e, t) {
     default:
       switch (t) {
         case "checkbox":
-          return We;
+          return je;
         case "radio":
-          return Xr;
+          return Jr;
         default:
           return re;
       }
   }
 }
-function jl(e, t, l, o, s) {
-  const a = eu(
+function Wn(e, t, n, o, s) {
+  const a = Zr(
     e.tagName,
-    l.props && l.props.type
+    n.props && n.props.type
   )[s];
-  a && a(e, t, l, o);
+  a && a(e, t, n, o);
 }
-const tu = ["ctrl", "shift", "alt", "meta"], lu = {
+const Qr = ["ctrl", "shift", "alt", "meta"], eu = {
   stop: (e) => e.stopPropagation(),
   prevent: (e) => e.preventDefault(),
   self: (e) => e.target !== e.currentTarget,
@@ -4594,18 +4594,18 @@ const tu = ["ctrl", "shift", "alt", "meta"], lu = {
   left: (e) => "button" in e && e.button !== 0,
   middle: (e) => "button" in e && e.button !== 1,
   right: (e) => "button" in e && e.button !== 2,
-  exact: (e, t) => tu.some((l) => e[`${l}Key`] && !t.includes(l))
-}, Ze = (e, t) => {
+  exact: (e, t) => Qr.some((n) => e[`${n}Key`] && !t.includes(n))
+}, tt = (e, t) => {
   if (!e) return e;
-  const l = e._withMods || (e._withMods = {}), o = t.join(".");
-  return l[o] || (l[o] = ((s, ...i) => {
+  const n = e._withMods || (e._withMods = {}), o = t.join(".");
+  return n[o] || (n[o] = ((s, ...i) => {
     for (let a = 0; a < t.length; a++) {
-      const r = lu[t[a]];
-      if (r && r(s, t)) return;
+      const u = eu[t[a]];
+      if (u && u(s, t)) return;
     }
     return e(s, ...i);
   }));
-}, nu = {
+}, tu = {
   esc: "escape",
   space: " ",
   up: "arrow-up",
@@ -4613,43 +4613,43 @@ const tu = ["ctrl", "shift", "alt", "meta"], lu = {
   right: "arrow-right",
   down: "arrow-down",
   delete: "backspace"
-}, ln = (e, t) => {
-  const l = e._withKeys || (e._withKeys = {}), o = t.join(".");
-  return l[o] || (l[o] = ((s) => {
+}, sl = (e, t) => {
+  const n = e._withKeys || (e._withKeys = {}), o = t.join(".");
+  return n[o] || (n[o] = ((s) => {
     if (!("key" in s))
       return;
     const i = Dt(s.key);
     if (t.some(
-      (a) => a === i || nu[a] === i
+      (a) => a === i || tu[a] === i
     ))
       return e(s);
   }));
-}, su = /* @__PURE__ */ De({ patchProp: Gr }, Pr);
-let Xs;
-function ou() {
-  return Xs || (Xs = fr(su));
+}, nu = /* @__PURE__ */ De({ patchProp: Br }, Pr);
+let Zs;
+function lu() {
+  return Zs || (Zs = dr(nu));
 }
-const iu = ((...e) => {
-  const t = ou().createApp(...e), { mount: l } = t;
+const su = ((...e) => {
+  const t = lu().createApp(...e), { mount: n } = t;
   return t.mount = (o) => {
-    const s = ru(o);
+    const s = iu(o);
     if (!s) return;
     const i = t._component;
-    !fe(i) && !i.render && !i.template && (i.template = s.innerHTML), s.nodeType === 1 && (s.textContent = "");
-    const a = l(s, !1, au(s));
+    !ge(i) && !i.render && !i.template && (i.template = s.innerHTML), s.nodeType === 1 && (s.textContent = "");
+    const a = n(s, !1, ou(s));
     return s instanceof Element && (s.removeAttribute("v-cloak"), s.setAttribute("data-v-app", "")), a;
   }, t;
 });
-function au(e) {
+function ou(e) {
   if (e instanceof SVGElement)
     return "svg";
   if (typeof MathMLElement == "function" && e instanceof MathMLElement)
     return "mathml";
 }
-function ru(e) {
-  return Ae(e) ? document.querySelector(e) : e;
+function iu(e) {
+  return Ee(e) ? document.querySelector(e) : e;
 }
-const uu = [
+const au = [
   {
     id: "3x-ui",
     name: "3x-ui",
@@ -4678,7 +4678,7 @@ const uu = [
     repository: "AdguardTeam/AdGuardHome",
     description: "DNS-фильтр для всей сети: блокировка рекламы, трекеров и нежелательных доменов."
   }
-], du = ["title"], cu = { class: "gw-project-links" }, fu = ["aria-label", "href"], pu = ["href", "title"], ds = /* @__PURE__ */ He({
+], ru = ["title"], uu = { class: "gw-project-links" }, du = ["aria-label", "href"], cu = ["href", "title"], fs = /* @__PURE__ */ Me({
   __name: "ProjectInfo",
   props: {
     id: {},
@@ -4687,37 +4687,37 @@ const uu = [
   },
   emits: ["help"],
   setup(e, { emit: t }) {
-    const l = e, o = t, s = _e(() => uu.find((a) => a.id === l.id)), i = _e(() => s.value?.repository.split("/")[0]);
-    return (a, r) => s.value ? (p(), h("div", {
+    const n = e, o = t, s = he(() => au.find((a) => a.id === n.id)), i = he(() => s.value?.repository.split("/")[0]);
+    return (a, u) => s.value ? (f(), h("div", {
       key: 0,
-      class: Ue(["gw-project-info", { compact: e.compact }])
+      class: Te(["gw-project-info", { compact: e.compact }])
     }, [
-      n("p", {
+      l("p", {
         title: s.value.description
-      }, w(s.value.description), 9, du),
-      n("div", cu, [
-        n("a", {
+      }, b(s.value.description), 9, ru),
+      l("div", uu, [
+        l("a", {
           "aria-label": "Автор проекта: " + s.value.author,
           href: "https://github.com/" + i.value,
           target: "_blank",
           rel: "noopener noreferrer"
-        }, w(s.value.author), 9, fu),
-        r[1] || (r[1] = n("span", { "aria-hidden": "true" }, "·", -1)),
-        n("a", {
+        }, b(s.value.author), 9, du),
+        u[1] || (u[1] = l("span", { "aria-hidden": "true" }, "·", -1)),
+        l("a", {
           href: "https://github.com/" + s.value.repository,
           title: s.value.repository,
           target: "_blank",
           rel: "noopener noreferrer"
-        }, "GitHub ↗", 8, pu),
-        e.help ? (p(), h("button", {
+        }, "GitHub ↗", 8, cu),
+        e.help ? (f(), h("button", {
           key: 0,
           type: "button",
-          onClick: r[0] || (r[0] = (c) => o("help"))
-        }, "Помощь")) : V("", !0)
+          onClick: u[0] || (u[0] = (c) => o("help"))
+        }, "Помощь")) : x("", !0)
       ])
-    ], 2)) : V("", !0);
+    ], 2)) : x("", !0);
   }
-}), vu = { class: "gw-shell gw-dialog-overlay" }, gu = ["aria-label"], hu = { class: "gw-dialog-header" }, mu = ["disabled"], qe = /* @__PURE__ */ He({
+}), fu = { class: "gw-shell gw-dialog-overlay" }, pu = ["aria-label"], vu = { class: "gw-dialog-header" }, gu = ["disabled"], Re = /* @__PURE__ */ Me({
   __name: "GatewayDialog",
   props: {
     title: {},
@@ -4727,59 +4727,59 @@ const uu = [
   },
   emits: ["close"],
   setup(e, { emit: t }) {
-    const l = e, o = t, s = /* @__PURE__ */ H();
+    const n = e, o = t, s = /* @__PURE__ */ D();
     let i = null;
     function a() {
-      l.busy || o("close");
+      n.busy || o("close");
     }
-    function r(c) {
+    function u(c) {
       if (c.key === "Escape" && (c.preventDefault(), c.stopImmediatePropagation(), a()), c.key !== "Tab" || !s.value) return;
-      const g = [...s.value.querySelectorAll('button:not(:disabled),input:not(:disabled),select:not(:disabled),textarea:not(:disabled),a[href],summary,[tabindex="0"]')].filter((T) => T.getClientRects().length), m = g[0], y = g[g.length - 1];
+      const g = [...s.value.querySelectorAll('button:not(:disabled),input:not(:disabled),select:not(:disabled),textarea:not(:disabled),a[href],summary,[tabindex="0"]')].filter((A) => A.getClientRects().length), m = g[0], w = g[g.length - 1];
       if (!m) {
         c.preventDefault(), s.value.focus();
         return;
       }
-      c.shiftKey && (document.activeElement === m || document.activeElement === s.value) ? (c.preventDefault(), y.focus()) : !c.shiftKey && (document.activeElement === y || !s.value.contains(document.activeElement)) && (c.preventDefault(), m.focus());
+      c.shiftKey && (document.activeElement === m || document.activeElement === s.value) ? (c.preventDefault(), w.focus()) : !c.shiftKey && (document.activeElement === w || !s.value.contains(document.activeElement)) && (c.preventDefault(), m.focus());
     }
-    return ct(async () => {
-      i = document.activeElement, document.addEventListener("keydown", r, !0), await ls(), s.value?.focus();
-    }), qt(() => {
-      document.removeEventListener("keydown", r, !0), i?.isConnected && i.focus();
-    }), (c, g) => (p(), ge(Pa, { to: "body" }, [
-      n("div", vu, [
-        n("section", {
+    return ot(async () => {
+      i = document.activeElement, document.addEventListener("keydown", u, !0), await ss(), s.value?.focus();
+    }), yt(() => {
+      document.removeEventListener("keydown", u, !0), i?.isConnected && i.focus();
+    }), (c, g) => (f(), me(Pa, { to: "body" }, [
+      l("div", fu, [
+        l("section", {
           ref_key: "dialog",
           ref: s,
-          class: Ue(["gw-panel gw-dialog", { "gw-dialog-wide": e.wide, "gw-dialog-compact": e.compact }]),
+          class: Te(["gw-panel gw-dialog", { "gw-dialog-wide": e.wide, "gw-dialog-compact": e.compact }]),
           role: "dialog",
           "aria-modal": "true",
           "aria-label": e.title,
           tabindex: "-1"
         }, [
-          n("header", hu, [
-            n("h2", null, w(e.title), 1),
-            n("button", {
+          l("header", vu, [
+            l("h2", null, b(e.title), 1),
+            l("button", {
               type: "button",
               "aria-label": "Закрыть диалог",
               disabled: e.busy,
               onClick: a
-            }, "×", 8, mu)
+            }, "×", 8, gu)
           ]),
-          Wa(c.$slots, "default")
-        ], 10, gu)
+          La(c.$slots, "default")
+        ], 10, pu)
       ])
     ]));
   }
-}), bu = {
+}), hu = {
   key: 0,
   class: "gw-error"
-}, yu = { key: 1 }, wu = { class: "gw-notice" }, _u = {
+}, mu = { key: 1 }, bu = { class: "gw-notice" }, yu = {
   key: 0,
   class: "gw-error"
-}, ku = { class: "gw-setup-steps" }, $u = {
+}, wu = { class: "gw-setup-steps" }, _u = {
   key: 1,
   class: "gw-notice"
-}, Cu = { class: "gw-actions" }, xu = ["disabled"], Su = ["href"], Vu = { class: "gw-hint" }, Tu = ["href"], Eu = /* @__PURE__ */ He({
+}, ku = { class: "gw-actions" }, $u = ["disabled"], Cu = ["href"], xu = { class: "gw-hint" }, Su = ["href"], Tu = /* @__PURE__ */ Me({
   __name: "AdGuardSetup",
   props: {
     node: {},
@@ -4787,120 +4787,125 @@ const uu = [
   },
   emits: ["close", "install", "start"],
   setup(e, { emit: t }) {
-    const l = e, o = t, s = /* @__PURE__ */ H(null), i = /* @__PURE__ */ H(""), a = (r) => "http://" + (l.node.host.includes(":") ? "[" + l.node.host + "]" : l.node.host) + ":" + r + "/";
-    return ct(async () => {
+    const n = e, o = t, s = /* @__PURE__ */ D(null), i = /* @__PURE__ */ D(""), a = (u) => "http://" + (n.node.host.includes(":") ? "[" + n.node.host + "]" : n.node.host) + ":" + u + "/";
+    return ot(async () => {
       try {
-        s.value = await l.bridge.request("/api/gateways/" + encodeURIComponent(l.node.id) + "/adguard");
-      } catch (r) {
-        i.value = r.message;
+        s.value = await n.bridge.request("/api/gateways/" + encodeURIComponent(n.node.id) + "/adguard");
+      } catch (u) {
+        i.value = u.message;
       }
-    }), (r, c) => (p(), ge(qe, {
+    }), (u, c) => (f(), me(Re, {
       title: "AdGuard Home: установка и настройка DNS",
       wide: !0,
       onClose: c[2] || (c[2] = (g) => o("close"))
     }, {
-      default: Re(() => [
-        Ee(ds, { id: "adguardhome" }),
-        i.value ? (p(), h("p", bu, w(i.value), 1)) : V("", !0),
-        !s.value && !i.value ? (p(), h("p", yu, "Проверяем роутер…")) : V("", !0),
-        s.value ? (p(), h(N, { key: 2 }, [
-          n("div", wu, [
-            n("strong", null, w(s.value.installed ? "AdGuard Home установлен" : "Установка из официального GitHub-релиза"), 1),
-            n("p", null, "Свободное место: " + w(s.value.free_bytes == null ? "Не определено" : (s.value.free_bytes / 1048576).toFixed(0) + " МБ") + ". Бинарный файл и журнал запросов требуют места; для небольшого flash рекомендуется внешнее хранилище.", 1),
-            n("p", null, "Занятые порты: " + w(s.value.occupied_ports.filter((g) => [53, 54, 80, 443, 3e3, 5353, 8080].includes(g.port)).map((g) => g.port + "/" + g.protocol).join(", ") || "Не обнаружены") + ".", 1)
+      default: Ie(() => [
+        Ae(fs, { id: "adguardhome" }),
+        i.value ? (f(), h("p", hu, b(i.value), 1)) : x("", !0),
+        !s.value && !i.value ? (f(), h("p", mu, "Проверяем роутер…")) : x("", !0),
+        s.value ? (f(), h(q, { key: 2 }, [
+          l("div", bu, [
+            l("strong", null, b(s.value.installed ? "AdGuard Home установлен" : "Установка из официального GitHub-релиза"), 1),
+            l("p", null, "Свободное место: " + b(s.value.free_bytes == null ? "Не определено" : (s.value.free_bytes / 1048576).toFixed(0) + " МБ") + ". Бинарный файл и журнал запросов требуют места; для небольшого flash рекомендуется внешнее хранилище.", 1),
+            l("p", null, "Занятые порты: " + b(s.value.occupied_ports.filter((g) => [53, 54, 80, 443, 3e3, 5353, 8080].includes(g.port)).map((g) => g.port + "/" + g.protocol).join(", ") || "Не обнаружены") + ".", 1)
           ]),
-          s.value.setup_port_busy && !s.value.configured ? (p(), h("p", _u, "Порт 3000 занят. Перед первым запуском освободите его через консоль или настройки службы.")) : V("", !0),
-          n("ol", ku, [
-            (p(!0), h(N, null, se(s.value.steps, (g, m) => (p(), h("li", { key: m }, w(g), 1))), 128))
+          s.value.setup_port_busy && !s.value.configured ? (f(), h("p", yu, "Порт 3000 занят. Перед первым запуском освободите его через консоль или настройки службы.")) : x("", !0),
+          l("ol", wu, [
+            (f(!0), h(q, null, oe(s.value.steps, (g, m) => (f(), h("li", { key: m }, b(g), 1))), 128))
           ]),
-          s.value.dns_dependencies.length ? (p(), h("p", $u, "Найдены зависимости DNS: " + w(s.value.dns_dependencies.join("; ")) + ". До их изменения остановка и удаление сервиса запрещены.", 1)) : V("", !0),
-          n("div", Cu, [
-            s.value.installed ? e.node.monitor.services?.some((g) => g.id === "adguardhome" && g.running) ? V("", !0) : (p(), h("button", {
+          s.value.dns_dependencies.length ? (f(), h("p", _u, "Найдены зависимости DNS: " + b(s.value.dns_dependencies.join("; ")) + ". До их изменения остановка и удаление сервиса запрещены.", 1)) : x("", !0),
+          l("div", ku, [
+            s.value.installed ? e.node.monitor.services?.some((g) => g.id === "adguardhome" && g.running) ? x("", !0) : (f(), h("button", {
               key: 1,
               disabled: s.value.setup_port_busy && !s.value.configured,
               class: "gw-primary",
               onClick: c[1] || (c[1] = (g) => o("start"))
-            }, "Запустить сервис", 8, xu)) : (p(), h("button", {
+            }, "Запустить сервис", 8, $u)) : (f(), h("button", {
               key: 0,
               class: "gw-primary",
               onClick: c[0] || (c[0] = (g) => o("install"))
             }, "Выбрать версию и установить")),
-            s.value.installed ? (p(), h("a", {
+            s.value.installed ? (f(), h("a", {
               key: 2,
               href: a(s.value.web_port),
               target: "_blank",
               rel: "noopener noreferrer"
-            }, w(s.value.configured ? "Открыть AdGuard Home" : "Открыть мастер на порту 3000") + " ↗", 9, Su)) : V("", !0)
+            }, b(s.value.configured ? "Открыть AdGuard Home" : "Открыть мастер на порту 3000") + " ↗", 9, Cu)) : x("", !0)
           ]),
-          n("p", Vu, [
-            c[3] || (c[3] = A("Официальные инструкции: ", -1)),
-            (p(!0), h(N, null, se(s.value.sources, (g) => (p(), h("a", {
+          l("p", xu, [
+            c[3] || (c[3] = M("Официальные инструкции: ", -1)),
+            (f(!0), h(q, null, oe(s.value.sources, (g) => (f(), h("a", {
               key: g.url,
               href: g.url,
               target: "_blank",
               rel: "noopener noreferrer"
-            }, w(g.name) + " ↗ ", 9, Tu))), 128))
+            }, b(g.name) + " ↗ ", 9, Su))), 128))
           ])
-        ], 64)) : V("", !0)
+        ], 64)) : x("", !0)
       ]),
       _: 1
     }));
   }
-}), Uu = {
+}), Vu = {
   key: 0,
   class: "gw-error",
   role: "alert"
-}, Pu = { class: "gw-change-list" }, Au = {
+}, Pu = { class: "gw-change-list" }, Uu = {
   key: 0,
   class: "gw-notice"
-}, Iu = { class: "gw-notice" }, Mu = { class: "gw-actions" }, Ou = ["disabled"], Ru = ["disabled"], Du = { class: "gw-check" }, Nu = {
+}, Au = { class: "gw-notice" }, Eu = { class: "gw-actions" }, Iu = ["disabled"], Mu = ["disabled"], Ou = {
+  key: 0,
+  class: "gw-hint"
+}, Ru = ["required", "readonly"], Du = { class: "gw-check" }, Fu = {
   key: 0,
   class: "gw-notice"
-}, qu = { class: "gw-two" }, Hu = ["disabled"], Fu = ["disabled"], Lu = { key: 0 }, ju = ["value"], Wu = ["value"], Bu = {
+}, qu = { class: "gw-two" }, Nu = ["disabled"], Hu = ["disabled"], Lu = { key: 0 }, ju = ["value"], Wu = ["value"], Bu = {
   key: 1,
   class: "gw-notice"
-}, Ku = { class: "gw-two" }, Gu = { class: "gw-check" }, zu = { class: "gw-two" }, Ju = { class: "gw-check" }, Yu = { class: "gw-check" }, Xu = { class: "gw-check" }, Qu = {
+}, Ku = { class: "gw-two" }, Gu = { class: "gw-check" }, zu = { class: "gw-two" }, Ju = { class: "gw-check" }, Yu = { class: "gw-check" }, Xu = { class: "gw-check" }, Zu = {
   key: 0,
   class: "gw-notice"
-}, Zu = {
+}, Qu = {
   class: "gw-tabs",
   "aria-label": "Разделы firewall"
-}, ed = { class: "gw-policy-grid" }, td = ["onUpdate:modelValue"], ld = { class: "gw-policy-grid" }, nd = ["onUpdate:modelValue"], sd = { class: "gw-two" }, od = ["onUpdate:modelValue"], id = ["onUpdate:modelValue"], ad = ["open", "onInput", "onChange"], rd = { class: "gw-rule-fields" }, ud = ["onClick"], dd = {
+}, ed = { class: "gw-policy-grid" }, td = ["onUpdate:modelValue"], nd = { class: "gw-policy-grid" }, ld = ["onUpdate:modelValue"], sd = { class: "gw-two" }, od = ["onUpdate:modelValue"], id = ["onUpdate:modelValue"], ad = ["open", "onInput", "onChange"], rd = { class: "gw-rule-fields" }, ud = ["onClick"], dd = {
   key: 0,
   class: "gw-hint"
 }, cd = ["onUpdate:modelValue"], fd = { class: "gw-two" }, pd = ["onUpdate:modelValue"], vd = ["value"], gd = ["onUpdate:modelValue"], hd = ["value"], md = { class: "gw-two" }, bd = ["onUpdate:modelValue"], yd = ["value"], wd = ["onUpdate:modelValue"], _d = { class: "gw-two" }, kd = ["onUpdate:modelValue"], $d = ["onUpdate:modelValue"], Cd = {
   key: 0,
   class: "gw-hint"
-}, xd = { class: "gw-section-header" }, Sd = ["disabled"], Vd = {
+}, xd = { class: "gw-section-header" }, Sd = ["disabled"], Td = {
   key: 0,
   class: "gw-notice"
-}, Td = {
+}, Vd = {
   key: 1,
   class: "gw-hint"
-}, Ed = ["open", "onInput", "onChange"], Ud = { class: "gw-rule-fields" }, Pd = ["onClick"], Ad = ["onUpdate:modelValue"], Id = { class: "gw-two" }, Md = ["onUpdate:modelValue"], Od = ["value"], Rd = ["onUpdate:modelValue"], Dd = ["value"], Nd = { class: "gw-two" }, qd = ["onUpdate:modelValue"], Hd = ["onUpdate:modelValue"], Fd = { class: "gw-two" }, Ld = ["onUpdate:modelValue"], jd = ["onUpdate:modelValue"], Wd = ["onUpdate:modelValue"], Bd = { class: "gw-two" }, Kd = ["onUpdate:modelValue"], Gd = ["onUpdate:modelValue"], zd = {
+}, Pd = ["open", "onInput", "onChange"], Ud = { class: "gw-rule-fields" }, Ad = ["onClick"], Ed = ["onUpdate:modelValue"], Id = { class: "gw-two" }, Md = ["onUpdate:modelValue"], Od = ["value"], Rd = ["onUpdate:modelValue"], Dd = ["value"], Fd = { class: "gw-two" }, qd = ["onUpdate:modelValue"], Nd = ["onUpdate:modelValue"], Hd = { class: "gw-two" }, Ld = ["onUpdate:modelValue"], jd = ["onUpdate:modelValue"], Wd = ["onUpdate:modelValue"], Bd = { class: "gw-two" }, Kd = ["onUpdate:modelValue"], Gd = ["onUpdate:modelValue"], zd = {
   key: 2,
   class: "gw-hint"
-}, Jd = { class: "gw-actions" }, Yd = ["disabled"], Xd = ["disabled"], Qd = { key: 3 }, ci = /* @__PURE__ */ He({
+}, Jd = { class: "gw-actions" }, Yd = ["disabled"], Xd = ["disabled"], Zd = { key: 3 }, ps = /* @__PURE__ */ Me({
   __name: "RouterSettings",
   props: {
     node: {},
     bridge: {},
     mode: {},
-    iface: {}
+    iface: {},
+    reservationForm: {},
+    onTaskDone: { type: Function }
   },
   emits: ["close", "changed"],
   setup(e, { emit: t }) {
-    const l = e, o = t, s = /* @__PURE__ */ H(null), i = /* @__PURE__ */ H({}), a = /* @__PURE__ */ H(null), r = /* @__PURE__ */ H(!1), c = /* @__PURE__ */ H(""), g = /* @__PURE__ */ H("general"), m = /* @__PURE__ */ H([]), y = /* @__PURE__ */ H(/* @__PURE__ */ new Set()), T = /* @__PURE__ */ H([]), E = /* @__PURE__ */ H(/* @__PURE__ */ new Set()), B = ["id", "name", "src", "dest", "src_ip", "dest_ip", "proto", "src_dport", "dest_port", "enabled", "reflection"], I = { dhcp: "DHCP-сервер", dns: "DNS роутера", firewall: "Настройки firewall" }, Q = (U) => String(U || "").split(/[\s,]+/).filter(Boolean), X = (U) => Array.isArray(U) ? U.join(", ") : U || "", Z = () => "/api/gateways/" + encodeURIComponent(l.node.id), le = (U, d, u = "POST") => l.bridge.request(Z() + U, { method: u, headers: { "Content-Type": "application/json" }, body: JSON.stringify(d) });
+    const n = e, o = t, s = /* @__PURE__ */ D(null), i = /* @__PURE__ */ D({}), a = /* @__PURE__ */ D(null), u = /* @__PURE__ */ D(!1), c = /* @__PURE__ */ D(""), g = /* @__PURE__ */ D("general"), m = /* @__PURE__ */ D([]), w = /* @__PURE__ */ D(/* @__PURE__ */ new Set()), A = /* @__PURE__ */ D([]), V = /* @__PURE__ */ D(/* @__PURE__ */ new Set()), L = ["id", "name", "src", "dest", "src_ip", "dest_ip", "proto", "src_dport", "dest_port", "enabled", "reflection"], R = { dhcp: "DHCP-сервер", dns: "Настройки DNSMasq", firewall: "Настройки Firewall", dhcp_reservation: { add: "Закрепить IPv4-адрес", edit: "Изменить статическую DHCP-аренду", delete: "Удалить статическую DHCP-аренду" }[n.reservationForm?.mode || "add"] }, ne = (U) => String(U || "").split(/[\s,]+/).filter(Boolean), X = (U) => Array.isArray(U) ? U.join(", ") : U || "", Z = () => "/api/gateways/" + encodeURIComponent(n.node.id), ee = (U, d, r = "POST") => n.bridge.request(Z() + U, { method: r, headers: { "Content-Type": "application/json" }, body: JSON.stringify(d) });
     function j(U) {
-      const d = s.value.dns.find((u) => u.id === U) || {};
+      const d = s.value.dns.find((r) => r.id === U) || {};
       i.value = { ...d, port: d.port ?? "53", server: X(d.server), cachesize: d.cachesize ?? "150", domain: d.domain || "", local: d.local || "", noresolv: d.noresolv === "1", rebind_protection: d.rebind_protection !== "0", domainneeded: d.domainneeded === "1", boguspriv: d.boguspriv !== "0" };
     }
-    async function te() {
-      r.value = !0;
+    async function le() {
+      u.value = !0;
       try {
-        if (s.value = await l.bridge.request(Z() + "/network"), l.mode === "dns") j(s.value.dns[0]?.id);
-        else if (l.mode === "dhcp") {
-          const U = s.value.dhcp.find((d) => d.interface === l.iface);
+        if (s.value = await n.bridge.request(Z() + "/network"), n.mode === "dns") j(s.value.dns[0]?.id);
+        else if (n.mode === "dhcp") {
+          const U = s.value.dhcp.find((d) => d.interface === n.iface);
           i.value = { ignore: !U || U.ignore === "1", start: U?.start ?? "100", limit: U?.limit ?? "150", leasetime: U?.leasetime || "12h", dns: X(U?.dns) };
         } else {
           const U = s.value.firewall;
@@ -4909,176 +4914,250 @@ const uu = [
       } catch (U) {
         c.value = U.message;
       } finally {
-        r.value = !1;
+        u.value = !1;
       }
     }
-    function O(U) {
+    function Q(U) {
       const d = i.value.rules[U];
       d.id && m.value.push(d.id), i.value.rules.splice(U, 1);
     }
-    function S(U) {
-      U.id && y.value.add(U.id);
+    function I(U) {
+      U.id && w.value.add(U.id);
     }
-    function k() {
+    function E() {
       g.value = "rules", i.value.rules.push({ name: "", src: "lan", dest: "", proto: "tcp", dest_port: "", target: "ACCEPT", enabled: "1", editable: !0 });
     }
-    function R() {
+    function P() {
       g.value = "redirects", i.value.redirects.push({ name: "", src: "wan", dest: "lan", proto: ["tcp", "udp"], src_dport: "", dest_ip: "", dest_port: "", enabled: "1", reflection: "1" });
     }
-    function z(U) {
+    function S(U) {
       const d = i.value.redirects[U];
-      d.id && T.value.push(d.id), i.value.redirects.splice(U, 1);
+      d.id && A.value.push(d.id), i.value.redirects.splice(U, 1);
     }
-    function pe(U) {
-      U.id && E.value.add(U.id);
+    function C(U) {
+      U.id && V.value.add(U.id);
     }
-    function he(U, d) {
-      const u = {};
-      for (const v of d) U[v] !== void 0 && (u[v] = U[v] === "" ? null : U[v]);
-      return u;
+    function ie(U, d) {
+      const r = {};
+      for (const v of d) U[v] !== void 0 && (r[v] = U[v] === "" ? null : U[v]);
+      return r;
     }
-    async function Pe(U = l.mode) {
-      r.value = !0, c.value = "";
+    async function ke(U = n.mode) {
+      u.value = !0, c.value = "";
       try {
-        const d = { config_hash: s.value.settings_hash }, u = i.value;
-        U === "dhcp" && Object.assign(d, { interface: l.iface, settings: { ignore: u.ignore ? "1" : "0", start: String(u.start), limit: String(u.limit), leasetime: u.leasetime, dns: Q(u.dns) } }), U === "dns" && Object.assign(d, { section: u.id, settings: { port: String(u.port), server: Q(u.server), cachesize: String(u.cachesize), domain: u.domain || null, local: u.local || null, noresolv: u.noresolv ? "1" : "0", rebind_protection: u.rebind_protection ? "1" : "0", domainneeded: u.domainneeded ? "1" : "0", boguspriv: u.boguspriv ? "1" : "0" } }), U === "firewall" && Object.assign(d, { settings: he(u.defaults, ["input", "output", "forward", "synflood_protect"]), zones: u.zones.map((v) => he(v, ["id", "input", "output", "forward", "masq", "mtu_fix"])), rules: u.rules.filter((v) => !v.id || y.value.has(v.id)).map((v) => he(v, ["id", "name", "src", "dest", "src_ip", "dest_ip", "proto", "dest_port", "target", "enabled"])), deleted_rules: m.value }), U === "firewall" && u.redirectsSupported && Object.assign(d, { redirects: u.redirects.filter((v) => !v.id || E.value.has(v.id)).map((v) => he(v, B)), deleted_redirects: T.value }), a.value = await le("/network/plan", { action: U, data: d });
+        const d = { config_hash: s.value.settings_hash }, r = i.value;
+        if (U === "dhcp_reservation" && n.reservationForm) {
+          const { mode: v, reservation: _ } = n.reservationForm;
+          d.mode = v, _ && (d.section = _.id), v !== "delete" && (d.settings = { ip: r.ip, mac: r.mac, name: r.name || null });
+        }
+        U === "dhcp" && Object.assign(d, { interface: n.iface, settings: { ignore: r.ignore ? "1" : "0", start: String(r.start), limit: String(r.limit), leasetime: r.leasetime, dns: ne(r.dns) } }), U === "dns" && Object.assign(d, { section: r.id, settings: { port: String(r.port), server: ne(r.server), cachesize: String(r.cachesize), domain: r.domain || null, local: r.local || null, noresolv: r.noresolv ? "1" : "0", rebind_protection: r.rebind_protection ? "1" : "0", domainneeded: r.domainneeded ? "1" : "0", boguspriv: r.boguspriv ? "1" : "0" } }), U === "firewall" && Object.assign(d, { settings: ie(r.defaults, ["input", "output", "forward", "synflood_protect"]), zones: r.zones.map((v) => ie(v, ["id", "input", "output", "forward", "masq", "mtu_fix"])), rules: r.rules.filter((v) => !v.id || w.value.has(v.id)).map((v) => ie(v, ["id", "name", "src", "dest", "src_ip", "dest_ip", "proto", "dest_port", "target", "enabled"])), deleted_rules: m.value }), U === "firewall" && r.redirectsSupported && Object.assign(d, { redirects: r.redirects.filter((v) => !v.id || V.value.has(v.id)).map((v) => ie(v, L)), deleted_redirects: A.value }), a.value = await ee("/network/plan", { action: U, data: d });
       } catch (d) {
         c.value = d.message;
       } finally {
-        r.value = !1;
+        u.value = !1;
       }
     }
-    async function Me() {
-      r.value = !0;
+    async function ae() {
+      u.value = !0;
       try {
-        const U = a.value, d = await le("/router-operations", { plan_token: U.plan_token, confirmed: !0 });
-        a.value = null, o("close"), l.bridge.task({ taskId: d.task_id, title: U.title, cancellable: !1, onDone: async () => o("changed") });
+        const U = a.value, d = await ee("/router-operations", { plan_token: U.plan_token, confirmed: !0 }), r = n.onTaskDone ?? (() => o("changed"));
+        a.value = null, o("close", !0), n.bridge.task({ taskId: d.task_id, title: U.title, cancellable: !1, onDone: r });
       } catch (U) {
         c.value = U.message;
       } finally {
-        r.value = !1;
+        u.value = !1;
       }
     }
-    function ne() {
+    function z() {
       const U = a.value?.plan_token;
-      a.value = null, c.value = "", U && le("/operation-plans/" + encodeURIComponent(U), {}, "DELETE").catch((d) => {
+      a.value = null, c.value = "", U && ee("/operation-plans/" + encodeURIComponent(U), {}, "DELETE").catch((d) => {
         c.value = d.message;
       });
     }
-    return ct(() => {
-      te();
-    }), (U, d) => (p(), ge(qe, {
-      title: a.value ? "Проверка изменений" : I[e.mode] + (e.iface ? " · " + e.iface : ""),
+    return ot(() => {
+      const U = n.reservationForm;
+      if (!U) {
+        le();
+        return;
+      }
+      const { reservation: d, lease: r } = U;
+      s.value = { settings_hash: U.configHash };
+      const v = r?.hostname === "*" ? "" : r?.hostname;
+      i.value = {
+        name: d?.name || v || "",
+        ip: d?.ip || r?.ipaddr || "",
+        mac: d?.mac.join(" ") || r?.macaddr || ""
+      };
+    }), (U, d) => (f(), me(Re, {
+      title: a.value ? "Проверка изменений" : R[e.mode] + (e.iface ? " · " + e.iface : ""),
       wide: !0,
-      busy: r.value,
-      onClose: d[21] || (d[21] = (u) => a.value ? ne() : o("close"))
+      busy: u.value,
+      onClose: d[24] || (d[24] = (r) => a.value ? z() : o("close"))
     }, {
-      default: Re(() => [
-        c.value ? (p(), h("p", Uu, w(c.value), 1)) : V("", !0),
-        a.value ? (p(), h(N, { key: 1 }, [
-          n("ul", Pu, [
-            (p(!0), h(N, null, se(a.value.summary, (u, v) => (p(), h("li", { key: v }, w(u), 1))), 128))
+      default: Ie(() => [
+        c.value ? (f(), h("p", Vu, b(c.value), 1)) : x("", !0),
+        a.value ? (f(), h(q, { key: 1 }, [
+          l("ul", Pu, [
+            (f(!0), h(q, null, oe(a.value.summary, (r, v) => (f(), h("li", { key: v }, b(r), 1))), 128))
           ]),
-          a.value.warnings?.length ? (p(), h("section", Au, [
-            d[22] || (d[22] = n("h3", null, "Последствия изменений", -1)),
-            n("ul", null, [
-              (p(!0), h(N, null, se(a.value.warnings, (u, v) => (p(), h("li", { key: v }, w(u), 1))), 128))
+          a.value.warnings?.length ? (f(), h("section", Uu, [
+            d[25] || (d[25] = l("h3", null, "Последствия изменений", -1)),
+            l("ul", null, [
+              (f(!0), h(q, null, oe(a.value.warnings, (r, v) => (f(), h("li", { key: v }, b(r), 1))), 128))
             ])
-          ])) : V("", !0),
-          n("p", Iu, "Если панель не подтвердит результат в течение " + w(a.value.rollback_seconds) + " секунд, роутер вернёт прежнюю конфигурацию. Изменения, сделанные параллельно в LuCI, не будут перезаписаны.", 1),
-          n("div", Mu, [
-            n("button", {
+          ])) : x("", !0),
+          l("p", Au, "Если панель не подтвердит результат в течение " + b(a.value.rollback_seconds) + " секунд, роутер вернёт прежнюю конфигурацию. Изменения, сделанные параллельно в LuCI, не будут перезаписаны.", 1),
+          l("div", Eu, [
+            l("button", {
               class: "gw-primary",
-              disabled: r.value,
-              onClick: Me
-            }, "Да, применить", 8, Ou),
-            n("button", {
-              disabled: r.value,
-              onClick: ne
-            }, "Назад", 8, Ru)
+              disabled: u.value,
+              onClick: ae
+            }, "Да, применить", 8, Iu),
+            l("button", {
+              disabled: u.value,
+              onClick: z
+            }, "Назад", 8, Mu)
           ])
-        ], 64)) : s.value ? (p(), h("form", {
+        ], 64)) : s.value ? (f(), h("form", {
           key: 2,
           class: "gw-form",
-          onSubmit: d[20] || (d[20] = Ze((u) => Pe(), ["prevent"]))
+          onSubmit: d[23] || (d[23] = tt((r) => ke(), ["prevent"]))
         }, [
-          e.mode === "dhcp" ? (p(), h(N, { key: 0 }, [
-            n("label", Du, [
-              F(n("input", {
-                "onUpdate:modelValue": d[0] || (d[0] = (u) => i.value.ignore = u),
+          e.reservationForm?.mode === "delete" ? (f(), h(q, { key: 0 }, [
+            l("p", null, [
+              M(b(i.value.name || "Без имени") + " · " + b(i.value.ip), 1),
+              i.value.mac ? (f(), h(q, { key: 0 }, [
+                M(" · " + b(i.value.mac), 1)
+              ], 64)) : x("", !0)
+            ]),
+            e.reservationForm.reservation?.shared_ipv6 ? (f(), h("p", Ou, "Настройки IPv6 этой записи сохранятся.")) : x("", !0)
+          ], 64)) : e.mode === "dhcp_reservation" ? (f(), h(q, { key: 1 }, [
+            l("label", null, [
+              d[26] || (d[26] = M("Имя устройства", -1)),
+              H(l("input", {
+                "onUpdate:modelValue": d[0] || (d[0] = (r) => i.value.name = r),
+                maxlength: "63"
+              }, null, 512), [
+                [
+                  re,
+                  i.value.name,
+                  void 0,
+                  { trim: !0 }
+                ]
+              ])
+            ]),
+            l("label", null, [
+              d[27] || (d[27] = M("MAC-адрес", -1)),
+              H(l("input", {
+                "onUpdate:modelValue": d[1] || (d[1] = (r) => i.value.mac = r),
+                maxlength: "256",
+                required: e.reservationForm?.mode === "add" || !!e.reservationForm?.reservation?.mac.length,
+                readonly: e.reservationForm?.reservation?.shared_ipv6
+              }, null, 8, Ru), [
+                [
+                  re,
+                  i.value.mac,
+                  void 0,
+                  { trim: !0 }
+                ]
+              ]),
+              l("small", null, b(e.reservationForm?.reservation?.shared_ipv6 ? "MAC используется также для IPv6" : "Несколько адресов можно указать через пробел"), 1)
+            ]),
+            l("label", null, [
+              d[28] || (d[28] = M("IPv4-адрес", -1)),
+              H(l("input", {
+                "onUpdate:modelValue": d[2] || (d[2] = (r) => i.value.ip = r),
+                inputmode: "decimal",
+                placeholder: "192.168.1.10",
+                maxlength: "15",
+                required: ""
+              }, null, 512), [
+                [
+                  re,
+                  i.value.ip,
+                  void 0,
+                  { trim: !0 }
+                ]
+              ])
+            ])
+          ], 64)) : x("", !0),
+          e.mode === "dhcp" ? (f(), h(q, { key: 2 }, [
+            l("label", Du, [
+              H(l("input", {
+                "onUpdate:modelValue": d[3] || (d[3] = (r) => i.value.ignore = r),
                 type: "checkbox"
               }, null, 512), [
-                [We, i.value.ignore]
+                [je, i.value.ignore]
               ]),
-              A(" Выключить DHCP-сервер на " + w(e.iface), 1)
+              M(" Выключить DHCP-сервер на " + b(e.iface), 1)
             ]),
-            i.value.ignore ? V("", !0) : (p(), h("p", Nu, "В одном сегменте должен работать один DHCP-сервер. При наличии основного роутера оставьте DHCP здесь выключенным.")),
-            n("div", qu, [
-              n("label", null, [
-                d[23] || (d[23] = A("Начальный адрес (смещение в подсети)", -1)),
-                F(n("input", {
-                  "onUpdate:modelValue": d[1] || (d[1] = (u) => i.value.start = u),
+            i.value.ignore ? x("", !0) : (f(), h("p", Fu, "В одном сегменте должен работать один DHCP-сервер. При наличии основного роутера оставьте DHCP здесь выключенным.")),
+            l("div", qu, [
+              l("label", null, [
+                d[29] || (d[29] = M("Начальный адрес (смещение в подсети)", -1)),
+                H(l("input", {
+                  "onUpdate:modelValue": d[4] || (d[4] = (r) => i.value.start = r),
                   type: "number",
                   min: "0",
                   disabled: i.value.ignore,
                   required: ""
-                }, null, 8, Hu), [
+                }, null, 8, Nu), [
                   [re, i.value.start]
                 ])
               ]),
-              n("label", null, [
-                d[24] || (d[24] = A("Количество адресов", -1)),
-                F(n("input", {
-                  "onUpdate:modelValue": d[2] || (d[2] = (u) => i.value.limit = u),
+              l("label", null, [
+                d[30] || (d[30] = M("Количество адресов", -1)),
+                H(l("input", {
+                  "onUpdate:modelValue": d[5] || (d[5] = (r) => i.value.limit = r),
                   type: "number",
                   min: "1",
                   disabled: i.value.ignore,
                   required: ""
-                }, null, 8, Fu), [
+                }, null, 8, Hu), [
                   [re, i.value.limit]
                 ])
               ])
             ]),
-            n("label", null, [
-              d[25] || (d[25] = A("Время аренды", -1)),
-              F(n("input", {
-                "onUpdate:modelValue": d[3] || (d[3] = (u) => i.value.leasetime = u),
+            l("label", null, [
+              d[31] || (d[31] = M("Время аренды", -1)),
+              H(l("input", {
+                "onUpdate:modelValue": d[6] || (d[6] = (r) => i.value.leasetime = r),
                 placeholder: "12h"
               }, null, 512), [
                 [re, i.value.leasetime]
               ])
             ]),
-            n("label", null, [
-              d[26] || (d[26] = A("DNS для DHCP-клиентов (IPv4)", -1)),
-              F(n("input", {
-                "onUpdate:modelValue": d[4] || (d[4] = (u) => i.value.dns = u),
+            l("label", null, [
+              d[32] || (d[32] = M("DNS для DHCP-клиентов (IPv4)", -1)),
+              H(l("input", {
+                "onUpdate:modelValue": d[7] || (d[7] = (r) => i.value.dns = r),
                 placeholder: "Пусто — адрес роутера"
               }, null, 512), [
                 [re, i.value.dns]
               ]),
-              d[27] || (d[27] = n("small", null, "Меняется только DHCP option 6. Другие опции, статические аренды и настройки IPv6 сохраняются. Клиенты получат изменение при обновлении аренды.", -1))
+              d[33] || (d[33] = l("small", null, "Меняется только DHCP option 6. Другие опции, статические аренды и настройки IPv6 сохраняются. Клиенты получат изменение при обновлении аренды.", -1))
             ])
-          ], 64)) : V("", !0),
-          e.mode === "dns" ? (p(), h(N, { key: 1 }, [
-            d[40] || (d[40] = n("p", { class: "gw-hint" }, "DNS подключения WAN задаётся в его настройках. Здесь — локальный DNS-сервис dnsmasq и серверы, на которые он отправляет запросы.", -1)),
-            s.value.dns.length > 1 ? (p(), h("label", Lu, [
-              d[28] || (d[28] = A("Экземпляр dnsmasq", -1)),
-              n("select", {
+          ], 64)) : x("", !0),
+          e.mode === "dns" ? (f(), h(q, { key: 3 }, [
+            d[46] || (d[46] = l("p", { class: "gw-hint" }, "DNS подключения WAN задаётся в его настройках. Здесь — локальный DNS-сервис dnsmasq и серверы, на которые он отправляет запросы.", -1)),
+            s.value.dns.length > 1 ? (f(), h("label", Lu, [
+              d[34] || (d[34] = M("Экземпляр dnsmasq", -1)),
+              l("select", {
                 value: i.value.id,
-                onChange: d[5] || (d[5] = (u) => j(u.target.value))
+                onChange: d[8] || (d[8] = (r) => j(r.target.value))
               }, [
-                (p(!0), h(N, null, se(s.value.dns, (u) => (p(), h("option", {
-                  key: u.id,
-                  value: u.id
-                }, w(u.id), 9, Wu))), 128))
+                (f(!0), h(q, null, oe(s.value.dns, (r) => (f(), h("option", {
+                  key: r.id,
+                  value: r.id
+                }, b(r.id), 9, Wu))), 128))
               ], 40, ju)
-            ])) : V("", !0),
-            s.value.dns.length ? (p(), h(N, { key: 2 }, [
-              n("div", Ku, [
-                n("label", null, [
-                  d[29] || (d[29] = A("Порт DNS", -1)),
-                  F(n("input", {
-                    "onUpdate:modelValue": d[6] || (d[6] = (u) => i.value.port = u),
+            ])) : x("", !0),
+            s.value.dns.length ? (f(), h(q, { key: 2 }, [
+              l("div", Ku, [
+                l("label", null, [
+                  d[35] || (d[35] = M("Порт DNS", -1)),
+                  H(l("input", {
+                    "onUpdate:modelValue": d[9] || (d[9] = (r) => i.value.port = r),
                     type: "number",
                     min: "0",
                     max: "65535",
@@ -5086,12 +5165,12 @@ const uu = [
                   }, null, 512), [
                     [re, i.value.port]
                   ]),
-                  d[30] || (d[30] = n("small", null, "53 — обычный DNS; 0 отключает только DNS.", -1))
+                  d[36] || (d[36] = l("small", null, "53 — обычный DNS; 0 отключает только DNS.", -1))
                 ]),
-                n("label", null, [
-                  d[31] || (d[31] = A("Размер кэша", -1)),
-                  F(n("input", {
-                    "onUpdate:modelValue": d[7] || (d[7] = (u) => i.value.cachesize = u),
+                l("label", null, [
+                  d[37] || (d[37] = M("Размер кэша", -1)),
+                  H(l("input", {
+                    "onUpdate:modelValue": d[10] || (d[10] = (r) => i.value.cachesize = r),
                     type: "number",
                     min: "0",
                     required: ""
@@ -5100,10 +5179,10 @@ const uu = [
                   ])
                 ])
               ]),
-              n("label", null, [
-                d[32] || (d[32] = A("Внешние DNS-серверы", -1)),
-                F(n("textarea", {
-                  "onUpdate:modelValue": d[8] || (d[8] = (u) => i.value.server = u),
+              l("label", null, [
+                d[38] || (d[38] = M("Внешние DNS-серверы", -1)),
+                H(l("textarea", {
+                  "onUpdate:modelValue": d[11] || (d[11] = (r) => i.value.server = r),
                   rows: "3",
                   placeholder: `1.1.1.1
 127.0.0.1#5353
@@ -5111,459 +5190,459 @@ const uu = [
                 }, null, 512), [
                   [re, i.value.server]
                 ]),
-                d[33] || (d[33] = n("small", null, "По одному серверу на строку; адрес#порт, /домен/адрес#порт.", -1))
+                d[39] || (d[39] = l("small", null, "По одному серверу на строку; адрес#порт, /домен/адрес#порт.", -1))
               ]),
-              n("label", Gu, [
-                F(n("input", {
-                  "onUpdate:modelValue": d[9] || (d[9] = (u) => i.value.noresolv = u),
+              l("label", Gu, [
+                H(l("input", {
+                  "onUpdate:modelValue": d[12] || (d[12] = (r) => i.value.noresolv = r),
                   type: "checkbox"
                 }, null, 512), [
-                  [We, i.value.noresolv]
+                  [je, i.value.noresolv]
                 ]),
-                d[34] || (d[34] = A(" Использовать только указанные upstream (не получать DNS от WAN)", -1))
+                d[40] || (d[40] = M(" Использовать только указанные upstream (не получать DNS от WAN)", -1))
               ]),
-              n("div", zu, [
-                n("label", null, [
-                  d[35] || (d[35] = A("Локальный домен", -1)),
-                  F(n("input", {
-                    "onUpdate:modelValue": d[10] || (d[10] = (u) => i.value.domain = u),
+              l("div", zu, [
+                l("label", null, [
+                  d[41] || (d[41] = M("Локальный домен", -1)),
+                  H(l("input", {
+                    "onUpdate:modelValue": d[13] || (d[13] = (r) => i.value.domain = r),
                     placeholder: "lan"
                   }, null, 512), [
                     [re, i.value.domain]
                   ])
                 ]),
-                n("label", null, [
-                  d[36] || (d[36] = A("Локальная зона", -1)),
-                  F(n("input", {
-                    "onUpdate:modelValue": d[11] || (d[11] = (u) => i.value.local = u),
+                l("label", null, [
+                  d[42] || (d[42] = M("Локальная зона", -1)),
+                  H(l("input", {
+                    "onUpdate:modelValue": d[14] || (d[14] = (r) => i.value.local = r),
                     placeholder: "/lan/"
                   }, null, 512), [
                     [re, i.value.local]
                   ])
                 ])
               ]),
-              n("label", Ju, [
-                F(n("input", {
-                  "onUpdate:modelValue": d[12] || (d[12] = (u) => i.value.rebind_protection = u),
+              l("label", Ju, [
+                H(l("input", {
+                  "onUpdate:modelValue": d[15] || (d[15] = (r) => i.value.rebind_protection = r),
                   type: "checkbox"
                 }, null, 512), [
-                  [We, i.value.rebind_protection]
+                  [je, i.value.rebind_protection]
                 ]),
-                d[37] || (d[37] = A(" Защита DNS rebinding", -1))
+                d[43] || (d[43] = M(" Защита DNS rebinding", -1))
               ]),
-              n("label", Yu, [
-                F(n("input", {
-                  "onUpdate:modelValue": d[13] || (d[13] = (u) => i.value.domainneeded = u),
+              l("label", Yu, [
+                H(l("input", {
+                  "onUpdate:modelValue": d[16] || (d[16] = (r) => i.value.domainneeded = r),
                   type: "checkbox"
                 }, null, 512), [
-                  [We, i.value.domainneeded]
+                  [je, i.value.domainneeded]
                 ]),
-                d[38] || (d[38] = A(" Не отправлять имена без домена", -1))
+                d[44] || (d[44] = M(" Не отправлять имена без домена", -1))
               ]),
-              n("label", Xu, [
-                F(n("input", {
-                  "onUpdate:modelValue": d[14] || (d[14] = (u) => i.value.boguspriv = u),
+              l("label", Xu, [
+                H(l("input", {
+                  "onUpdate:modelValue": d[17] || (d[17] = (r) => i.value.boguspriv = r),
                   type: "checkbox"
                 }, null, 512), [
-                  [We, i.value.boguspriv]
+                  [je, i.value.boguspriv]
                 ]),
-                d[39] || (d[39] = A(" Не отправлять обратные запросы частных адресов", -1))
+                d[45] || (d[45] = M(" Не отправлять обратные запросы частных адресов", -1))
               ]),
-              i.value.nftset || i.value.ipset ? (p(), h("p", Qu, "dnsmasq использует наборы для маршрутизации. При переходе на AdGuard Home сохраните путь запросов через dnsmasq для нужных доменов.")) : V("", !0)
-            ], 64)) : (p(), h("p", Bu, "dnsmasq не настроен. Сначала установите или настройте его в LuCI."))
-          ], 64)) : V("", !0),
-          e.mode === "firewall" ? (p(), h(N, { key: 2 }, [
-            d[85] || (d[85] = n("p", { class: "gw-hint" }, "Основные политики, зоны, правила трафика и перенаправления портов. Расширенные параметры и специальные правила NAT сохраняются.", -1)),
-            n("nav", Zu, [
-              n("button", {
+              i.value.nftset || i.value.ipset ? (f(), h("p", Zu, "dnsmasq использует наборы для маршрутизации. При переходе на AdGuard Home сохраните путь запросов через dnsmasq для нужных доменов.")) : x("", !0)
+            ], 64)) : (f(), h("p", Bu, "dnsmasq не настроен. Сначала установите или настройте его в LuCI."))
+          ], 64)) : x("", !0),
+          e.mode === "firewall" ? (f(), h(q, { key: 4 }, [
+            d[91] || (d[91] = l("p", { class: "gw-hint" }, "Основные политики, зоны, правила трафика и перенаправления портов. Расширенные параметры и специальные правила NAT сохраняются.", -1)),
+            l("nav", Qu, [
+              l("button", {
                 type: "button",
-                class: Ue({ on: g.value === "general" }),
-                onClick: d[15] || (d[15] = (u) => g.value = "general")
+                class: Te({ on: g.value === "general" }),
+                onClick: d[18] || (d[18] = (r) => g.value = "general")
               }, "Общие настройки", 2),
-              n("button", {
+              l("button", {
                 type: "button",
-                class: Ue({ on: g.value === "zones" }),
-                onClick: d[16] || (d[16] = (u) => g.value = "zones")
-              }, "Зоны (" + w(i.value.zones.length) + ")", 3),
-              n("button", {
+                class: Te({ on: g.value === "zones" }),
+                onClick: d[19] || (d[19] = (r) => g.value = "zones")
+              }, "Зоны (" + b(i.value.zones.length) + ")", 3),
+              l("button", {
                 type: "button",
-                class: Ue({ on: g.value === "rules" }),
-                onClick: d[17] || (d[17] = (u) => g.value = "rules")
-              }, "Правила трафика (" + w(i.value.rules.length) + ")", 3),
-              n("button", {
+                class: Te({ on: g.value === "rules" }),
+                onClick: d[20] || (d[20] = (r) => g.value = "rules")
+              }, "Правила трафика (" + b(i.value.rules.length) + ")", 3),
+              l("button", {
                 type: "button",
-                class: Ue({ on: g.value === "redirects" }),
-                onClick: d[18] || (d[18] = (u) => g.value = "redirects")
-              }, "Перенаправление портов (" + w(i.value.redirects.length) + ")", 3)
+                class: Te({ on: g.value === "redirects" }),
+                onClick: d[21] || (d[21] = (r) => g.value = "redirects")
+              }, "Перенаправление портов (" + b(i.value.redirects.length) + ")", 3)
             ]),
-            F(n("section", null, [
-              d[42] || (d[42] = n("h3", null, "Политики по умолчанию", -1)),
-              d[43] || (d[43] = n("p", { class: "gw-hint" }, "Применяются к трафику, для которого не задано отдельное правило.", -1)),
-              n("div", ed, [
-                (p(), h(N, null, se(["input", "output", "forward"], (u) => n("label", { key: u }, [
-                  A(w({ input: "Входящие", output: "Исходящие", forward: "Пересылка" }[u]), 1),
-                  F(n("select", {
-                    "onUpdate:modelValue": (v) => i.value.defaults[u] = v
-                  }, [...d[41] || (d[41] = [
-                    n("option", null, "ACCEPT", -1),
-                    n("option", null, "REJECT", -1),
-                    n("option", null, "DROP", -1)
+            H(l("section", null, [
+              d[48] || (d[48] = l("h3", null, "Политики по умолчанию", -1)),
+              d[49] || (d[49] = l("p", { class: "gw-hint" }, "Применяются к трафику, для которого не задано отдельное правило.", -1)),
+              l("div", ed, [
+                (f(), h(q, null, oe(["input", "output", "forward"], (r) => l("label", { key: r }, [
+                  M(b({ input: "Входящие", output: "Исходящие", forward: "Пересылка" }[r]), 1),
+                  H(l("select", {
+                    "onUpdate:modelValue": (v) => i.value.defaults[r] = v
+                  }, [...d[47] || (d[47] = [
+                    l("option", null, "ACCEPT", -1),
+                    l("option", null, "REJECT", -1),
+                    l("option", null, "DROP", -1)
                   ])], 8, td), [
-                    [xe, i.value.defaults[u]]
+                    [xe, i.value.defaults[r]]
                   ])
                 ])), 64))
               ])
             ], 512), [
-              [Hl, g.value === "general"]
+              [hn, g.value === "general"]
             ]),
-            F(n("section", null, [
-              d[49] || (d[49] = n("h3", null, "Зоны", -1)),
-              d[50] || (d[50] = n("p", { class: "gw-hint" }, "Политики для групп сетевых интерфейсов. Правила отдельных соединений находятся на вкладке «Правила трафика».", -1)),
-              (p(!0), h(N, null, se(i.value.zones, (u) => (p(), h("article", {
-                key: u.id,
+            H(l("section", null, [
+              d[55] || (d[55] = l("h3", null, "Зоны", -1)),
+              d[56] || (d[56] = l("p", { class: "gw-hint" }, "Политики для групп сетевых интерфейсов. Правила отдельных соединений находятся на вкладке «Правила трафика».", -1)),
+              (f(!0), h(q, null, oe(i.value.zones, (r) => (f(), h("article", {
+                key: r.id,
                 class: "gw-settings-row"
               }, [
-                n("h4", null, w(u.name) + " · " + w(X(u.network)), 1),
-                n("div", ld, [
-                  (p(), h(N, null, se(["input", "output", "forward"], (v) => n("label", { key: v }, [
-                    A(w({ input: "Входящие", output: "Исходящие", forward: "Пересылка" }[v]), 1),
-                    F(n("select", {
-                      "onUpdate:modelValue": (_) => u[v] = _
-                    }, [...d[44] || (d[44] = [
-                      n("option", null, "ACCEPT", -1),
-                      n("option", null, "REJECT", -1),
-                      n("option", null, "DROP", -1)
-                    ])], 8, nd), [
-                      [xe, u[v]]
+                l("h4", null, b(r.name) + " · " + b(X(r.network)), 1),
+                l("div", nd, [
+                  (f(), h(q, null, oe(["input", "output", "forward"], (v) => l("label", { key: v }, [
+                    M(b({ input: "Входящие", output: "Исходящие", forward: "Пересылка" }[v]), 1),
+                    H(l("select", {
+                      "onUpdate:modelValue": (_) => r[v] = _
+                    }, [...d[50] || (d[50] = [
+                      l("option", null, "ACCEPT", -1),
+                      l("option", null, "REJECT", -1),
+                      l("option", null, "DROP", -1)
+                    ])], 8, ld), [
+                      [xe, r[v]]
                     ])
                   ])), 64))
                 ]),
-                n("div", sd, [
-                  n("label", null, [
-                    d[46] || (d[46] = A("NAT (маскарадинг)", -1)),
-                    F(n("select", {
-                      "onUpdate:modelValue": (v) => u.masq = v
-                    }, [...d[45] || (d[45] = [
-                      n("option", { value: void 0 }, "По умолчанию", -1),
-                      n("option", { value: "1" }, "Включён", -1),
-                      n("option", { value: "0" }, "Выключен", -1)
+                l("div", sd, [
+                  l("label", null, [
+                    d[52] || (d[52] = M("NAT (маскарадинг)", -1)),
+                    H(l("select", {
+                      "onUpdate:modelValue": (v) => r.masq = v
+                    }, [...d[51] || (d[51] = [
+                      l("option", { value: void 0 }, "По умолчанию", -1),
+                      l("option", { value: "1" }, "Включён", -1),
+                      l("option", { value: "0" }, "Выключен", -1)
                     ])], 8, od), [
-                      [xe, u.masq]
+                      [xe, r.masq]
                     ])
                   ]),
-                  n("label", null, [
-                    d[48] || (d[48] = A("Коррекция MSS", -1)),
-                    F(n("select", {
-                      "onUpdate:modelValue": (v) => u.mtu_fix = v
-                    }, [...d[47] || (d[47] = [
-                      n("option", { value: void 0 }, "По умолчанию", -1),
-                      n("option", { value: "1" }, "Включён", -1),
-                      n("option", { value: "0" }, "Выключен", -1)
+                  l("label", null, [
+                    d[54] || (d[54] = M("Коррекция MSS", -1)),
+                    H(l("select", {
+                      "onUpdate:modelValue": (v) => r.mtu_fix = v
+                    }, [...d[53] || (d[53] = [
+                      l("option", { value: void 0 }, "По умолчанию", -1),
+                      l("option", { value: "1" }, "Включён", -1),
+                      l("option", { value: "0" }, "Выключен", -1)
                     ])], 8, id), [
-                      [xe, u.mtu_fix]
+                      [xe, r.mtu_fix]
                     ])
                   ])
                 ])
               ]))), 128))
             ], 512), [
-              [Hl, g.value === "zones"]
+              [hn, g.value === "zones"]
             ]),
-            F(n("section", null, [
-              n("header", { class: "gw-section-header" }, [
-                d[51] || (d[51] = n("h3", null, "Правила трафика", -1)),
-                n("button", {
+            H(l("section", null, [
+              l("header", { class: "gw-section-header" }, [
+                d[57] || (d[57] = l("h3", null, "Правила трафика", -1)),
+                l("button", {
                   type: "button",
-                  onClick: k
+                  onClick: E
                 }, "Добавить правило")
               ]),
-              (p(!0), h(N, null, se(i.value.rules, (u, v) => (p(), h("details", {
-                key: u.id || v,
-                open: !u.id,
+              (f(!0), h(q, null, oe(i.value.rules, (r, v) => (f(), h("details", {
+                key: r.id || v,
+                open: !r.id,
                 class: "gw-settings-rule",
-                onInput: (_) => S(u),
-                onChange: (_) => S(u)
+                onInput: (_) => I(r),
+                onChange: (_) => I(r)
               }, [
-                n("summary", null, [
-                  n("strong", null, w(u.name || u.id || "Новое правило"), 1),
-                  n("span", null, w(u.src || "Роутер") + " → " + w(u.dest || "Роутер") + " · " + w(X(u.proto) || "all") + " " + w(u.dest_port || "") + " · " + w(u.target || "ACCEPT"), 1),
-                  n("small", null, w(u.enabled === "0" ? "Выключено" : "Включено"), 1)
+                l("summary", null, [
+                  l("strong", null, b(r.name || r.id || "Новое правило"), 1),
+                  l("span", null, b(r.src || "Роутер") + " → " + b(r.dest || "Роутер") + " · " + b(X(r.proto) || "all") + " " + b(r.dest_port || "") + " · " + b(r.target || "ACCEPT"), 1),
+                  l("small", null, b(r.enabled === "0" ? "Выключено" : "Включено"), 1)
                 ]),
-                n("div", rd, [
-                  n("button", {
+                l("div", rd, [
+                  l("button", {
                     type: "button",
                     class: "gw-danger",
-                    onClick: (_) => O(Number(v))
+                    onClick: (_) => Q(Number(v))
                   }, "Удалить правило", 8, ud),
-                  u.editable ? (p(), h(N, { key: 1 }, [
-                    n("label", null, [
-                      d[52] || (d[52] = A("Название", -1)),
-                      F(n("input", {
-                        "onUpdate:modelValue": (_) => u.name = _
+                  r.editable ? (f(), h(q, { key: 1 }, [
+                    l("label", null, [
+                      d[58] || (d[58] = M("Название", -1)),
+                      H(l("input", {
+                        "onUpdate:modelValue": (_) => r.name = _
                       }, null, 8, cd), [
-                        [re, u.name]
+                        [re, r.name]
                       ])
                     ]),
-                    n("div", fd, [
-                      n("label", null, [
-                        d[55] || (d[55] = A("Исходная зона", -1)),
-                        F(n("select", {
-                          "onUpdate:modelValue": (_) => u.src = _
+                    l("div", fd, [
+                      l("label", null, [
+                        d[61] || (d[61] = M("Исходная зона", -1)),
+                        H(l("select", {
+                          "onUpdate:modelValue": (_) => r.src = _
                         }, [
-                          d[53] || (d[53] = n("option", { value: "" }, "Сам роутер", -1)),
-                          d[54] || (d[54] = n("option", { value: "*" }, "Любая", -1)),
-                          (p(!0), h(N, null, se(i.value.zones, (_) => (p(), h("option", {
+                          d[59] || (d[59] = l("option", { value: "" }, "Сам роутер", -1)),
+                          d[60] || (d[60] = l("option", { value: "*" }, "Любая", -1)),
+                          (f(!0), h(q, null, oe(i.value.zones, (_) => (f(), h("option", {
                             key: _.id,
                             value: _.name
-                          }, w(_.name), 9, vd))), 128))
+                          }, b(_.name), 9, vd))), 128))
                         ], 8, pd), [
-                          [xe, u.src]
+                          [xe, r.src]
                         ])
                       ]),
-                      n("label", null, [
-                        d[58] || (d[58] = A("Зона назначения", -1)),
-                        F(n("select", {
-                          "onUpdate:modelValue": (_) => u.dest = _
+                      l("label", null, [
+                        d[64] || (d[64] = M("Зона назначения", -1)),
+                        H(l("select", {
+                          "onUpdate:modelValue": (_) => r.dest = _
                         }, [
-                          d[56] || (d[56] = n("option", { value: "" }, "Сам роутер", -1)),
-                          d[57] || (d[57] = n("option", { value: "*" }, "Любая", -1)),
-                          (p(!0), h(N, null, se(i.value.zones, (_) => (p(), h("option", {
+                          d[62] || (d[62] = l("option", { value: "" }, "Сам роутер", -1)),
+                          d[63] || (d[63] = l("option", { value: "*" }, "Любая", -1)),
+                          (f(!0), h(q, null, oe(i.value.zones, (_) => (f(), h("option", {
                             key: _.id,
                             value: _.name
-                          }, w(_.name), 9, hd))), 128))
+                          }, b(_.name), 9, hd))), 128))
                         ], 8, gd), [
-                          [xe, u.dest]
+                          [xe, r.dest]
                         ])
                       ])
                     ]),
-                    n("div", md, [
-                      n("label", null, [
-                        d[64] || (d[64] = A("Протокол", -1)),
-                        F(n("select", {
-                          "onUpdate:modelValue": (_) => u.proto = _
+                    l("div", md, [
+                      l("label", null, [
+                        d[70] || (d[70] = M("Протокол", -1)),
+                        H(l("select", {
+                          "onUpdate:modelValue": (_) => r.proto = _
                         }, [
-                          Array.isArray(u.proto) ? (p(), h("option", {
+                          Array.isArray(r.proto) ? (f(), h("option", {
                             key: 0,
-                            value: u.proto
-                          }, w(X(u.proto)), 9, yd)) : V("", !0),
-                          d[59] || (d[59] = n("option", null, "tcp", -1)),
-                          d[60] || (d[60] = n("option", null, "udp", -1)),
-                          d[61] || (d[61] = n("option", null, "icmp", -1)),
-                          d[62] || (d[62] = n("option", null, "icmpv6", -1)),
-                          d[63] || (d[63] = n("option", null, "all", -1))
+                            value: r.proto
+                          }, b(X(r.proto)), 9, yd)) : x("", !0),
+                          d[65] || (d[65] = l("option", null, "tcp", -1)),
+                          d[66] || (d[66] = l("option", null, "udp", -1)),
+                          d[67] || (d[67] = l("option", null, "icmp", -1)),
+                          d[68] || (d[68] = l("option", null, "icmpv6", -1)),
+                          d[69] || (d[69] = l("option", null, "all", -1))
                         ], 8, bd), [
-                          [xe, u.proto]
+                          [xe, r.proto]
                         ])
                       ]),
-                      n("label", null, [
-                        d[65] || (d[65] = A("Порт назначения", -1)),
-                        F(n("input", {
-                          "onUpdate:modelValue": (_) => u.dest_port = _,
+                      l("label", null, [
+                        d[71] || (d[71] = M("Порт назначения", -1)),
+                        H(l("input", {
+                          "onUpdate:modelValue": (_) => r.dest_port = _,
                           placeholder: "443 или 1000-2000"
                         }, null, 8, wd), [
-                          [re, u.dest_port]
+                          [re, r.dest_port]
                         ])
                       ])
                     ]),
-                    n("div", _d, [
-                      n("label", null, [
-                        d[67] || (d[67] = A("Действие", -1)),
-                        F(n("select", {
-                          "onUpdate:modelValue": (_) => u.target = _
-                        }, [...d[66] || (d[66] = [
-                          n("option", null, "ACCEPT", -1),
-                          n("option", null, "REJECT", -1),
-                          n("option", null, "DROP", -1)
+                    l("div", _d, [
+                      l("label", null, [
+                        d[73] || (d[73] = M("Действие", -1)),
+                        H(l("select", {
+                          "onUpdate:modelValue": (_) => r.target = _
+                        }, [...d[72] || (d[72] = [
+                          l("option", null, "ACCEPT", -1),
+                          l("option", null, "REJECT", -1),
+                          l("option", null, "DROP", -1)
                         ])], 8, kd), [
-                          [xe, u.target]
+                          [xe, r.target]
                         ])
                       ]),
-                      n("label", null, [
-                        d[69] || (d[69] = A("Состояние", -1)),
-                        F(n("select", {
-                          "onUpdate:modelValue": (_) => u.enabled = _
-                        }, [...d[68] || (d[68] = [
-                          n("option", { value: void 0 }, "Включено по умолчанию", -1),
-                          n("option", { value: "1" }, "Включено", -1),
-                          n("option", { value: "0" }, "Выключено", -1)
+                      l("label", null, [
+                        d[75] || (d[75] = M("Состояние", -1)),
+                        H(l("select", {
+                          "onUpdate:modelValue": (_) => r.enabled = _
+                        }, [...d[74] || (d[74] = [
+                          l("option", { value: void 0 }, "Включено по умолчанию", -1),
+                          l("option", { value: "1" }, "Включено", -1),
+                          l("option", { value: "0" }, "Выключено", -1)
                         ])], 8, $d), [
-                          [xe, u.enabled]
+                          [xe, r.enabled]
                         ])
                       ])
                     ])
-                  ], 64)) : (p(), h("p", dd, w(u.target) + " · Расширенное правило. Редактирование доступно в LuCI.", 1))
+                  ], 64)) : (f(), h("p", dd, b(r.target) + " · Расширенное правило. Редактирование доступно в LuCI.", 1))
                 ])
               ], 40, ad))), 128)),
-              i.value.rules.length ? V("", !0) : (p(), h("p", Cd, "Правила трафика не настроены."))
+              i.value.rules.length ? x("", !0) : (f(), h("p", Cd, "Правила трафика не настроены."))
             ], 512), [
-              [Hl, g.value === "rules"]
+              [hn, g.value === "rules"]
             ]),
-            F(n("section", null, [
-              n("header", xd, [
-                d[70] || (d[70] = n("h3", null, "Перенаправление портов", -1)),
-                n("button", {
+            H(l("section", null, [
+              l("header", xd, [
+                d[76] || (d[76] = l("h3", null, "Перенаправление портов", -1)),
+                l("button", {
                   type: "button",
                   disabled: !i.value.redirectsSupported,
-                  onClick: R
+                  onClick: P
                 }, "Добавить перенаправление", 8, Sd)
               ]),
-              i.value.redirectsSupported ? (p(), h("p", Td, "Внешний порт → IP устройства и внутренний порт. Изменения применяются после проверки плана.")) : (p(), h("p", Vd, "Обновите интеграцию Bot4VPS на шлюзе для управления перенаправлениями портов.")),
-              (p(!0), h(N, null, se(i.value.redirects, (u, v) => (p(), h("details", {
-                key: u.id || v,
-                open: !u.id,
+              i.value.redirectsSupported ? (f(), h("p", Vd, "Внешний порт → IP устройства и внутренний порт. Изменения применяются после проверки плана.")) : (f(), h("p", Td, "Обновите интеграцию Bot4VPS на шлюзе для управления перенаправлениями портов.")),
+              (f(!0), h(q, null, oe(i.value.redirects, (r, v) => (f(), h("details", {
+                key: r.id || v,
+                open: !r.id,
                 class: "gw-settings-rule",
-                onInput: (_) => pe(u),
-                onChange: (_) => pe(u)
+                onInput: (_) => C(r),
+                onChange: (_) => C(r)
               }, [
-                n("summary", null, [
-                  n("strong", null, w(u.name || u.id || "Новое перенаправление"), 1),
-                  n("span", null, w(u.src) + ":" + w(u.src_dport) + " → " + w(u.dest_ip || "Роутер") + ":" + w(u.dest_port || u.src_dport) + " · " + w(X(u.proto) || "TCP и UDP"), 1),
-                  n("small", null, w(u.enabled === "0" ? "Выключено" : "Включено"), 1)
+                l("summary", null, [
+                  l("strong", null, b(r.name || r.id || "Новое перенаправление"), 1),
+                  l("span", null, b(r.src) + ":" + b(r.src_dport) + " → " + b(r.dest_ip || "Роутер") + ":" + b(r.dest_port || r.src_dport) + " · " + b(X(r.proto) || "TCP и UDP"), 1),
+                  l("small", null, b(r.enabled === "0" ? "Выключено" : "Включено"), 1)
                 ]),
-                n("div", Ud, [
-                  n("button", {
+                l("div", Ud, [
+                  l("button", {
                     type: "button",
                     class: "gw-danger",
-                    onClick: (_) => z(Number(v))
-                  }, "Удалить перенаправление", 8, Pd),
-                  n("label", null, [
-                    d[71] || (d[71] = A("Название", -1)),
-                    F(n("input", {
-                      "onUpdate:modelValue": (_) => u.name = _
-                    }, null, 8, Ad), [
-                      [re, u.name]
+                    onClick: (_) => S(Number(v))
+                  }, "Удалить перенаправление", 8, Ad),
+                  l("label", null, [
+                    d[77] || (d[77] = M("Название", -1)),
+                    H(l("input", {
+                      "onUpdate:modelValue": (_) => r.name = _
+                    }, null, 8, Ed), [
+                      [re, r.name]
                     ])
                   ]),
-                  n("div", Id, [
-                    n("label", null, [
-                      d[72] || (d[72] = A("Исходная зона", -1)),
-                      F(n("select", {
-                        "onUpdate:modelValue": (_) => u.src = _
+                  l("div", Id, [
+                    l("label", null, [
+                      d[78] || (d[78] = M("Исходная зона", -1)),
+                      H(l("select", {
+                        "onUpdate:modelValue": (_) => r.src = _
                       }, [
-                        (p(!0), h(N, null, se(i.value.zones, (_) => (p(), h("option", {
+                        (f(!0), h(q, null, oe(i.value.zones, (_) => (f(), h("option", {
                           key: _.id,
                           value: _.name
-                        }, w(_.name), 9, Od))), 128))
+                        }, b(_.name), 9, Od))), 128))
                       ], 8, Md), [
-                        [xe, u.src]
+                        [xe, r.src]
                       ])
                     ]),
-                    n("label", null, [
-                      d[73] || (d[73] = A("Зона назначения", -1)),
-                      F(n("select", {
-                        "onUpdate:modelValue": (_) => u.dest = _
+                    l("label", null, [
+                      d[79] || (d[79] = M("Зона назначения", -1)),
+                      H(l("select", {
+                        "onUpdate:modelValue": (_) => r.dest = _
                       }, [
-                        (p(!0), h(N, null, se(i.value.zones, (_) => (p(), h("option", {
+                        (f(!0), h(q, null, oe(i.value.zones, (_) => (f(), h("option", {
                           key: _.id,
                           value: _.name
-                        }, w(_.name), 9, Dd))), 128))
+                        }, b(_.name), 9, Dd))), 128))
                       ], 8, Rd), [
-                        [xe, u.dest]
+                        [xe, r.dest]
                       ])
                     ])
                   ]),
-                  n("div", Nd, [
-                    n("label", null, [
-                      d[74] || (d[74] = A("Внешний порт", -1)),
-                      F(n("input", {
-                        "onUpdate:modelValue": (_) => u.src_dport = _,
+                  l("div", Fd, [
+                    l("label", null, [
+                      d[80] || (d[80] = M("Внешний порт", -1)),
+                      H(l("input", {
+                        "onUpdate:modelValue": (_) => r.src_dport = _,
                         placeholder: "443 или 1000-2000"
                       }, null, 8, qd), [
-                        [re, u.src_dport]
+                        [re, r.src_dport]
                       ])
                     ]),
-                    n("label", null, [
-                      d[75] || (d[75] = A("IP устройства назначения", -1)),
-                      F(n("input", {
-                        "onUpdate:modelValue": (_) => u.dest_ip = _,
+                    l("label", null, [
+                      d[81] || (d[81] = M("IP устройства назначения", -1)),
+                      H(l("input", {
+                        "onUpdate:modelValue": (_) => r.dest_ip = _,
                         placeholder: "192.168.1.10"
-                      }, null, 8, Hd), [
-                        [re, u.dest_ip]
+                      }, null, 8, Nd), [
+                        [re, r.dest_ip]
                       ])
                     ])
                   ]),
-                  n("div", Fd, [
-                    n("label", null, [
-                      d[76] || (d[76] = A("Внутренний порт", -1)),
-                      F(n("input", {
-                        "onUpdate:modelValue": (_) => u.dest_port = _,
+                  l("div", Hd, [
+                    l("label", null, [
+                      d[82] || (d[82] = M("Внутренний порт", -1)),
+                      H(l("input", {
+                        "onUpdate:modelValue": (_) => r.dest_port = _,
                         placeholder: "Пусто — внешний порт"
                       }, null, 8, Ld), [
-                        [re, u.dest_port]
+                        [re, r.dest_port]
                       ])
                     ]),
-                    n("label", null, [
-                      d[78] || (d[78] = A("Протокол", -1)),
-                      F(n("select", {
-                        "onUpdate:modelValue": (_) => u.proto = _
-                      }, [...d[77] || (d[77] = [
-                        n("option", { value: ["tcp", "udp"] }, "TCP и UDP", -1),
-                        n("option", { value: "tcp" }, "TCP", -1),
-                        n("option", { value: "udp" }, "UDP", -1)
+                    l("label", null, [
+                      d[84] || (d[84] = M("Протокол", -1)),
+                      H(l("select", {
+                        "onUpdate:modelValue": (_) => r.proto = _
+                      }, [...d[83] || (d[83] = [
+                        l("option", { value: ["tcp", "udp"] }, "TCP и UDP", -1),
+                        l("option", { value: "tcp" }, "TCP", -1),
+                        l("option", { value: "udp" }, "UDP", -1)
                       ])], 8, jd), [
-                        [xe, u.proto]
+                        [xe, r.proto]
                       ])
                     ])
                   ]),
-                  n("label", null, [
-                    d[79] || (d[79] = A("Разрешённый IP источника", -1)),
-                    F(n("input", {
-                      "onUpdate:modelValue": (_) => u.src_ip = _,
+                  l("label", null, [
+                    d[85] || (d[85] = M("Разрешённый IP источника", -1)),
+                    H(l("input", {
+                      "onUpdate:modelValue": (_) => r.src_ip = _,
                       placeholder: "Пусто — любой адрес; можно CIDR"
                     }, null, 8, Wd), [
-                      [re, u.src_ip]
+                      [re, r.src_ip]
                     ])
                   ]),
-                  n("div", Bd, [
-                    n("label", null, [
-                      d[81] || (d[81] = A("Состояние", -1)),
-                      F(n("select", {
-                        "onUpdate:modelValue": (_) => u.enabled = _
-                      }, [...d[80] || (d[80] = [
-                        n("option", { value: void 0 }, "Включено по умолчанию", -1),
-                        n("option", { value: "1" }, "Включено", -1),
-                        n("option", { value: "0" }, "Выключено", -1)
+                  l("div", Bd, [
+                    l("label", null, [
+                      d[87] || (d[87] = M("Состояние", -1)),
+                      H(l("select", {
+                        "onUpdate:modelValue": (_) => r.enabled = _
+                      }, [...d[86] || (d[86] = [
+                        l("option", { value: void 0 }, "Включено по умолчанию", -1),
+                        l("option", { value: "1" }, "Включено", -1),
+                        l("option", { value: "0" }, "Выключено", -1)
                       ])], 8, Kd), [
-                        [xe, u.enabled]
+                        [xe, r.enabled]
                       ])
                     ]),
-                    n("label", null, [
-                      d[83] || (d[83] = A("NAT loopback", -1)),
-                      F(n("select", {
-                        "onUpdate:modelValue": (_) => u.reflection = _
-                      }, [...d[82] || (d[82] = [
-                        n("option", { value: void 0 }, "По умолчанию", -1),
-                        n("option", { value: "1" }, "Включён", -1),
-                        n("option", { value: "0" }, "Выключен", -1)
+                    l("label", null, [
+                      d[89] || (d[89] = M("NAT loopback", -1)),
+                      H(l("select", {
+                        "onUpdate:modelValue": (_) => r.reflection = _
+                      }, [...d[88] || (d[88] = [
+                        l("option", { value: void 0 }, "По умолчанию", -1),
+                        l("option", { value: "1" }, "Включён", -1),
+                        l("option", { value: "0" }, "Выключен", -1)
                       ])], 8, Gd), [
-                        [xe, u.reflection]
+                        [xe, r.reflection]
                       ]),
-                      d[84] || (d[84] = n("small", null, "Доступ из LAN через внешний адрес.", -1))
+                      d[90] || (d[90] = l("small", null, "Доступ из LAN через внешний адрес.", -1))
                     ])
                   ])
                 ])
-              ], 40, Ed))), 128)),
-              i.value.redirectsSupported && !i.value.redirects.length ? (p(), h("p", zd, "Перенаправления не настроены.")) : V("", !0)
+              ], 40, Pd))), 128)),
+              i.value.redirectsSupported && !i.value.redirects.length ? (f(), h("p", zd, "Перенаправления не настроены.")) : x("", !0)
             ], 512), [
-              [Hl, g.value === "redirects"]
+              [hn, g.value === "redirects"]
             ])
-          ], 64)) : V("", !0),
-          n("div", Jd, [
-            n("button", {
+          ], 64)) : x("", !0),
+          l("div", Jd, [
+            l("button", {
               class: "gw-primary",
-              disabled: r.value || e.mode === "dns" && !s.value.dns.length
+              disabled: u.value || e.mode === "dns" && !s.value.dns.length
             }, "Проверить изменения", 8, Yd),
-            n("button", {
+            l("button", {
               type: "button",
-              disabled: r.value,
-              onClick: d[19] || (d[19] = (u) => o("close"))
+              disabled: u.value,
+              onClick: d[22] || (d[22] = (r) => o("close"))
             }, "Закрыть", 8, Xd)
           ])
-        ], 32)) : r.value ? (p(), h("p", Qd, "Получаем конфигурацию…")) : V("", !0)
+        ], 32)) : u.value ? (f(), h("p", Zd, "Получаем конфигурацию…")) : x("", !0)
       ]),
       _: 1
     }, 8, ["title", "busy"]));
   }
-}), Zd = { class: "gw-password" }, ec = ["type"], tc = ["aria-label", "title", "aria-pressed"], vt = /* @__PURE__ */ He({
+}), Qd = { class: "gw-password" }, ec = ["type"], tc = ["aria-label", "title", "aria-pressed"], vt = /* @__PURE__ */ Me({
   inheritAttrs: !1,
   __name: "PasswordInput",
   props: {
@@ -5572,29 +5651,29 @@ const uu = [
   },
   emits: ["update:modelValue"],
   setup(e) {
-    const t = Za(e, "modelValue"), l = /* @__PURE__ */ H(!1);
-    return Xe(t, (o) => {
-      o || (l.value = !1);
-    }), (o, s) => (p(), h("span", Zd, [
-      F(n("input", li(o.$attrs, {
+    const t = Xa(e, "modelValue"), n = /* @__PURE__ */ D(!1);
+    return We(t, (o) => {
+      o || (n.value = !1);
+    }), (o, s) => (f(), h("span", Qd, [
+      H(l("input", si(o.$attrs, {
         "onUpdate:modelValue": s[0] || (s[0] = (i) => t.value = i),
-        type: l.value ? "text" : "password",
+        type: n.value ? "text" : "password",
         spellcheck: "false",
         autocapitalize: "off"
       }), null, 16, ec), [
-        [Zr, t.value]
+        [Xr, t.value]
       ]),
-      n("button", {
+      l("button", {
         type: "button",
         class: "gw-password-eye",
-        "aria-label": l.value ? "Скрыть введённое" : "Показать введённое",
-        title: l.value ? "Скрыть введённое" : "Показать введённое",
-        "aria-pressed": l.value,
-        onClick: s[1] || (s[1] = Ze((i) => l.value = !l.value, ["prevent"]))
+        "aria-label": n.value ? "Скрыть введённое" : "Показать введённое",
+        title: n.value ? "Скрыть введённое" : "Показать введённое",
+        "aria-pressed": n.value,
+        onClick: s[1] || (s[1] = tt((i) => n.value = !n.value, ["prevent"]))
       }, "👁", 8, tc)
     ]));
   }
-}), lc = { class: "gw-network" }, nc = { class: "gw-section-header" }, sc = { class: "gw-actions" }, oc = ["disabled"], ic = ["disabled"], ac = {
+}), nc = { class: "gw-network" }, lc = { class: "gw-section-header" }, sc = { class: "gw-actions" }, oc = ["disabled"], ic = ["disabled"], ac = {
   key: 0,
   class: "gw-error",
   role: "alert"
@@ -5607,14 +5686,14 @@ const uu = [
 }, $c = {
   key: 3,
   class: "gw-hint"
-}, Cc = { class: "gw-two" }, xc = ["readonly"], Sc = { key: 0 }, Vc = ["value"], Tc = { class: "gw-two" }, Ec = { class: "gw-two" }, Uc = { class: "gw-network-extra" }, Pc = { class: "gw-two" }, Ac = { class: "gw-check" }, Ic = { class: "gw-check" }, Mc = {
+}, Cc = { class: "gw-two" }, xc = ["readonly"], Sc = { key: 0 }, Tc = ["value"], Vc = { class: "gw-two" }, Pc = { class: "gw-two" }, Uc = { class: "gw-network-extra" }, Ac = { class: "gw-two" }, Ec = { class: "gw-check" }, Ic = { class: "gw-check" }, Mc = {
   key: 0,
   class: "gw-check"
-}, Oc = { key: 4 }, Rc = { class: "gw-section-header" }, Dc = { class: "gw-section-header" }, Nc = ["onClick"], qc = ["onUpdate:modelValue"], Hc = { class: "gw-two" }, Fc = ["onUpdate:modelValue"], Lc = ["onUpdate:modelValue"], jc = ["onUpdate:modelValue"], Wc = { class: "gw-two" }, Bc = ["onUpdate:modelValue"], Kc = { class: "gw-check" }, Gc = ["onUpdate:modelValue"], zc = {
+}, Oc = { key: 4 }, Rc = { class: "gw-section-header" }, Dc = { class: "gw-section-header" }, Fc = ["onClick"], qc = ["onUpdate:modelValue"], Nc = { class: "gw-two" }, Hc = ["onUpdate:modelValue"], Lc = ["onUpdate:modelValue"], jc = ["onUpdate:modelValue"], Wc = { class: "gw-two" }, Bc = ["onUpdate:modelValue"], Kc = { class: "gw-check" }, Gc = ["onUpdate:modelValue"], zc = {
   key: 5,
   class: "gw-error",
   role: "alert"
-}, Jc = { class: "gw-actions" }, Yc = ["disabled"], Xc = ["disabled"], Qc = ["disabled"], Zc = { class: "gw-section-header" }, ef = ["onClick"], tf = { class: "gw-two" }, lf = ["onUpdate:modelValue"], nf = ["onUpdate:modelValue"], sf = ["value"], of = { class: "gw-two" }, af = ["onUpdate:modelValue"], rf = ["onUpdate:modelValue"], uf = { class: "gw-two" }, df = ["onUpdate:modelValue"], cf = ["onUpdate:modelValue"], ff = { class: "gw-check" }, pf = ["onUpdate:modelValue"], vf = {
+}, Jc = { class: "gw-actions" }, Yc = ["disabled"], Xc = ["disabled"], Zc = ["disabled"], Qc = { class: "gw-section-header" }, ef = ["onClick"], tf = { class: "gw-two" }, nf = ["onUpdate:modelValue"], lf = ["onUpdate:modelValue"], sf = ["value"], of = { class: "gw-two" }, af = ["onUpdate:modelValue"], rf = ["onUpdate:modelValue"], uf = { class: "gw-two" }, df = ["onUpdate:modelValue"], cf = ["onUpdate:modelValue"], ff = { class: "gw-check" }, pf = ["onUpdate:modelValue"], vf = {
   key: 0,
   class: "gw-hint"
 }, gf = {
@@ -5628,7 +5707,7 @@ const uu = [
   key: 1,
   class: "gw-error",
   role: "alert"
-}, kf = { class: "gw-actions" }, $f = ["disabled"], Cf = ["disabled"], xf = /* @__PURE__ */ He({
+}, kf = { class: "gw-actions" }, $f = ["disabled"], Cf = ["disabled"], xf = /* @__PURE__ */ Me({
   __name: "NetworkEditor",
   props: {
     node: {},
@@ -5636,40 +5715,40 @@ const uu = [
   },
   emits: ["changed"],
   setup(e, { emit: t }) {
-    const l = e, o = t, s = /* @__PURE__ */ H({ interfaces: [], routes: [], devices: [] }), i = /* @__PURE__ */ H(!1), a = /* @__PURE__ */ H(!1), r = /* @__PURE__ */ H(""), c = /* @__PURE__ */ H(null), g = /* @__PURE__ */ H(null), m = /* @__PURE__ */ H(""), y = /* @__PURE__ */ H(null), T = /* @__PURE__ */ H(!1), E = /* @__PURE__ */ H([]), B = _e(() => [.../* @__PURE__ */ new Set([...s.value.devices || [], ...y.value?.device ? [y.value.device] : []])]);
-    let I = !0;
-    const Q = () => "/api/gateways/" + encodeURIComponent(l.node.id), X = (d, u, v = "POST") => l.bridge.request(Q() + d, { method: v, headers: { "Content-Type": "application/json" }, body: JSON.stringify(u) }), Z = (d) => Array.isArray(d) ? d.join(", ") : d || "", le = (d) => d.split(/[\s,]+/).filter(Boolean), j = (d) => d === "" || d == null ? null : String(d);
-    function te(d) {
-      return l.node.monitor.interfaces?.find((u) => u.name === d.name) || d;
+    const n = e, o = t, s = /* @__PURE__ */ D({ interfaces: [], routes: [], devices: [] }), i = /* @__PURE__ */ D(!1), a = /* @__PURE__ */ D(!1), u = /* @__PURE__ */ D(""), c = /* @__PURE__ */ D(null), g = /* @__PURE__ */ D(null), m = /* @__PURE__ */ D(""), w = /* @__PURE__ */ D(null), A = /* @__PURE__ */ D(!1), V = /* @__PURE__ */ D([]), L = he(() => [.../* @__PURE__ */ new Set([...s.value.devices || [], ...w.value?.device ? [w.value.device] : []])]);
+    let R = !0;
+    const ne = () => "/api/gateways/" + encodeURIComponent(n.node.id), X = (d, r, v = "POST") => n.bridge.request(ne() + d, { method: v, headers: { "Content-Type": "application/json" }, body: JSON.stringify(r) }), Z = (d) => Array.isArray(d) ? d.join(", ") : d || "", ee = (d) => d.split(/[\s,]+/).filter(Boolean), j = (d) => d === "" || d == null ? null : String(d);
+    function le(d) {
+      return n.node.monitor.interfaces?.find((r) => r.name === d.name) || d;
     }
-    function O(d) {
-      return d.ipaddr === l.node.host || d.runtime_addresses?.includes(l.node.host);
+    function Q(d) {
+      return d.ipaddr === n.node.host || d.runtime_addresses?.includes(n.node.host);
     }
-    async function S() {
-      i.value = !0, r.value = "";
+    async function I() {
+      i.value = !0, u.value = "";
       try {
-        const d = await l.bridge.request(Q() + "/network");
-        I && (s.value = d);
+        const d = await n.bridge.request(ne() + "/network");
+        R && (s.value = d);
       } catch (d) {
-        I && (r.value = d.message);
+        R && (u.value = d.message);
       } finally {
-        I && (i.value = !1);
+        R && (i.value = !1);
       }
     }
-    async function k(d) {
+    async function E(d) {
       if (!a.value) {
-        a.value = !0, r.value = "";
+        a.value = !0, u.value = "";
         try {
           await d();
-        } catch (u) {
-          r.value = u.message;
+        } catch (r) {
+          u.value = r.message;
         } finally {
           a.value = !1;
         }
       }
     }
-    function R(d) {
-      r.value = "", y.value = {
+    function P(d) {
+      u.value = "", w.value = {
         existing: !!d,
         name: d?.name || "",
         proto: d?.proto || "dhcp",
@@ -5690,43 +5769,43 @@ const uu = [
         has_private_key: !!d?.has_private_key,
         addresses: Z(d?.addresses),
         listen_port: d?.listen_port || "",
-        peers: (d?.peers || []).map((u) => ({ ...u, allowed_ips: Z(u.allowed_ips), preshared_key: "", route_allowed_ips: u.route_allowed_ips === "1" }))
+        peers: (d?.peers || []).map((r) => ({ ...r, allowed_ips: Z(r.allowed_ips), preshared_key: "", route_allowed_ips: r.route_allowed_ips === "1" }))
       };
     }
-    async function z(d, u) {
-      await k(async () => {
-        const v = await X("/network/plan", { action: d, data: { ...u, config_hash: s.value.config_hash } });
-        y.value = null, T.value = !1, c.value = v;
+    async function S(d, r) {
+      await E(async () => {
+        const v = await X("/network/plan", { action: d, data: { ...r, config_hash: s.value.config_hash } });
+        w.value = null, A.value = !1, c.value = v;
       });
     }
-    async function pe() {
-      const d = y.value, u = {
+    async function C() {
+      const d = w.value, r = {
         proto: d.proto,
         device: j(d.device),
-        dns: le(d.dns),
+        dns: ee(d.dns),
         metric: j(d.metric),
         mtu: j(d.mtu),
         auto: d.auto ? "1" : "0",
         defaultroute: d.defaultroute ? "1" : "0",
         peerdns: d.peerdns ? "1" : "0"
       };
-      d.proto === "static" && Object.assign(u, { ipaddr: d.ipaddr, netmask: d.netmask, gateway: j(d.gateway) }), d.proto === "pppoe" && (u.username = d.username, d.password && (u.password = d.password));
-      const v = { interface: d.name, settings: u };
-      d.proto === "wireguard" && (u.addresses = le(d.addresses), u.listen_port = j(d.listen_port), d.private_key && (u.private_key = d.private_key), v.peers = d.peers.map((_) => {
-        const K = {
+      d.proto === "static" && Object.assign(r, { ipaddr: d.ipaddr, netmask: d.netmask, gateway: j(d.gateway) }), d.proto === "pppoe" && (r.username = d.username, d.password && (r.password = d.password));
+      const v = { interface: d.name, settings: r };
+      d.proto === "wireguard" && (r.addresses = ee(d.addresses), r.listen_port = j(d.listen_port), d.private_key && (r.private_key = d.private_key), v.peers = d.peers.map((_) => {
+        const J = {
           public_key: _.public_key,
           endpoint_host: j(_.endpoint_host),
           endpoint_port: j(_.endpoint_port),
-          allowed_ips: le(_.allowed_ips || ""),
+          allowed_ips: ee(_.allowed_ips || ""),
           persistent_keepalive: j(_.persistent_keepalive),
           route_allowed_ips: _.route_allowed_ips ? "1" : "0",
           description: j(_.description)
         };
-        return _.id && (K.id = _.id), _.preshared_key && (K.preshared_key = _.preshared_key), K;
-      })), await z("edit", v);
+        return _.id && (J.id = _.id), _.preshared_key && (J.preshared_key = _.preshared_key), J;
+      })), await S("edit", v);
     }
-    function he() {
-      r.value = "", E.value = s.value.routes.map((d) => ({
+    function ie() {
+      u.value = "", V.value = s.value.routes.map((d) => ({
         interface: d.interface || "",
         target: d.target || "",
         netmask: d.netmask || "255.255.255.255",
@@ -5734,13 +5813,13 @@ const uu = [
         metric: d.metric || "",
         table: d.table || "",
         onlink: d.onlink === "1"
-      })), T.value = !0;
+      })), A.value = !0;
     }
-    function Pe() {
-      E.value.push({ interface: s.value.interfaces[0]?.name || "", target: "", netmask: "", gateway: "", metric: "", table: "", onlink: !1 });
+    function ke() {
+      V.value.push({ interface: s.value.interfaces[0]?.name || "", target: "", netmask: "", gateway: "", metric: "", table: "", onlink: !1 });
     }
-    async function Me() {
-      await z("routes", { routes: E.value.map((d) => ({
+    async function ae() {
+      await S("routes", { routes: V.value.map((d) => ({
         interface: d.interface,
         target: d.target,
         netmask: j(d.netmask),
@@ -5750,397 +5829,397 @@ const uu = [
         onlink: d.onlink ? "1" : "0"
       })) });
     }
-    async function ne() {
-      await k(async () => {
-        const d = c.value, u = await X("/router-operations", { plan_token: d.plan_token, confirmed: !0 });
-        c.value = null, l.bridge.task({
-          taskId: u.task_id,
+    async function z() {
+      await E(async () => {
+        const d = c.value, r = await X("/router-operations", { plan_token: d.plan_token, confirmed: !0 });
+        c.value = null, n.bridge.task({
+          taskId: r.task_id,
           title: d.title + (d.interface ? " " + d.interface : ""),
           cancellable: !1,
           onDone: async () => {
-            await S(), o("changed");
+            await I(), o("changed");
           }
         });
       });
     }
     function U() {
       const d = c.value?.plan_token;
-      c.value = null, r.value = "", d && X("/operation-plans/" + encodeURIComponent(d), {}, "DELETE").catch((u) => {
-        r.value = u.message;
+      c.value = null, u.value = "", d && X("/operation-plans/" + encodeURIComponent(d), {}, "DELETE").catch((r) => {
+        u.value = r.message;
       });
     }
-    return ct(() => {
-      S();
-    }), qt(() => {
-      I = !1, y.value = null;
-    }), (d, u) => (p(), h(N, null, [
-      n("section", lc, [
-        n("header", nc, [
-          u[26] || (u[26] = n("div", null, [
-            n("h3", null, "Подключения"),
-            n("p", { class: "gw-hint" }, "LAN, WAN и туннели · настройки и состояние")
+    return ot(() => {
+      I();
+    }), yt(() => {
+      R = !1, w.value = null;
+    }), (d, r) => (f(), h(q, null, [
+      l("section", nc, [
+        l("header", lc, [
+          r[26] || (r[26] = l("div", null, [
+            l("h3", null, "Подключения"),
+            l("p", { class: "gw-hint" }, "LAN, WAN и туннели · настройки и состояние")
           ], -1)),
-          n("div", sc, [
-            n("button", {
+          l("div", sc, [
+            l("button", {
               disabled: i.value || a.value,
-              onClick: S
+              onClick: I
             }, "Обновить", 8, oc),
-            n("button", {
+            l("button", {
               disabled: i.value || a.value || !s.value.config_hash,
-              onClick: u[0] || (u[0] = (v) => R())
+              onClick: r[0] || (r[0] = (v) => P())
             }, "Добавить подключение", 8, ic)
           ])
         ]),
-        r.value && !y.value && !T.value && !c.value ? (p(), h("p", ac, w(r.value), 1)) : V("", !0),
-        n("div", {
+        u.value && !w.value && !A.value && !c.value ? (f(), h("p", ac, b(u.value), 1)) : x("", !0),
+        l("div", {
           class: "gw-interface-list",
           "aria-busy": i.value
         }, [
-          (p(!0), h(N, null, se(s.value.interfaces, (v) => (p(), h("article", {
+          (f(!0), h(q, null, oe(s.value.interfaces, (v) => (f(), h("article", {
             key: v.name,
             class: "gw-interface"
           }, [
-            n("div", uc, [
-              n("h4", null, w(v.name), 1),
-              O(v) ? (p(), h("small", dc, "Доступ к панели")) : V("", !0)
+            l("div", uc, [
+              l("h4", null, b(v.name), 1),
+              Q(v) ? (f(), h("small", dc, "Доступ к панели")) : x("", !0)
             ]),
-            n("div", cc, [
-              n("span", null, w(v.proto) + " · " + w(v.device || v.runtime_device || "—"), 1),
-              n("strong", null, w(te(v).addresses?.join(", ") || v.runtime_addresses?.join(", ") || v.ipaddr || Z(v.addresses) || "Без адреса"), 1),
-              v.gateway ? (p(), h("small", fc, "Шлюз " + w(v.gateway), 1)) : V("", !0)
+            l("div", cc, [
+              l("span", null, b(v.proto) + " · " + b(v.device || v.runtime_device || "—"), 1),
+              l("strong", null, b(le(v).addresses?.join(", ") || v.runtime_addresses?.join(", ") || v.ipaddr || Z(v.addresses) || "Без адреса"), 1),
+              v.gateway ? (f(), h("small", fc, "Шлюз " + b(v.gateway), 1)) : x("", !0)
             ]),
-            n("div", pc, [
-              n("span", {
-                class: Ue(["gw-status", te(v).up ? "good" : "warn"])
-              }, w(te(v).up ? "Подключён" : te(v).pending ? "Подключается" : "Отключён"), 3)
+            l("div", pc, [
+              l("span", {
+                class: Te(["gw-status", le(v).up ? "good" : "warn"])
+              }, b(le(v).up ? "Подключён" : le(v).pending ? "Подключается" : "Отключён"), 3)
             ]),
-            n("div", vc, [
-              n("button", {
+            l("div", vc, [
+              l("button", {
                 disabled: a.value,
-                onClick: (_) => R(v)
+                onClick: (_) => P(v)
               }, "Настроить", 8, gc),
-              n("button", {
+              l("button", {
                 disabled: a.value,
                 onClick: (_) => {
                   m.value = v.name, g.value = "dhcp";
                 }
               }, "DHCP", 8, hc),
-              te(v).up ? (p(), h("button", {
+              le(v).up ? (f(), h("button", {
                 key: 0,
                 disabled: a.value,
-                onClick: (_) => z("reconnect", { interface: v.name })
-              }, "Переподключить", 8, mc)) : V("", !0),
-              n("button", {
-                disabled: a.value || O(v) && te(v).up,
-                title: O(v) ? "Интерфейс доступа изменяется через форму с откатом" : "",
-                onClick: (_) => z(te(v).up ? "down" : "up", { interface: v.name })
-              }, w(te(v).up ? "Отключить" : "Подключить"), 9, bc)
+                onClick: (_) => S("reconnect", { interface: v.name })
+              }, "Переподключить", 8, mc)) : x("", !0),
+              l("button", {
+                disabled: a.value || Q(v) && le(v).up,
+                title: Q(v) ? "Интерфейс доступа изменяется через форму с откатом" : "",
+                onClick: (_) => S(le(v).up ? "down" : "up", { interface: v.name })
+              }, b(le(v).up ? "Отключить" : "Подключить"), 9, bc)
             ])
           ]))), 128))
         ], 8, rc),
-        s.value.interfaces.length ? V("", !0) : (p(), h("p", yc, w(i.value ? "Получаем состояние сети…" : "Интерфейсы не найдены."), 1)),
-        n("header", wc, [
-          u[27] || (u[27] = n("div", null, [
-            n("h3", null, "Статические маршруты IPv4"),
-            n("p", { class: "gw-hint" }, "Автоматические маршруты создаются протоколами подключений")
+        s.value.interfaces.length ? x("", !0) : (f(), h("p", yc, b(i.value ? "Получаем состояние сети…" : "Интерфейсы не найдены."), 1)),
+        l("header", wc, [
+          r[27] || (r[27] = l("div", null, [
+            l("h3", null, "Статические маршруты IPv4"),
+            l("p", { class: "gw-hint" }, "Автоматические маршруты создаются протоколами подключений")
           ], -1)),
-          n("button", {
+          l("button", {
             disabled: a.value || i.value || !s.value.config_hash,
-            onClick: he
+            onClick: ie
           }, "Настроить маршруты", 8, _c)
         ]),
-        s.value.routes.length ? (p(), h("div", kc, [
-          n("table", null, [
-            u[28] || (u[28] = n("thead", null, [
-              n("tr", null, [
-                n("th", null, "Сеть"),
-                n("th", null, "Через шлюз"),
-                n("th", null, "Интерфейс"),
-                n("th", null, "Метрика")
+        s.value.routes.length ? (f(), h("div", kc, [
+          l("table", null, [
+            r[28] || (r[28] = l("thead", null, [
+              l("tr", null, [
+                l("th", null, "Сеть"),
+                l("th", null, "Через шлюз"),
+                l("th", null, "Интерфейс"),
+                l("th", null, "Метрика")
               ])
             ], -1)),
-            n("tbody", null, [
-              (p(!0), h(N, null, se(s.value.routes, (v) => (p(), h("tr", {
+            l("tbody", null, [
+              (f(!0), h(q, null, oe(s.value.routes, (v) => (f(), h("tr", {
                 key: v.id
               }, [
-                n("td", null, [
-                  A(w(v.target), 1),
-                  n("small", null, w(v.netmask), 1)
+                l("td", null, [
+                  M(b(v.target), 1),
+                  l("small", null, b(v.netmask), 1)
                 ]),
-                n("td", null, w(v.gateway || "Напрямую"), 1),
-                n("td", null, w(v.interface), 1),
-                n("td", null, w(v.metric || "0"), 1)
+                l("td", null, b(v.gateway || "Напрямую"), 1),
+                l("td", null, b(v.interface), 1),
+                l("td", null, b(v.metric || "0"), 1)
               ]))), 128))
             ])
           ])
-        ])) : (p(), h("p", $c, "Статические маршруты не заданы."))
+        ])) : (f(), h("p", $c, "Статические маршруты не заданы."))
       ]),
-      g.value ? (p(), ge(ci, {
+      g.value ? (f(), me(ps, {
         key: 0,
         node: e.node,
         bridge: e.bridge,
         mode: g.value,
         iface: g.value === "dhcp" ? m.value : void 0,
-        onClose: u[1] || (u[1] = (v) => g.value = null),
-        onChanged: u[2] || (u[2] = (v) => {
-          S(), o("changed");
+        onClose: r[1] || (r[1] = (v) => g.value = null),
+        onChanged: r[2] || (r[2] = (v) => {
+          I(), o("changed");
         })
-      }, null, 8, ["node", "bridge", "mode", "iface"])) : V("", !0),
-      y.value ? (p(), ge(qe, {
+      }, null, 8, ["node", "bridge", "mode", "iface"])) : x("", !0),
+      w.value ? (f(), me(Re, {
         key: 1,
-        title: y.value.existing ? "Настройка " + y.value.name : "Новое подключение",
+        title: w.value.existing ? "Настройка " + w.value.name : "Новое подключение",
         wide: !0,
         busy: a.value,
-        onClose: u[23] || (u[23] = (v) => {
-          y.value = null, r.value = "";
+        onClose: r[23] || (r[23] = (v) => {
+          w.value = null, u.value = "";
         })
       }, {
-        default: Re(() => [
-          n("form", {
+        default: Ie(() => [
+          l("form", {
             class: "gw-form gw-network-form",
-            onSubmit: Ze(pe, ["prevent"])
+            onSubmit: tt(C, ["prevent"])
           }, [
-            n("div", Cc, [
-              n("label", null, [
-                u[29] || (u[29] = A("Имя интерфейса", -1)),
-                F(n("input", {
-                  "onUpdate:modelValue": u[3] || (u[3] = (v) => y.value.name = v),
+            l("div", Cc, [
+              l("label", null, [
+                r[29] || (r[29] = M("Имя интерфейса", -1)),
+                H(l("input", {
+                  "onUpdate:modelValue": r[3] || (r[3] = (v) => w.value.name = v),
                   required: "",
                   pattern: "[A-Za-z][A-Za-z0-9_]{0,30}",
-                  readonly: y.value.existing,
+                  readonly: w.value.existing,
                   placeholder: "wan, lan, wg0"
                 }, null, 8, xc), [
-                  [re, y.value.name]
+                  [re, w.value.name]
                 ])
               ]),
-              n("label", null, [
-                u[31] || (u[31] = A("Протокол", -1)),
-                F(n("select", {
-                  "onUpdate:modelValue": u[4] || (u[4] = (v) => y.value.proto = v)
-                }, [...u[30] || (u[30] = [
-                  n("option", { value: "dhcp" }, "DHCP-клиент", -1),
-                  n("option", { value: "static" }, "Статический адрес", -1),
-                  n("option", { value: "pppoe" }, "PPPoE", -1),
-                  n("option", { value: "wireguard" }, "WireGuard", -1),
-                  n("option", { value: "none" }, "Без протокола", -1)
+              l("label", null, [
+                r[31] || (r[31] = M("Протокол", -1)),
+                H(l("select", {
+                  "onUpdate:modelValue": r[4] || (r[4] = (v) => w.value.proto = v)
+                }, [...r[30] || (r[30] = [
+                  l("option", { value: "dhcp" }, "DHCP-клиент", -1),
+                  l("option", { value: "static" }, "Статический адрес", -1),
+                  l("option", { value: "pppoe" }, "PPPoE", -1),
+                  l("option", { value: "wireguard" }, "WireGuard", -1),
+                  l("option", { value: "none" }, "Без протокола", -1)
                 ])], 512), [
-                  [xe, y.value.proto]
+                  [xe, w.value.proto]
                 ])
               ])
             ]),
-            y.value.proto !== "wireguard" ? (p(), h("label", Sc, [
-              u[33] || (u[33] = A("Сетевое устройство", -1)),
-              F(n("select", {
-                "onUpdate:modelValue": u[5] || (u[5] = (v) => y.value.device = v)
+            w.value.proto !== "wireguard" ? (f(), h("label", Sc, [
+              r[33] || (r[33] = M("Сетевое устройство", -1)),
+              H(l("select", {
+                "onUpdate:modelValue": r[5] || (r[5] = (v) => w.value.device = v)
               }, [
-                u[32] || (u[32] = n("option", { value: "" }, "Автоматически", -1)),
-                (p(!0), h(N, null, se(B.value, (v) => (p(), h("option", {
+                r[32] || (r[32] = l("option", { value: "" }, "Автоматически", -1)),
+                (f(!0), h(q, null, oe(L.value, (v) => (f(), h("option", {
                   key: v,
                   value: v
-                }, w(v), 9, Vc))), 128))
+                }, b(v), 9, Tc))), 128))
               ], 512), [
-                [xe, y.value.device]
+                [xe, w.value.device]
               ])
-            ])) : V("", !0),
-            y.value.proto === "static" ? (p(), h(N, { key: 1 }, [
-              n("div", Tc, [
-                n("label", null, [
-                  u[34] || (u[34] = A("IPv4-адрес", -1)),
-                  F(n("input", {
-                    "onUpdate:modelValue": u[6] || (u[6] = (v) => y.value.ipaddr = v),
+            ])) : x("", !0),
+            w.value.proto === "static" ? (f(), h(q, { key: 1 }, [
+              l("div", Vc, [
+                l("label", null, [
+                  r[34] || (r[34] = M("IPv4-адрес", -1)),
+                  H(l("input", {
+                    "onUpdate:modelValue": r[6] || (r[6] = (v) => w.value.ipaddr = v),
                     required: "",
                     placeholder: "192.168.1.2"
                   }, null, 512), [
-                    [re, y.value.ipaddr]
+                    [re, w.value.ipaddr]
                   ])
                 ]),
-                n("label", null, [
-                  u[35] || (u[35] = A("Маска подсети", -1)),
-                  F(n("input", {
-                    "onUpdate:modelValue": u[7] || (u[7] = (v) => y.value.netmask = v),
+                l("label", null, [
+                  r[35] || (r[35] = M("Маска подсети", -1)),
+                  H(l("input", {
+                    "onUpdate:modelValue": r[7] || (r[7] = (v) => w.value.netmask = v),
                     required: "",
                     placeholder: "255.255.255.0"
                   }, null, 512), [
-                    [re, y.value.netmask]
+                    [re, w.value.netmask]
                   ])
                 ])
               ]),
-              n("label", null, [
-                u[36] || (u[36] = A("IPv4-шлюз", -1)),
-                F(n("input", {
-                  "onUpdate:modelValue": u[8] || (u[8] = (v) => y.value.gateway = v),
+              l("label", null, [
+                r[36] || (r[36] = M("IPv4-шлюз", -1)),
+                H(l("input", {
+                  "onUpdate:modelValue": r[8] || (r[8] = (v) => w.value.gateway = v),
                   placeholder: "192.168.1.1"
                 }, null, 512), [
-                  [re, y.value.gateway]
+                  [re, w.value.gateway]
                 ])
               ])
-            ], 64)) : V("", !0),
-            y.value.proto === "pppoe" ? (p(), h(N, { key: 2 }, [
-              n("label", null, [
-                u[37] || (u[37] = A("Логин PPPoE", -1)),
-                F(n("input", {
-                  "onUpdate:modelValue": u[9] || (u[9] = (v) => y.value.username = v),
+            ], 64)) : x("", !0),
+            w.value.proto === "pppoe" ? (f(), h(q, { key: 2 }, [
+              l("label", null, [
+                r[37] || (r[37] = M("Логин PPPoE", -1)),
+                H(l("input", {
+                  "onUpdate:modelValue": r[9] || (r[9] = (v) => w.value.username = v),
                   required: "",
                   autocomplete: "off"
                 }, null, 512), [
-                  [re, y.value.username]
+                  [re, w.value.username]
                 ])
               ]),
-              n("label", null, [
-                u[38] || (u[38] = A("Пароль PPPoE", -1)),
-                Ee(vt, {
-                  modelValue: y.value.password,
-                  "onUpdate:modelValue": u[10] || (u[10] = (v) => y.value.password = v),
+              l("label", null, [
+                r[38] || (r[38] = M("Пароль PPPoE", -1)),
+                Ae(vt, {
+                  modelValue: w.value.password,
+                  "onUpdate:modelValue": r[10] || (r[10] = (v) => w.value.password = v),
                   autocomplete: "off",
-                  required: !y.value.has_password,
-                  placeholder: y.value.has_password ? "Пустое поле сохраняет текущий пароль" : ""
+                  required: !w.value.has_password,
+                  placeholder: w.value.has_password ? "Пустое поле сохраняет текущий пароль" : ""
                 }, null, 8, ["modelValue", "required", "placeholder"])
               ])
-            ], 64)) : V("", !0),
-            y.value.proto === "wireguard" ? (p(), h(N, { key: 3 }, [
-              n("label", null, [
-                u[39] || (u[39] = A("Приватный ключ WireGuard", -1)),
-                Ee(vt, {
-                  modelValue: y.value.private_key,
-                  "onUpdate:modelValue": u[11] || (u[11] = (v) => y.value.private_key = v),
+            ], 64)) : x("", !0),
+            w.value.proto === "wireguard" ? (f(), h(q, { key: 3 }, [
+              l("label", null, [
+                r[39] || (r[39] = M("Приватный ключ WireGuard", -1)),
+                Ae(vt, {
+                  modelValue: w.value.private_key,
+                  "onUpdate:modelValue": r[11] || (r[11] = (v) => w.value.private_key = v),
                   autocomplete: "off",
-                  required: !y.value.has_private_key,
-                  placeholder: y.value.has_private_key ? "Пустое поле сохраняет текущий ключ" : ""
+                  required: !w.value.has_private_key,
+                  placeholder: w.value.has_private_key ? "Пустое поле сохраняет текущий ключ" : ""
                 }, null, 8, ["modelValue", "required", "placeholder"])
               ]),
-              n("div", Ec, [
-                n("label", null, [
-                  u[40] || (u[40] = A("Адреса туннеля", -1)),
-                  F(n("input", {
-                    "onUpdate:modelValue": u[12] || (u[12] = (v) => y.value.addresses = v),
+              l("div", Pc, [
+                l("label", null, [
+                  r[40] || (r[40] = M("Адреса туннеля", -1)),
+                  H(l("input", {
+                    "onUpdate:modelValue": r[12] || (r[12] = (v) => w.value.addresses = v),
                     required: "",
                     placeholder: "10.10.0.2/24"
                   }, null, 512), [
-                    [re, y.value.addresses]
+                    [re, w.value.addresses]
                   ])
                 ]),
-                n("label", null, [
-                  u[41] || (u[41] = A("Порт WireGuard", -1)),
-                  F(n("input", {
-                    "onUpdate:modelValue": u[13] || (u[13] = (v) => y.value.listen_port = v),
+                l("label", null, [
+                  r[41] || (r[41] = M("Порт WireGuard", -1)),
+                  H(l("input", {
+                    "onUpdate:modelValue": r[13] || (r[13] = (v) => w.value.listen_port = v),
                     type: "number",
                     min: "1",
                     max: "65535",
                     placeholder: "Автоматически"
                   }, null, 512), [
-                    [re, y.value.listen_port]
+                    [re, w.value.listen_port]
                   ])
                 ])
               ])
-            ], 64)) : V("", !0),
-            n("label", null, [
-              u[42] || (u[42] = A("DNS-серверы", -1)),
-              F(n("input", {
-                "onUpdate:modelValue": u[14] || (u[14] = (v) => y.value.dns = v),
+            ], 64)) : x("", !0),
+            l("label", null, [
+              r[42] || (r[42] = M("DNS-серверы", -1)),
+              H(l("input", {
+                "onUpdate:modelValue": r[14] || (r[14] = (v) => w.value.dns = v),
                 placeholder: "1.1.1.1, 8.8.8.8"
               }, null, 512), [
-                [re, y.value.dns]
+                [re, w.value.dns]
               ]),
-              u[43] || (u[43] = n("small", null, "Несколько адресов разделяются пробелами или запятыми", -1))
+              r[43] || (r[43] = l("small", null, "Несколько адресов разделяются пробелами или запятыми", -1))
             ]),
-            n("details", Uc, [
-              u[49] || (u[49] = n("summary", null, "Дополнительные параметры", -1)),
-              n("div", Pc, [
-                n("label", null, [
-                  u[44] || (u[44] = A("Метрика маршрута", -1)),
-                  F(n("input", {
-                    "onUpdate:modelValue": u[15] || (u[15] = (v) => y.value.metric = v),
+            l("details", Uc, [
+              r[49] || (r[49] = l("summary", null, "Дополнительные параметры", -1)),
+              l("div", Ac, [
+                l("label", null, [
+                  r[44] || (r[44] = M("Метрика маршрута", -1)),
+                  H(l("input", {
+                    "onUpdate:modelValue": r[15] || (r[15] = (v) => w.value.metric = v),
                     type: "number",
                     min: "0",
                     placeholder: "По умолчанию"
                   }, null, 512), [
-                    [re, y.value.metric]
+                    [re, w.value.metric]
                   ])
                 ]),
-                n("label", null, [
-                  u[45] || (u[45] = A("MTU", -1)),
-                  F(n("input", {
-                    "onUpdate:modelValue": u[16] || (u[16] = (v) => y.value.mtu = v),
+                l("label", null, [
+                  r[45] || (r[45] = M("MTU", -1)),
+                  H(l("input", {
+                    "onUpdate:modelValue": r[16] || (r[16] = (v) => w.value.mtu = v),
                     type: "number",
                     min: "576",
                     max: "65535",
                     placeholder: "По умолчанию"
                   }, null, 512), [
-                    [re, y.value.mtu]
+                    [re, w.value.mtu]
                   ])
                 ])
               ]),
-              n("label", Ac, [
-                F(n("input", {
-                  "onUpdate:modelValue": u[17] || (u[17] = (v) => y.value.auto = v),
+              l("label", Ec, [
+                H(l("input", {
+                  "onUpdate:modelValue": r[17] || (r[17] = (v) => w.value.auto = v),
                   type: "checkbox"
                 }, null, 512), [
-                  [We, y.value.auto]
+                  [je, w.value.auto]
                 ]),
-                u[46] || (u[46] = A(" Подключать при загрузке роутера", -1))
+                r[46] || (r[46] = M(" Подключать при загрузке роутера", -1))
               ]),
-              n("label", Ic, [
-                F(n("input", {
-                  "onUpdate:modelValue": u[18] || (u[18] = (v) => y.value.defaultroute = v),
+              l("label", Ic, [
+                H(l("input", {
+                  "onUpdate:modelValue": r[18] || (r[18] = (v) => w.value.defaultroute = v),
                   type: "checkbox"
                 }, null, 512), [
-                  [We, y.value.defaultroute]
+                  [je, w.value.defaultroute]
                 ]),
-                u[47] || (u[47] = A(" Использовать маршрут по умолчанию", -1))
+                r[47] || (r[47] = M(" Использовать маршрут по умолчанию", -1))
               ]),
-              y.value.proto === "dhcp" || y.value.proto === "pppoe" ? (p(), h("label", Mc, [
-                F(n("input", {
-                  "onUpdate:modelValue": u[19] || (u[19] = (v) => y.value.peerdns = v),
+              w.value.proto === "dhcp" || w.value.proto === "pppoe" ? (f(), h("label", Mc, [
+                H(l("input", {
+                  "onUpdate:modelValue": r[19] || (r[19] = (v) => w.value.peerdns = v),
                   type: "checkbox"
                 }, null, 512), [
-                  [We, y.value.peerdns]
+                  [je, w.value.peerdns]
                 ]),
-                u[48] || (u[48] = A(" Получать DNS от подключения", -1))
-              ])) : V("", !0)
+                r[48] || (r[48] = M(" Получать DNS от подключения", -1))
+              ])) : x("", !0)
             ]),
-            y.value.proto === "wireguard" ? (p(), h("section", Oc, [
-              n("header", Rc, [
-                u[50] || (u[50] = n("h3", null, "Пиры WireGuard", -1)),
-                n("button", {
+            w.value.proto === "wireguard" ? (f(), h("section", Oc, [
+              l("header", Rc, [
+                r[50] || (r[50] = l("h3", null, "Пиры WireGuard", -1)),
+                l("button", {
                   type: "button",
-                  onClick: u[20] || (u[20] = (v) => y.value.peers.push({ public_key: "", allowed_ips: "", endpoint_host: "", endpoint_port: "", persistent_keepalive: "", preshared_key: "", route_allowed_ips: !0 }))
+                  onClick: r[20] || (r[20] = (v) => w.value.peers.push({ public_key: "", allowed_ips: "", endpoint_host: "", endpoint_port: "", persistent_keepalive: "", preshared_key: "", route_allowed_ips: !0 }))
                 }, "Добавить пир")
               ]),
-              (p(!0), h(N, null, se(y.value.peers, (v, _) => (p(), h("article", {
+              (f(!0), h(q, null, oe(w.value.peers, (v, _) => (f(), h("article", {
                 key: v.id || _,
                 class: "gw-peer-form"
               }, [
-                n("div", Dc, [
-                  n("h4", null, "Пир " + w(Number(_) + 1), 1),
-                  n("button", {
+                l("div", Dc, [
+                  l("h4", null, "Пир " + b(Number(_) + 1), 1),
+                  l("button", {
                     type: "button",
-                    onClick: (K) => y.value.peers.splice(_, 1)
-                  }, "Удалить пир", 8, Nc)
+                    onClick: (J) => w.value.peers.splice(_, 1)
+                  }, "Удалить пир", 8, Fc)
                 ]),
-                n("label", null, [
-                  u[51] || (u[51] = A("Публичный ключ", -1)),
-                  F(n("input", {
-                    "onUpdate:modelValue": (K) => v.public_key = K,
+                l("label", null, [
+                  r[51] || (r[51] = M("Публичный ключ", -1)),
+                  H(l("input", {
+                    "onUpdate:modelValue": (J) => v.public_key = J,
                     required: "",
                     autocomplete: "off"
                   }, null, 8, qc), [
                     [re, v.public_key]
                   ])
                 ]),
-                n("div", Hc, [
-                  n("label", null, [
-                    u[52] || (u[52] = A("Endpoint", -1)),
-                    F(n("input", {
-                      "onUpdate:modelValue": (K) => v.endpoint_host = K,
+                l("div", Nc, [
+                  l("label", null, [
+                    r[52] || (r[52] = M("Endpoint", -1)),
+                    H(l("input", {
+                      "onUpdate:modelValue": (J) => v.endpoint_host = J,
                       placeholder: "vpn.example.org"
-                    }, null, 8, Fc), [
+                    }, null, 8, Hc), [
                       [re, v.endpoint_host]
                     ])
                   ]),
-                  n("label", null, [
-                    u[53] || (u[53] = A("Порт", -1)),
-                    F(n("input", {
-                      "onUpdate:modelValue": (K) => v.endpoint_port = K,
+                  l("label", null, [
+                    r[53] || (r[53] = M("Порт", -1)),
+                    H(l("input", {
+                      "onUpdate:modelValue": (J) => v.endpoint_port = J,
                       type: "number",
                       min: "1",
                       max: "65535"
@@ -6149,21 +6228,21 @@ const uu = [
                     ])
                   ])
                 ]),
-                n("label", null, [
-                  u[54] || (u[54] = A("Разрешённые сети", -1)),
-                  F(n("input", {
-                    "onUpdate:modelValue": (K) => v.allowed_ips = K,
+                l("label", null, [
+                  r[54] || (r[54] = M("Разрешённые сети", -1)),
+                  H(l("input", {
+                    "onUpdate:modelValue": (J) => v.allowed_ips = J,
                     required: "",
                     placeholder: "0.0.0.0/0, ::/0"
                   }, null, 8, jc), [
                     [re, v.allowed_ips]
                   ])
                 ]),
-                n("div", Wc, [
-                  n("label", null, [
-                    u[55] || (u[55] = A("Keepalive, секунд", -1)),
-                    F(n("input", {
-                      "onUpdate:modelValue": (K) => v.persistent_keepalive = K,
+                l("div", Wc, [
+                  l("label", null, [
+                    r[55] || (r[55] = M("Keepalive, секунд", -1)),
+                    H(l("input", {
+                      "onUpdate:modelValue": (J) => v.persistent_keepalive = J,
                       type: "number",
                       min: "0",
                       max: "65535",
@@ -6172,135 +6251,135 @@ const uu = [
                       [re, v.persistent_keepalive]
                     ])
                   ]),
-                  n("label", null, [
-                    u[56] || (u[56] = A("Общий ключ, необязательно", -1)),
-                    Ee(vt, {
+                  l("label", null, [
+                    r[56] || (r[56] = M("Общий ключ, необязательно", -1)),
+                    Ae(vt, {
                       modelValue: v.preshared_key,
-                      "onUpdate:modelValue": (K) => v.preshared_key = K,
+                      "onUpdate:modelValue": (J) => v.preshared_key = J,
                       autocomplete: "off",
                       placeholder: v.has_preshared_key ? "Пустое поле сохраняет текущий ключ" : ""
                     }, null, 8, ["modelValue", "onUpdate:modelValue", "placeholder"])
                   ])
                 ]),
-                n("label", Kc, [
-                  F(n("input", {
-                    "onUpdate:modelValue": (K) => v.route_allowed_ips = K,
+                l("label", Kc, [
+                  H(l("input", {
+                    "onUpdate:modelValue": (J) => v.route_allowed_ips = J,
                     type: "checkbox"
                   }, null, 8, Gc), [
-                    [We, v.route_allowed_ips]
+                    [je, v.route_allowed_ips]
                   ]),
-                  u[57] || (u[57] = A(" Создать маршруты для разрешённых сетей", -1))
+                  r[57] || (r[57] = M(" Создать маршруты для разрешённых сетей", -1))
                 ])
               ]))), 128))
-            ])) : V("", !0),
-            u[58] || (u[58] = n("p", { class: "gw-hint" }, "Перед применением вы увидите изменения. Если панель не подтвердит доступность, роутер восстановит прежнюю сеть.", -1)),
-            r.value ? (p(), h("p", zc, w(r.value), 1)) : V("", !0),
-            n("div", Jc, [
-              n("button", {
+            ])) : x("", !0),
+            r[58] || (r[58] = l("p", { class: "gw-hint" }, "Перед применением вы увидите изменения. Если панель не подтвердит доступность, роутер восстановит прежнюю сеть.", -1)),
+            u.value ? (f(), h("p", zc, b(u.value), 1)) : x("", !0),
+            l("div", Jc, [
+              l("button", {
                 class: "gw-primary",
                 disabled: a.value
               }, "Проверить изменения", 8, Yc),
-              n("button", {
+              l("button", {
                 type: "button",
                 disabled: a.value,
-                onClick: u[21] || (u[21] = (v) => y.value = null)
+                onClick: r[21] || (r[21] = (v) => w.value = null)
               }, "Отмена", 8, Xc),
-              y.value.existing ? (p(), h("button", {
+              w.value.existing ? (f(), h("button", {
                 key: 0,
                 type: "button",
                 disabled: a.value,
-                onClick: u[22] || (u[22] = (v) => z("delete", { interface: y.value.name }))
-              }, "Удалить интерфейс", 8, Qc)) : V("", !0)
+                onClick: r[22] || (r[22] = (v) => S("delete", { interface: w.value.name }))
+              }, "Удалить интерфейс", 8, Zc)) : x("", !0)
             ])
           ], 32)
         ]),
         _: 1
-      }, 8, ["title", "busy"])) : V("", !0),
-      T.value ? (p(), ge(qe, {
+      }, 8, ["title", "busy"])) : x("", !0),
+      A.value ? (f(), me(Re, {
         key: 2,
         title: "Статические маршруты IPv4",
         wide: !0,
         busy: a.value,
-        onClose: u[25] || (u[25] = (v) => {
-          T.value = !1, r.value = "";
+        onClose: r[25] || (r[25] = (v) => {
+          A.value = !1, u.value = "";
         })
       }, {
-        default: Re(() => [
-          n("form", {
+        default: Ie(() => [
+          l("form", {
             class: "gw-form",
-            onSubmit: Ze(Me, ["prevent"])
+            onSubmit: tt(ae, ["prevent"])
           }, [
-            (p(!0), h(N, null, se(E.value, (v, _) => (p(), h("article", {
+            (f(!0), h(q, null, oe(V.value, (v, _) => (f(), h("article", {
               key: _,
               class: "gw-route-form"
             }, [
-              n("div", Zc, [
-                n("h4", null, "Маршрут " + w(Number(_) + 1), 1),
-                n("button", {
+              l("div", Qc, [
+                l("h4", null, "Маршрут " + b(Number(_) + 1), 1),
+                l("button", {
                   type: "button",
-                  onClick: (K) => E.value.splice(_, 1)
+                  onClick: (J) => V.value.splice(_, 1)
                 }, "Удалить маршрут", 8, ef)
               ]),
-              n("div", tf, [
-                n("label", null, [
-                  u[59] || (u[59] = A("Сеть назначения", -1)),
-                  F(n("input", {
-                    "onUpdate:modelValue": (K) => v.target = K,
+              l("div", tf, [
+                l("label", null, [
+                  r[59] || (r[59] = M("Сеть назначения", -1)),
+                  H(l("input", {
+                    "onUpdate:modelValue": (J) => v.target = J,
                     required: "",
                     placeholder: "10.20.0.0/24"
-                  }, null, 8, lf), [
+                  }, null, 8, nf), [
                     [re, v.target]
                   ])
                 ]),
-                n("label", null, [
-                  u[60] || (u[60] = A("Интерфейс", -1)),
-                  F(n("select", {
-                    "onUpdate:modelValue": (K) => v.interface = K
+                l("label", null, [
+                  r[60] || (r[60] = M("Интерфейс", -1)),
+                  H(l("select", {
+                    "onUpdate:modelValue": (J) => v.interface = J
                   }, [
-                    (p(!0), h(N, null, se(s.value.interfaces, (K) => (p(), h("option", {
-                      key: K.name,
-                      value: K.name
-                    }, w(K.name), 9, sf))), 128))
-                  ], 8, nf), [
+                    (f(!0), h(q, null, oe(s.value.interfaces, (J) => (f(), h("option", {
+                      key: J.name,
+                      value: J.name
+                    }, b(J.name), 9, sf))), 128))
+                  ], 8, lf), [
                     [xe, v.interface]
                   ])
                 ])
               ]),
-              n("div", of, [
-                n("label", null, [
-                  u[61] || (u[61] = A("Через шлюз", -1)),
-                  F(n("input", {
-                    "onUpdate:modelValue": (K) => v.gateway = K,
+              l("div", of, [
+                l("label", null, [
+                  r[61] || (r[61] = M("Через шлюз", -1)),
+                  H(l("input", {
+                    "onUpdate:modelValue": (J) => v.gateway = J,
                     placeholder: "Напрямую, если пусто"
                   }, null, 8, af), [
                     [re, v.gateway]
                   ])
                 ]),
-                n("label", null, [
-                  u[62] || (u[62] = A("Маска, если в адресе нет /префикса", -1)),
-                  F(n("input", {
-                    "onUpdate:modelValue": (K) => v.netmask = K,
+                l("label", null, [
+                  r[62] || (r[62] = M("Маска, если в адресе нет /префикса", -1)),
+                  H(l("input", {
+                    "onUpdate:modelValue": (J) => v.netmask = J,
                     placeholder: "255.255.255.0"
                   }, null, 8, rf), [
                     [re, v.netmask]
                   ])
                 ])
               ]),
-              n("div", uf, [
-                n("label", null, [
-                  u[63] || (u[63] = A("Метрика", -1)),
-                  F(n("input", {
-                    "onUpdate:modelValue": (K) => v.metric = K,
+              l("div", uf, [
+                l("label", null, [
+                  r[63] || (r[63] = M("Метрика", -1)),
+                  H(l("input", {
+                    "onUpdate:modelValue": (J) => v.metric = J,
                     type: "number",
                     min: "0"
                   }, null, 8, df), [
                     [re, v.metric]
                   ])
                 ]),
-                n("label", null, [
-                  u[64] || (u[64] = A("Таблица маршрутов", -1)),
-                  F(n("input", {
-                    "onUpdate:modelValue": (K) => v.table = K,
+                l("label", null, [
+                  r[64] || (r[64] = M("Таблица маршрутов", -1)),
+                  H(l("input", {
+                    "onUpdate:modelValue": (J) => v.table = J,
                     type: "number",
                     min: "0",
                     placeholder: "Основная"
@@ -6309,89 +6388,89 @@ const uu = [
                   ])
                 ])
               ]),
-              n("label", ff, [
-                F(n("input", {
-                  "onUpdate:modelValue": (K) => v.onlink = K,
+              l("label", ff, [
+                H(l("input", {
+                  "onUpdate:modelValue": (J) => v.onlink = J,
                   type: "checkbox"
                 }, null, 8, pf), [
-                  [We, v.onlink]
+                  [je, v.onlink]
                 ]),
-                u[65] || (u[65] = A(" Шлюз доступен напрямую", -1))
+                r[65] || (r[65] = M(" Шлюз доступен напрямую", -1))
               ])
             ]))), 128)),
-            n("button", {
+            l("button", {
               type: "button",
-              onClick: Pe
+              onClick: ke
             }, "Добавить маршрут"),
-            E.value.length ? V("", !0) : (p(), h("p", vf, "Статические маршруты будут отсутствовать. Автоматические маршруты сохраняются.")),
-            r.value ? (p(), h("p", gf, w(r.value), 1)) : V("", !0),
-            n("div", hf, [
-              n("button", {
+            V.value.length ? x("", !0) : (f(), h("p", vf, "Статические маршруты будут отсутствовать. Автоматические маршруты сохраняются.")),
+            u.value ? (f(), h("p", gf, b(u.value), 1)) : x("", !0),
+            l("div", hf, [
+              l("button", {
                 class: "gw-primary",
                 disabled: a.value
               }, "Проверить изменения", 8, mf),
-              n("button", {
+              l("button", {
                 type: "button",
                 disabled: a.value,
-                onClick: u[24] || (u[24] = (v) => T.value = !1)
+                onClick: r[24] || (r[24] = (v) => A.value = !1)
               }, "Отмена", 8, bf)
             ])
           ], 32)
         ]),
         _: 1
-      }, 8, ["busy"])) : V("", !0),
-      c.value ? (p(), ge(qe, {
+      }, 8, ["busy"])) : x("", !0),
+      c.value ? (f(), me(Re, {
         key: 3,
         title: "Проверка сетевых изменений",
         busy: a.value,
         onClose: U
       }, {
-        default: Re(() => [
-          n("h3", null, w(c.value.title) + " " + w(c.value.interface), 1),
-          n("ul", yf, [
-            (p(!0), h(N, null, se(c.value.summary, (v, _) => (p(), h("li", { key: _ }, w(v), 1))), 128))
+        default: Ie(() => [
+          l("h3", null, b(c.value.title) + " " + b(c.value.interface), 1),
+          l("ul", yf, [
+            (f(!0), h(q, null, oe(c.value.summary, (v, _) => (f(), h("li", { key: _ }, b(v), 1))), 128))
           ]),
-          c.value.address_changes ? (p(), h("p", wf, [
-            u[66] || (u[66] = A("Адрес подключения изменится на ", -1)),
-            n("strong", null, w(c.value.new_api_host), 1),
-            u[67] || (u[67] = A(". Панель проверит новый адрес и сохранит его после успешного применения.", -1))
-          ])) : V("", !0),
-          n("p", null, "Роутер ждёт подтверждения до " + w(c.value.rollback_seconds) + " секунд. Если панель потеряет связь, прежняя конфигурация будет восстановлена автоматически.", 1),
-          r.value ? (p(), h("p", _f, w(r.value), 1)) : V("", !0),
-          n("div", kf, [
-            n("button", {
+          c.value.address_changes ? (f(), h("p", wf, [
+            r[66] || (r[66] = M("Адрес подключения изменится на ", -1)),
+            l("strong", null, b(c.value.new_api_host), 1),
+            r[67] || (r[67] = M(". Панель проверит новый адрес и сохранит его после успешного применения.", -1))
+          ])) : x("", !0),
+          l("p", null, "Роутер ждёт подтверждения до " + b(c.value.rollback_seconds) + " секунд. Если панель потеряет связь, прежняя конфигурация будет восстановлена автоматически.", 1),
+          u.value ? (f(), h("p", _f, b(u.value), 1)) : x("", !0),
+          l("div", kf, [
+            l("button", {
               class: "gw-primary",
               disabled: a.value,
-              onClick: ne
+              onClick: z
             }, "Да, применить изменения", 8, $f),
-            n("button", {
+            l("button", {
               disabled: a.value,
               onClick: U
             }, "Отмена", 8, Cf)
           ])
         ]),
         _: 1
-      }, 8, ["busy"])) : V("", !0)
+      }, 8, ["busy"])) : x("", !0)
     ], 64));
   }
-}), Sf = { class: "gw-packages" }, Vf = { class: "gw-section-header" }, Tf = { class: "gw-hint" }, Ef = ["disabled"], Uf = {
+}), Sf = { class: "gw-packages" }, Tf = { class: "gw-section-header" }, Vf = { class: "gw-hint" }, Pf = ["disabled"], Uf = {
   key: 0,
   class: "gw-error",
   role: "alert"
-}, Pf = { class: "gw-package-filters" }, Af = { class: "gw-segment" }, If = ["disabled"], Mf = {
+}, Af = { class: "gw-package-filters" }, Ef = { class: "gw-segment" }, If = ["disabled"], Mf = {
   key: 1,
   class: "gw-notice"
-}, Of = ["aria-busy"], Rf = { class: "gw-package-table" }, Df = { key: 0 }, Nf = {
+}, Of = ["aria-busy"], Rf = { class: "gw-package-table" }, Df = { key: 0 }, Ff = {
   key: 0,
   class: "gw-status good"
-}, qf = ["disabled", "onClick"], Hf = {
+}, qf = ["disabled", "onClick"], Nf = {
   key: 2,
   class: "gw-hint"
-}, Ff = { class: "gw-pagination" }, Lf = { class: "gw-hint" }, jf = { class: "gw-actions" }, Wf = ["disabled"], Bf = ["disabled"], Kf = { class: "gw-plan-output" }, Gf = {
+}, Hf = { class: "gw-pagination" }, Lf = { class: "gw-hint" }, jf = { class: "gw-actions" }, Wf = ["disabled"], Bf = ["disabled"], Kf = { class: "gw-plan-output" }, Gf = {
   key: 0,
   class: "gw-error",
   role: "alert"
-}, zf = { class: "gw-actions" }, Jf = ["disabled"], Yf = ["disabled"], Xf = /* @__PURE__ */ He({
+}, zf = { class: "gw-actions" }, Jf = ["disabled"], Yf = ["disabled"], Xf = /* @__PURE__ */ Me({
   __name: "PackageManager",
   props: {
     node: {},
@@ -6400,116 +6479,116 @@ const uu = [
   },
   emits: ["changed"],
   setup(e, { emit: t }) {
-    const l = e, o = t, s = /* @__PURE__ */ H(l.initialQuery || ""), i = /* @__PURE__ */ H(!1), a = /* @__PURE__ */ H(!1), r = /* @__PURE__ */ H(!1), c = /* @__PURE__ */ H(""), g = /* @__PURE__ */ H({ items: [], total: 0, offset: 0, has_indexes: !1 }), m = /* @__PURE__ */ H(null);
-    let y, T = 0;
-    const E = () => "/api/gateways/" + encodeURIComponent(l.node.id), B = (O, S, k = "POST") => l.bridge.request(E() + O, { method: k, headers: { "Content-Type": "application/json" }, body: JSON.stringify(S) });
-    async function I(O = 0) {
-      const S = ++T;
+    const n = e, o = t, s = /* @__PURE__ */ D(n.initialQuery || ""), i = /* @__PURE__ */ D(!1), a = /* @__PURE__ */ D(!1), u = /* @__PURE__ */ D(!1), c = /* @__PURE__ */ D(""), g = /* @__PURE__ */ D({ items: [], total: 0, offset: 0, has_indexes: !1 }), m = /* @__PURE__ */ D(null);
+    let w, A = 0;
+    const V = () => "/api/gateways/" + encodeURIComponent(n.node.id), L = (Q, I, E = "POST") => n.bridge.request(V() + Q, { method: E, headers: { "Content-Type": "application/json" }, body: JSON.stringify(I) });
+    async function R(Q = 0) {
+      const I = ++A;
       a.value = !0, c.value = "";
       try {
-        const k = await l.bridge.request(E() + "/packages?query=" + encodeURIComponent(s.value) + "&installed=" + i.value + "&offset=" + O);
-        S === T && (g.value = k);
-      } catch (k) {
-        S === T && (c.value = k.message);
+        const E = await n.bridge.request(V() + "/packages?query=" + encodeURIComponent(s.value) + "&installed=" + i.value + "&offset=" + Q);
+        I === A && (g.value = E);
+      } catch (E) {
+        I === A && (c.value = E.message);
       } finally {
-        S === T && (a.value = !1);
+        I === A && (a.value = !1);
       }
     }
-    async function Q(O) {
-      const S = await B("/router-operations", { plan_token: O.plan_token, confirmed: !0 });
-      m.value = null, l.bridge.task({
-        taskId: S.task_id,
-        title: O.action === "refresh" ? "Обновление списка пакетов" : "Установка " + O.package,
+    async function ne(Q) {
+      const I = await L("/router-operations", { plan_token: Q.plan_token, confirmed: !0 });
+      m.value = null, n.bridge.task({
+        taskId: I.task_id,
+        title: Q.action === "refresh" ? "Обновление списка пакетов" : "Установка " + Q.package,
         cancellable: !1,
         onDone: async () => {
-          await I(), o("changed");
+          await R(), o("changed");
         }
       });
     }
     async function X() {
-      if (!r.value) {
-        r.value = !0, c.value = "";
+      if (!u.value) {
+        u.value = !0, c.value = "";
         try {
-          const O = await B("/packages/plan", { action: "refresh" });
-          await Q(O);
-        } catch (O) {
-          c.value = O.message;
+          const Q = await L("/packages/plan", { action: "refresh" });
+          await ne(Q);
+        } catch (Q) {
+          c.value = Q.message;
         } finally {
-          r.value = !1;
+          u.value = !1;
         }
       }
     }
-    async function Z(O) {
-      if (!r.value) {
-        r.value = !0, c.value = "";
+    async function Z(Q) {
+      if (!u.value) {
+        u.value = !0, c.value = "";
         try {
-          m.value = await B("/packages/plan", { action: "install", package: O });
-        } catch (S) {
-          c.value = S.message;
+          m.value = await L("/packages/plan", { action: "install", package: Q });
+        } catch (I) {
+          c.value = I.message;
         } finally {
-          r.value = !1;
+          u.value = !1;
         }
       }
     }
-    async function le() {
-      if (!r.value) {
-        r.value = !0, c.value = "";
+    async function ee() {
+      if (!u.value) {
+        u.value = !0, c.value = "";
         try {
-          await Q(m.value);
-        } catch (O) {
-          c.value = O.message;
+          await ne(m.value);
+        } catch (Q) {
+          c.value = Q.message;
         } finally {
-          r.value = !1;
+          u.value = !1;
         }
       }
     }
-    function j(O) {
-      i.value = O, I();
+    function j(Q) {
+      i.value = Q, R();
     }
-    function te() {
-      const O = m.value?.plan_token;
-      m.value = null, c.value = "", O && B("/operation-plans/" + encodeURIComponent(O), {}, "DELETE").catch((S) => {
-        c.value = S.message;
+    function le() {
+      const Q = m.value?.plan_token;
+      m.value = null, c.value = "", Q && L("/operation-plans/" + encodeURIComponent(Q), {}, "DELETE").catch((I) => {
+        c.value = I.message;
       });
     }
-    return Xe(s, () => {
-      y && clearTimeout(y), y = setTimeout(() => {
-        I();
+    return We(s, () => {
+      w && clearTimeout(w), w = setTimeout(() => {
+        R();
       }, 300);
-    }), ct(() => {
-      I();
-    }), qt(() => {
-      T++, y && clearTimeout(y);
-    }), (O, S) => (p(), h(N, null, [
-      n("section", Sf, [
-        n("header", Vf, [
-          n("div", null, [
-            S[6] || (S[6] = n("h3", null, "Пакетный менеджер", -1)),
-            n("p", Tf, w(g.value.manager || "OpenWrt") + " · " + w(g.value.installed_count ?? "—") + " установленных пакетов", 1)
+    }), ot(() => {
+      R();
+    }), yt(() => {
+      A++, w && clearTimeout(w);
+    }), (Q, I) => (f(), h(q, null, [
+      l("section", Sf, [
+        l("header", Tf, [
+          l("div", null, [
+            I[6] || (I[6] = l("h3", null, "Пакетный менеджер", -1)),
+            l("p", Vf, b(g.value.manager || "OpenWrt") + " · " + b(g.value.installed_count ?? "—") + " установленных пакетов", 1)
           ]),
-          n("button", {
-            disabled: r.value,
+          l("button", {
+            disabled: u.value,
             onClick: X
-          }, "Обновить список пакетов", 8, Ef)
+          }, "Обновить список пакетов", 8, Pf)
         ]),
-        S[8] || (S[8] = n("p", { class: "gw-hint" }, "Обновляется каталог репозиториев. Установленные пакеты и прошивка автоматически не обновляются.", -1)),
-        c.value && !m.value ? (p(), h("div", Uf, w(c.value), 1)) : V("", !0),
-        n("div", Pf, [
-          n("div", Af, [
-            n("button", {
-              class: Ue({ on: !i.value }),
-              onClick: S[0] || (S[0] = (k) => j(!1))
+        I[8] || (I[8] = l("p", { class: "gw-hint" }, "Обновляется каталог репозиториев. Установленные пакеты и прошивка автоматически не обновляются.", -1)),
+        c.value && !m.value ? (f(), h("div", Uf, b(c.value), 1)) : x("", !0),
+        l("div", Af, [
+          l("div", Ef, [
+            l("button", {
+              class: Te({ on: !i.value }),
+              onClick: I[0] || (I[0] = (E) => j(!1))
             }, "Доступные", 2),
-            n("button", {
-              class: Ue({ on: i.value }),
-              onClick: S[1] || (S[1] = (k) => j(!0))
+            l("button", {
+              class: Te({ on: i.value }),
+              onClick: I[1] || (I[1] = (E) => j(!0))
             }, "Установленные", 2)
           ]),
-          n("form", {
-            onSubmit: S[3] || (S[3] = Ze((k) => I(), ["prevent"]))
+          l("form", {
+            onSubmit: I[3] || (I[3] = tt((E) => R(), ["prevent"]))
           }, [
-            F(n("input", {
-              "onUpdate:modelValue": S[2] || (S[2] = (k) => s.value = k),
+            H(l("input", {
+              "onUpdate:modelValue": I[2] || (I[2] = (E) => s.value = E),
               type: "search",
               "aria-label": "Поиск пакетов",
               placeholder: "Название или описание пакета…",
@@ -6517,101 +6596,101 @@ const uu = [
             }, null, 512), [
               [re, s.value]
             ]),
-            n("button", { disabled: a.value }, "Найти", 8, If)
+            l("button", { disabled: a.value }, "Найти", 8, If)
           ], 32)
         ]),
-        !g.value.has_indexes && !a.value ? (p(), h("p", Mf, "Список доступных пакетов ещё не загружен. Нажмите «Обновить список пакетов» — ход загрузки появится в журнале.")) : V("", !0),
-        n("div", {
+        !g.value.has_indexes && !a.value ? (f(), h("p", Mf, "Список доступных пакетов ещё не загружен. Нажмите «Обновить список пакетов» — ход загрузки появится в журнале.")) : x("", !0),
+        l("div", {
           class: "gw-table-wrap",
           "aria-busy": a.value
         }, [
-          n("table", Rf, [
-            S[7] || (S[7] = n("thead", null, [
-              n("tr", null, [
-                n("th", null, "Пакет"),
-                n("th", null, "Версия"),
-                n("th")
+          l("table", Rf, [
+            I[7] || (I[7] = l("thead", null, [
+              l("tr", null, [
+                l("th", null, "Пакет"),
+                l("th", null, "Версия"),
+                l("th")
               ])
             ], -1)),
-            n("tbody", null, [
-              (p(!0), h(N, null, se(g.value.items, (k) => (p(), h("tr", {
-                key: k.name
+            l("tbody", null, [
+              (f(!0), h(q, null, oe(g.value.items, (E) => (f(), h("tr", {
+                key: E.name
               }, [
-                n("td", null, [
-                  n("strong", null, w(k.name), 1),
-                  n("small", null, w(k.description), 1)
+                l("td", null, [
+                  l("strong", null, b(E.name), 1),
+                  l("small", null, b(E.description), 1)
                 ]),
-                n("td", null, [
-                  n("span", null, w(k.installed_version || k.version), 1),
-                  k.installed_version && k.installed_version !== k.version ? (p(), h("small", Df, "В каталоге: " + w(k.version), 1)) : V("", !0)
+                l("td", null, [
+                  l("span", null, b(E.installed_version || E.version), 1),
+                  E.installed_version && E.installed_version !== E.version ? (f(), h("small", Df, "В каталоге: " + b(E.version), 1)) : x("", !0)
                 ]),
-                n("td", null, [
-                  k.installed_version ? (p(), h("span", Nf, "Установлен")) : (p(), h("button", {
+                l("td", null, [
+                  E.installed_version ? (f(), h("span", Ff, "Установлен")) : (f(), h("button", {
                     key: 1,
-                    disabled: r.value || a.value,
-                    onClick: (R) => Z(k.name)
+                    disabled: u.value || a.value,
+                    onClick: (P) => Z(E.name)
                   }, "Установить", 8, qf))
                 ])
               ]))), 128))
             ])
           ])
         ], 8, Of),
-        g.value.items.length ? V("", !0) : (p(), h("p", Hf, w(a.value ? "Загружаем пакеты…" : s.value ? "По вашему запросу пакеты не найдены." : "Пакетов в этом списке нет."), 1)),
-        n("footer", Ff, [
-          n("span", Lf, w(a.value ? "Загрузка…" : g.value.total ? g.value.offset + 1 + "–" + Math.min(g.value.offset + g.value.items.length, g.value.total) + " из " + g.value.total : "0 пакетов"), 1),
-          n("div", jf, [
-            n("button", {
+        g.value.items.length ? x("", !0) : (f(), h("p", Nf, b(a.value ? "Загружаем пакеты…" : s.value ? "По вашему запросу пакеты не найдены." : "Пакетов в этом списке нет."), 1)),
+        l("footer", Hf, [
+          l("span", Lf, b(a.value ? "Загрузка…" : g.value.total ? g.value.offset + 1 + "–" + Math.min(g.value.offset + g.value.items.length, g.value.total) + " из " + g.value.total : "0 пакетов"), 1),
+          l("div", jf, [
+            l("button", {
               disabled: a.value || g.value.offset === 0,
-              onClick: S[4] || (S[4] = (k) => I(Math.max(0, g.value.offset - 40)))
+              onClick: I[4] || (I[4] = (E) => R(Math.max(0, g.value.offset - 40)))
             }, "Назад", 8, Wf),
-            n("button", {
+            l("button", {
               disabled: a.value || g.value.offset + 40 >= g.value.total,
-              onClick: S[5] || (S[5] = (k) => I(g.value.offset + 40))
+              onClick: I[5] || (I[5] = (E) => R(g.value.offset + 40))
             }, "Далее", 8, Bf)
           ])
         ])
       ]),
-      m.value ? (p(), ge(qe, {
+      m.value ? (f(), me(Re, {
         key: 0,
         title: "Установить " + m.value.package + "?",
-        busy: r.value,
-        onClose: te
+        busy: u.value,
+        onClose: le
       }, {
-        default: Re(() => [
-          S[9] || (S[9] = n("p", null, "Пакетный менеджер рассчитает и установит необходимые зависимости из настроенных репозиториев роутера.", -1)),
-          n("pre", Kf, w(m.value.summary.join(`
+        default: Ie(() => [
+          I[9] || (I[9] = l("p", null, "Пакетный менеджер рассчитает и установит необходимые зависимости из настроенных репозиториев роутера.", -1)),
+          l("pre", Kf, b(m.value.summary.join(`
 `)), 1),
-          S[10] || (S[10] = n("p", { class: "gw-hint" }, "Установочные скрипты пакетов могут менять настройки и запускать службы. Автоматическая замена уже установленных пакетов отключена.", -1)),
-          c.value ? (p(), h("p", Gf, w(c.value), 1)) : V("", !0),
-          n("div", zf, [
-            n("button", {
+          I[10] || (I[10] = l("p", { class: "gw-hint" }, "Установочные скрипты пакетов могут менять настройки и запускать службы. Автоматическая замена уже установленных пакетов отключена.", -1)),
+          c.value ? (f(), h("p", Gf, b(c.value), 1)) : x("", !0),
+          l("div", zf, [
+            l("button", {
               class: "gw-primary",
-              disabled: r.value,
-              onClick: le
+              disabled: u.value,
+              onClick: ee
             }, "Да, установить", 8, Jf),
-            n("button", {
-              disabled: r.value,
-              onClick: te
+            l("button", {
+              disabled: u.value,
+              onClick: le
             }, "Отмена", 8, Yf)
           ])
         ]),
         _: 1
-      }, 8, ["title", "busy"])) : V("", !0)
+      }, 8, ["title", "busy"])) : x("", !0)
     ], 64));
   }
-}), Qf = { class: "gw-traffic-overview" }, Zf = { class: "gw-section-header" }, ep = { class: "gw-traffic-tools" }, tp = {
+}), Zf = { class: "gw-traffic-overview" }, Qf = { class: "gw-section-header" }, ep = { class: "gw-traffic-tools" }, tp = {
   key: 0,
   value: 900
-}, lp = {
+}, np = {
   key: 0,
   class: "gw-chart-note"
-}, np = { class: "gw-traffic-grid" }, sp = { class: "gw-section-header" }, op = { class: "gw-traffic-speeds" }, ip = { class: "gw-rx" }, ap = { class: "gw-tx" }, rp = ["onPointermove", "onPointerleave"], up = ["aria-label"], dp = ["y1", "y2"], cp = ["d"], fp = ["d"], pp = {
+}, lp = { class: "gw-traffic-grid" }, sp = { class: "gw-section-header" }, op = { class: "gw-traffic-speeds" }, ip = { class: "gw-rx" }, ap = { class: "gw-tx" }, rp = ["onPointermove", "onPointerleave"], up = ["aria-label"], dp = ["y1", "y2"], cp = ["d"], fp = ["d"], pp = {
   key: 0,
   class: "gw-chart-empty"
 }, vp = {
   key: 1,
   class: "gw-chart-tip"
-}, gp = { class: "gw-traffic-total" }, hp = { class: "gw-hint gw-counter-note" }, mp = /* @__PURE__ */ He({
+}, gp = { class: "gw-traffic-total" }, hp = { class: "gw-hint gw-counter-note" }, mp = /* @__PURE__ */ Me({
   __name: "TrafficCharts",
   props: {
     monitor: {},
@@ -6619,271 +6698,493 @@ const uu = [
     bridge: {}
   },
   setup(e) {
-    const t = ["lan", "wan"], l = e, o = /* @__PURE__ */ H(null), s = /* @__PURE__ */ H({ lan: null, wan: null }), i = /* @__PURE__ */ H(null), a = /* @__PURE__ */ H(""), r = /* @__PURE__ */ H(!1), c = _e({
-      get: () => o.value ?? (r.value ? 900 : 3600),
-      set: (O) => {
-        o.value = O;
+    const t = ["lan", "wan"], n = e, o = /* @__PURE__ */ D(null), s = /* @__PURE__ */ D({ lan: null, wan: null }), i = /* @__PURE__ */ D(null), a = /* @__PURE__ */ D(""), u = /* @__PURE__ */ D(!1), c = he({
+      get: () => o.value ?? (u.value ? 900 : 3600),
+      set: (Q) => {
+        o.value = Q;
       }
     });
-    let g = !0, m = 0, y;
-    async function T() {
-      if (!l.bridge || !l.nodeId) return;
-      const O = ++m;
+    let g = !0, m = 0, w;
+    async function A() {
+      if (!n.bridge || !n.nodeId) return;
+      const Q = ++m;
       try {
-        const S = await l.bridge.request("/api/gateways/" + encodeURIComponent(l.nodeId) + "/traffic?seconds=" + c.value);
-        g && O === m && Array.isArray(S.traffic_history) && (i.value = S.traffic_history, r.value = Array.isArray(S.available_periods) && S.available_periods.includes(900), a.value = "");
-      } catch (S) {
-        g && O === m && (a.value = S instanceof Error ? S.message : String(S));
+        const I = await n.bridge.request("/api/gateways/" + encodeURIComponent(n.nodeId) + "/traffic?seconds=" + c.value);
+        g && Q === m && Array.isArray(I.traffic_history) && (i.value = I.traffic_history, u.value = Array.isArray(I.available_periods) && I.available_periods.includes(900), a.value = "");
+      } catch (I) {
+        g && Q === m && (a.value = I instanceof Error ? I.message : String(I));
       }
     }
-    Xe([c, () => l.nodeId], () => {
-      s.value = { lan: null, wan: null }, i.value = null, T();
-    }, { immediate: !0 }), ct(() => {
-      y = setInterval(() => {
-        document.hidden || T();
+    We([c, () => n.nodeId], () => {
+      s.value = { lan: null, wan: null }, i.value = null, A();
+    }, { immediate: !0 }), ot(() => {
+      w = setInterval(() => {
+        document.hidden || A();
       }, 3e4);
-    }), qt(() => {
-      g = !1, m++, clearInterval(y);
+    }), yt(() => {
+      g = !1, m++, clearInterval(w);
     });
-    const E = (O, S = !1) => {
-      if (O == null) return "—";
-      const k = ["Б", "КБ", "МБ", "ГБ", "ТБ"];
-      let R = Number(O), z = 0;
-      for (; R >= 1024 && z < k.length - 1; )
-        R /= 1024, z++;
-      return (R < 10 ? R.toFixed(1) : Math.round(R)) + " " + k[z] + (S ? "/с" : "");
-    }, B = _e(() => {
-      const O = i.value ?? l.monitor.traffic_history ?? [], S = O.at(-1)?.at || Date.now() / 1e3;
-      return O.filter((k) => k.at >= S - c.value);
-    }), I = _e(() => B.value.at(-1)?.at || l.monitor.checked_at || Date.now() / 1e3), Q = _e(() => I.value - c.value), X = (O) => new Date(O * 1e3).toLocaleString("ru-RU", c.value >= 43200 ? { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" } : { hour: "2-digit", minute: "2-digit" });
-    function Z(O) {
-      return Math.max(1, ...B.value.flatMap((S) => [S[O]?.rx_bps || 0, S[O]?.tx_bps || 0]));
+    const V = (Q, I = !1) => {
+      if (Q == null) return "—";
+      const E = ["Б", "КБ", "МБ", "ГБ", "ТБ"];
+      let P = Number(Q), S = 0;
+      for (; P >= 1024 && S < E.length - 1; )
+        P /= 1024, S++;
+      return (P < 10 ? P.toFixed(1) : Math.round(P)) + " " + E[S] + (I ? "/с" : "");
+    }, L = he(() => {
+      const Q = i.value ?? n.monitor.traffic_history ?? [], I = Q.at(-1)?.at || Date.now() / 1e3;
+      return Q.filter((E) => E.at >= I - c.value);
+    }), R = he(() => L.value.at(-1)?.at || n.monitor.checked_at || Date.now() / 1e3), ne = he(() => R.value - c.value), X = (Q) => new Date(Q * 1e3).toLocaleString("ru-RU", c.value >= 43200 ? { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" } : { hour: "2-digit", minute: "2-digit" });
+    function Z(Q) {
+      return Math.max(1, ...L.value.flatMap((I) => [I[Q]?.rx_bps || 0, I[Q]?.tx_bps || 0]));
     }
-    function le(O, S) {
-      let k = "", R = !1;
-      const z = Z(O);
-      return B.value.forEach((pe) => {
-        const he = pe[O]?.[S];
-        if (typeof he != "number") {
-          R = !1;
+    function ee(Q, I) {
+      let E = "", P = !1;
+      const S = Z(Q);
+      return L.value.forEach((C) => {
+        const ie = C[Q]?.[I];
+        if (typeof ie != "number") {
+          P = !1;
           return;
         }
-        const Pe = 10 + (pe.at - Q.value) / c.value * 580, Me = 132 - he / z * 112;
-        k += (R ? " L" : " M") + Pe.toFixed(1) + " " + Me.toFixed(1), R = !0;
-      }), k;
+        const ke = 10 + (C.at - ne.value) / c.value * 580, ae = 132 - ie / S * 112;
+        E += (P ? " L" : " M") + ke.toFixed(1) + " " + ae.toFixed(1), P = !0;
+      }), E;
     }
-    function j(O, S) {
-      if (!B.value.length) {
-        s.value[S] = null;
+    function j(Q, I) {
+      if (!L.value.length) {
+        s.value[I] = null;
         return;
       }
-      const k = O.currentTarget.getBoundingClientRect(), R = Q.value + Math.max(0, Math.min(1, (O.clientX - k.left) / k.width)) * c.value;
-      s.value[S] = B.value.reduce((z, pe, he) => Math.abs(pe.at - R) < Math.abs(B.value[z].at - R) ? he : z, 0);
+      const E = Q.currentTarget.getBoundingClientRect(), P = ne.value + Math.max(0, Math.min(1, (Q.clientX - E.left) / E.width)) * c.value;
+      s.value[I] = L.value.reduce((S, C, ie) => Math.abs(C.at - P) < Math.abs(L.value[S].at - P) ? ie : S, 0);
     }
-    function te(O) {
-      const S = s.value[O];
-      return S == null ? null : B.value[S];
+    function le(Q) {
+      const I = s.value[Q];
+      return I == null ? null : L.value[I];
     }
-    return (O, S) => (p(), h("section", Qf, [
-      n("header", Zf, [
-        S[6] || (S[6] = n("h3", null, "Трафик сети", -1)),
-        n("div", ep, [
-          S[5] || (S[5] = n("p", { class: "gw-hint" }, "Скорость и объём данных через LAN и WAN", -1)),
-          F(n("select", {
-            "onUpdate:modelValue": S[0] || (S[0] = (k) => c.value = k),
+    return (Q, I) => (f(), h("section", Zf, [
+      l("header", Qf, [
+        I[6] || (I[6] = l("h3", null, "Трафик сети", -1)),
+        l("div", ep, [
+          I[5] || (I[5] = l("p", { class: "gw-hint" }, "Скорость и объём данных через LAN и WAN", -1)),
+          H(l("select", {
+            "onUpdate:modelValue": I[0] || (I[0] = (E) => c.value = E),
             "aria-label": "Период графиков"
           }, [
-            r.value ? (p(), h("option", tp, "15 минут")) : V("", !0),
-            S[1] || (S[1] = n("option", { value: 3600 }, "Час", -1)),
-            S[2] || (S[2] = n("option", { value: 21600 }, "6 часов", -1)),
-            S[3] || (S[3] = n("option", { value: 43200 }, "12 часов", -1)),
-            S[4] || (S[4] = n("option", { value: 86400 }, "Сутки", -1))
+            u.value ? (f(), h("option", tp, "15 минут")) : x("", !0),
+            I[1] || (I[1] = l("option", { value: 3600 }, "Час", -1)),
+            I[2] || (I[2] = l("option", { value: 21600 }, "6 часов", -1)),
+            I[3] || (I[3] = l("option", { value: 43200 }, "12 часов", -1)),
+            I[4] || (I[4] = l("option", { value: 86400 }, "Сутки", -1))
           ], 512), [
             [xe, c.value]
           ])
         ])
       ]),
-      a.value ? (p(), h("p", lp, w(a.value), 1)) : V("", !0),
-      n("div", np, [
-        (p(), h(N, null, se(t, (k) => n("article", {
-          key: k,
+      a.value ? (f(), h("p", np, b(a.value), 1)) : x("", !0),
+      l("div", lp, [
+        (f(), h(q, null, oe(t, (E) => l("article", {
+          key: E,
           class: "gw-panel gw-traffic-card"
         }, [
-          n("header", sp, [
-            n("h3", null, w(k.toUpperCase()), 1),
-            n("span", {
-              class: Ue(["gw-status", e.monitor.traffic?.[k]?.up ? "good" : "warn"])
-            }, w(e.monitor.traffic?.[k]?.up ? "Подключён" : "Отключён"), 3)
+          l("header", sp, [
+            l("h3", null, b(E.toUpperCase()), 1),
+            l("span", {
+              class: Te(["gw-status", e.monitor.traffic?.[E]?.up ? "good" : "warn"])
+            }, b(e.monitor.traffic?.[E]?.up ? "Подключён" : "Отключён"), 3)
           ]),
-          n("div", op, [
-            n("span", ip, "↓ " + w(E(e.monitor.traffic?.[k]?.rx_bps, !0)), 1),
-            n("span", ap, "↑ " + w(E(e.monitor.traffic?.[k]?.tx_bps, !0)), 1)
+          l("div", op, [
+            l("span", ip, "↓ " + b(V(e.monitor.traffic?.[E]?.rx_bps, !0)), 1),
+            l("span", ap, "↑ " + b(V(e.monitor.traffic?.[E]?.tx_bps, !0)), 1)
           ]),
-          n("div", {
+          l("div", {
             class: "gw-traffic-plot",
-            onPointermove: (R) => j(R, k),
-            onPointerleave: (R) => s.value[k] = null
+            onPointermove: (P) => j(P, E),
+            onPointerleave: (P) => s.value[E] = null
           }, [
-            (p(), h("svg", {
+            (f(), h("svg", {
               viewBox: "0 0 600 148",
               preserveAspectRatio: "none",
               role: "img",
-              "aria-label": "Скорость трафика " + k.toUpperCase()
+              "aria-label": "Скорость трафика " + E.toUpperCase()
             }, [
-              (p(), h(N, null, se([20, 76, 132], (R) => n("line", {
-                key: R,
+              (f(), h(q, null, oe([20, 76, 132], (P) => l("line", {
+                key: P,
                 x1: "10",
-                y1: R,
+                y1: P,
                 x2: "590",
-                y2: R,
+                y2: P,
                 class: "gw-chart-grid"
               }, null, 8, dp)), 64)),
-              n("path", {
-                d: le(k, "rx_bps"),
+              l("path", {
+                d: ee(E, "rx_bps"),
                 class: "gw-chart-rx"
               }, null, 8, cp),
-              n("path", {
-                d: le(k, "tx_bps"),
+              l("path", {
+                d: ee(E, "tx_bps"),
                 class: "gw-chart-tx"
               }, null, 8, fp)
             ], 8, up)),
-            B.value.length < 2 ? (p(), h("div", pp, "Накапливаем данные графика")) : V("", !0),
-            te(k) ? (p(), h("div", vp, w(new Date(te(k).at * 1e3).toLocaleTimeString()) + " · ↓ " + w(E(te(k)[k]?.rx_bps, !0)) + " · ↑ " + w(E(te(k)[k]?.tx_bps, !0)), 1)) : V("", !0)
+            L.value.length < 2 ? (f(), h("div", pp, "Накапливаем данные графика")) : x("", !0),
+            le(E) ? (f(), h("div", vp, b(new Date(le(E).at * 1e3).toLocaleTimeString()) + " · ↓ " + b(V(le(E)[E]?.rx_bps, !0)) + " · ↑ " + b(V(le(E)[E]?.tx_bps, !0)), 1)) : x("", !0)
           ], 40, rp),
-          n("div", gp, [
-            n("div", null, [
-              S[7] || (S[7] = n("span", null, "Получено", -1)),
-              n("strong", null, w(E(e.monitor.traffic?.[k]?.rx_bytes)), 1)
+          l("div", gp, [
+            l("div", null, [
+              I[7] || (I[7] = l("span", null, "Получено", -1)),
+              l("strong", null, b(V(e.monitor.traffic?.[E]?.rx_bytes)), 1)
             ]),
-            n("div", null, [
-              S[8] || (S[8] = n("span", null, "Передано", -1)),
-              n("strong", null, w(E(e.monitor.traffic?.[k]?.tx_bytes)), 1)
+            l("div", null, [
+              I[8] || (I[8] = l("span", null, "Передано", -1)),
+              l("strong", null, b(V(e.monitor.traffic?.[E]?.tx_bytes)), 1)
             ])
           ])
         ])), 64))
       ]),
-      n("p", hp, "Графики: " + w(X(Q.value)) + " — " + w(X(I.value)) + ". Объём данных — с последней загрузки / сброса счётчиков", 1)
+      l("p", hp, "Графики: " + b(X(ne.value)) + " — " + b(X(R.value)) + ". Объём данных — с последней загрузки / сброса счётчиков", 1)
     ]));
   }
-});
-function Le(e) {
+}), bp = {
+  key: 0,
+  class: "active-sessions",
+  "aria-label": "Активные сеансы"
+}, yp = { class: "sessions-disclosure" }, wp = { class: "sessions-summary" }, _p = { class: "sessions-totals" }, kp = { class: "sessions-total" }, $p = { class: "sessions-total" }, Cp = { class: "sessions-content" }, xp = { class: "sessions-filter" }, Sp = ["value"], Tp = ["title"], Vp = { class: "sessions-horizontal" }, Pp = {
+  class: "sessions-table",
+  role: "table",
+  "aria-label": "Активные соединения"
+}, Up = ["title"], Ap = ["title"], Ep = ["title"], Ip = {
+  class: "session-rx",
+  role: "cell"
+}, Mp = {
+  class: "session-tx",
+  role: "cell"
+}, Op = {
+  key: 0,
+  class: "gw-hint",
+  role: "status"
+}, Bn = 32, El = 15, Qs = 4, Rp = /* @__PURE__ */ Me({
+  __name: "ActiveSessions",
+  props: {
+    nodeId: {},
+    bridge: {},
+    collect: { type: Boolean }
+  },
+  setup(e) {
+    const t = e, n = /* @__PURE__ */ D(), o = /* @__PURE__ */ D(!1), s = /* @__PURE__ */ D(!0), i = {
+      warming: "Сравниваем первые замеры трафика…",
+      integration: "Обновите интеграцию Bot4VPS во вкладке «Доступ».",
+      accounting: "На OpenWrt выключен учёт байтов соединений.",
+      unavailable: "Счётчики соединений шлюза сейчас недоступны.",
+      networks: "Шлюз не сообщил адреса локальных сетей."
+    }, a = /* @__PURE__ */ D(""), u = /* @__PURE__ */ D(""), c = /* @__PURE__ */ D("all"), g = /* @__PURE__ */ D(), m = /* @__PURE__ */ new Map(), w = /* @__PURE__ */ D([]), A = /* @__PURE__ */ new Map(), V = /* @__PURE__ */ D([]), L = /* @__PURE__ */ D(0), R = he(() => u.value.trim().toLocaleLowerCase("ru")), ne = he(() => w.value.filter(
+      (ae) => (c.value === "all" || ae.via_fake_ip === (c.value === "fake")) && (!a.value || ae.device_ip === a.value) && (!R.value || [ae.name, ae.domain, ae.destination_ip, ae.observed_ip].some((z) => z?.toLocaleLowerCase("ru").includes(R.value)))
+    )), X = he(() => Math.max(0, Math.min(
+      Math.floor(L.value / Bn),
+      ne.value.length - El
+    ) - Qs)), Z = he(() => Math.min(ne.value.length, X.value + El + 2 * Qs + 1));
+    We([a, u, c], () => {
+      L.value = 0, g.value?.scrollTo(0, 0);
+    });
+    const ee = he(() => o.value ? "Не удалось получить сеансы. Повторяем запрос." : n.value?.status !== "ready" ? n.value ? i[n.value.status] : "Получаем счётчики шлюза…" : n.value.connections ? ne.value.length ? "" : a.value || R.value || c.value !== "all" ? "Совпадений нет." : "Соединений пока нет." : "Получаем список соединений…");
+    function j(ae) {
+      const z = ae.name || ae.domain || ae.destination_ip || ae.observed_ip || "—";
+      return ae.domain && ae.destination_ip ? z + " (" + ae.destination_ip + ")" : z;
+    }
+    function le(ae) {
+      return ae.device_name ? ae.device_name + " (" + ae.device_ip + ")" : ae.device_ip;
+    }
+    function Q(ae) {
+      return ae.domain && ae.domain !== ae.name ? j(ae) + " · " + ae.domain : j(ae);
+    }
+    const I = new Intl.NumberFormat("ru-RU", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+    function E(ae) {
+      return ae === void 0 ? "—" : ae > 0 && ae < 1e5 ? "<0,1" : I.format(ae / 1e6);
+    }
+    let P = !1, S, C;
+    async function ie() {
+      if (!P || !t.collect || C || !s.value) return;
+      const ae = new AbortController();
+      C = ae;
+      try {
+        const z = await t.bridge.request(
+          `/api/gateways/${encodeURIComponent(t.nodeId)}/active-sessions?view=connections`,
+          { signal: ae.signal }
+        );
+        if (!ae.signal.aborted) {
+          n.value = z, o.value = !1;
+          let U = !1;
+          for (const d of z.connections || []) {
+            m.set(d.id, d);
+            const r = A.get(d.device_ip);
+            (!r || d.device_name && d.device_name !== r.device_name) && (A.set(d.device_ip, d), U = !0);
+          }
+          U && (V.value = [...A.values()]), z.connections?.length && (w.value = [...m.values()]);
+        }
+      } catch (z) {
+        ae.signal.aborted || (s.value = z?.status !== 404, n.value = void 0, o.value = !0);
+      } finally {
+        C === ae && (C = void 0), P && t.collect && s.value && !ae.signal.aborted && (S = setTimeout(ie, o.value || n.value?.status === "integration" ? 1e4 : 3e3));
+      }
+    }
+    function ke() {
+      clearTimeout(S), C?.abort(), C = void 0;
+    }
+    return ot(() => {
+      P = !0, ie();
+    }), yt(() => {
+      P = !1, ke();
+    }), We(() => t.collect, (ae) => {
+      ae ? ie() : ke();
+    }), (ae, z) => s.value ? (f(), h("section", bp, [
+      l("details", yp, [
+        l("summary", wp, [
+          z[6] || (z[6] = l("span", { class: "sessions-header" }, [
+            l("span", {
+              class: "session-arrow",
+              "aria-hidden": "true"
+            }, "›"),
+            l("strong", null, "Активные сеансы"),
+            l("span", { class: "sessions-caption" }, "Мбит/с · обновление каждые 3 с")
+          ], -1)),
+          l("span", _p, [
+            l("span", kp, [
+              z[4] || (z[4] = M("WAN ", -1)),
+              l("b", null, "↓ " + b(E(n.value?.wan?.rx_bps)) + " · ↑ " + b(E(n.value?.wan?.tx_bps)), 1)
+            ]),
+            l("span", $p, [
+              z[5] || (z[5] = M("Устройства ", -1)),
+              l("b", null, "↓ " + b(E(n.value?.total?.rx_bps)) + " · ↑ " + b(E(n.value?.total?.tx_bps)), 1)
+            ])
+          ])
+        ]),
+        l("div", Cp, [
+          l("div", xp, [
+            H(l("select", {
+              "onUpdate:modelValue": z[0] || (z[0] = (U) => a.value = U),
+              "aria-label": "Фильтр по устройству"
+            }, [
+              z[7] || (z[7] = l("option", { value: "" }, "Все устройства", -1)),
+              (f(!0), h(q, null, oe(V.value, (U) => (f(), h("option", {
+                key: U.device_ip,
+                value: U.device_ip
+              }, b(le(U)), 9, Sp))), 128))
+            ], 512), [
+              [xe, a.value]
+            ]),
+            H(l("input", {
+              "onUpdate:modelValue": z[1] || (z[1] = (U) => u.value = U),
+              type: "search",
+              "aria-label": "Фильтр по назначению",
+              placeholder: "Сервис, домен или IP"
+            }, null, 512), [
+              [re, u.value]
+            ]),
+            H(l("select", {
+              "onUpdate:modelValue": z[2] || (z[2] = (U) => c.value = U),
+              "aria-label": "Фильтр по маршруту"
+            }, [...z[8] || (z[8] = [
+              l("option", { value: "all" }, "Все маршруты", -1),
+              l("option", { value: "direct" }, "Напрямую", -1),
+              l("option", { value: "fake" }, "Через Fake-IP", -1)
+            ])], 512), [
+              [xe, c.value]
+            ]),
+            l("span", {
+              class: "session-limit",
+              title: n.value?.offloaded || n.value?.truncated ? "Часть трафика может отсутствовать" : "Скорости по последнему замеру"
+            }, b(n.value?.offloaded || n.value?.truncated ? "Последний замер · неполный трафик" : "Скорости по последнему замеру"), 9, Tp)
+          ]),
+          l("div", Vp, [
+            l("div", {
+              ref_key: "viewport",
+              ref: g,
+              class: "sessions-scroll",
+              tabindex: "0",
+              style: jt({ "--session-row-height": Bn + "px", "--session-rows": El }),
+              "aria-label": "Список активных соединений",
+              onScroll: z[3] || (z[3] = (U) => L.value = g.value?.scrollTop || 0)
+            }, [
+              l("div", Pp, [
+                z[9] || (z[9] = l("div", {
+                  class: "session-grid session-labels",
+                  role: "row"
+                }, [
+                  l("span", { role: "columnheader" }, "Устройство"),
+                  l("span", { role: "columnheader" }, "Назначение"),
+                  l("span", { role: "columnheader" }, "Маршрут"),
+                  l("span", {
+                    role: "columnheader",
+                    title: "Последний замер по соединению"
+                  }, "↓ Приём"),
+                  l("span", {
+                    role: "columnheader",
+                    title: "Последний замер по соединению"
+                  }, "↑ Передача")
+                ], -1)),
+                X.value ? (f(), h("div", {
+                  key: 0,
+                  "aria-hidden": "true",
+                  style: jt({ height: X.value * Bn + "px" })
+                }, null, 4)) : x("", !0),
+                (f(!0), h(q, null, oe(ne.value.slice(X.value, Z.value), (U) => (f(), h("div", {
+                  key: U.id,
+                  class: "session-grid session-connection",
+                  role: "row"
+                }, [
+                  l("span", {
+                    class: "session-name",
+                    role: "cell",
+                    title: le(U)
+                  }, b(le(U)), 9, Up),
+                  l("span", {
+                    role: "cell",
+                    title: Q(U)
+                  }, b(j(U)), 9, Ap),
+                  l("span", {
+                    class: "session-route",
+                    role: "cell",
+                    title: U.via_fake_ip ? "Адрес подменён Fake-IP" : "Обращение к реальному IP"
+                  }, b(U.via_fake_ip ? "Через Fake-IP" : "Напрямую"), 9, Ep),
+                  l("b", Ip, b(E(U.rx_bps)), 1),
+                  l("b", Mp, b(E(U.tx_bps)), 1)
+                ]))), 128)),
+                Z.value < ne.value.length ? (f(), h("div", {
+                  key: 1,
+                  "aria-hidden": "true",
+                  style: jt({ height: (ne.value.length - Z.value) * Bn + "px" })
+                }, null, 4)) : x("", !0)
+              ]),
+              ee.value ? (f(), h("p", Op, b(ee.value), 1)) : x("", !0)
+            ], 36)
+          ])
+        ])
+      ])
+    ])) : x("", !0);
+  }
+}), Dp = (e, t) => {
+  const n = e.__vccOpts || e;
+  for (const [o, s] of t)
+    n[o] = s;
+  return n;
+}, Fp = /* @__PURE__ */ Dp(Rp, [["__scopeId", "data-v-cada2594"]]);
+function He(e) {
   if (e == null || e === "" || typeof e == "boolean") return null;
   const t = Number(e);
   return Number.isFinite(t) ? t : null;
 }
-function cs(e, t) {
+function vs(e, t) {
   return !Number.isInteger(e) || e < 1 ? null : t === "2g" ? e <= 14 ? e === 14 ? 2484 : 2407 + e * 5 : null : t === "6g" ? e <= 233 ? e === 2 ? 5935 : 5950 + e * 5 : null : t === "5g" && e <= 196 ? (e >= 182 ? 4e3 : 5e3) + e * 5 : null;
 }
-function bp(e, t) {
-  const l = e?.frequencies?.length ? e.frequencies : t?.frequencies || [], o = Le(t?.frequency) || Le(l[0]?.mhz || l[0]?.frequency), s = t?.band || (o ? o < 3e3 ? "2g" : o >= 5925 ? "6g" : "5g" : null);
+function qp(e, t) {
+  const n = e?.frequencies?.length ? e.frequencies : t?.frequencies || [], o = He(t?.frequency) || He(n[0]?.mhz || n[0]?.frequency), s = t?.band || (o ? o < 3e3 ? "2g" : o >= 5925 ? "6g" : "5g" : null);
   return (e?.networks || []).map((i) => {
-    let a = Le(i.channel), r = Le(i.frequency) || Le(i.mhz);
+    let a = He(i.channel), u = He(i.frequency) || He(i.mhz);
     const c = ["2g", "5g", "6g"].includes(String(i.band)) ? String(i.band) : [2, 5, 6].includes(Number(i.band)) ? String(i.band) + "g" : s;
-    if (!r && a) {
-      const m = l.find((y) => {
-        const T = Le(y.mhz || y.frequency);
-        return Le(y.channel) === a && (!c || T != null && (T < 3e3 ? "2g" : T >= 5925 ? "6g" : "5g") === c);
+    if (!u && a) {
+      const m = n.find((w) => {
+        const A = He(w.mhz || w.frequency);
+        return He(w.channel) === a && (!c || A != null && (A < 3e3 ? "2g" : A >= 5925 ? "6g" : "5g") === c);
       });
-      r = Le(m?.mhz || m?.frequency) || cs(a, c);
+      u = He(m?.mhz || m?.frequency) || vs(a, c);
     }
-    !a && r && (a = r === 2484 ? 14 : r === 5935 ? 2 : (r - (r < 3e3 ? 2407 : r >= 5955 ? 5950 : r < 5e3 ? 4e3 : 5e3)) / 5);
-    let g = Le(i.signal);
-    return g != null && g >= 2147483648 && g <= 4294967295 && (g -= 4294967296), { ...i, ssid: String(i.ssid ?? ""), bssid: String(i.bssid ?? ""), channel: a, frequency: r, signal: g };
+    !a && u && (a = u === 2484 ? 14 : u === 5935 ? 2 : (u - (u < 3e3 ? 2407 : u >= 5955 ? 5950 : u < 5e3 ? 4e3 : 5e3)) / 5);
+    let g = He(i.signal);
+    return g != null && g >= 2147483648 && g <= 4294967295 && (g -= 4294967296), { ...i, ssid: String(i.ssid ?? ""), bssid: String(i.bssid ?? ""), channel: a, frequency: u, signal: g };
   }).sort((i, a) => (a.signal ?? -200) - (i.signal ?? -200));
 }
-function Wl(e, t) {
-  return e > 1e3 ? e : cs(e, t < 3e3 ? "2g" : t >= 5925 ? "6g" : "5g") || t;
+function Kn(e, t) {
+  return e > 1e3 ? e : vs(e, t < 3e3 ? "2g" : t >= 5925 ? "6g" : "5g") || t;
 }
-function yp(e) {
-  const t = e.ht_operation || {}, l = String(t.secondary_channel_offset || "").toLowerCase();
-  let o = l === "above" || l === "below" ? 40 : 20, s = e.frequency + (l === "above" ? 10 : l === "below" ? -10 : 0), i = !!e.ht_operation && Le(t.channel_width) != null || ["above", "below"].includes(l);
+function Np(e) {
+  const t = e.ht_operation || {}, n = String(t.secondary_channel_offset || "").toLowerCase();
+  let o = n === "above" || n === "below" ? 40 : 20, s = e.frequency + (n === "above" ? 10 : n === "below" ? -10 : 0), i = !!e.ht_operation && He(t.channel_width) != null || ["above", "below"].includes(n);
   for (const a of ["vht_operation", "he_operation", "eht_operation"]) {
-    const r = e[a], c = Le(r?.channel_width);
-    if (r && c === 20 && o === 20 && (i = !0), !r || c == null || c <= (a === "vht_operation" ? 40 : 20)) continue;
-    const g = Le(r.center_freq_1), m = Le(r.center_freq_2);
+    const u = e[a], c = He(u?.channel_width);
+    if (u && c === 20 && o === 20 && (i = !0), !u || c == null || c <= (a === "vht_operation" ? 40 : 20)) continue;
+    const g = He(u.center_freq_1), m = He(u.center_freq_2);
     if (g != null) {
       if (c === 8080 && m != null)
-        return [g, m].map((y) => ({ center: Wl(y, e.frequency), width: 80, known: !0 }));
+        return [g, m].map((w) => ({ center: Kn(w, e.frequency), width: 80, known: !0 }));
       if ([40, 80, 160, 320].includes(c)) {
-        if (o = c, s = Wl(g, e.frequency), i = !0, (c === 160 || c === 320) && m != null && m > 0) {
-          const y = Wl(m, e.frequency);
-          (c === 320 || Math.abs(y - s) === 40) && (s = y);
+        if (o = c, s = Kn(g, e.frequency), i = !0, (c === 160 || c === 320) && m != null && m > 0) {
+          const w = Kn(m, e.frequency);
+          (c === 320 || Math.abs(w - s) === 40) && (s = w);
         }
         if (c === 80 && m != null && m !== 0) {
-          const y = Wl(m, e.frequency), T = Math.abs(y - s);
-          if (T === 40)
-            o = 160, s = y;
-          else if (T > 40) return [s, y].map((E) => ({ center: E, width: 80, known: !0 }));
+          const w = Kn(m, e.frequency), A = Math.abs(w - s);
+          if (A === 40)
+            o = 160, s = w;
+          else if (A > 40) return [s, w].map((V) => ({ center: V, width: 80, known: !0 }));
         }
       }
     }
   }
   return [{ center: s, width: o, known: i }];
 }
-const wp = { class: "gw-channel-charts" }, _p = { class: "gw-spectrum-card" }, kp = { class: "gw-spectrum-plot" }, $p = ["viewBox"], Cp = ["y1", "x2", "y2"], xp = ["y"], Sp = ["x"], Vp = { key: 1 }, Tp = ["x", "y"], Ep = ["aria-label", "onMouseenter", "onFocus"], Up = ["x", "y", "width", "height", "fill"], Pp = ["x1", "x2"], Ap = ["opacity", "aria-label", "onMouseenter", "onFocus", "onClick", "onKeydown"], Ip = ["d", "fill", "stroke", "stroke-width"], Mp = ["x", "y"], Op = ["x"], Rp = ["x"], Dp = {
+const Hp = { class: "gw-channel-charts" }, Lp = { class: "gw-spectrum-card" }, jp = { class: "gw-spectrum-plot" }, Wp = ["viewBox"], Bp = ["y1", "x2", "y2"], Kp = ["y"], Gp = ["x"], zp = { key: 1 }, Jp = ["x", "y"], Yp = ["aria-label", "onMouseenter", "onFocus"], Xp = ["x", "y", "width", "height", "fill"], Zp = ["x1", "x2"], Qp = ["opacity", "aria-label", "onMouseenter", "onFocus", "onClick", "onKeydown"], ev = ["d", "fill", "stroke", "stroke-width"], tv = ["x", "y"], nv = ["x"], lv = ["x"], sv = {
   key: 0,
   class: "gw-spectrum-empty"
-}, Np = {
+}, ov = {
   class: "gw-spectrum-detail",
   role: "status",
   "aria-live": "polite"
-}, qp = ["title"], Hp = {
+}, iv = ["title"], av = {
   class: "gw-spectrum-key",
   "aria-label": "Легенда графика"
-}, Fp = { key: 0 }, Lp = { key: 2 }, jp = { class: "gw-spectrum-legend" }, Wp = ["aria-pressed", "onMouseenter", "onFocus", "onClick"], Bp = /* @__PURE__ */ He({
+}, rv = { key: 0 }, uv = { key: 2 }, dv = { class: "gw-spectrum-legend" }, cv = ["aria-pressed", "onMouseenter", "onFocus", "onClick"], fv = /* @__PURE__ */ Me({
   __name: "WirelessChannels",
   props: {
     data: {},
     radio: {}
   },
   setup(e) {
-    const t = e, l = /* @__PURE__ */ H(null), o = /* @__PURE__ */ H(null), s = /* @__PURE__ */ H(null), i = _e(() => o.value || l.value), a = window.matchMedia("(max-width:600px)"), r = /* @__PURE__ */ H(a.matches), c = () => {
-      r.value = a.matches;
+    const t = e, n = /* @__PURE__ */ D(null), o = /* @__PURE__ */ D(null), s = /* @__PURE__ */ D(null), i = he(() => o.value || n.value), a = window.matchMedia("(max-width:600px)"), u = /* @__PURE__ */ D(a.matches), c = () => {
+      u.value = a.matches;
     };
-    ct(() => a.addEventListener("change", c)), qt(() => a.removeEventListener("change", c));
-    const g = _e(() => r.value ? 520 : 900), m = 48, y = _e(() => g.value - 48), T = 26, E = 244, B = (ne) => typeof ne == "number" && Number.isFinite(ne);
-    function I(ne) {
+    ot(() => a.addEventListener("change", c)), yt(() => a.removeEventListener("change", c));
+    const g = he(() => u.value ? 520 : 900), m = 48, w = he(() => g.value - 48), A = 26, V = 244, L = (z) => typeof z == "number" && Number.isFinite(z);
+    function R(z) {
       let U = 0;
-      for (const d of ne) U = U * 31 + d.charCodeAt(0) >>> 0;
+      for (const d of z) U = U * 31 + d.charCodeAt(0) >>> 0;
       return `hsl(${(Math.imul(U, 2654435761) >>> 0) % 360} 65% 56%)`;
     }
-    const Q = _e(() => (t.data.networks || []).filter((ne) => B(ne.frequency) && B(ne.signal)).map((ne, U) => ({ ...ne, id: (ne.bssid || U) + ":" + ne.frequency, color: I(ne.bssid || ne.ssid || String(U)), segments: yp(ne) })).sort((ne, U) => ne.signal - U.signal));
-    Xe(() => t.data.networks, () => {
-      l.value && !Q.value.some((ne) => ne.id === l.value) && (l.value = null), o.value = null, s.value = null;
+    const ne = he(() => (t.data.networks || []).filter((z) => L(z.frequency) && L(z.signal)).map((z, U) => ({ ...z, id: (z.bssid || U) + ":" + z.frequency, color: R(z.bssid || z.ssid || String(U)), segments: Np(z) })).sort((z, U) => z.signal - U.signal));
+    We(() => t.data.networks, () => {
+      n.value && !ne.value.some((z) => z.id === n.value) && (n.value = null), o.value = null, s.value = null;
     });
-    const X = _e(() => {
-      const ne = /* @__PURE__ */ new Map(), U = (d, u) => (ne.has(d) || ne.set(d, { frequency: d, channel: u, count: 0, busy_pct: null, noise: null }), ne.get(d));
+    const X = he(() => {
+      const z = /* @__PURE__ */ new Map(), U = (d, r) => (z.has(d) || z.set(d, { frequency: d, channel: r, count: 0, busy_pct: null, noise: null }), z.get(d));
       for (const d of t.data.frequencies || []) {
-        const u = Le(d.mhz || d.frequency);
-        u != null && U(u, d.channel);
+        const r = He(d.mhz || d.frequency);
+        r != null && U(r, d.channel);
       }
-      for (const d of t.data.networks || []) B(d.frequency) && U(d.frequency, d.channel).count++;
+      for (const d of t.data.networks || []) L(d.frequency) && U(d.frequency, d.channel).count++;
       for (const d of t.data.survey || []) {
-        const u = Le(d.frequency);
-        if (u == null) continue;
-        const v = u < 3e3 ? "2g" : u >= 5925 ? "6g" : "5g", _ = u === 2484 ? 14 : u === 5935 ? 2 : (u - (v === "2g" ? 2407 : v === "6g" ? 5950 : u < 5e3 ? 4e3 : 5e3)) / 5;
-        Object.assign(U(u, _), d, { busy_pct: Le(d.busy_pct) });
+        const r = He(d.frequency);
+        if (r == null) continue;
+        const v = r < 3e3 ? "2g" : r >= 5925 ? "6g" : "5g", _ = r === 2484 ? 14 : r === 5935 ? 2 : (r - (v === "2g" ? 2407 : v === "6g" ? 5950 : r < 5e3 ? 4e3 : 5e3)) / 5;
+        Object.assign(U(r, _), d, { busy_pct: He(d.busy_pct) });
       }
-      return [...ne.values()].sort((d, u) => d.frequency - u.frequency);
-    }), Z = _e(() => {
-      const ne = [...X.value.map((U) => U.frequency), ...Q.value.flatMap((U) => U.segments.flatMap((d) => [d.center - d.width / 2, d.center + d.width / 2]))];
-      return ne.length ? [Math.min(...ne) - 5, Math.max(...ne) + 5] : [2400, 2490];
-    }), le = (ne) => m + (ne - Z.value[0]) / Math.max(1, Z.value[1] - Z.value[0]) * (y.value - m), j = (ne) => E - (Math.max(-100, Math.min(-20, ne)) + 100) / 80 * (E - T), te = (ne) => E - Math.max(0, Math.min(100, ne)) / 100 * (E - T), O = _e(() => X.value.filter((ne, U) => U % Math.max(1, Math.ceil(X.value.length / (r.value ? 8 : 18))) === 0)), S = _e(() => X.value.some((ne) => B(ne.busy_pct))), k = _e(() => Math.max(3, Math.min(20, (y.value - m) / Math.max(1, X.value.length) * 0.5))), R = _e(() => X.value.find((ne) => ne.in_use)?.frequency || Le(t.radio?.frequency) || cs(Number(t.radio?.runtime_channel || t.radio?.channel), t.radio?.band)), z = _e(() => Q.value.find((ne) => ne.id === i.value));
-    function pe(ne, U) {
-      const d = le(U.center - U.width / 2), u = le(U.center + U.width / 2), v = j(ne.signal), _ = Math.min((u - d) / 4, (y.value - m) * 5 / (Z.value[1] - Z.value[0]));
-      return `M${d},${E} L${d + _},${v} L${u - _},${v} L${u},${E} Z`;
+      return [...z.values()].sort((d, r) => d.frequency - r.frequency);
+    }), Z = he(() => {
+      const z = [...X.value.map((U) => U.frequency), ...ne.value.flatMap((U) => U.segments.flatMap((d) => [d.center - d.width / 2, d.center + d.width / 2]))];
+      return z.length ? [Math.min(...z) - 5, Math.max(...z) + 5] : [2400, 2490];
+    }), ee = (z) => m + (z - Z.value[0]) / Math.max(1, Z.value[1] - Z.value[0]) * (w.value - m), j = (z) => V - (Math.max(-100, Math.min(-20, z)) + 100) / 80 * (V - A), le = (z) => V - Math.max(0, Math.min(100, z)) / 100 * (V - A), Q = he(() => X.value.filter((z, U) => U % Math.max(1, Math.ceil(X.value.length / (u.value ? 8 : 18))) === 0)), I = he(() => X.value.some((z) => L(z.busy_pct))), E = he(() => Math.max(3, Math.min(20, (w.value - m) / Math.max(1, X.value.length) * 0.5))), P = he(() => X.value.find((z) => z.in_use)?.frequency || He(t.radio?.frequency) || vs(Number(t.radio?.runtime_channel || t.radio?.channel), t.radio?.band)), S = he(() => ne.value.find((z) => z.id === i.value));
+    function C(z, U) {
+      const d = ee(U.center - U.width / 2), r = ee(U.center + U.width / 2), v = j(z.signal), _ = Math.min((r - d) / 4, (w.value - m) * 5 / (Z.value[1] - Z.value[0]));
+      return `M${d},${V} L${d + _},${v} L${r - _},${v} L${r},${V} Z`;
     }
-    const he = (ne) => ne.segments.every((U) => U.known) ? ne.segments.map((U) => U.width).join("+") + " МГц" : "ширина неизвестна (контур 20 МГц)", Pe = (ne) => {
-      l.value = l.value === ne.id ? null : ne.id;
-    }, Me = _e(() => z.value ? `${z.value.ssid || "Скрытая сеть"} · канал ${z.value.channel} · ${z.value.signal} dBm · ${he(z.value)}` : s.value ? `Канал ${s.value.channel} · ${s.value.frequency} МГц · ${s.value.busy_pct == null ? "нет измерения занятости" : "занятость " + s.value.busy_pct + "%"}${s.value.noise == null ? "" : " · шум " + s.value.noise + " dBm"} · сетей: ${s.value.count}` : "Наведите на сеть или столбик. Нажмите на название сети, чтобы выделить её.");
-    return (ne, U) => (p(), h("section", wp, [
-      n("article", _p, [
-        n("header", null, [
-          U[7] || (U[7] = n("h3", null, "Wi-Fi каналы и соседние сети", -1)),
-          n("span", null, w(Q.value.length) + " сетей на графике", 1)
+    const ie = (z) => z.segments.every((U) => U.known) ? z.segments.map((U) => U.width).join("+") + " МГц" : "ширина неизвестна (контур 20 МГц)", ke = (z) => {
+      n.value = n.value === z.id ? null : z.id;
+    }, ae = he(() => S.value ? `${S.value.ssid || "Скрытая сеть"} · канал ${S.value.channel} · ${S.value.signal} dBm · ${ie(S.value)}` : s.value ? `Канал ${s.value.channel} · ${s.value.frequency} МГц · ${s.value.busy_pct == null ? "нет измерения занятости" : "занятость " + s.value.busy_pct + "%"}${s.value.noise == null ? "" : " · шум " + s.value.noise + " dBm"} · сетей: ${s.value.count}` : "Наведите на сеть или столбик. Нажмите на название сети, чтобы выделить её.");
+    return (z, U) => (f(), h("section", Hp, [
+      l("article", Lp, [
+        l("header", null, [
+          U[7] || (U[7] = l("h3", null, "Wi-Fi каналы и соседние сети", -1)),
+          l("span", null, b(ne.value.length) + " сетей на графике", 1)
         ]),
-        n("div", kp, [
-          (p(), h("svg", {
+        l("div", jp, [
+          (f(), h("svg", {
             viewBox: `0 0 ${g.value} 282`,
             role: "img",
             "aria-label": "Каналы и уровень сигнала соседних Wi-Fi сетей",
@@ -6891,203 +7192,203 @@ const wp = { class: "gw-channel-charts" }, _p = { class: "gw-spectrum-card" }, k
               o.value = null, s.value = null;
             })
           }, [
-            (p(), h(N, null, se([-100, -80, -60, -40, -20], (d) => n("g", { key: d }, [
-              n("line", {
+            (f(), h(q, null, oe([-100, -80, -60, -40, -20], (d) => l("g", { key: d }, [
+              l("line", {
                 x1: m,
                 y1: j(d),
-                x2: y.value,
+                x2: w.value,
                 y2: j(d),
                 class: "gw-spectrum-grid"
-              }, null, 8, Cp),
-              n("text", {
+              }, null, 8, Bp),
+              l("text", {
                 x: "40",
                 y: j(d) + 4,
                 "text-anchor": "end"
-              }, w(d), 9, xp)
+              }, b(d), 9, Kp)
             ])), 64)),
-            U[8] || (U[8] = n("text", {
+            U[8] || (U[8] = l("text", {
               x: "8",
               y: "14"
             }, "dBm", -1)),
-            S.value ? (p(), h("text", {
+            I.value ? (f(), h("text", {
               key: 0,
               x: g.value - 8,
               y: "14",
               "text-anchor": "end"
-            }, "%", 8, Sp)) : V("", !0),
-            S.value ? (p(), h("g", Vp, [
-              (p(), h(N, null, se([0, 25, 50, 75, 100], (d) => n("text", {
+            }, "%", 8, Gp)) : x("", !0),
+            I.value ? (f(), h("g", zp, [
+              (f(), h(q, null, oe([0, 25, 50, 75, 100], (d) => l("text", {
                 key: d,
-                x: y.value + 8,
-                y: te(d) + 4
-              }, w(d), 9, Tp)), 64))
-            ])) : V("", !0),
-            (p(!0), h(N, null, se(X.value.filter((d) => B(d.busy_pct)), (d) => (p(), h("g", {
+                x: w.value + 8,
+                y: le(d) + 4
+              }, b(d), 9, Jp)), 64))
+            ])) : x("", !0),
+            (f(!0), h(q, null, oe(X.value.filter((d) => L(d.busy_pct)), (d) => (f(), h("g", {
               key: d.frequency,
               class: "gw-spectrum-occupancy",
               tabindex: "0",
               role: "button",
               "aria-label": `Канал ${d.channel}, занятость ${d.busy_pct}%`,
-              onMouseenter: (u) => {
+              onMouseenter: (r) => {
                 s.value = d, o.value = null;
               },
-              onMouseleave: U[0] || (U[0] = (u) => s.value = null),
-              onFocus: (u) => {
+              onMouseleave: U[0] || (U[0] = (r) => s.value = null),
+              onFocus: (r) => {
                 s.value = d, o.value = null;
               },
-              onBlur: U[1] || (U[1] = (u) => s.value = null)
+              onBlur: U[1] || (U[1] = (r) => s.value = null)
             }, [
-              n("rect", {
-                x: le(d.frequency) - k.value / 2,
-                y: te(d.busy_pct),
-                width: k.value,
-                height: Math.max(1, E - te(d.busy_pct)),
+              l("rect", {
+                x: ee(d.frequency) - E.value / 2,
+                y: le(d.busy_pct),
+                width: E.value,
+                height: Math.max(1, V - le(d.busy_pct)),
                 rx: "2",
                 fill: d.busy_pct >= 70 ? "#e4b56c" : "#62c7a7",
                 "fill-opacity": "0.45"
-              }, null, 8, Up)
-            ], 40, Ep))), 128)),
-            R.value ? (p(), h("line", {
+              }, null, 8, Xp)
+            ], 40, Yp))), 128)),
+            P.value ? (f(), h("line", {
               key: 2,
-              x1: le(R.value),
-              y1: T,
-              x2: le(R.value),
-              y2: E,
+              x1: ee(P.value),
+              y1: A,
+              x2: ee(P.value),
+              y2: V,
               class: "gw-spectrum-current"
-            }, null, 8, Pp)) : V("", !0),
-            (p(!0), h(N, null, se(Q.value, (d) => (p(), h("g", {
+            }, null, 8, Zp)) : x("", !0),
+            (f(!0), h(q, null, oe(ne.value, (d) => (f(), h("g", {
               key: d.id,
               opacity: i.value && i.value !== d.id ? 0.2 : 1,
               class: "gw-spectrum-peer",
               tabindex: "0",
               role: "button",
               "aria-label": `${d.ssid || "Скрытая сеть"}, канал ${d.channel}, ${d.signal} dBm`,
-              onMouseenter: (u) => {
+              onMouseenter: (r) => {
                 o.value = d.id, s.value = null;
               },
-              onMouseleave: U[2] || (U[2] = (u) => o.value = null),
-              onFocus: (u) => {
+              onMouseleave: U[2] || (U[2] = (r) => o.value = null),
+              onFocus: (r) => {
                 o.value = d.id, s.value = null;
               },
-              onBlur: U[3] || (U[3] = (u) => o.value = null),
-              onClick: (u) => Pe(d),
+              onBlur: U[3] || (U[3] = (r) => o.value = null),
+              onClick: (r) => ke(d),
               onKeydown: [
-                ln(Ze((u) => Pe(d), ["prevent"]), ["enter"]),
-                ln(Ze((u) => Pe(d), ["prevent"]), ["space"])
+                sl(tt((r) => ke(d), ["prevent"]), ["enter"]),
+                sl(tt((r) => ke(d), ["prevent"]), ["space"])
               ]
             }, [
-              (p(!0), h(N, null, se(d.segments, (u, v) => (p(), h("path", {
+              (f(!0), h(q, null, oe(d.segments, (r, v) => (f(), h("path", {
                 key: v,
-                d: pe(d, u),
+                d: C(d, r),
                 fill: d.color,
                 "fill-opacity": "0.13",
                 stroke: d.color,
                 "stroke-width": i.value === d.id ? 3 : 1.5
-              }, null, 8, Ip))), 128)),
-              n("text", {
-                x: le(d.frequency),
+              }, null, 8, ev))), 128)),
+              l("text", {
+                x: ee(d.frequency),
                 y: j(d.signal) - 5,
                 "text-anchor": "middle",
-                style: Cl({ fill: d.color }),
+                style: jt({ fill: d.color }),
                 class: "gw-spectrum-ssid"
-              }, w((d.ssid || "Скрытая сеть").slice(0, r.value ? 12 : 20)), 13, Mp)
-            ], 40, Ap))), 128)),
-            (p(!0), h(N, null, se(O.value, (d) => (p(), h("g", {
+              }, b((d.ssid || "Скрытая сеть").slice(0, u.value ? 12 : 20)), 13, tv)
+            ], 40, Qp))), 128)),
+            (f(!0), h(q, null, oe(Q.value, (d) => (f(), h("g", {
               key: d.frequency
             }, [
-              n("text", {
-                x: le(d.frequency),
+              l("text", {
+                x: ee(d.frequency),
                 y: "263",
                 "text-anchor": "middle"
-              }, w(d.channel), 9, Op)
+              }, b(d.channel), 9, nv)
             ]))), 128)),
-            n("text", {
-              x: y.value,
+            l("text", {
+              x: w.value,
               y: "279",
               "text-anchor": "end"
-            }, "Канал", 8, Rp)
-          ], 40, $p)),
-          Q.value.length ? V("", !0) : (p(), h("p", Dp, w(e.data.networks?.length ? "Сети найдены, но драйвер не сообщил канал или уровень сигнала." : "Соседние сети не найдены"), 1))
+            }, "Канал", 8, lv)
+          ], 40, Wp)),
+          ne.value.length ? x("", !0) : (f(), h("p", sv, b(e.data.networks?.length ? "Сети найдены, но драйвер не сообщил канал или уровень сигнала." : "Соседние сети не найдены"), 1))
         ]),
-        n("div", Np, [
-          n("span", { title: Me.value }, w(Me.value), 9, qp)
+        l("div", ov, [
+          l("span", { title: ae.value }, b(ae.value), 9, iv)
         ]),
-        n("div", Hp, [
-          U[13] || (U[13] = n("span", null, [
-            n("i", { class: "gw-key-line" }),
-            A("Контуры — сигнал сетей, шкала слева (dBm)")
+        l("div", av, [
+          U[13] || (U[13] = l("span", null, [
+            l("i", { class: "gw-key-line" }),
+            M("Контуры — сигнал сетей, шкала слева (dBm)")
           ], -1)),
-          R.value ? (p(), h("span", Fp, [...U[9] || (U[9] = [
-            n("i", { class: "gw-key-current" }, null, -1),
-            A("Пунктир — текущий канал", -1)
-          ])])) : V("", !0),
-          S.value ? (p(), h(N, { key: 1 }, [
-            U[10] || (U[10] = n("span", null, [
-              n("i", { class: "gw-key-busy" }),
-              A("Зелёный — занятость менее 70%")
+          P.value ? (f(), h("span", rv, [...U[9] || (U[9] = [
+            l("i", { class: "gw-key-current" }, null, -1),
+            M("Пунктир — текущий канал", -1)
+          ])])) : x("", !0),
+          I.value ? (f(), h(q, { key: 1 }, [
+            U[10] || (U[10] = l("span", null, [
+              l("i", { class: "gw-key-busy" }),
+              M("Зелёный — занятость менее 70%")
             ], -1)),
-            U[11] || (U[11] = n("span", null, [
-              n("i", { class: "gw-key-crowded" }),
-              A("Жёлтый — занятость от 70%")
+            U[11] || (U[11] = l("span", null, [
+              l("i", { class: "gw-key-crowded" }),
+              M("Жёлтый — занятость от 70%")
             ], -1)),
-            U[12] || (U[12] = n("span", null, "Столбики — занятость эфира, шкала справа (%)", -1))
-          ], 64)) : (p(), h("span", Lp, "Измерения занятости от драйвера отсутствуют"))
+            U[12] || (U[12] = l("span", null, "Столбики — занятость эфира, шкала справа (%)", -1))
+          ], 64)) : (f(), h("span", uv, "Измерения занятости от драйвера отсутствуют"))
         ]),
-        n("div", jp, [
-          (p(!0), h(N, null, se(Q.value, (d) => (p(), h("button", {
+        l("div", dv, [
+          (f(!0), h(q, null, oe(ne.value, (d) => (f(), h("button", {
             key: d.id,
-            class: Ue({ on: l.value === d.id }),
-            "aria-pressed": l.value === d.id,
-            onMouseenter: (u) => {
+            class: Te({ on: n.value === d.id }),
+            "aria-pressed": n.value === d.id,
+            onMouseenter: (r) => {
               o.value = d.id, s.value = null;
             },
-            onMouseleave: U[5] || (U[5] = (u) => o.value = null),
-            onFocus: (u) => {
+            onMouseleave: U[5] || (U[5] = (r) => o.value = null),
+            onFocus: (r) => {
               o.value = d.id, s.value = null;
             },
-            onBlur: U[6] || (U[6] = (u) => o.value = null),
-            onClick: (u) => Pe(d)
+            onBlur: U[6] || (U[6] = (r) => o.value = null),
+            onClick: (r) => ke(d)
           }, [
-            n("i", {
-              style: Cl({ background: d.color })
+            l("i", {
+              style: jt({ background: d.color })
             }, null, 4),
-            n("span", null, w(d.ssid || "Скрытая сеть"), 1),
-            n("small", null, w(d.signal) + " dBm", 1)
-          ], 42, Wp))), 128))
+            l("span", null, b(d.ssid || "Скрытая сеть"), 1),
+            l("small", null, b(d.signal) + " dBm", 1)
+          ], 42, cv))), 128))
         ]),
-        U[14] || (U[14] = n("p", { class: "gw-chart-note" }, "Высота контура — сила сигнала, ширина — полоса сети. Если ширина неизвестна, показан контур 20 МГц. Занятость измеряется драйвером; число сетей не заменяет это измерение.", -1))
+        U[14] || (U[14] = l("p", { class: "gw-chart-note" }, "Высота контура — сила сигнала, ширина — полоса сети. Если ширина неизвестна, показан контур 20 МГц. Занятость измеряется драйвером; число сетей не заменяет это измерение.", -1))
       ])
     ]));
   }
-}), Kp = { class: "gw-wireless" }, Gp = { class: "gw-section-header" }, zp = ["disabled"], Jp = {
+}), pv = { class: "gw-wireless" }, vv = { class: "gw-section-header" }, gv = ["disabled"], hv = {
   key: 0,
   class: "gw-error",
   role: "alert"
-}, Yp = {
+}, mv = {
   key: 1,
   class: "gw-hint"
-}, Xp = { class: "gw-section-header" }, Qp = { class: "gw-hint" }, Zp = { key: 0 }, ev = { class: "gw-actions" }, tv = ["disabled", "onClick"], lv = ["disabled", "onClick"], nv = { class: "gw-table-wrap" }, sv = { class: "gw-check" }, ov = { class: "gw-two" }, iv = ["value"], av = ["value", "disabled"], rv = ["value"], uv = { class: "gw-two" }, dv = ["value"], cv = ["value"], fv = ["value"], pv = ["value"], vv = { class: "gw-rule-fields" }, gv = { class: "gw-check" }, hv = ["onUpdate:modelValue"], mv = ["onUpdate:modelValue"], bv = ["onUpdate:modelValue"], yv = ["value"], wv = ["value"], _v = { key: 0 }, kv = {
+}, bv = { class: "gw-section-header" }, yv = { class: "gw-hint" }, wv = { key: 0 }, _v = { class: "gw-actions" }, kv = ["disabled", "onClick"], $v = ["disabled", "onClick"], Cv = { class: "gw-table-wrap" }, xv = { class: "gw-check" }, Sv = { class: "gw-two" }, Tv = ["value"], Vv = ["value", "disabled"], Pv = ["value"], Uv = { class: "gw-two" }, Av = ["value"], Ev = ["value"], Iv = ["value"], Mv = ["value"], Ov = { class: "gw-rule-fields" }, Rv = { class: "gw-check" }, Dv = ["onUpdate:modelValue"], Fv = ["onUpdate:modelValue"], qv = ["onUpdate:modelValue"], Nv = ["value"], Hv = ["value"], Lv = { key: 0 }, jv = {
   key: 1,
   class: "gw-hint"
-}, $v = { class: "gw-wifi-networks" }, Cv = ["onUpdate:modelValue", "value"], xv = { class: "gw-two" }, Sv = { class: "gw-check" }, Vv = ["onUpdate:modelValue"], Tv = { class: "gw-check" }, Ev = ["onUpdate:modelValue"], Uv = {
+}, Wv = { class: "gw-wifi-networks" }, Bv = ["onUpdate:modelValue", "value"], Kv = { class: "gw-two" }, Gv = { class: "gw-check" }, zv = ["onUpdate:modelValue"], Jv = { class: "gw-check" }, Yv = ["onUpdate:modelValue"], Xv = {
   key: 0,
   class: "gw-error",
   role: "alert"
-}, Pv = { class: "gw-actions" }, Av = ["disabled"], Iv = ["disabled"], Mv = { class: "gw-change-list" }, Ov = { class: "gw-hint" }, Rv = {
+}, Zv = { class: "gw-actions" }, Qv = ["disabled"], eg = ["disabled"], tg = { class: "gw-change-list" }, ng = { class: "gw-hint" }, lg = {
   key: 0,
   class: "gw-error",
   role: "alert"
-}, Dv = { class: "gw-actions" }, Nv = ["disabled"], qv = ["disabled"], Hv = { class: "gw-section-header" }, Fv = { class: "gw-hint" }, Lv = ["disabled"], jv = {
+}, sg = { class: "gw-actions" }, og = ["disabled"], ig = ["disabled"], ag = { class: "gw-section-header" }, rg = { class: "gw-hint" }, ug = ["disabled"], dg = {
   key: 0,
   class: "gw-error",
   role: "alert"
-}, Wv = {
+}, cg = {
   class: "gw-tabs",
   "aria-label": "Результаты сканирования"
-}, Bv = { class: "gw-table-wrap" }, Kv = {
+}, fg = { class: "gw-table-wrap" }, pg = {
   key: 0,
   class: "gw-hint"
-}, Gv = /* @__PURE__ */ He({
+}, vg = /* @__PURE__ */ Me({
   __name: "WirelessEditor",
   props: {
     node: {},
@@ -7095,175 +7396,175 @@ const wp = { class: "gw-channel-charts" }, _p = { class: "gw-spectrum-card" }, k
   },
   emits: ["changed"],
   setup(e, { emit: t }) {
-    const l = e, o = t, s = /* @__PURE__ */ H({ radios: [], networks: [] }), i = /* @__PURE__ */ H(!1), a = /* @__PURE__ */ H(!1), r = /* @__PURE__ */ H(""), c = /* @__PURE__ */ H(null), g = /* @__PURE__ */ H(null), m = /* @__PURE__ */ H(!1), y = /* @__PURE__ */ H(null), T = /* @__PURE__ */ H(null), E = /* @__PURE__ */ H(""), B = /* @__PURE__ */ H("channels");
-    let I = !0;
-    const Q = () => "/api/gateways/" + encodeURIComponent(l.node.id), X = (u, v, _ = "POST") => l.bridge.request(Q() + u, { method: _, headers: { "Content-Type": "application/json" }, body: JSON.stringify(v) }), Z = (u) => Array.isArray(u) ? u : u ? String(u).split(/\s+/) : [], le = { none: "Без защиты", psk2: "WPA2-PSK", "psk2+ccmp": "WPA2-PSK (CCMP)", "psk-mixed": "WPA/WPA2-PSK", sae: "WPA3-SAE", "sae-mixed": "WPA2/WPA3", "sae+ccmp": "WPA3-SAE (CCMP)", "sae-mixed+ccmp": "WPA2/WPA3 (CCMP)" }, j = (u) => typeof u == "number" ? (u / 1e3).toFixed(3) + " ГГц" : "—", te = (u) => ({ "2g": "2,4 ГГц", "5g": "5 ГГц", "6g": "6 ГГц" })[u.band] || j(u.frequency), O = _e(() => bp(T.value, y.value));
-    function S(u) {
-      return u.encryption?.enabled ? u.encryption.wpa?.length ? "WPA " + u.encryption.wpa.join("/") : "Защищена" : "Открытая";
+    const n = e, o = t, s = /* @__PURE__ */ D({ radios: [], networks: [] }), i = /* @__PURE__ */ D(!1), a = /* @__PURE__ */ D(!1), u = /* @__PURE__ */ D(""), c = /* @__PURE__ */ D(null), g = /* @__PURE__ */ D(null), m = /* @__PURE__ */ D(!1), w = /* @__PURE__ */ D(null), A = /* @__PURE__ */ D(null), V = /* @__PURE__ */ D(""), L = /* @__PURE__ */ D("channels");
+    let R = !0;
+    const ne = () => "/api/gateways/" + encodeURIComponent(n.node.id), X = (r, v, _ = "POST") => n.bridge.request(ne() + r, { method: _, headers: { "Content-Type": "application/json" }, body: JSON.stringify(v) }), Z = (r) => Array.isArray(r) ? r : r ? String(r).split(/\s+/) : [], ee = { none: "Без защиты", psk2: "WPA2-PSK", "psk2+ccmp": "WPA2-PSK (CCMP)", "psk-mixed": "WPA/WPA2-PSK", sae: "WPA3-SAE", "sae-mixed": "WPA2/WPA3", "sae+ccmp": "WPA3-SAE (CCMP)", "sae-mixed+ccmp": "WPA2/WPA3 (CCMP)" }, j = (r) => typeof r == "number" ? (r / 1e3).toFixed(3) + " ГГц" : "—", le = (r) => ({ "2g": "2,4 ГГц", "5g": "5 ГГц", "6g": "6 ГГц" })[r.band] || j(r.frequency), Q = he(() => qp(A.value, w.value));
+    function I(r) {
+      return r.encryption?.enabled ? r.encryption.wpa?.length ? "WPA " + r.encryption.wpa.join("/") : "Защищена" : "Открытая";
     }
-    async function k() {
-      i.value = !0, r.value = "";
+    async function E() {
+      i.value = !0, u.value = "";
       try {
-        const u = await l.bridge.request(Q() + "/wireless");
-        I && (s.value = u);
-      } catch (u) {
-        I && (r.value = u.message);
+        const r = await n.bridge.request(ne() + "/wireless");
+        R && (s.value = r);
+      } catch (r) {
+        R && (u.value = r.message);
       } finally {
-        I && (i.value = !1);
+        R && (i.value = !1);
       }
     }
-    function R(u) {
-      r.value = "", c.value = {
-        ...u,
-        original: u,
-        disabled: u.disabled === "1",
-        channel: u.channel || "auto",
-        country: u.country || "",
-        txpower: u.txpower || "",
-        htmode: u.htmode || "NOHT",
-        interfaces: u.interfaces.map((v) => ({ ...v, original: v, disabled: v.disabled === "1", hidden: v.hidden === "1", isolate: v.isolate === "1", network: Z(v.network), ssid: v.ssid || "", encryption: v.encryption || "none", key: "" }))
+    function P(r) {
+      u.value = "", c.value = {
+        ...r,
+        original: r,
+        disabled: r.disabled === "1",
+        channel: r.channel || "auto",
+        country: r.country || "",
+        txpower: r.txpower || "",
+        htmode: r.htmode || "NOHT",
+        interfaces: r.interfaces.map((v) => ({ ...v, original: v, disabled: v.disabled === "1", hidden: v.hidden === "1", isolate: v.isolate === "1", network: Z(v.network), ssid: v.ssid || "", encryption: v.encryption || "none", key: "" }))
       };
     }
-    const z = (u) => {
+    const S = (r) => {
       try {
-        return new Intl.DisplayNames(["ru"], { type: "region" }).of(u) || u;
+        return new Intl.DisplayNames(["ru"], { type: "region" }).of(r) || r;
       } catch {
-        return u;
+        return r;
       }
-    }, pe = (u) => {
-      const v = /^(HT|VHT|HE|EHT)(\d+)$/.exec(u);
+    }, C = (r) => {
+      const v = /^(HT|VHT|HE|EHT)(\d+)$/.exec(r);
       return v ? `${v[2]} МГц · Wi-Fi ${{ HT: "4 (HT)", VHT: "5 (VHT)", HE: "6 (HE)", EHT: "7 (EHT)" }[v[1]]}` : "20 МГц · без расширений HT";
     };
-    function he() {
-      c.value = null, r.value = "";
+    function ie() {
+      c.value = null, u.value = "";
     }
-    function Pe(u, v, _, K = []) {
-      const Ve = {};
-      for (const W of _) {
-        const Ne = K.includes(W) ? u[W] ? "1" : "0" : u[W] === "" ? null : u[W], Ht = K.includes(W) ? v[W] === "1" ? "1" : "0" : W === "network" ? Z(v[W]) : v[W] ?? (W === "channel" ? "auto" : W === "encryption" ? "none" : W === "htmode" ? "NOHT" : null);
-        JSON.stringify(Ne) !== JSON.stringify(Ht) && (Ve[W] = Ne);
+    function ke(r, v, _, J = []) {
+      const Pe = {};
+      for (const B of _) {
+        const Fe = J.includes(B) ? r[B] ? "1" : "0" : r[B] === "" ? null : r[B], qt = J.includes(B) ? v[B] === "1" ? "1" : "0" : B === "network" ? Z(v[B]) : v[B] ?? (B === "channel" ? "auto" : B === "encryption" ? "none" : B === "htmode" ? "NOHT" : null);
+        JSON.stringify(Fe) !== JSON.stringify(qt) && (Pe[B] = Fe);
       }
-      return Ve;
+      return Pe;
     }
-    async function Me() {
-      a.value = !0, r.value = "";
+    async function ae() {
+      a.value = !0, u.value = "";
       try {
-        const u = c.value, v = {
+        const r = c.value, v = {
           config_hash: s.value.config_hash,
-          radio: u.name,
-          settings: Pe(u, u.original, ["disabled", "channel", "country", "txpower", "htmode"], ["disabled"]),
-          interfaces: u.interfaces.map((_) => {
-            const K = Pe(_, _.original, ["disabled", "ssid", "encryption", "hidden", "isolate", "network"], ["disabled", "hidden", "isolate"]);
-            return _.key && _.encryption !== "none" && (K.key = _.key), { id: _.id, settings: K };
+          radio: r.name,
+          settings: ke(r, r.original, ["disabled", "channel", "country", "txpower", "htmode"], ["disabled"]),
+          interfaces: r.interfaces.map((_) => {
+            const J = ke(_, _.original, ["disabled", "ssid", "encryption", "hidden", "isolate", "network"], ["disabled", "hidden", "isolate"]);
+            return _.key && _.encryption !== "none" && (J.key = _.key), { id: _.id, settings: J };
           }).filter((_) => Object.keys(_.settings).length)
         };
         g.value = await X("/network/plan", { action: "wireless", data: v });
-        for (const _ of u.interfaces) _.key = "";
-      } catch (u) {
-        r.value = u.message;
+        for (const _ of r.interfaces) _.key = "";
+      } catch (r) {
+        u.value = r.message;
       } finally {
         a.value = !1;
       }
     }
-    function ne() {
-      const u = g.value?.plan_token;
-      g.value = null, r.value = "", u && X("/operation-plans/" + encodeURIComponent(u), {}, "DELETE").catch((v) => {
-        r.value = v.message;
+    function z() {
+      const r = g.value?.plan_token;
+      g.value = null, u.value = "", r && X("/operation-plans/" + encodeURIComponent(r), {}, "DELETE").catch((v) => {
+        u.value = v.message;
       });
     }
     async function U() {
-      a.value = !0, r.value = "";
+      a.value = !0, u.value = "";
       try {
-        const u = await X("/router-operations", { plan_token: g.value.plan_token, confirmed: !0 });
-        g.value = null, he(), l.bridge.task({ taskId: u.task_id, title: "Настройка Wi-Fi", cancellable: !1, onDone: async () => {
-          await k(), o("changed");
+        const r = await X("/router-operations", { plan_token: g.value.plan_token, confirmed: !0 });
+        g.value = null, ie(), n.bridge.task({ taskId: r.task_id, title: "Настройка Wi-Fi", cancellable: !1, onDone: async () => {
+          await E(), o("changed");
         } });
-      } catch (u) {
-        r.value = u.message;
+      } catch (r) {
+        u.value = r.message;
       } finally {
         a.value = !1;
       }
     }
-    async function d(u) {
+    async function d(r) {
       if (!m.value) {
-        y.value?.name !== u.name && (T.value = null), y.value = u, m.value = !0, E.value = "";
+        w.value?.name !== r.name && (A.value = null), w.value = r, m.value = !0, V.value = "";
         try {
-          const v = await X("/wireless/" + encodeURIComponent(u.name) + "/scan", {});
-          I && (T.value = v);
+          const v = await X("/wireless/" + encodeURIComponent(r.name) + "/scan", {});
+          R && (A.value = v);
         } catch (v) {
-          I && (E.value = v.message);
+          R && (V.value = v.message);
         } finally {
-          I && (m.value = !1);
+          R && (m.value = !1);
         }
       }
     }
-    return ct(() => {
-      k();
-    }), qt(() => {
-      I = !1, c.value = null;
-    }), (u, v) => (p(), h(N, null, [
-      n("section", Kp, [
-        n("header", Gp, [
-          v[9] || (v[9] = n("div", null, [
-            n("h3", null, "Беспроводные сети"),
-            n("p", { class: "gw-hint" }, "Радиомодули, сети Wi-Fi и обзор каналов")
+    return ot(() => {
+      E();
+    }), yt(() => {
+      R = !1, c.value = null;
+    }), (r, v) => (f(), h(q, null, [
+      l("section", pv, [
+        l("header", vv, [
+          v[9] || (v[9] = l("div", null, [
+            l("h3", null, "Беспроводные сети"),
+            l("p", { class: "gw-hint" }, "Радиомодули, сети Wi-Fi и обзор каналов")
           ], -1)),
-          n("button", {
+          l("button", {
             disabled: i.value || a.value,
-            onClick: k
-          }, "Обновить", 8, zp)
+            onClick: E
+          }, "Обновить", 8, gv)
         ]),
-        r.value && !c.value && !g.value ? (p(), h("p", Jp, w(r.value), 1)) : V("", !0),
-        !s.value.radios.length && !r.value ? (p(), h("p", Yp, w(i.value ? "Получаем настройки Wi-Fi…" : "На шлюзе нет настроенных радиомодулей Wi-Fi."), 1)) : V("", !0),
-        (p(!0), h(N, null, se(s.value.radios, (_) => (p(), h("section", {
+        u.value && !c.value && !g.value ? (f(), h("p", hv, b(u.value), 1)) : x("", !0),
+        !s.value.radios.length && !u.value ? (f(), h("p", mv, b(i.value ? "Получаем настройки Wi-Fi…" : "На шлюзе нет настроенных радиомодулей Wi-Fi."), 1)) : x("", !0),
+        (f(!0), h(q, null, oe(s.value.radios, (_) => (f(), h("section", {
           key: _.name,
           class: "gw-radio"
         }, [
-          n("header", Xp, [
-            n("div", null, [
-              n("h3", null, w(_.name) + " · " + w(te(_)), 1),
-              n("p", Qp, [
-                A(w(_.up ? "Работает" : _.disabled === "1" ? "Выключен" : "Не активен") + " · Канал " + w(_.runtime_channel || _.channel || "Авто"), 1),
-                _.htmode ? (p(), h("span", Zp, " · " + w(_.htmode), 1)) : V("", !0)
+          l("header", bv, [
+            l("div", null, [
+              l("h3", null, b(_.name) + " · " + b(le(_)), 1),
+              l("p", yv, [
+                M(b(_.up ? "Работает" : _.disabled === "1" ? "Выключен" : "Не активен") + " · Канал " + b(_.runtime_channel || _.channel || "Авто"), 1),
+                _.htmode ? (f(), h("span", wv, " · " + b(_.htmode), 1)) : x("", !0)
               ])
             ]),
-            n("div", ev, [
-              n("button", {
+            l("div", _v, [
+              l("button", {
                 disabled: a.value || m.value || !_.up,
-                onClick: (K) => d(_)
-              }, "Просмотр каналов", 8, tv),
-              n("button", {
+                onClick: (J) => d(_)
+              }, "Просмотр каналов", 8, kv),
+              l("button", {
                 disabled: a.value || m.value,
-                onClick: (K) => R(_)
-              }, "Настроить Wi-Fi", 8, lv)
+                onClick: (J) => P(_)
+              }, "Настроить Wi-Fi", 8, $v)
             ])
           ]),
-          n("div", nv, [
-            n("table", null, [
-              v[10] || (v[10] = n("thead", null, [
-                n("tr", null, [
-                  n("th", null, "Сеть"),
-                  n("th", null, "Режим"),
-                  n("th", null, "Защита"),
-                  n("th", null, "Подключение"),
-                  n("th", null, "Состояние")
+          l("div", Cv, [
+            l("table", null, [
+              v[10] || (v[10] = l("thead", null, [
+                l("tr", null, [
+                  l("th", null, "Сеть"),
+                  l("th", null, "Режим"),
+                  l("th", null, "Защита"),
+                  l("th", null, "Подключение"),
+                  l("th", null, "Состояние")
                 ])
               ], -1)),
-              n("tbody", null, [
-                (p(!0), h(N, null, se(_.interfaces, (K) => (p(), h("tr", {
-                  key: K.id
+              l("tbody", null, [
+                (f(!0), h(q, null, oe(_.interfaces, (J) => (f(), h("tr", {
+                  key: J.id
                 }, [
-                  n("td", null, [
-                    n("strong", null, w(K.ssid || K.id), 1),
-                    n("small", null, w(K.ifname || K.id), 1)
+                  l("td", null, [
+                    l("strong", null, b(J.ssid || J.id), 1),
+                    l("small", null, b(J.ifname || J.id), 1)
                   ]),
-                  n("td", null, w(K.mode === "ap" ? "Точка доступа" : K.mode === "sta" ? "Клиент" : K.mode), 1),
-                  n("td", null, w(le[K.encryption || "none"] || K.encryption), 1),
-                  n("td", null, w(Z(K.network).join(", ") || "Без привязки"), 1),
-                  n("td", null, [
-                    n("span", {
-                      class: Ue(["gw-status", _.up && K.disabled !== "1" ? "good" : "warn"])
-                    }, w(K.disabled === "1" ? "Выключена" : _.up ? "Включена" : "Не активна"), 3)
+                  l("td", null, b(J.mode === "ap" ? "Точка доступа" : J.mode === "sta" ? "Клиент" : J.mode), 1),
+                  l("td", null, b(ee[J.encryption || "none"] || J.encryption), 1),
+                  l("td", null, b(Z(J.network).join(", ") || "Без привязки"), 1),
+                  l("td", null, [
+                    l("span", {
+                      class: Te(["gw-status", _.up && J.disabled !== "1" ? "good" : "warn"])
+                    }, b(J.disabled === "1" ? "Выключена" : _.up ? "Включена" : "Не активна"), 3)
                   ])
                 ]))), 128))
               ])
@@ -7271,331 +7572,539 @@ const wp = { class: "gw-channel-charts" }, _p = { class: "gw-spectrum-card" }, k
           ])
         ]))), 128))
       ]),
-      c.value && !g.value ? (p(), ge(qe, {
+      c.value && !g.value ? (f(), me(Re, {
         key: 0,
         title: "Настройки Wi-Fi · " + c.value.name,
         wide: !0,
         compact: !0,
         busy: a.value,
-        onClose: he
+        onClose: ie
       }, {
-        default: Re(() => [
-          n("form", {
+        default: Ie(() => [
+          l("form", {
             class: "gw-form",
-            onSubmit: Ze(Me, ["prevent"])
+            onSubmit: tt(ae, ["prevent"])
           }, [
-            n("label", sv, [
-              F(n("input", {
+            l("label", xv, [
+              H(l("input", {
                 "onUpdate:modelValue": v[0] || (v[0] = (_) => c.value.disabled = _),
                 type: "checkbox"
               }, null, 512), [
-                [We, c.value.disabled]
+                [je, c.value.disabled]
               ]),
-              v[11] || (v[11] = A(" Выключить радиомодуль", -1))
+              v[11] || (v[11] = M(" Выключить радиомодуль", -1))
             ]),
-            n("div", ov, [
-              n("label", null, [
-                v[13] || (v[13] = A("Канал", -1)),
-                F(n("select", {
+            l("div", Sv, [
+              l("label", null, [
+                v[13] || (v[13] = M("Канал", -1)),
+                H(l("select", {
                   "onUpdate:modelValue": v[1] || (v[1] = (_) => c.value.channel = _)
                 }, [
-                  v[12] || (v[12] = n("option", { value: "auto" }, "Автоматически", -1)),
-                  c.value.channel !== "auto" && !c.value.frequencies.some((_) => String(_.channel) === c.value.channel) ? (p(), h("option", {
+                  v[12] || (v[12] = l("option", { value: "auto" }, "Автоматически", -1)),
+                  c.value.channel !== "auto" && !c.value.frequencies.some((_) => String(_.channel) === c.value.channel) ? (f(), h("option", {
                     key: 0,
                     value: c.value.channel
-                  }, w(c.value.channel) + " (текущий)", 9, iv)) : V("", !0),
-                  (p(!0), h(N, null, se(c.value.frequencies, (_) => (p(), h("option", {
+                  }, b(c.value.channel) + " (текущий)", 9, Tv)) : x("", !0),
+                  (f(!0), h(q, null, oe(c.value.frequencies, (_) => (f(), h("option", {
                     key: _.channel,
                     value: String(_.channel),
                     disabled: _.restricted
-                  }, w(_.channel) + " · " + w(j(_.mhz || _.frequency)) + w(_.restricted ? " · Недоступен" : ""), 9, av))), 128))
+                  }, b(_.channel) + " · " + b(j(_.mhz || _.frequency)) + b(_.restricted ? " · Недоступен" : ""), 9, Vv))), 128))
                 ], 512), [
                   [xe, c.value.channel]
                 ])
               ]),
-              n("label", null, [
-                v[14] || (v[14] = A("Ширина канала", -1)),
-                F(n("select", {
+              l("label", null, [
+                v[14] || (v[14] = M("Ширина канала", -1)),
+                H(l("select", {
                   "onUpdate:modelValue": v[2] || (v[2] = (_) => c.value.htmode = _)
                 }, [
-                  (p(!0), h(N, null, se([.../* @__PURE__ */ new Set([c.value.original.htmode || "NOHT", ...c.value.htmodes])], (_) => (p(), h("option", {
+                  (f(!0), h(q, null, oe([.../* @__PURE__ */ new Set([c.value.original.htmode || "NOHT", ...c.value.htmodes])], (_) => (f(), h("option", {
                     key: String(_),
                     value: _
-                  }, w(pe(String(_))), 9, rv))), 128))
+                  }, b(C(String(_))), 9, Pv))), 128))
                 ], 512), [
                   [xe, c.value.htmode]
                 ])
               ])
             ]),
-            v[28] || (v[28] = n("p", { class: "gw-hint gw-mode-help" }, "HT — Wi-Fi 4, VHT — Wi-Fi 5, HE — Wi-Fi 6, EHT — Wi-Fi 7. Более широкая полоса может повысить скорость, но занимает больше эфира; на загруженных 2,4 ГГц обычно удобнее 20 МГц.", -1)),
-            n("div", uv, [
-              n("label", null, [
-                v[17] || (v[17] = A("Страна", -1)),
-                F(n("select", {
+            v[28] || (v[28] = l("p", { class: "gw-hint gw-mode-help" }, "HT — Wi-Fi 4, VHT — Wi-Fi 5, HE — Wi-Fi 6, EHT — Wi-Fi 7. Более широкая полоса может повысить скорость, но занимает больше эфира; на загруженных 2,4 ГГц обычно удобнее 20 МГц.", -1)),
+            l("div", Uv, [
+              l("label", null, [
+                v[17] || (v[17] = M("Страна", -1)),
+                H(l("select", {
                   "onUpdate:modelValue": v[3] || (v[3] = (_) => c.value.country = _),
                   "aria-label": "Страна"
                 }, [
-                  v[15] || (v[15] = n("option", { value: "" }, "По умолчанию", -1)),
-                  v[16] || (v[16] = n("option", { value: "00" }, "00 · Всемирный регуляторный домен", -1)),
-                  c.value.country && c.value.country !== "00" && !c.value.countries?.some((_) => _.code === c.value.country) ? (p(), h("option", {
+                  v[15] || (v[15] = l("option", { value: "" }, "По умолчанию", -1)),
+                  v[16] || (v[16] = l("option", { value: "00" }, "00 · Всемирный регуляторный домен", -1)),
+                  c.value.country && c.value.country !== "00" && !c.value.countries?.some((_) => _.code === c.value.country) ? (f(), h("option", {
                     key: 0,
                     value: c.value.country,
                     disabled: ""
-                  }, w(c.value.country) + " · текущее значение", 9, dv)) : V("", !0),
-                  (p(!0), h(N, null, se(c.value.countries || [], (_) => (p(), h("option", {
+                  }, b(c.value.country) + " · текущее значение", 9, Av)) : x("", !0),
+                  (f(!0), h(q, null, oe(c.value.countries || [], (_) => (f(), h("option", {
                     key: _.code,
                     value: _.code
-                  }, w(_.code) + " · " + w(z(_.code)), 9, cv))), 128))
+                  }, b(_.code) + " · " + b(S(_.code)), 9, Ev))), 128))
                 ], 512), [
                   [xe, c.value.country]
                 ])
               ]),
-              n("label", null, [
-                v[19] || (v[19] = A("Мощность передатчика", -1)),
-                F(n("select", {
+              l("label", null, [
+                v[19] || (v[19] = M("Мощность передатчика", -1)),
+                H(l("select", {
                   "onUpdate:modelValue": v[4] || (v[4] = (_) => c.value.txpower = _),
                   "aria-label": "Мощность передатчика"
                 }, [
-                  v[18] || (v[18] = n("option", { value: "" }, "Автоматически", -1)),
-                  c.value.txpower && !c.value.txpowers?.some((_) => String(_.dbm) === String(c.value.txpower)) ? (p(), h("option", {
+                  v[18] || (v[18] = l("option", { value: "" }, "Автоматически", -1)),
+                  c.value.txpower && !c.value.txpowers?.some((_) => String(_.dbm) === String(c.value.txpower)) ? (f(), h("option", {
                     key: 0,
                     value: c.value.txpower,
                     disabled: ""
-                  }, w(c.value.txpower) + " dBm · текущее значение", 9, fv)) : V("", !0),
-                  (p(!0), h(N, null, se(c.value.txpowers || [], (_) => (p(), h("option", {
+                  }, b(c.value.txpower) + " dBm · текущее значение", 9, Iv)) : x("", !0),
+                  (f(!0), h(q, null, oe(c.value.txpowers || [], (_) => (f(), h("option", {
                     key: _.dbm,
                     value: String(_.dbm)
-                  }, w(_.dbm) + " dBm · " + w(_.mw) + " мВт", 9, pv))), 128))
+                  }, b(_.dbm) + " dBm · " + b(_.mw) + " мВт", 9, Mv))), 128))
                 ], 512), [
                   [xe, c.value.txpower]
                 ]),
-                v[20] || (v[20] = n("small", null, "Только значения драйвера; ограничения выбранной страны применяет OpenWrt.", -1))
+                v[20] || (v[20] = l("small", null, "Только значения драйвера; ограничения выбранной страны применяет OpenWrt.", -1))
               ])
             ]),
-            v[29] || (v[29] = n("h3", null, "Сети на радиомодуле", -1)),
-            (p(!0), h(N, null, se(c.value.interfaces, (_) => (p(), h("details", {
+            v[29] || (v[29] = l("h3", null, "Сети на радиомодуле", -1)),
+            (f(!0), h(q, null, oe(c.value.interfaces, (_) => (f(), h("details", {
               key: _.id,
               class: "gw-wifi-form",
               open: ""
             }, [
-              n("summary", null, w(_.ssid || _.id) + " · " + w(_.mode === "ap" ? "Точка доступа" : _.mode === "sta" ? "Клиент" : _.mode), 1),
-              n("div", vv, [
-                n("label", gv, [
-                  F(n("input", {
-                    "onUpdate:modelValue": (K) => _.disabled = K,
+              l("summary", null, b(_.ssid || _.id) + " · " + b(_.mode === "ap" ? "Точка доступа" : _.mode === "sta" ? "Клиент" : _.mode), 1),
+              l("div", Ov, [
+                l("label", Rv, [
+                  H(l("input", {
+                    "onUpdate:modelValue": (J) => _.disabled = J,
                     type: "checkbox"
-                  }, null, 8, hv), [
-                    [We, _.disabled]
+                  }, null, 8, Dv), [
+                    [je, _.disabled]
                   ]),
-                  v[21] || (v[21] = A(" Выключить эту сеть", -1))
+                  v[21] || (v[21] = M(" Выключить эту сеть", -1))
                 ]),
-                n("label", null, [
-                  v[22] || (v[22] = A("Имя сети (SSID)", -1)),
-                  F(n("input", {
-                    "onUpdate:modelValue": (K) => _.ssid = K,
+                l("label", null, [
+                  v[22] || (v[22] = M("Имя сети (SSID)", -1)),
+                  H(l("input", {
+                    "onUpdate:modelValue": (J) => _.ssid = J,
                     required: "",
                     maxlength: "32"
-                  }, null, 8, mv), [
+                  }, null, 8, Fv), [
                     [re, _.ssid]
                   ])
                 ]),
-                n("label", null, [
-                  v[23] || (v[23] = A("Защита", -1)),
-                  F(n("select", {
-                    "onUpdate:modelValue": (K) => _.encryption = K
+                l("label", null, [
+                  v[23] || (v[23] = M("Защита", -1)),
+                  H(l("select", {
+                    "onUpdate:modelValue": (J) => _.encryption = J
                   }, [
-                    le[_.original.encryption] ? V("", !0) : (p(), h("option", {
+                    ee[_.original.encryption] ? x("", !0) : (f(), h("option", {
                       key: 0,
                       value: _.original.encryption
-                    }, w(_.original.encryption) + " (текущая)", 9, yv)),
-                    (p(), h(N, null, se(le, (K, Ve) => n("option", {
-                      key: Ve,
-                      value: Ve
-                    }, w(K), 9, wv)), 64))
-                  ], 8, bv), [
+                    }, b(_.original.encryption) + " (текущая)", 9, Nv)),
+                    (f(), h(q, null, oe(ee, (J, Pe) => l("option", {
+                      key: Pe,
+                      value: Pe
+                    }, b(J), 9, Hv)), 64))
+                  ], 8, qv), [
                     [xe, _.encryption]
                   ])
                 ]),
-                _.encryption !== "none" && le[_.encryption] ? (p(), h("label", _v, [
-                  v[24] || (v[24] = A("Пароль Wi-Fi", -1)),
-                  Ee(vt, {
+                _.encryption !== "none" && ee[_.encryption] ? (f(), h("label", Lv, [
+                  v[24] || (v[24] = M("Пароль Wi-Fi", -1)),
+                  Ae(vt, {
                     modelValue: _.key,
-                    "onUpdate:modelValue": (K) => _.key = K,
+                    "onUpdate:modelValue": (J) => _.key = J,
                     autocomplete: "new-password",
                     minlength: "8",
                     maxlength: "64",
                     required: !_.has_key,
                     placeholder: _.has_key ? "Оставьте пустым, чтобы сохранить текущий" : ""
                   }, null, 8, ["modelValue", "onUpdate:modelValue", "required", "placeholder"])
-                ])) : V("", !0),
-                _.encryption === "none" ? (p(), h("p", kv, "Сеть будет открытой, сохранённый пароль будет удалён.")) : V("", !0),
-                n("fieldset", $v, [
-                  v[25] || (v[25] = n("legend", null, "Сетевые подключения", -1)),
-                  (p(!0), h(N, null, se(s.value.networks, (K) => (p(), h("label", {
-                    key: K,
+                ])) : x("", !0),
+                _.encryption === "none" ? (f(), h("p", jv, "Сеть будет открытой, сохранённый пароль будет удалён.")) : x("", !0),
+                l("fieldset", Wv, [
+                  v[25] || (v[25] = l("legend", null, "Сетевые подключения", -1)),
+                  (f(!0), h(q, null, oe(s.value.networks, (J) => (f(), h("label", {
+                    key: J,
                     class: "gw-check"
                   }, [
-                    F(n("input", {
-                      "onUpdate:modelValue": (Ve) => _.network = Ve,
+                    H(l("input", {
+                      "onUpdate:modelValue": (Pe) => _.network = Pe,
                       type: "checkbox",
-                      value: K
-                    }, null, 8, Cv), [
-                      [We, _.network]
+                      value: J
+                    }, null, 8, Bv), [
+                      [je, _.network]
                     ]),
-                    A(" " + w(K), 1)
+                    M(" " + b(J), 1)
                   ]))), 128))
                 ]),
-                n("div", xv, [
-                  n("label", Sv, [
-                    F(n("input", {
-                      "onUpdate:modelValue": (K) => _.hidden = K,
+                l("div", Kv, [
+                  l("label", Gv, [
+                    H(l("input", {
+                      "onUpdate:modelValue": (J) => _.hidden = J,
                       type: "checkbox"
-                    }, null, 8, Vv), [
-                      [We, _.hidden]
+                    }, null, 8, zv), [
+                      [je, _.hidden]
                     ]),
-                    v[26] || (v[26] = A(" Скрыть SSID", -1))
+                    v[26] || (v[26] = M(" Скрыть SSID", -1))
                   ]),
-                  n("label", Tv, [
-                    F(n("input", {
-                      "onUpdate:modelValue": (K) => _.isolate = K,
+                  l("label", Jv, [
+                    H(l("input", {
+                      "onUpdate:modelValue": (J) => _.isolate = J,
                       type: "checkbox"
-                    }, null, 8, Ev), [
-                      [We, _.isolate]
+                    }, null, 8, Yv), [
+                      [je, _.isolate]
                     ]),
-                    v[27] || (v[27] = A(" Изолировать клиентов", -1))
+                    v[27] || (v[27] = M(" Изолировать клиентов", -1))
                   ])
                 ])
               ])
             ]))), 128)),
-            v[30] || (v[30] = n("p", { class: "gw-hint" }, "Применение временно отключит беспроводных клиентов. При потере доступа панель не подтвердит изменения, и роутер восстановит прежний Wi-Fi.", -1)),
-            r.value ? (p(), h("p", Uv, w(r.value), 1)) : V("", !0),
-            n("div", Pv, [
-              n("button", {
+            v[30] || (v[30] = l("p", { class: "gw-hint" }, "Применение временно отключит беспроводных клиентов. При потере доступа панель не подтвердит изменения, и роутер восстановит прежний Wi-Fi.", -1)),
+            u.value ? (f(), h("p", Xv, b(u.value), 1)) : x("", !0),
+            l("div", Zv, [
+              l("button", {
                 class: "gw-primary",
                 disabled: a.value
-              }, "Проверить изменения", 8, Av),
-              n("button", {
+              }, "Проверить изменения", 8, Qv),
+              l("button", {
                 type: "button",
                 disabled: a.value,
-                onClick: he
-              }, "Отмена", 8, Iv)
+                onClick: ie
+              }, "Отмена", 8, eg)
             ])
           ], 32)
         ]),
         _: 1
-      }, 8, ["title", "busy"])) : V("", !0),
-      g.value ? (p(), ge(qe, {
+      }, 8, ["title", "busy"])) : x("", !0),
+      g.value ? (f(), me(Re, {
         key: 1,
         title: "Проверка изменений Wi-Fi",
         busy: a.value,
-        onClose: ne
+        onClose: z
       }, {
-        default: Re(() => [
-          n("ul", Mv, [
-            (p(!0), h(N, null, se(g.value.summary, (_, K) => (p(), h("li", { key: K }, w(_), 1))), 128))
+        default: Ie(() => [
+          l("ul", tg, [
+            (f(!0), h(q, null, oe(g.value.summary, (_, J) => (f(), h("li", { key: J }, b(_), 1))), 128))
           ]),
-          n("p", Ov, "Откат при отсутствии подтверждения: " + w(g.value.rollback_seconds) + " секунд.", 1),
-          r.value ? (p(), h("p", Rv, w(r.value), 1)) : V("", !0),
-          n("div", Dv, [
-            n("button", {
+          l("p", ng, "Откат при отсутствии подтверждения: " + b(g.value.rollback_seconds) + " секунд.", 1),
+          u.value ? (f(), h("p", lg, b(u.value), 1)) : x("", !0),
+          l("div", sg, [
+            l("button", {
               class: "gw-primary",
               disabled: a.value,
               onClick: U
-            }, "Да, применить", 8, Nv),
-            n("button", {
+            }, "Да, применить", 8, og),
+            l("button", {
               disabled: a.value,
-              onClick: ne
-            }, "Назад", 8, qv)
+              onClick: z
+            }, "Назад", 8, ig)
           ])
         ]),
         _: 1
-      }, 8, ["busy"])) : V("", !0),
-      y.value ? (p(), ge(qe, {
+      }, 8, ["busy"])) : x("", !0),
+      w.value ? (f(), me(Re, {
         key: 2,
-        title: "Обзор каналов · " + y.value.name,
+        title: "Обзор каналов · " + w.value.name,
         wide: !0,
         busy: m.value,
-        onClose: v[8] || (v[8] = (_) => y.value = null)
+        onClose: v[8] || (v[8] = (_) => w.value = null)
       }, {
-        default: Re(() => [
-          n("header", Hv, [
-            n("p", Fv, w(m.value ? "Сканируем эфир…" : T.value ? "Последнее сканирование: " + new Date(T.value.scanned_at * 1e3).toLocaleTimeString("ru-RU") : E.value ? "Сканирование не выполнено" : "Ожидание запуска сканирования"), 1),
-            n("button", {
+        default: Ie(() => [
+          l("header", ag, [
+            l("p", rg, b(m.value ? "Сканируем эфир…" : A.value ? "Последнее сканирование: " + new Date(A.value.scanned_at * 1e3).toLocaleTimeString("ru-RU") : V.value ? "Сканирование не выполнено" : "Ожидание запуска сканирования"), 1),
+            l("button", {
               disabled: m.value,
-              onClick: v[5] || (v[5] = (_) => d(y.value))
-            }, w(m.value ? "Сканирование…" : "Сканировать снова"), 9, Lv)
+              onClick: v[5] || (v[5] = (_) => d(w.value))
+            }, b(m.value ? "Сканирование…" : "Сканировать снова"), 9, ug)
           ]),
-          v[32] || (v[32] = n("p", { class: "gw-hint" }, "Во время сканирования Wi-Fi может ненадолго замедлиться. Список показывает сети, видимые этому роутеру.", -1)),
-          E.value ? (p(), h("p", jv, w(E.value), 1)) : V("", !0),
-          T.value ? (p(), h(N, { key: 1 }, [
-            n("nav", Wv, [
-              n("button", {
-                class: Ue({ on: B.value === "channels" }),
-                onClick: v[6] || (v[6] = (_) => B.value = "channels")
+          v[32] || (v[32] = l("p", { class: "gw-hint" }, "Во время сканирования Wi-Fi может ненадолго замедлиться. Список показывает сети, видимые этому роутеру.", -1)),
+          V.value ? (f(), h("p", dg, b(V.value), 1)) : x("", !0),
+          A.value ? (f(), h(q, { key: 1 }, [
+            l("nav", cg, [
+              l("button", {
+                class: Te({ on: L.value === "channels" }),
+                onClick: v[6] || (v[6] = (_) => L.value = "channels")
               }, "Каналы", 2),
-              n("button", {
-                class: Ue({ on: B.value === "networks" }),
-                onClick: v[7] || (v[7] = (_) => B.value = "networks")
-              }, "Соседние сети (" + w(O.value.length) + ")", 3)
+              l("button", {
+                class: Te({ on: L.value === "networks" }),
+                onClick: v[7] || (v[7] = (_) => L.value = "networks")
+              }, "Соседние сети (" + b(Q.value.length) + ")", 3)
             ]),
-            B.value === "channels" ? (p(), ge(Bp, {
+            L.value === "channels" ? (f(), me(fv, {
               key: 0,
-              data: { ...T.value, networks: O.value },
-              radio: y.value
-            }, null, 8, ["data", "radio"])) : (p(), h(N, { key: 1 }, [
-              n("div", Bv, [
-                n("table", null, [
-                  v[31] || (v[31] = n("thead", null, [
-                    n("tr", null, [
-                      n("th", null, "Сеть"),
-                      n("th", null, "Канал"),
-                      n("th", null, "Частота"),
-                      n("th", null, "Сигнал"),
-                      n("th", null, "Защита")
+              data: { ...A.value, networks: Q.value },
+              radio: w.value
+            }, null, 8, ["data", "radio"])) : (f(), h(q, { key: 1 }, [
+              l("div", fg, [
+                l("table", null, [
+                  v[31] || (v[31] = l("thead", null, [
+                    l("tr", null, [
+                      l("th", null, "Сеть"),
+                      l("th", null, "Канал"),
+                      l("th", null, "Частота"),
+                      l("th", null, "Сигнал"),
+                      l("th", null, "Защита")
                     ])
                   ], -1)),
-                  n("tbody", null, [
-                    (p(!0), h(N, null, se(O.value, (_) => (p(), h("tr", {
+                  l("tbody", null, [
+                    (f(!0), h(q, null, oe(Q.value, (_) => (f(), h("tr", {
                       key: _.bssid + ":" + _.frequency
                     }, [
-                      n("td", null, [
-                        A(w(_.ssid || "Скрытая сеть"), 1),
-                        n("small", null, w(_.bssid), 1)
+                      l("td", null, [
+                        M(b(_.ssid || "Скрытая сеть"), 1),
+                        l("small", null, b(_.bssid), 1)
                       ]),
-                      n("td", null, w(_.channel), 1),
-                      n("td", null, w(j(_.frequency)), 1),
-                      n("td", null, w(_.signal == null ? "—" : _.signal + " dBm"), 1),
-                      n("td", null, w(S(_)), 1)
+                      l("td", null, b(_.channel), 1),
+                      l("td", null, b(j(_.frequency)), 1),
+                      l("td", null, b(_.signal == null ? "—" : _.signal + " dBm"), 1),
+                      l("td", null, b(I(_)), 1)
                     ]))), 128))
                   ])
                 ])
               ]),
-              O.value.length ? V("", !0) : (p(), h("p", Kv, "Соседние сети не найдены."))
+              Q.value.length ? x("", !0) : (f(), h("p", pg, "Соседние сети не найдены."))
             ], 64))
-          ], 64)) : V("", !0)
+          ], 64)) : x("", !0)
         ]),
         _: 1
-      }, 8, ["title", "busy"])) : V("", !0)
+      }, 8, ["title", "busy"])) : x("", !0)
     ], 64));
   }
-}), zv = { class: "gw-section-header" }, Jv = { class: "gw-actions" }, Yv = ["disabled"], Xv = ["disabled"], Qv = {
-  class: "gw-hint",
-  "aria-live": "polite"
-}, Zv = {
+}), gg = { class: "gw-package-filters" }, hg = {
+  class: "gw-segment",
+  role: "group",
+  "aria-label": "Список DHCP-аренд"
+}, mg = ["aria-pressed"], bg = ["aria-pressed"], yg = ["disabled"], wg = {
   key: 0,
   class: "gw-hint",
   role: "status"
-}, eg = { class: "gw-service-list" }, tg = { class: "gw-service-info" }, lg = { key: 1 }, ng = ["title"], sg = ["title"], og = {
+}, _g = {
+  key: 1,
+  class: "gw-hint"
+}, kg = {
+  key: 2,
+  class: "gw-hint",
+  role: "status"
+}, $g = {
+  key: 3,
+  class: "gw-hint"
+}, Cg = {
+  key: 4,
+  class: "gw-table-wrap"
+}, xg = { class: "gw-dhcp-table" }, Sg = {
+  key: 0,
+  scope: "col"
+}, Tg = { class: "gw-dhcp-kind" }, Vg = ["disabled", "onClick"], Pg = { key: 0 }, Ug = { class: "gw-actions" }, Ag = ["disabled", "onClick"], Eg = ["disabled", "onClick"], Ig = {
+  key: 5,
+  class: "gw-hint"
+}, Mg = {
+  key: 6,
+  class: "gw-hint"
+}, Og = {
+  key: 7,
+  class: "gw-pagination gw-dhcp-pagination"
+}, Rg = { class: "gw-hint" }, Dg = { class: "gw-actions" }, Fg = ["disabled"], qg = { "aria-live": "polite" }, Ng = ["disabled"], pn = 20, Hg = /* @__PURE__ */ Me({
+  __name: "DhcpLeases",
+  props: {
+    node: {},
+    bridge: {},
+    busy: { type: Boolean },
+    revision: {},
+    onTaskDone: { type: Function }
+  },
+  emits: ["close"],
+  setup(e, { emit: t }) {
+    const n = e, o = t, s = /* @__PURE__ */ D(null), i = /* @__PURE__ */ D(!1), a = /* @__PURE__ */ D(""), u = /* @__PURE__ */ D(null), c = /* @__PURE__ */ D("issued"), g = /* @__PURE__ */ D(""), m = /* @__PURE__ */ D(1);
+    let w = 0;
+    const A = he(() => n.node.monitor.ok && !n.node.monitor.stale), V = he(() => A.value && !!n.node.monitor.capabilities?.controls?.available && !!s.value && !i.value && !n.busy && !a.value), L = he(() => n.node.monitor.clients || []), R = he(() => n.node.monitor.capabilities?.clients?.available ?? Array.isArray(n.node.monitor.clients)), ne = he(() => s.value?.reservations || []), X = he(() => {
+      const P = c.value === "static" ? ne.value.map((C) => ({ key: C.id, name: C.name, ip: C.ip, mac: C.mac.join(", "), reservation: C, kind: "static" })) : L.value.map((C) => ({ key: C.macaddr + ":" + C.ipaddr, name: C.hostname === "*" ? "" : C.hostname, ip: C.ipaddr, mac: C.macaddr, lease: C, kind: Q(C) })), S = g.value.trim().toLowerCase();
+      return P.filter((C) => [C.name, C.ip, C.mac].some((ie) => ie?.toLowerCase().includes(S)));
+    }), Z = he(() => Math.max(1, Math.ceil(X.value.length / pn))), ee = he(() => X.value.slice((m.value - 1) * pn, m.value * pn));
+    We([g, c], () => {
+      m.value = 1;
+    }), We(Z, (P) => {
+      m.value = Math.min(m.value, P);
+    });
+    async function j() {
+      const P = ++w;
+      if (i.value = !1, a.value = "", !!A.value) {
+        i.value = !0;
+        try {
+          const S = await n.bridge.request("/api/gateways/" + encodeURIComponent(n.node.id) + "/network");
+          if (P !== w) return;
+          s.value = Array.isArray(S.dhcp_reservations) && typeof S.settings_hash == "string" ? { hash: S.settings_hash, reservations: S.dhcp_reservations } : null;
+        } catch (S) {
+          P === w && (a.value = S instanceof Error ? S.message : String(S));
+        } finally {
+          P === w && (i.value = !1);
+        }
+      }
+    }
+    We([A, () => n.revision], () => {
+      j();
+    }, { immediate: !0 }), yt(() => {
+      w++;
+    });
+    function le(P, S, C) {
+      !V.value || !s.value || (u.value = { configHash: s.value.hash, mode: P, reservation: S, lease: C });
+    }
+    function Q(P) {
+      if (!s.value || i.value || a.value) return "unknown";
+      const S = P.macaddr?.toLowerCase();
+      return P.ipaddr && ne.value.some((C) => C.ip === P.ipaddr && (!C.mac.length || C.mac.some((ie) => ie.toLowerCase() === S))) ? "static" : "issued";
+    }
+    function I(P) {
+      const S = P.macaddr?.toLowerCase();
+      return ne.value.some((C) => C.ip === P.ipaddr || C.mac.some((ie) => ie.toLowerCase() === S));
+    }
+    function E(P) {
+      P ? o("close") : u.value = null;
+    }
+    return (P, S) => u.value ? (f(), me(ps, {
+      key: 1,
+      node: e.node,
+      bridge: e.bridge,
+      mode: "dhcp_reservation",
+      "reservation-form": u.value,
+      "on-task-done": e.onTaskDone,
+      onClose: E
+    }, null, 8, ["node", "bridge", "reservation-form", "on-task-done"])) : (f(), me(Re, {
+      key: 0,
+      title: "DHCP-аренды",
+      wide: "",
+      onClose: S[6] || (S[6] = (C) => o("close"))
+    }, {
+      default: Ie(() => [
+        l("div", gg, [
+          l("div", hg, [
+            l("button", {
+              type: "button",
+              class: Te({ on: c.value === "issued" }),
+              "aria-pressed": c.value === "issued",
+              onClick: S[0] || (S[0] = (C) => c.value = "issued")
+            }, "Текущие", 10, mg),
+            l("button", {
+              type: "button",
+              class: Te({ on: c.value === "static" }),
+              "aria-pressed": c.value === "static",
+              onClick: S[1] || (S[1] = (C) => c.value = "static")
+            }, "Статические", 10, bg)
+          ]),
+          H(l("input", {
+            "onUpdate:modelValue": S[2] || (S[2] = (C) => g.value = C),
+            type: "search",
+            "aria-label": "Поиск DHCP-аренд",
+            placeholder: "Имя, IP или MAC"
+          }, null, 512), [
+            [re, g.value]
+          ]),
+          l("button", {
+            class: "gw-primary",
+            disabled: !V.value,
+            onClick: S[3] || (S[3] = (C) => le("add"))
+          }, "Закрепить IPv4 вручную", 8, yg)
+        ]),
+        a.value ? (f(), h("p", wg, [
+          M("Не удалось определить тип аренды: " + b(a.value) + " ", 1),
+          l("button", { onClick: j }, "Повторить")
+        ])) : A.value ? i.value ? (f(), h("p", kg, "Загрузка статических аренд…")) : s.value ? x("", !0) : (f(), h("p", $g, "Тип аренды недоступен. Обновите интеграцию Bot4VPS во вкладке «Доступ».")) : (f(), h("p", _g, "Шлюз недоступен. Показаны последние полученные данные.")),
+        ee.value.length ? (f(), h("div", Cg, [
+          l("table", xg, [
+            l("thead", null, [
+              l("tr", null, [
+                S[7] || (S[7] = l("th", { scope: "col" }, "Устройство", -1)),
+                S[8] || (S[8] = l("th", { scope: "col" }, "IPv4-адрес", -1)),
+                S[9] || (S[9] = l("th", { scope: "col" }, "MAC-адрес", -1)),
+                S[10] || (S[10] = l("th", { scope: "col" }, "Тип аренды", -1)),
+                c.value === "static" ? (f(), h("th", Sg, "Действия")) : x("", !0)
+              ])
+            ]),
+            l("tbody", null, [
+              (f(!0), h(q, null, oe(ee.value, (C) => (f(), h("tr", {
+                key: C.key
+              }, [
+                l("td", null, b(C.name || "Без имени"), 1),
+                l("td", null, b(C.ip || "—"), 1),
+                l("td", null, b(C.mac || "—"), 1),
+                l("td", Tg, [
+                  l("div", {
+                    class: Te(["gw-dhcp-kind-body", { "is-static": C.kind === "static" }])
+                  }, [
+                    l("span", {
+                      class: Te(["gw-dhcp-marker", C.kind])
+                    }, b(C.kind === "static" ? "Статическая" : C.kind === "issued" ? "Аренда" : "—"), 3),
+                    "lease" in C && C.kind === "issued" && C.lease.macaddr && C.lease.ipaddr && !I(C.lease) ? (f(), h("button", {
+                      key: 0,
+                      disabled: !V.value,
+                      onClick: (ie) => le("add", void 0, C.lease)
+                    }, "Закрепить IP", 8, Vg)) : x("", !0)
+                  ], 2)
+                ]),
+                "reservation" in C ? (f(), h("td", Pg, [
+                  l("div", Ug, [
+                    l("button", {
+                      disabled: !V.value,
+                      onClick: (ie) => le("edit", C.reservation)
+                    }, "Изменить", 8, Ag),
+                    l("button", {
+                      class: "gw-danger",
+                      disabled: !V.value,
+                      onClick: (ie) => le("delete", C.reservation)
+                    }, "Удалить", 8, Eg)
+                  ])
+                ])) : x("", !0)
+              ]))), 128))
+            ])
+          ])
+        ])) : c.value === "issued" && !R.value ? (f(), h("p", Ig, "Данные о выданных IPv4-адресах недоступны.")) : c.value === "issued" || s.value ? (f(), h("p", Mg, b(g.value.trim() ? "Аренды не найдены" : c.value === "issued" ? "Нет выданных IPv4-адресов" : "Нет статических IPv4-аренд"), 1)) : x("", !0),
+        Z.value > 1 ? (f(), h("footer", Og, [
+          l("span", Rg, b((m.value - 1) * pn + 1) + "–" + b(Math.min(m.value * pn, X.value.length)) + " из " + b(X.value.length), 1),
+          l("div", Dg, [
+            l("button", {
+              disabled: m.value === 1,
+              onClick: S[4] || (S[4] = (C) => m.value--)
+            }, "Назад", 8, Fg),
+            l("span", qg, b(m.value) + " / " + b(Z.value), 1),
+            l("button", {
+              disabled: m.value === Z.value,
+              onClick: S[5] || (S[5] = (C) => m.value++)
+            }, "Далее", 8, Ng)
+          ])
+        ])) : x("", !0)
+      ]),
+      _: 1
+    }));
+  }
+}), Lg = { class: "gw-section-header" }, jg = { class: "gw-actions" }, Wg = ["disabled"], Bg = ["disabled"], Kg = {
+  class: "gw-hint",
+  "aria-live": "polite"
+}, Gg = {
+  key: 0,
+  class: "gw-hint",
+  role: "status"
+}, zg = { class: "gw-service-list" }, Jg = {
+  key: 0,
+  class: "gw-service-row"
+}, Yg = { class: "gw-service-info" }, Xg = { key: 1 }, Zg = ["title"], Qg = ["title"], eh = {
   key: 0,
   class: "gw-next-version"
-}, ig = { class: "gw-service-state" }, ag = { class: "gw-service-actions" }, rg = ["disabled", "onClick"], ug = ["disabled", "onClick"], dg = ["disabled", "title", "onClick"], cg = ["disabled", "onClick"], fg = ["disabled", "onClick"], pg = ["disabled", "onClick"], vg = ["disabled", "onClick"], gg = {
-  key: 0,
-  class: "gw-hint"
-}, hg = { class: "gw-version-field" }, mg = ["disabled"], bg = {
+}, th = { class: "gw-service-state" }, nh = { class: "gw-service-actions" }, lh = ["disabled", "onClick"], sh = ["disabled", "onClick"], oh = ["disabled", "title", "onClick"], ih = ["disabled", "onClick"], ah = ["disabled", "onClick"], rh = ["disabled", "onClick"], uh = ["disabled", "onClick"], dh = {
+  key: 1,
+  class: "gw-service-row gw-service-row-dhcp"
+}, ch = { class: "gw-service-actions" }, fh = ["disabled"], ph = { class: "gw-version-field" }, vh = ["disabled"], gh = {
   key: 0,
   class: "gw-error",
   role: "alert"
-}, yg = { class: "gw-actions" }, wg = ["disabled"], _g = ["disabled"], kg = /* @__PURE__ */ He({
+}, hh = { class: "gw-actions" }, mh = ["disabled"], bh = ["disabled"], yh = /* @__PURE__ */ Me({
   __name: "GatewayServices",
   props: {
     node: {},
@@ -7604,220 +8113,248 @@ const wp = { class: "gw-channel-charts" }, _p = { class: "gw-spectrum-card" }, k
     revision: {},
     updating: {}
   },
-  emits: ["catalog", "firewallRestart", "settings", "help", "openAdguard", "action", "update", "pending", "resume", "webAccess"],
+  emits: ["changed", "catalog", "firewallRestart", "settings", "help", "openAdguard", "action", "update", "pending", "resume", "webAccess"],
   setup(e, { emit: t }) {
-    const l = e, o = t, s = /* @__PURE__ */ H({}), i = /* @__PURE__ */ H(!1), a = /* @__PURE__ */ H(""), r = /* @__PURE__ */ H(null), c = _e(() => l.node.monitor.services || []), g = { dnsmasq: "Локальный DNS и DHCP", firewall: "Защита роутера и правила трафика", podkop: "Выборочная маршрутизация через sing-box", ssclash: "Clash / Mihomo и правила маршрутизации", adguardhome: "Фильтрация DNS и блокировка рекламы" }, m = /* @__PURE__ */ H(null), y = /* @__PURE__ */ H(!1), T = /* @__PURE__ */ H("");
-    function E(O) {
-      const S = s.value[O.id]?.fingerprint;
-      S && (T.value = "", m.value = { id: O.id, name: O.name, fingerprint: S, version: "" });
+    const n = e, o = t, s = /* @__PURE__ */ D({}), i = /* @__PURE__ */ D(!1), a = /* @__PURE__ */ D(""), u = /* @__PURE__ */ D(null), c = he(() => {
+      const P = [...n.node.monitor.services || []], S = P.findIndex((ie) => ie?.id === "firewall"), C = P.findIndex((ie) => ie?.id === "dnsmasq");
+      return P.splice((S < 0 ? C : S) + 1, 0, null), P;
+    }), g = /* @__PURE__ */ D(!1), m = /* @__PURE__ */ D(0);
+    function w() {
+      m.value++, o("changed");
     }
-    async function B() {
-      const O = m.value, S = l.node.id;
-      if (!(!O || y.value)) {
-        y.value = !0, T.value = "";
+    const A = { dnsmasq: "Локальный DNS и DHCP", firewall: "Защита роутера и правила трафика", podkop: "Выборочная маршрутизация через sing-box", ssclash: "Clash / Mihomo и правила маршрутизации", adguardhome: "Фильтрация DNS и блокировка рекламы" }, V = /* @__PURE__ */ D(null), L = /* @__PURE__ */ D(!1), R = /* @__PURE__ */ D("");
+    function ne(P) {
+      const S = s.value[P.id]?.fingerprint;
+      S && (R.value = "", V.value = { id: P.id, name: P.name, fingerprint: S, version: "" });
+    }
+    async function X() {
+      const P = V.value, S = n.node.id;
+      if (!(!P || L.value)) {
+        L.value = !0, R.value = "";
         try {
-          await l.bridge.request("/api/gateways/" + encodeURIComponent(S) + "/services/" + O.id + "/version", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ version: O.version, fingerprint: O.fingerprint, confirmed: !0 }) }), m.value = null, await te();
-        } catch (k) {
-          T.value = k instanceof Error ? k.message : String(k);
+          await n.bridge.request("/api/gateways/" + encodeURIComponent(S) + "/services/" + P.id + "/version", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ version: P.version, fingerprint: P.fingerprint, confirmed: !0 }) }), V.value = null, await E();
+        } catch (C) {
+          R.value = C instanceof Error ? C.message : String(C);
         } finally {
-          y.value = !1;
+          L.value = !1;
         }
       }
     }
-    let I = 0;
-    qt(() => {
-      I++;
+    let Z = 0;
+    yt(() => {
+      Z++;
     });
-    function Q(O) {
-      return l.updating?.[O] || (s.value[O]?.stage ? { stage: s.value[O].stage, task_id: s.value[O]?.task_id || void 0 } : void 0);
+    function ee(P) {
+      return n.updating?.[P] || (s.value[P]?.stage ? { stage: s.value[P].stage, task_id: s.value[P]?.task_id || void 0 } : void 0);
     }
-    function X(O) {
-      return Q(O)?.stage === "prepare" ? "Подготовка…" : Q(O)?.stage === "apply" ? "Обновление…" : Q(O)?.stage === "review" ? s.value[O]?.plan ? "Продолжить обновление" : "Ожидает подтверждения" : "Обновить до " + s.value[O]?.latest;
+    function j(P) {
+      return ee(P)?.stage === "prepare" ? "Подготовка…" : ee(P)?.stage === "apply" ? "Обновление…" : ee(P)?.stage === "review" ? s.value[P]?.plan ? "Продолжить обновление" : "Ожидает подтверждения" : "Обновить до " + s.value[P]?.latest;
     }
-    function Z(O) {
-      return l.busy || i.value || !!a.value || !!Q(O) && !(Q(O)?.stage === "review" && s.value[O]?.plan);
+    function le(P) {
+      return n.busy || i.value || !!a.value || !!ee(P) && !(ee(P)?.stage === "review" && s.value[P]?.plan);
     }
-    function le(O) {
-      const S = s.value[O]?.plan;
-      Q(O)?.stage === "review" && S ? o("resume", S) : o("update", O);
+    function Q(P) {
+      const S = s.value[P]?.plan;
+      ee(P)?.stage === "review" && S ? o("resume", S) : o("update", P);
     }
-    function j(O) {
-      if (["dnsmasq", "firewall"].includes(O)) return "";
+    function I(P) {
+      if (["dnsmasq", "firewall"].includes(P)) return "";
       if (i.value) return "Проверяю обновления…";
       if (a.value) return "Не удалось проверить обновления";
-      const S = s.value[O];
+      const S = s.value[P];
       return S?.available ? "Есть обновление до " + S.latest : S?.status === "current_cached" ? "Актуальная среди сохранённых версий" : S?.warning ? "Проверка не завершена" : S?.status === "newer" ? "Установленная версия новее доступного релиза" : S?.current && S.latest ? "Актуальная версия" : "Обновления не проверены";
     }
-    async function te(O = !1) {
-      const S = ++I;
-      O || (i.value = !0), a.value = "";
+    async function E(P = !1) {
+      const S = ++Z;
+      P || (i.value = !0), a.value = "";
       try {
-        const k = await l.bridge.request("/api/gateways/" + encodeURIComponent(l.node.id) + "/service-updates");
-        if (S === I) {
-          s.value = k.services || {}, r.value = k.checked_at || Math.floor(Date.now() / 1e3);
-          for (const [R, z] of Object.entries(s.value)) z.task_id && z.stage && o("pending", R, { stage: z.stage, task_id: z.task_id });
+        const C = await n.bridge.request("/api/gateways/" + encodeURIComponent(n.node.id) + "/service-updates");
+        if (S === Z) {
+          s.value = C.services || {}, u.value = C.checked_at || Math.floor(Date.now() / 1e3);
+          for (const [ie, ke] of Object.entries(s.value)) ke.task_id && ke.stage && o("pending", ie, { stage: ke.stage, task_id: ke.task_id });
         }
-      } catch (k) {
-        S === I && (a.value = k instanceof Error ? k.message : String(k));
+      } catch (C) {
+        S === Z && (a.value = C instanceof Error ? C.message : String(C));
       } finally {
-        S === I && (i.value = !1);
+        S === Z && (i.value = !1);
       }
     }
-    return Xe(() => l.revision, () => {
-      te(!0);
-    }), Xe(() => l.node.id, () => {
-      s.value = {}, r.value = null, m.value = null, te();
-    }, { immediate: !0 }), (O, S) => (p(), h(N, null, [
-      n("header", zv, [
-        S[6] || (S[6] = n("div", null, [
-          n("h3", null, "Сервисы из GitHub"),
-          n("p", { class: "gw-hint" }, "Podkop, SSClash-Go и AdGuard Home · версии и резервные комплекты")
+    return We(() => n.revision, () => {
+      E(!0);
+    }), We(() => n.node.id, () => {
+      s.value = {}, u.value = null, V.value = null, E();
+    }, { immediate: !0 }), (P, S) => (f(), h(q, null, [
+      l("header", Lg, [
+        S[8] || (S[8] = l("div", null, [
+          l("h3", null, "Сервисы из GitHub"),
+          l("p", { class: "gw-hint" }, "Podkop, SSClash-Go и AdGuard Home · версии и резервные комплекты")
         ], -1)),
-        n("div", Jv, [
-          n("button", {
+        l("div", jg, [
+          l("button", {
             disabled: e.busy || i.value,
-            onClick: S[0] || (S[0] = (k) => te())
-          }, w(i.value ? "Проверяю…" : "Проверить обновления"), 9, Yv),
-          n("button", {
+            onClick: S[0] || (S[0] = (C) => E())
+          }, b(i.value ? "Проверяю…" : "Проверить обновления"), 9, Wg),
+          l("button", {
             class: "gw-primary",
             disabled: e.busy,
-            onClick: S[1] || (S[1] = (k) => o("catalog"))
-          }, "Установить сервис", 8, Xv)
+            onClick: S[1] || (S[1] = (C) => o("catalog"))
+          }, "Установить сервис", 8, Bg)
         ])
       ]),
-      n("p", Qv, w(i.value ? "Проверяю установленные версии и совместимые официальные релизы…" : a.value ? "Проверка не завершена." : r.value ? "Проверено в " + new Date(r.value * 1e3).toLocaleTimeString("ru-RU") : "Версии ещё не проверены."), 1),
-      a.value ? (p(), h("p", Zv, w(a.value), 1)) : V("", !0),
-      S[9] || (S[9] = n("div", {
+      l("p", Kg, b(i.value ? "Проверяю установленные версии и совместимые официальные релизы…" : a.value ? "Проверка не завершена." : u.value ? "Проверено в " + new Date(u.value * 1e3).toLocaleTimeString("ru-RU") : "Версии ещё не проверены."), 1),
+      a.value ? (f(), h("p", Gg, b(a.value), 1)) : x("", !0),
+      S[12] || (S[12] = l("div", {
         class: "gw-service-columns",
         "aria-hidden": "true"
       }, [
-        n("span", null, "Сервис"),
-        n("span", null, "Версия"),
-        n("span", null, "Статус"),
-        n("span", null, "Действия")
+        l("span", null, "Сервис"),
+        l("span", null, "Версия"),
+        l("span", null, "Статус"),
+        l("span", null, "Действия")
       ], -1)),
-      n("div", eg, [
-        (p(!0), h(N, null, se(c.value, (k) => (p(), h("article", {
-          key: k.id,
-          class: "gw-service-row"
+      l("div", zg, [
+        (f(!0), h(q, null, oe(c.value, (C) => (f(), h(q, {
+          key: C?.id || "dhcp-leases"
         }, [
-          n("div", tg, [
-            n("h3", null, w(k.name), 1),
-            ["podkop", "ssclash", "adguardhome"].includes(k.id) ? (p(), ge(ds, {
-              key: 0,
-              id: k.id,
-              compact: "",
-              help: k.id === "adguardhome",
-              onHelp: S[2] || (S[2] = (R) => o("help"))
-            }, null, 8, ["id", "help"])) : (p(), h("p", lg, w(g[k.id]), 1)),
-            s.value[k.id]?.warning ? (p(), h("p", {
-              key: 2,
-              class: "gw-hint gw-version-warning",
-              role: "status",
-              title: s.value[k.id]?.warning || void 0
-            }, w(s.value[k.id]?.warning), 9, ng)) : V("", !0)
-          ]),
-          n("div", {
-            class: "gw-service-versions",
-            title: (s.value[k.id]?.installed_version || s.value[k.id]?.current || k.version || "—") + (s.value[k.id]?.available ? " → " + s.value[k.id]?.latest : "")
-          }, [
-            n("span", null, w(s.value[k.id]?.installed_version || s.value[k.id]?.current || k.version || "—"), 1),
-            s.value[k.id]?.available ? (p(), h("span", og, "→ " + w(s.value[k.id]?.latest), 1)) : V("", !0)
-          ], 8, sg),
-          n("div", ig, [
-            n("span", {
-              class: Ue(["gw-status", k.running ? "good" : "warn"])
-            }, w(k.running ? "Работает" : "Остановлена"), 3),
-            j(k.id) ? (p(), h("span", {
-              key: 0,
-              class: Ue(["gw-status", i.value || a.value || s.value[k.id]?.warning || s.value[k.id]?.available ? "warn" : "good"])
-            }, w(j(k.id)), 3)) : V("", !0)
-          ]),
-          n("div", ag, [
-            ["ssclash", "adguardhome"].includes(k.id) && !s.value[k.id]?.current && s.value[k.id]?.fingerprint ? (p(), h("button", {
-              key: 0,
-              disabled: e.busy || i.value || y.value,
-              onClick: (R) => E(k)
-            }, "Указать установленную версию", 8, rg)) : V("", !0),
-            n("button", {
-              disabled: e.busy,
-              onClick: (R) => k.id === "adguardhome" ? o("openAdguard") : o("settings", k)
-            }, w(k.id === "adguardhome" ? "Открыть AdGuard Home" : "Настроить" + (["podkop", "ssclash"].includes(k.id) ? " ↗" : "")), 9, ug),
-            e.node.monitor.capabilities?.controls?.available ? (p(), h(N, { key: 1 }, [
-              s.value[k.id]?.available || Q(k.id) ? (p(), h("button", {
+          C ? (f(), h("article", Jg, [
+            l("div", Yg, [
+              l("h3", null, b(C.id === "dnsmasq" ? "DNSMasq" : C.id === "firewall" ? "Firewall" : C.name), 1),
+              ["podkop", "ssclash", "adguardhome"].includes(C.id) ? (f(), me(fs, {
                 key: 0,
-                class: "gw-update-button",
-                disabled: Z(k.id),
-                title: "Обновить до " + s.value[k.id]?.latest,
-                onClick: (R) => le(k.id)
-              }, w(X(k.id)), 9, dg)) : V("", !0),
-              k.id === "ssclash" && k.managed ? (p(), h("button", {
-                key: 1,
-                disabled: e.busy || !!Q(k.id),
-                onClick: (R) => o("webAccess", k.web_scope === "wan" ? "lan" : "wan")
-              }, w(k.web_scope === "wan" ? "Только LAN" : "Доступ из WAN"), 9, cg)) : V("", !0),
-              k.running || k.id === "firewall" ? (p(), h("button", {
+                id: C.id,
+                compact: "",
+                help: C.id === "adguardhome",
+                onHelp: S[2] || (S[2] = (ie) => o("help"))
+              }, null, 8, ["id", "help"])) : (f(), h("p", Xg, b(A[C.id]), 1)),
+              s.value[C.id]?.warning ? (f(), h("p", {
                 key: 2,
-                disabled: e.busy || !!Q(k.id),
-                onClick: (R) => k.id === "firewall" ? o("firewallRestart") : o("action", k.id, "restart")
-              }, "Перезапустить", 8, fg)) : V("", !0),
-              ["dnsmasq", "firewall"].includes(k.id) ? V("", !0) : (p(), h("button", {
-                key: 3,
-                disabled: e.busy || !!Q(k.id),
-                onClick: (R) => o("action", k.id, k.running ? "stop" : "start")
-              }, w(k.running ? "Остановить" : "Запустить"), 9, pg)),
-              ["podkop", "ssclash"].includes(k.id) || k.id === "adguardhome" && k.managed ? (p(), h("button", {
-                key: 4,
-                class: "gw-danger",
-                disabled: e.busy || !!Q(k.id),
-                onClick: (R) => o("action", k.id, "remove")
-              }, "Удалить", 8, vg)) : V("", !0)
-            ], 64)) : V("", !0)
-          ])
-        ]))), 128)),
-        c.value.length ? V("", !0) : (p(), h("p", gg, "Установленные сервисы пока не определены."))
+                class: "gw-hint gw-version-warning",
+                role: "status",
+                title: s.value[C.id]?.warning || void 0
+              }, b(s.value[C.id]?.warning), 9, Zg)) : x("", !0)
+            ]),
+            l("div", {
+              class: "gw-service-versions",
+              title: (s.value[C.id]?.installed_version || s.value[C.id]?.current || C.version || "—") + (s.value[C.id]?.available ? " → " + s.value[C.id]?.latest : "")
+            }, [
+              l("span", null, b(s.value[C.id]?.installed_version || s.value[C.id]?.current || C.version || "—"), 1),
+              s.value[C.id]?.available ? (f(), h("span", eh, "→ " + b(s.value[C.id]?.latest), 1)) : x("", !0)
+            ], 8, Qg),
+            l("div", th, [
+              l("span", {
+                class: Te(["gw-status", C.running ? "good" : "warn"])
+              }, b(C.running ? "Работает" : "Остановлена"), 3),
+              I(C.id) ? (f(), h("span", {
+                key: 0,
+                class: Te(["gw-status", i.value || a.value || s.value[C.id]?.warning || s.value[C.id]?.available ? "warn" : "good"])
+              }, b(I(C.id)), 3)) : x("", !0)
+            ]),
+            l("div", nh, [
+              ["ssclash", "adguardhome"].includes(C.id) && !s.value[C.id]?.current && s.value[C.id]?.fingerprint ? (f(), h("button", {
+                key: 0,
+                disabled: e.busy || i.value || L.value,
+                onClick: (ie) => ne(C)
+              }, "Указать установленную версию", 8, lh)) : x("", !0),
+              l("button", {
+                disabled: e.busy,
+                onClick: (ie) => C.id === "adguardhome" ? o("openAdguard") : o("settings", C)
+              }, b(C.id === "adguardhome" ? "Открыть AdGuard Home" : "Настроить" + (["podkop", "ssclash"].includes(C.id) ? " ↗" : "")), 9, sh),
+              e.node.monitor.capabilities?.controls?.available ? (f(), h(q, { key: 1 }, [
+                s.value[C.id]?.available || ee(C.id) ? (f(), h("button", {
+                  key: 0,
+                  class: "gw-update-button",
+                  disabled: le(C.id),
+                  title: "Обновить до " + s.value[C.id]?.latest,
+                  onClick: (ie) => Q(C.id)
+                }, b(j(C.id)), 9, oh)) : x("", !0),
+                C.id === "ssclash" && C.managed ? (f(), h("button", {
+                  key: 1,
+                  disabled: e.busy || !!ee(C.id),
+                  onClick: (ie) => o("webAccess", C.web_scope === "wan" ? "lan" : "wan")
+                }, b(C.web_scope === "wan" ? "Только LAN" : "Доступ из WAN"), 9, ih)) : x("", !0),
+                C.running || C.id === "firewall" ? (f(), h("button", {
+                  key: 2,
+                  disabled: e.busy || !!ee(C.id),
+                  onClick: (ie) => C.id === "firewall" ? o("firewallRestart") : o("action", C.id, "restart")
+                }, "Перезапустить", 8, ah)) : x("", !0),
+                ["dnsmasq", "firewall"].includes(C.id) ? x("", !0) : (f(), h("button", {
+                  key: 3,
+                  disabled: e.busy || !!ee(C.id),
+                  onClick: (ie) => o("action", C.id, C.running ? "stop" : "start")
+                }, b(C.running ? "Остановить" : "Запустить"), 9, rh)),
+                ["podkop", "ssclash"].includes(C.id) || C.id === "adguardhome" && C.managed ? (f(), h("button", {
+                  key: 4,
+                  class: "gw-danger",
+                  disabled: e.busy || !!ee(C.id),
+                  onClick: (ie) => o("action", C.id, "remove")
+                }, "Удалить", 8, uh)) : x("", !0)
+              ], 64)) : x("", !0)
+            ])
+          ])) : (f(), h("article", dh, [
+            S[9] || (S[9] = l("div", { class: "gw-service-info" }, [
+              l("h3", null, "DHCP-аренды")
+            ], -1)),
+            l("div", ch, [
+              l("button", {
+                disabled: e.busy,
+                "aria-label": "Открыть DHCP-аренды",
+                "aria-haspopup": "dialog",
+                onClick: S[3] || (S[3] = (ie) => g.value = !0)
+              }, "Открыть", 8, fh)
+            ])
+          ]))
+        ], 64))), 128))
       ]),
-      m.value ? (p(), ge(qe, {
+      g.value ? (f(), me(Hg, {
         key: 1,
-        title: "Установленная версия · " + m.value.name,
-        onClose: S[5] || (S[5] = (k) => !y.value && (m.value = null))
+        node: e.node,
+        bridge: e.bridge,
+        busy: e.busy,
+        revision: m.value,
+        "on-task-done": w,
+        onClose: S[4] || (S[4] = (C) => g.value = !1)
+      }, null, 8, ["node", "bridge", "busy", "revision"])) : x("", !0),
+      V.value ? (f(), me(Re, {
+        key: 2,
+        title: "Установленная версия · " + V.value.name,
+        onClose: S[7] || (S[7] = (C) => !L.value && (V.value = null))
       }, {
-        default: Re(() => [
-          S[8] || (S[8] = n("p", { class: "gw-hint" }, "Укажите версию, которая сейчас показана в интерфейсе сервиса. Сохраняется только запись о версии; сервис и настройки не меняются.", -1)),
-          n("label", hg, [
-            S[7] || (S[7] = A("Установленная версия", -1)),
-            F(n("input", {
-              "onUpdate:modelValue": S[3] || (S[3] = (k) => m.value.version = k),
+        default: Ie(() => [
+          S[11] || (S[11] = l("p", { class: "gw-hint" }, "Укажите версию, которая сейчас показана в интерфейсе сервиса. Сохраняется только запись о версии; сервис и настройки не меняются.", -1)),
+          l("label", ph, [
+            S[10] || (S[10] = M("Установленная версия", -1)),
+            H(l("input", {
+              "onUpdate:modelValue": S[5] || (S[5] = (C) => V.value.version = C),
               placeholder: "Например, 7.7.4",
               inputmode: "decimal",
-              disabled: y.value
-            }, null, 8, mg), [
+              disabled: L.value
+            }, null, 8, vh), [
               [
                 re,
-                m.value.version,
+                V.value.version,
                 void 0,
                 { trim: !0 }
               ]
             ])
           ]),
-          T.value ? (p(), h("p", bg, w(T.value), 1)) : V("", !0),
-          n("div", yg, [
-            n("button", {
+          R.value ? (f(), h("p", gh, b(R.value), 1)) : x("", !0),
+          l("div", hh, [
+            l("button", {
               class: "gw-primary",
-              disabled: y.value || !/^v?[0-9]+[.][0-9]+[.][0-9]+$/.test(m.value.version),
-              onClick: B
-            }, w(y.value ? "Сохраняю…" : "Подтвердить версию"), 9, wg),
-            n("button", {
-              disabled: y.value,
-              onClick: S[4] || (S[4] = (k) => m.value = null)
-            }, "Отмена", 8, _g)
+              disabled: L.value || !/^v?[0-9]+[.][0-9]+[.][0-9]+$/.test(V.value.version),
+              onClick: X
+            }, b(L.value ? "Сохраняю…" : "Подтвердить версию"), 9, mh),
+            l("button", {
+              disabled: L.value,
+              onClick: S[6] || (S[6] = (C) => V.value = null)
+            }, "Отмена", 8, bh)
           ])
         ]),
         _: 1
-      }, 8, ["title"])) : V("", !0)
+      }, 8, ["title"])) : x("", !0)
     ], 64));
   }
-}), $g = { class: "gw-header" }, Cg = { class: "gw-eyebrow" }, xg = { class: "gw-title-with-icon" }, Sg = { class: "gw-actions" }, Vg = ["disabled"], Tg = ["href"], Eg = /* @__PURE__ */ He({
+}), wh = { class: "gw-header" }, _h = { class: "gw-eyebrow" }, kh = { class: "gw-title-with-icon" }, $h = { class: "gw-actions" }, Ch = ["disabled"], xh = ["href"], Sh = /* @__PURE__ */ Me({
   __name: "GatewayHeader",
   props: {
     node: {},
@@ -7825,297 +8362,297 @@ const wp = { class: "gw-channel-charts" }, _p = { class: "gw-spectrum-card" }, k
   },
   emits: ["console"],
   setup(e, { emit: t }) {
-    const l = t;
-    return (o, s) => (p(), h("header", $g, [
-      n("div", null, [
-        n("span", Cg, "OPENWRT " + w(e.node.monitor.board?.release?.version), 1),
-        n("h2", xg, [
-          s[1] || (s[1] = n("span", {
+    const n = t;
+    return (o, s) => (f(), h("header", wh, [
+      l("div", null, [
+        l("span", _h, "OPENWRT " + b(e.node.monitor.board?.release?.version), 1),
+        l("h2", kh, [
+          s[1] || (s[1] = l("span", {
             class: "gw-router-icon",
             "aria-hidden": "true"
           }, [
-            n("svg", {
+            l("svg", {
               viewBox: "0 0 24 24",
               width: "20",
               height: "20"
             }, [
-              n("rect", {
+              l("rect", {
                 x: "3",
                 y: "11",
                 width: "18",
                 height: "9",
                 rx: "2"
               }),
-              n("path", { d: "M7 11V5m10 6V5M5 6a10 10 0 0 1 14 0M8 8a6 6 0 0 1 8 0M7 16h.01M11 16h.01" })
+              l("path", { d: "M7 11V5m10 6V5M5 6a10 10 0 0 1 14 0M8 8a6 6 0 0 1 8 0M7 16h.01M11 16h.01" })
             ])
           ], -1)),
-          A(w(e.node.name), 1)
+          M(b(e.node.name), 1)
         ]),
-        n("p", null, w(e.node.monitor.board?.model || e.node.host) + " · " + w(e.node.host), 1)
+        l("p", null, b(e.node.monitor.board?.model || e.node.host) + " · " + b(e.node.host), 1)
       ]),
-      n("div", Sg, [
-        n("button", {
+      l("div", $h, [
+        l("button", {
           "aria-label": "Открыть консоль шлюза",
           disabled: e.busy,
-          onClick: s[0] || (s[0] = (i) => l("console"))
-        }, "Консоль", 8, Vg),
-        n("a", {
+          onClick: s[0] || (s[0] = (i) => n("console"))
+        }, "Консоль", 8, Ch),
+        l("a", {
           href: e.node.luci_url,
           target: "_blank",
           rel: "noopener noreferrer"
-        }, "LuCI ↗", 8, Tg)
+        }, "LuCI ↗", 8, xh)
       ])
     ]));
   }
-}), Ug = { class: "gw-backups" }, Pg = { class: "gw-section-header" }, Ag = ["disabled"], Ig = {
+}), Th = { class: "gw-backups" }, Vh = { class: "gw-section-header" }, Ph = ["disabled"], Uh = {
   key: 0,
   class: "gw-notice"
-}, Mg = {
+}, Ah = {
   key: 1,
   class: "gw-error",
   role: "alert"
-}, Og = {
+}, Eh = {
   key: 2,
   class: "gw-notice"
-}, Rg = { class: "gw-backup-restore" }, Dg = { class: "gw-section-header" }, Ng = { class: "gw-backup-upload" }, qg = ["disabled"], Hg = ["disabled"], Fg = { class: "gw-backup-picker" }, Lg = ["disabled"], jg = {
+}, Ih = { class: "gw-backup-restore" }, Mh = { class: "gw-section-header" }, Oh = { class: "gw-backup-upload" }, Rh = ["disabled"], Dh = ["disabled"], Fh = { class: "gw-backup-picker" }, qh = ["disabled"], Nh = {
   key: 0,
   value: ""
-}, Wg = ["value"], Bg = ["disabled"], Kg = {
+}, Hh = ["value"], Lh = ["disabled"], jh = {
   key: 3,
   class: "gw-notice gw-backup-reboot"
-}, Gg = { class: "gw-actions" }, zg = ["disabled"], Jg = ["href"], Yg = ["href"], Xg = {
+}, Wh = { class: "gw-actions" }, Bh = ["disabled"], Kh = ["href"], Gh = ["href"], zh = {
   key: 0,
   class: "gw-error",
   role: "alert"
-}, Qg = { key: 1 }, Zg = { class: "gw-change-list" }, eh = { class: "gw-actions" }, th = ["disabled"], lh = ["disabled"], nh = /* @__PURE__ */ He({
+}, Jh = { key: 1 }, Yh = { class: "gw-change-list" }, Xh = { class: "gw-actions" }, Zh = ["disabled"], Qh = ["disabled"], em = /* @__PURE__ */ Me({
   __name: "GatewayBackups",
   props: {
     node: {},
     bridge: {}
   },
   setup(e) {
-    const t = e, l = /* @__PURE__ */ H([]), o = /* @__PURE__ */ H(""), s = /* @__PURE__ */ H(!1), i = /* @__PURE__ */ H(!1), a = /* @__PURE__ */ H(""), r = /* @__PURE__ */ H(null), c = /* @__PURE__ */ H(null), g = /* @__PURE__ */ H(!1), m = /* @__PURE__ */ H(null);
-    let y = !0, T;
-    const E = "/api/gateways/" + encodeURIComponent(t.node.id) + "/backups", B = (k, R) => t.bridge.request(k, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(R) }), I = (k) => k < 1024 * 1024 ? Math.round(k / 1024) + " КБ" : (k / 1024 / 1024).toFixed(1) + " МБ";
-    function Q() {
+    const t = e, n = /* @__PURE__ */ D([]), o = /* @__PURE__ */ D(""), s = /* @__PURE__ */ D(!1), i = /* @__PURE__ */ D(!1), a = /* @__PURE__ */ D(""), u = /* @__PURE__ */ D(null), c = /* @__PURE__ */ D(null), g = /* @__PURE__ */ D(!1), m = /* @__PURE__ */ D(null);
+    let w = !0, A;
+    const V = "/api/gateways/" + encodeURIComponent(t.node.id) + "/backups", L = (E, P) => t.bridge.request(E, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(P) }), R = (E) => E < 1024 * 1024 ? Math.round(E / 1024) + " КБ" : (E / 1024 / 1024).toFixed(1) + " МБ";
+    function ne() {
       m.value?.click();
     }
     async function X() {
       try {
-        const k = await t.bridge.request(E);
-        if (!y) return;
-        l.value = k.items, i.value = k.available, r.value = k.task?.id || null, g.value = k.reboot_required === !0, l.value.some((R) => R.id === o.value) || (o.value = l.value[0]?.id || ""), r.value && (T = setTimeout(X, 2e3));
-      } catch (k) {
-        y && (a.value = k instanceof Error ? k.message : String(k));
+        const E = await t.bridge.request(V);
+        if (!w) return;
+        n.value = E.items, i.value = E.available, u.value = E.task?.id || null, g.value = E.reboot_required === !0, n.value.some((P) => P.id === o.value) || (o.value = n.value[0]?.id || ""), u.value && (A = setTimeout(X, 2e3));
+      } catch (E) {
+        w && (a.value = E instanceof Error ? E.message : String(E));
       }
     }
-    function Z(k, R, z) {
-      r.value = k, t.bridge.task({ taskId: k, title: R, cancellable: !1, onDone: async () => {
-        if (y) {
+    function Z(E, P, S) {
+      u.value = E, t.bridge.task({ taskId: E, title: P, cancellable: !1, onDone: async () => {
+        if (w) {
           try {
-            const pe = await t.bridge.request("/api/tasks/" + encodeURIComponent(k));
-            pe.result?.success === !1 && (a.value = pe.result.error || "Операция завершилась с ошибкой");
-          } catch (pe) {
-            a.value = pe instanceof Error ? pe.message : String(pe);
+            const C = await t.bridge.request("/api/tasks/" + encodeURIComponent(E));
+            C.result?.success === !1 && (a.value = C.result.error || "Операция завершилась с ошибкой");
+          } catch (C) {
+            a.value = C instanceof Error ? C.message : String(C);
           }
-          clearTimeout(T), await X();
+          clearTimeout(A), await X();
         }
-      } }), clearTimeout(T), T = setTimeout(X, 2e3);
+      } }), clearTimeout(A), A = setTimeout(X, 2e3);
     }
-    async function le() {
+    async function ee() {
       s.value = !0, a.value = "";
       try {
-        const k = await B(E + "/create", {});
-        y && Z(k.task_id, "Резервная копия настроек OpenWrt", "create");
-      } catch (k) {
-        a.value = k instanceof Error ? k.message : String(k);
+        const E = await L(V + "/create", {});
+        w && Z(E.task_id, "Резервная копия настроек OpenWrt", "create");
+      } catch (E) {
+        a.value = E instanceof Error ? E.message : String(E);
       } finally {
         s.value = !1;
       }
     }
-    async function j(k) {
-      const R = k.target, z = R.files?.[0];
-      if (z) {
+    async function j(E) {
+      const P = E.target, S = P.files?.[0];
+      if (S) {
         s.value = !0, a.value = "";
         try {
-          const pe = new FormData();
-          pe.append("file", z);
-          const he = await t.bridge.request(E + "/upload", { method: "POST", body: pe });
-          if (!y) return;
-          await X(), o.value = he.archive.id;
-        } catch (pe) {
-          a.value = pe instanceof Error ? pe.message : String(pe);
+          const C = new FormData();
+          C.append("file", S);
+          const ie = await t.bridge.request(V + "/upload", { method: "POST", body: C });
+          if (!w) return;
+          await X(), o.value = ie.archive.id;
+        } catch (C) {
+          a.value = C instanceof Error ? C.message : String(C);
         } finally {
-          R.value = "", s.value = !1;
+          P.value = "", s.value = !1;
         }
       }
     }
-    async function te(k) {
+    async function le(E) {
       s.value = !0, a.value = "";
       try {
-        const R = await B(E + "/plan", { action: k, archive_id: k === "restore" ? o.value : null });
-        y ? c.value = R : t.bridge.request(E + "/plans/" + encodeURIComponent(R.plan_token), { method: "DELETE" }).catch(() => {
+        const P = await L(V + "/plan", { action: E, archive_id: E === "restore" ? o.value : null });
+        w ? c.value = P : t.bridge.request(V + "/plans/" + encodeURIComponent(P.plan_token), { method: "DELETE" }).catch(() => {
         });
-      } catch (R) {
-        a.value = R instanceof Error ? R.message : String(R);
+      } catch (P) {
+        a.value = P instanceof Error ? P.message : String(P);
       } finally {
         s.value = !1;
       }
     }
-    async function O() {
+    async function Q() {
       if (c.value) {
         s.value = !0;
         try {
-          await t.bridge.request(E + "/plans/" + encodeURIComponent(c.value.plan_token), { method: "DELETE" }), c.value = null;
-        } catch (k) {
-          a.value = k instanceof Error ? k.message : String(k);
+          await t.bridge.request(V + "/plans/" + encodeURIComponent(c.value.plan_token), { method: "DELETE" }), c.value = null;
+        } catch (E) {
+          a.value = E instanceof Error ? E.message : String(E);
         } finally {
           s.value = !1;
         }
       }
     }
-    async function S() {
+    async function I() {
       if (!c.value) return;
       s.value = !0, a.value = "";
-      const k = c.value;
+      const E = c.value;
       try {
-        const R = await B(E + "/apply", { plan_token: k.plan_token, confirmed: !0 });
-        y && (c.value = null, Z(R.task_id, k.action === "restore" ? "Восстановление настроек OpenWrt" : "Перезагрузка шлюза", k.action));
-      } catch (R) {
-        a.value = R instanceof Error ? R.message : String(R);
+        const P = await L(V + "/apply", { plan_token: E.plan_token, confirmed: !0 });
+        w && (c.value = null, Z(P.task_id, E.action === "restore" ? "Восстановление настроек OpenWrt" : "Перезагрузка шлюза", E.action));
+      } catch (P) {
+        a.value = P instanceof Error ? P.message : String(P);
       } finally {
         s.value = !1;
       }
     }
-    return ct(X), Oo(() => {
-      y = !1, clearTimeout(T), c.value && t.bridge.request(E + "/plans/" + encodeURIComponent(c.value.plan_token), { method: "DELETE" }).catch(() => {
+    return ot(X), Do(() => {
+      w = !1, clearTimeout(A), c.value && t.bridge.request(V + "/plans/" + encodeURIComponent(c.value.plan_token), { method: "DELETE" }).catch(() => {
       });
-    }), (k, R) => (p(), h(N, null, [
-      n("section", Ug, [
-        n("header", Pg, [
-          R[4] || (R[4] = n("div", null, [
-            n("h3", null, "Резервные копии"),
-            n("p", { class: "gw-hint" }, "Штатный архив настроек OpenWrt. Прошивка и пакеты в копию не входят.")
+    }), (E, P) => (f(), h(q, null, [
+      l("section", Th, [
+        l("header", Vh, [
+          P[4] || (P[4] = l("div", null, [
+            l("h3", null, "Резервные копии"),
+            l("p", { class: "gw-hint" }, "Штатный архив настроек OpenWrt. Прошивка и пакеты в копию не входят.")
           ], -1)),
-          n("button", {
+          l("button", {
             class: "gw-primary",
-            disabled: s.value || !!r.value || !i.value,
-            onClick: le
-          }, "Создать копию на панели", 8, Ag)
+            disabled: s.value || !!u.value || !i.value,
+            onClick: ee
+          }, "Создать копию на панели", 8, Ph)
         ]),
-        i.value ? V("", !0) : (p(), h("p", Ig, "Для создания и восстановления нужен управляемый API Bot4VPS. Настройте его во вкладке «Доступ».")),
-        a.value && !c.value ? (p(), h("p", Mg, w(a.value), 1)) : V("", !0),
-        r.value ? (p(), h("p", Og, [
-          R[5] || (R[5] = A("Выполняется операция шлюза. ", -1)),
-          n("button", {
-            onClick: R[0] || (R[0] = (z) => Z(r.value, "Операция резервного копирования"))
+        i.value ? x("", !0) : (f(), h("p", Uh, "Для создания и восстановления нужен управляемый API Bot4VPS. Настройте его во вкладке «Доступ».")),
+        a.value && !c.value ? (f(), h("p", Ah, b(a.value), 1)) : x("", !0),
+        u.value ? (f(), h("p", Eh, [
+          P[5] || (P[5] = M("Выполняется операция шлюза. ", -1)),
+          l("button", {
+            onClick: P[0] || (P[0] = (S) => Z(u.value, "Операция резервного копирования"))
           }, "Показать задачу")
-        ])) : V("", !0),
-        n("div", Rg, [
-          n("header", Dg, [
-            R[6] || (R[6] = n("div", null, [
-              n("h3", null, "Восстановление"),
-              n("p", { class: "gw-hint" }, "Выберите любую копию на панели или загрузите свой архив из LuCI.")
+        ])) : x("", !0),
+        l("div", Ih, [
+          l("header", Mh, [
+            P[6] || (P[6] = l("div", null, [
+              l("h3", null, "Восстановление"),
+              l("p", { class: "gw-hint" }, "Выберите любую копию на панели или загрузите свой архив из LuCI.")
             ], -1)),
-            n("div", Ng, [
-              n("button", {
-                disabled: s.value || !!r.value,
-                onClick: Q
-              }, "Загрузить свой архив", 8, qg),
-              n("input", {
+            l("div", Oh, [
+              l("button", {
+                disabled: s.value || !!u.value,
+                onClick: ne
+              }, "Загрузить свой архив", 8, Rh),
+              l("input", {
                 ref_key: "uploadInput",
                 ref: m,
                 type: "file",
                 accept: ".tar.gz,.tgz",
                 hidden: "",
-                disabled: s.value || !!r.value,
+                disabled: s.value || !!u.value,
                 onChange: j
-              }, null, 40, Hg)
+              }, null, 40, Dh)
             ])
           ]),
-          n("div", Fg, [
-            n("label", null, [
-              R[7] || (R[7] = A("Архив на панели", -1)),
-              F(n("select", {
-                "onUpdate:modelValue": R[1] || (R[1] = (z) => o.value = z),
-                disabled: s.value || !!r.value
+          l("div", Fh, [
+            l("label", null, [
+              P[7] || (P[7] = M("Архив на панели", -1)),
+              H(l("select", {
+                "onUpdate:modelValue": P[1] || (P[1] = (S) => o.value = S),
+                disabled: s.value || !!u.value
               }, [
-                l.value.length ? V("", !0) : (p(), h("option", jg, "Сохранённых копий пока нет")),
-                (p(!0), h(N, null, se(l.value, (z) => (p(), h("option", {
-                  key: z.id,
-                  value: z.id
-                }, w(z.filename) + " · " + w(I(z.size)), 9, Wg))), 128))
-              ], 8, Lg), [
+                n.value.length ? x("", !0) : (f(), h("option", Nh, "Сохранённых копий пока нет")),
+                (f(!0), h(q, null, oe(n.value, (S) => (f(), h("option", {
+                  key: S.id,
+                  value: S.id
+                }, b(S.filename) + " · " + b(R(S.size)), 9, Hh))), 128))
+              ], 8, qh), [
                 [xe, o.value]
               ])
             ]),
-            n("button", {
-              disabled: s.value || !!r.value || !o.value || !i.value,
-              onClick: R[2] || (R[2] = (z) => te("restore"))
-            }, "Восстановить", 8, Bg)
+            l("button", {
+              disabled: s.value || !!u.value || !o.value || !i.value,
+              onClick: P[2] || (P[2] = (S) => le("restore"))
+            }, "Восстановить", 8, Lh)
           ]),
-          R[8] || (R[8] = n("p", { class: "gw-hint" }, "Копии общие для всех шлюзов. Архив содержит настройки и может содержать пароли и ключи. Скачать или удалить копии можно в «Файлы → Копии шлюзов».", -1))
+          P[8] || (P[8] = l("p", { class: "gw-hint" }, "Копии общие для всех шлюзов. Архив содержит настройки и может содержать пароли и ключи. Скачать или удалить копии можно в «Файлы → Копии шлюзов».", -1))
         ]),
-        g.value ? (p(), h("div", Kg, [
-          R[9] || (R[9] = n("p", null, "Файлы настроек восстановлены. Для применения требуется перезагрузка.", -1)),
-          n("div", Gg, [
-            n("button", {
-              disabled: s.value || !!r.value,
-              onClick: R[3] || (R[3] = (z) => te("reboot"))
-            }, "Перезагрузить и применить", 8, zg),
-            n("a", {
+        g.value ? (f(), h("div", jh, [
+          P[9] || (P[9] = l("p", null, "Файлы настроек восстановлены. Для применения требуется перезагрузка.", -1)),
+          l("div", Wh, [
+            l("button", {
+              disabled: s.value || !!u.value,
+              onClick: P[3] || (P[3] = (S) => le("reboot"))
+            }, "Перезагрузить и применить", 8, Bh),
+            l("a", {
               href: e.node.luci_url,
               target: "_blank",
               rel: "noopener noreferrer"
-            }, "Открыть LuCI ↗", 8, Jg)
+            }, "Открыть LuCI ↗", 8, Kh)
           ])
-        ])) : (p(), h("a", {
+        ])) : (f(), h("a", {
           key: 4,
           class: "gw-hint",
           href: e.node.luci_url,
           target: "_blank",
           rel: "noopener noreferrer"
-        }, "Открыть LuCI ↗", 8, Yg))
+        }, "Открыть LuCI ↗", 8, Gh))
       ]),
-      c.value ? (p(), ge(qe, {
+      c.value ? (f(), me(Re, {
         key: 0,
         title: c.value.action === "restore" ? "План восстановления" : "Подтверждение перезагрузки",
         busy: s.value,
-        onClose: O
+        onClose: Q
       }, {
-        default: Re(() => [
-          a.value ? (p(), h("p", Xg, w(a.value), 1)) : V("", !0),
-          c.value.action === "restore" ? (p(), h("p", Qg, [
-            n("strong", null, w(c.value.filename), 1),
-            A(" · " + w(c.value.files) + " файлов", 1)
-          ])) : V("", !0),
-          n("ul", Zg, [
-            (p(!0), h(N, null, se(c.value.warnings, (z) => (p(), h("li", { key: z }, w(z), 1))), 128))
+        default: Ie(() => [
+          a.value ? (f(), h("p", zh, b(a.value), 1)) : x("", !0),
+          c.value.action === "restore" ? (f(), h("p", Jh, [
+            l("strong", null, b(c.value.filename), 1),
+            M(" · " + b(c.value.files) + " файлов", 1)
+          ])) : x("", !0),
+          l("ul", Yh, [
+            (f(!0), h(q, null, oe(c.value.warnings, (S) => (f(), h("li", { key: S }, b(S), 1))), 128))
           ]),
-          n("div", eh, [
-            n("button", {
+          l("div", Xh, [
+            l("button", {
               class: "gw-primary",
               disabled: s.value,
-              onClick: S
-            }, w(c.value.action === "restore" ? "Да, восстановить настройки" : "Да, перезагрузить шлюз"), 9, th),
-            n("button", {
+              onClick: I
+            }, b(c.value.action === "restore" ? "Да, восстановить настройки" : "Да, перезагрузить шлюз"), 9, Zh),
+            l("button", {
               disabled: s.value,
-              onClick: O
-            }, "Отмена", 8, lh)
+              onClick: Q
+            }, "Отмена", 8, Qh)
           ])
         ]),
         _: 1
-      }, 8, ["title", "busy"])) : V("", !0)
+      }, 8, ["title", "busy"])) : x("", !0)
     ], 64));
   }
-}), sh = {
+}), tm = {
   key: 0,
   class: "gw-error",
   role: "alert"
-}, oh = { key: 1 }, ih = { key: 0 }, ah = {
+}, nm = { key: 1 }, lm = { key: 0 }, sm = {
   key: 4,
   class: "gw-notice"
-}, rh = { key: 5 }, uh = { key: 6 }, dh = { class: "gw-actions" }, ch = ["disabled"], fh = ["disabled"], ph = /* @__PURE__ */ He({
+}, om = { key: 5 }, im = { key: 6 }, am = { class: "gw-actions" }, rm = ["disabled"], um = ["disabled"], dm = /* @__PURE__ */ Me({
   __name: "OperationPlan",
   props: {
     operation: {},
@@ -8124,59 +8661,59 @@ const wp = { class: "gw-channel-charts" }, _p = { class: "gw-spectrum-card" }, k
   },
   emits: ["apply", "cancel"],
   setup(e, { emit: t }) {
-    const l = t, o = { install: "Установка", update: "Обновление", web_access: "Доступ веб-панели", remove: "Удаление", start: "Запуск", stop: "Остановка", restart: "Перезапуск" };
-    return (s, i) => (p(), ge(qe, {
+    const n = t, o = { install: "Установка", update: "Обновление", web_access: "Доступ веб-панели", remove: "Удаление", start: "Запуск", stop: "Остановка", restart: "Перезапуск" };
+    return (s, i) => (f(), me(Re, {
       title: "План операции",
       busy: e.busy,
-      onClose: i[2] || (i[2] = (a) => l("cancel"))
+      onClose: i[2] || (i[2] = (a) => n("cancel"))
     }, {
-      default: Re(() => [
-        e.error ? (p(), h("p", sh, w(e.error), 1)) : V("", !0),
-        n("h2", null, w(o[e.operation.action]) + " " + w(e.operation.service) + " " + w(e.operation.version || ""), 1),
-        e.operation.network_check ? (p(), h("p", oh, "После действия панель проверит API и состояние службы. Если подтверждение не придёт, будет выполнено восстановление.")) : V("", !0),
-        e.operation.action === "remove" ? (p(), h(N, { key: 2 }, [
-          i[3] || (i[3] = n("h3", null, "Будет удалено", -1)),
-          n("ul", null, [
-            (p(!0), h(N, null, se(e.operation.removed, (a) => (p(), h("li", { key: a }, w(a), 1))), 128))
+      default: Ie(() => [
+        e.error ? (f(), h("p", tm, b(e.error), 1)) : x("", !0),
+        l("h2", null, b(o[e.operation.action]) + " " + b(e.operation.service) + " " + b(e.operation.version || ""), 1),
+        e.operation.network_check ? (f(), h("p", nm, "После действия панель проверит API и состояние службы. Если подтверждение не придёт, будет выполнено восстановление.")) : x("", !0),
+        e.operation.action === "remove" ? (f(), h(q, { key: 2 }, [
+          i[3] || (i[3] = l("h3", null, "Будет удалено", -1)),
+          l("ul", null, [
+            (f(!0), h(q, null, oe(e.operation.removed, (a) => (f(), h("li", { key: a }, b(a), 1))), 128))
           ])
-        ], 64)) : V("", !0),
-        ["install", "update"].includes(e.operation.action) ? (p(), h(N, { key: 3 }, [
-          i[4] || (i[4] = n("p", null, "Файлы передаются с панели. GitHub на роутере не используется.", -1)),
-          e.operation.action === "update" ? (p(), h("p", ih, "Конфигурация и автозапуск сохраняются. Работающая служба будет остановлена на время обновления и запущена снова. Подготовлен резерв исходной версии для отката.")) : V("", !0),
-          n("ul", null, [
-            (p(!0), h(N, null, se(e.operation.changes, (a) => (p(), h("li", {
+        ], 64)) : x("", !0),
+        ["install", "update"].includes(e.operation.action) ? (f(), h(q, { key: 3 }, [
+          i[4] || (i[4] = l("p", null, "Файлы передаются с панели. GitHub на роутере не используется.", -1)),
+          e.operation.action === "update" ? (f(), h("p", lm, "Конфигурация и автозапуск сохраняются. Работающая служба будет остановлена на время обновления и запущена снова. Подготовлен резерв исходной версии для отката.")) : x("", !0),
+          l("ul", null, [
+            (f(!0), h(q, null, oe(e.operation.changes, (a) => (f(), h("li", {
               key: a.package
-            }, w(a.package) + ": " + w(a.before || "не установлен") + " → " + w(a.after), 1))), 128))
+            }, b(a.package) + ": " + b(a.before || "не установлен") + " → " + b(a.after), 1))), 128))
           ])
-        ], 64)) : V("", !0),
-        e.operation.warnings?.length ? (p(), h("section", ah, [
-          i[5] || (i[5] = n("h3", null, "Последствия изменений", -1)),
-          n("ul", null, [
-            (p(!0), h(N, null, se(e.operation.warnings, (a) => (p(), h("li", { key: a }, w(a), 1))), 128))
+        ], 64)) : x("", !0),
+        e.operation.warnings?.length ? (f(), h("section", sm, [
+          i[5] || (i[5] = l("h3", null, "Последствия изменений", -1)),
+          l("ul", null, [
+            (f(!0), h(q, null, oe(e.operation.warnings, (a) => (f(), h("li", { key: a }, b(a), 1))), 128))
           ])
-        ])) : V("", !0),
-        e.operation.preserved.length ? (p(), h("p", rh, "Сохранятся: " + w(e.operation.preserved.join(", ")) + ".", 1)) : V("", !0),
-        e.operation.keep_backup ? (p(), h("p", uh, "Конфигурация сохраняется в резервную копию; путь будет в журнале.")) : V("", !0),
-        n("div", dh, [
-          n("button", {
+        ])) : x("", !0),
+        e.operation.preserved.length ? (f(), h("p", om, "Сохранятся: " + b(e.operation.preserved.join(", ")) + ".", 1)) : x("", !0),
+        e.operation.keep_backup ? (f(), h("p", im, "Конфигурация сохраняется в резервную копию; путь будет в журнале.")) : x("", !0),
+        l("div", am, [
+          l("button", {
             class: "gw-primary",
             disabled: e.busy,
-            onClick: i[0] || (i[0] = (a) => l("apply"))
-          }, "Да, выполнить показанный план", 8, ch),
-          n("button", {
+            onClick: i[0] || (i[0] = (a) => n("apply"))
+          }, "Да, выполнить показанный план", 8, rm),
+          l("button", {
             disabled: e.busy,
-            onClick: i[1] || (i[1] = (a) => l("cancel"))
-          }, "Отмена", 8, fh)
+            onClick: i[1] || (i[1] = (a) => n("cancel"))
+          }, "Отмена", 8, um)
         ])
       ]),
       _: 1
     }, 8, ["busy"]));
   }
-}), vh = {
+}), cm = {
   key: 0,
   class: "gw-error",
   role: "alert"
-}, gh = { class: "gw-actions" }, hh = ["disabled"], mh = ["disabled"], bh = /* @__PURE__ */ He({
+}, fm = { class: "gw-actions" }, pm = ["disabled"], vm = ["disabled"], gm = /* @__PURE__ */ Me({
   __name: "IntegrationUpdate",
   props: {
     plan: {},
@@ -8185,41 +8722,41 @@ const wp = { class: "gw-channel-charts" }, _p = { class: "gw-spectrum-card" }, k
   },
   emits: ["apply", "cancel"],
   setup(e, { emit: t }) {
-    const l = t;
-    return (o, s) => (p(), ge(qe, {
+    const n = t;
+    return (o, s) => (f(), me(Re, {
       title: "Обновление интеграции · " + e.plan.name,
       compact: !0,
       busy: e.busy,
-      onClose: s[2] || (s[2] = (i) => l("cancel"))
+      onClose: s[2] || (s[2] = (i) => n("cancel"))
     }, {
-      default: Re(() => [
-        e.error ? (p(), h("p", vh, w(e.error), 1)) : V("", !0),
-        (p(!0), h(N, null, se(e.plan.warnings, (i) => (p(), h("p", {
+      default: Ie(() => [
+        e.error ? (f(), h("p", cm, b(e.error), 1)) : x("", !0),
+        (f(!0), h(q, null, oe(e.plan.warnings, (i) => (f(), h("p", {
           key: i,
           class: "gw-notice"
-        }, w(i), 1))), 128)),
-        n("details", null, [
-          n("summary", null, "Компоненты для обновления (" + w(e.plan.files.length) + ")", 1),
-          n("ul", null, [
-            (p(!0), h(N, null, se(e.plan.files, (i) => (p(), h("li", { key: i }, w(i), 1))), 128))
+        }, b(i), 1))), 128)),
+        l("details", null, [
+          l("summary", null, "Компоненты для обновления (" + b(e.plan.files.length) + ")", 1),
+          l("ul", null, [
+            (f(!0), h(q, null, oe(e.plan.files, (i) => (f(), h("li", { key: i }, b(i), 1))), 128))
           ])
         ]),
-        n("div", gh, [
-          n("button", {
+        l("div", fm, [
+          l("button", {
             class: "gw-primary",
             disabled: e.busy,
-            onClick: s[0] || (s[0] = (i) => l("apply"))
-          }, "Да, обновить интеграцию", 8, hh),
-          n("button", {
+            onClick: s[0] || (s[0] = (i) => n("apply"))
+          }, "Да, обновить интеграцию", 8, pm),
+          l("button", {
             disabled: e.busy,
-            onClick: s[1] || (s[1] = (i) => l("cancel"))
-          }, "Отмена", 8, mh)
+            onClick: s[1] || (s[1] = (i) => n("cancel"))
+          }, "Отмена", 8, vm)
         ])
       ]),
       _: 1
     }, 8, ["title", "busy"]));
   }
-}), yh = { class: "gw-pin-detail" }, wh = { class: "gw-actions" }, _h = ["disabled"], kh = ["disabled"], $h = /* @__PURE__ */ He({
+}), hm = { class: "gw-pin-detail" }, mm = { class: "gw-actions" }, bm = ["disabled"], ym = ["disabled"], wm = /* @__PURE__ */ Me({
   __name: "TlsTrust",
   props: {
     change: {},
@@ -8227,51 +8764,51 @@ const wp = { class: "gw-channel-charts" }, _p = { class: "gw-spectrum-card" }, k
   },
   emits: ["apply", "cancel"],
   setup(e, { emit: t }) {
-    const l = t;
-    return (o, s) => (p(), ge(qe, {
+    const n = t;
+    return (o, s) => (f(), me(Re, {
       title: "Изменение доверия HTTPS",
       busy: e.busy,
-      onClose: s[2] || (s[2] = (i) => l("cancel"))
+      onClose: s[2] || (s[2] = (i) => n("cancel"))
     }, {
-      default: Re(() => [
-        n("div", yh, [
-          s[5] || (s[5] = n("p", null, "Изменяется сохранённый отпечаток сертификата API.", -1)),
-          n("p", null, [
-            s[3] || (s[3] = A("Прежний: ", -1)),
-            n("code", null, w(e.change.previous), 1)
+      default: Ie(() => [
+        l("div", hm, [
+          s[5] || (s[5] = l("p", null, "Изменяется сохранённый отпечаток сертификата API.", -1)),
+          l("p", null, [
+            s[3] || (s[3] = M("Прежний: ", -1)),
+            l("code", null, b(e.change.previous), 1)
           ]),
-          n("p", null, [
-            s[4] || (s[4] = A("Новый: ", -1)),
-            n("code", null, w(e.change.next || "Проверка стандартной цепочки сертификатов"), 1)
+          l("p", null, [
+            s[4] || (s[4] = M("Новый: ", -1)),
+            l("code", null, b(e.change.next || "Проверка стандартной цепочки сертификатов"), 1)
           ]),
-          s[6] || (s[6] = n("p", null, "Подтвердите изменение после проверки сертификата роутера.", -1))
+          s[6] || (s[6] = l("p", null, "Подтвердите изменение после проверки сертификата роутера.", -1))
         ]),
-        n("div", wh, [
-          n("button", {
+        l("div", mm, [
+          l("button", {
             class: "gw-primary",
             disabled: e.busy,
-            onClick: s[0] || (s[0] = (i) => l("apply"))
-          }, "Да, принять изменение", 8, _h),
-          n("button", {
+            onClick: s[0] || (s[0] = (i) => n("apply"))
+          }, "Да, принять изменение", 8, bm),
+          l("button", {
             disabled: e.busy,
-            onClick: s[1] || (s[1] = (i) => l("cancel"))
-          }, "Отмена", 8, kh)
+            onClick: s[1] || (s[1] = (i) => n("cancel"))
+          }, "Отмена", 8, ym)
         ])
       ]),
       _: 1
     }, 8, ["busy"]));
   }
-}), Ch = {
+}), _m = {
   key: 0,
   class: "gw-error",
   role: "alert"
-}, xh = {
+}, km = {
   key: 1,
   class: "gw-hint"
-}, Sh = { class: "gw-change-list" }, Vh = {
+}, $m = { class: "gw-change-list" }, Cm = {
   key: 0,
   class: "gw-notice"
-}, Th = { class: "gw-notice" }, Eh = { class: "gw-actions" }, Uh = ["disabled"], Ph = ["disabled"], Ah = ["disabled"], Ih = /* @__PURE__ */ He({
+}, xm = { class: "gw-notice" }, Sm = { class: "gw-actions" }, Tm = ["disabled"], Vm = ["disabled"], Pm = ["disabled"], Um = /* @__PURE__ */ Me({
   __name: "FirewallRestart",
   props: {
     node: {},
@@ -8279,19 +8816,19 @@ const wp = { class: "gw-channel-charts" }, _p = { class: "gw-spectrum-card" }, k
   },
   emits: ["close", "changed"],
   setup(e, { emit: t }) {
-    const l = e, o = t, s = /* @__PURE__ */ H(!1), i = /* @__PURE__ */ H(""), a = /* @__PURE__ */ H(null), r = "/api/gateways/" + encodeURIComponent(l.node.id), c = (T, E, B = "POST") => l.bridge.request(r + T, {
-      method: B,
+    const n = e, o = t, s = /* @__PURE__ */ D(!1), i = /* @__PURE__ */ D(""), a = /* @__PURE__ */ D(null), u = "/api/gateways/" + encodeURIComponent(n.node.id), c = (A, V, L = "POST") => n.bridge.request(u + A, {
+      method: L,
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(E)
+      body: JSON.stringify(V)
     });
     async function g() {
       s.value = !0, i.value = "";
       try {
-        const T = await l.bridge.request(r + "/network");
-        if (!T.settings_hash) throw new Error("Не удалось прочитать актуальные настройки firewall");
-        a.value = await c("/network/plan", { action: "firewall_restart", data: { config_hash: T.settings_hash } });
-      } catch (T) {
-        i.value = T.message;
+        const A = await n.bridge.request(u + "/network");
+        if (!A.settings_hash) throw new Error("Не удалось прочитать актуальные настройки firewall");
+        a.value = await c("/network/plan", { action: "firewall_restart", data: { config_hash: A.settings_hash } });
+      } catch (A) {
+        i.value = A.message;
       } finally {
         s.value = !1;
       }
@@ -8300,158 +8837,152 @@ const wp = { class: "gw-channel-charts" }, _p = { class: "gw-spectrum-card" }, k
       if (!(s.value || !a.value)) {
         s.value = !0, i.value = "";
         try {
-          const T = a.value, E = await c("/router-operations", { plan_token: T.plan_token, confirmed: !0 });
-          a.value = null, o("close"), l.bridge.task({ taskId: E.task_id, title: T.title, cancellable: !1, onDone: async () => o("changed") });
-        } catch (T) {
-          i.value = T.message;
+          const A = a.value, V = await c("/router-operations", { plan_token: A.plan_token, confirmed: !0 });
+          a.value = null, o("close"), n.bridge.task({ taskId: V.task_id, title: A.title, cancellable: !1, onDone: async () => o("changed") });
+        } catch (A) {
+          i.value = A.message;
         } finally {
           s.value = !1;
         }
       }
     }
-    async function y() {
+    async function w() {
       if (!s.value) {
         s.value = !0, i.value = "";
         try {
           a.value && await c("/operation-plans/" + encodeURIComponent(a.value.plan_token), {}, "DELETE"), a.value = null, o("close");
-        } catch (T) {
-          i.value = T.message;
+        } catch (A) {
+          i.value = A.message;
         } finally {
           s.value = !1;
         }
       }
     }
-    return ct(() => {
+    return ot(() => {
       g();
-    }), (T, E) => (p(), ge(qe, {
+    }), (A, V) => (f(), me(Re, {
       title: "Перезапуск firewall",
       busy: s.value,
-      onClose: y
+      onClose: w
     }, {
-      default: Re(() => [
-        i.value ? (p(), h("p", Ch, w(i.value), 1)) : V("", !0),
-        s.value && !a.value ? (p(), h("p", xh, "Получаем план перезапуска…")) : V("", !0),
-        a.value ? (p(), h(N, { key: 2 }, [
-          n("ul", Sh, [
-            (p(!0), h(N, null, se(a.value.summary, (B, I) => (p(), h("li", { key: I }, w(B), 1))), 128))
+      default: Ie(() => [
+        i.value ? (f(), h("p", _m, b(i.value), 1)) : x("", !0),
+        s.value && !a.value ? (f(), h("p", km, "Получаем план перезапуска…")) : x("", !0),
+        a.value ? (f(), h(q, { key: 2 }, [
+          l("ul", $m, [
+            (f(!0), h(q, null, oe(a.value.summary, (L, R) => (f(), h("li", { key: R }, b(L), 1))), 128))
           ]),
-          a.value.warnings?.length ? (p(), h("ul", Vh, [
-            (p(!0), h(N, null, se(a.value.warnings, (B, I) => (p(), h("li", { key: I }, w(B), 1))), 128))
-          ])) : V("", !0),
-          n("p", Th, "Панель проверит связь. Если подтверждение не придёт в течение " + w(a.value.rollback_seconds) + " секунд, роутер восстановит прежнюю конфигурацию.", 1)
-        ], 64)) : V("", !0),
-        n("div", Eh, [
-          a.value ? (p(), h("button", {
+          a.value.warnings?.length ? (f(), h("ul", Cm, [
+            (f(!0), h(q, null, oe(a.value.warnings, (L, R) => (f(), h("li", { key: R }, b(L), 1))), 128))
+          ])) : x("", !0),
+          l("p", xm, "Панель проверит связь. Если подтверждение не придёт в течение " + b(a.value.rollback_seconds) + " секунд, роутер восстановит прежнюю конфигурацию.", 1)
+        ], 64)) : x("", !0),
+        l("div", Sm, [
+          a.value ? (f(), h("button", {
             key: 0,
             class: "gw-primary",
             disabled: s.value,
             onClick: m
-          }, "Перезапустить", 8, Uh)) : i.value ? (p(), h("button", {
+          }, "Перезапустить", 8, Tm)) : i.value ? (f(), h("button", {
             key: 1,
             disabled: s.value,
             onClick: g
-          }, "Повторить", 8, Ph)) : V("", !0),
-          n("button", {
+          }, "Повторить", 8, Vm)) : x("", !0),
+          l("button", {
             disabled: s.value,
-            onClick: y
-          }, "Отмена", 8, Ah)
+            onClick: w
+          }, "Отмена", 8, Pm)
         ])
       ]),
       _: 1
     }, 8, ["busy"]));
   }
-}), Mh = {
+}), Am = {
   key: 0,
   class: "gw-error",
   role: "alert"
-}, Oh = { key: 0 }, Rh = {
+}, Em = { key: 0 }, Im = {
   key: 1,
   class: "gw-error",
   role: "alert"
-}, Dh = { class: "gw-actions" }, Nh = ["disabled"], qh = { class: "gw-tabs" }, Hh = { class: "gw-two" }, Fh = { class: "gw-actions" }, Lh = ["disabled"], jh = ["disabled"], Wh = { class: "gw-detected" }, Bh = { key: 0 }, Kh = {
+}, Mm = { class: "gw-actions" }, Om = ["disabled"], Rm = { class: "gw-tabs" }, Dm = { class: "gw-two" }, Fm = { class: "gw-actions" }, qm = ["disabled"], Nm = ["disabled"], Hm = { class: "gw-detected" }, Lm = { key: 0 }, jm = {
   key: 0,
   class: "gw-root-warning"
-}, Gh = { class: "gw-panel" }, zh = { key: 0 }, Jh = { key: 1 }, Yh = { class: "gw-actions" }, Xh = ["disabled"], Qh = ["disabled"], Zh = ["disabled"], em = {
+}, Wm = { class: "gw-panel" }, Bm = { key: 0 }, Km = { key: 1 }, Gm = { class: "gw-actions" }, zm = ["disabled"], Jm = ["disabled"], Ym = ["disabled"], Xm = {
   key: 1,
   class: "gw-panel"
-}, tm = { key: 0 }, lm = { class: "gw-header" }, nm = {
+}, Zm = { key: 0 }, Qm = { class: "gw-header" }, e1 = {
   key: 0,
   class: "gw-empty"
-}, sm = {
+}, t1 = {
   key: 2,
   class: "server-table-wrap gw-server-table-wrap"
-}, om = { class: "server-table gw-server-table" }, im = ["onClick", "onKeydown"], am = { class: "server-name-cell" }, rm = { class: "gw-server-identity" }, um = ["title"], dm = { class: "server-host-cell" }, cm = { class: "gw-server-sensors" }, fm = { class: "gw-card-stats" }, pm = { class: "gw-server-traffic" }, vm = {
+}, n1 = { class: "server-table gw-server-table" }, l1 = ["onClick", "onKeydown"], s1 = { class: "server-name-cell" }, o1 = { class: "gw-server-identity" }, i1 = ["title"], a1 = { class: "server-host-cell" }, r1 = { class: "gw-server-sensors" }, u1 = { class: "gw-card-stats" }, d1 = { class: "gw-server-traffic" }, c1 = {
   key: 1,
   class: "gw-detail"
-}, gm = ["disabled"], hm = {
+}, f1 = ["disabled"], p1 = {
   key: 0,
   class: "gw-error"
-}, mm = {
+}, v1 = {
   key: 1,
   class: "gw-hint"
-}, bm = {
+}, g1 = {
   key: 2,
   class: "gw-root-warning",
   role: "status"
-}, ym = { class: "gw-tabs" }, wm = ["onClick"], _m = { class: "gw-metrics" }, km = { class: "gw-panel" }, $m = { class: "gw-panel" }, Cm = { class: "gw-panel" }, xm = { class: "gw-panel" }, Sm = { class: "gw-panel" }, Vm = { key: 0 }, Tm = { class: "gw-clients-section" }, Em = { class: "gw-section-header" }, Um = { class: "gw-table-wrap" }, Pm = {
-  key: 0,
-  class: "gw-hint"
-}, Am = {
-  key: 1,
-  class: "gw-pagination"
-}, Im = { class: "gw-hint" }, Mm = { class: "gw-actions" }, Om = ["disabled"], Rm = { "aria-live": "polite" }, Dm = ["disabled"], Nm = {
+}, h1 = { class: "gw-tabs" }, m1 = ["onClick"], b1 = { class: "gw-metrics" }, y1 = { class: "gw-panel" }, w1 = { class: "gw-panel" }, _1 = { class: "gw-panel" }, k1 = { class: "gw-panel" }, $1 = { class: "gw-panel" }, C1 = { key: 0 }, x1 = {
   key: 0,
   class: "gw-hint",
   role: "status"
-}, qm = {
+}, S1 = {
   key: 1,
   class: "gw-error",
   role: "alert"
-}, Hm = { class: "gw-catalog-list" }, Fm = { class: "gw-catalog-summary" }, Lm = {
+}, T1 = { class: "gw-catalog-list" }, V1 = { class: "gw-catalog-summary" }, P1 = {
   key: 0,
   class: "gw-status good"
-}, jm = { class: "gw-catalog-body" }, Wm = { class: "gw-catalog-controls" }, Bm = { class: "gw-field" }, Km = ["onUpdate:modelValue", "disabled"], Gm = {
+}, U1 = { class: "gw-catalog-body" }, A1 = { class: "gw-catalog-controls" }, E1 = { class: "gw-field" }, I1 = ["onUpdate:modelValue", "disabled"], M1 = {
   key: 0,
   value: ""
-}, zm = { class: "gw-actions" }, Jm = ["disabled", "onClick"], Ym = ["disabled", "onClick"], Xm = { class: "gw-hint" }, Qm = {
+}, O1 = { class: "gw-actions" }, R1 = ["disabled", "onClick"], D1 = ["disabled", "onClick"], F1 = { class: "gw-hint" }, q1 = {
   key: 0,
   class: "gw-hint"
-}, Zm = {
+}, N1 = {
   key: 1,
   class: "gw-hint"
-}, e1 = { class: "gw-reserve-settings" }, t1 = { class: "gw-check" }, l1 = { class: "gw-actions" }, n1 = ["disabled"], s1 = {
+}, H1 = { class: "gw-reserve-settings" }, L1 = { class: "gw-check" }, j1 = { class: "gw-actions" }, W1 = ["disabled"], B1 = {
   key: 0,
   class: "gw-hint",
   role: "status"
-}, o1 = {
+}, K1 = {
   key: 13,
   class: "gw-panel"
-}, i1 = { class: "gw-actions" }, a1 = ["disabled"], r1 = { class: "gw-log" }, u1 = {
+}, G1 = { class: "gw-actions" }, z1 = ["disabled"], J1 = { class: "gw-log" }, Y1 = {
   key: 14,
   class: "gw-access"
-}, d1 = {
+}, X1 = {
   key: 0,
   class: "gw-section-header gw-access-tools"
-}, c1 = {
+}, Z1 = {
   key: 0,
   class: "gw-hint"
-}, f1 = { class: "gw-actions" }, p1 = ["disabled"], v1 = ["disabled"], g1 = ["disabled"], h1 = { class: "gw-section-header" }, m1 = ["disabled"], b1 = {
+}, Q1 = { class: "gw-actions" }, eb = ["disabled"], tb = ["disabled"], nb = ["disabled"], lb = { class: "gw-section-header" }, sb = ["disabled"], ob = {
   key: 2,
   class: "gw-hint"
-}, y1 = {
+}, ib = {
   key: 3,
   class: "gw-hint",
   role: "status"
-}, w1 = { class: "gw-access-columns" }, _1 = { class: "gw-hint" }, k1 = ["href"], $1 = { class: "gw-actions" }, C1 = ["disabled"], x1 = { class: "gw-two" }, S1 = ["disabled"], V1 = { key: 0 }, T1 = { key: 1 }, E1 = { class: "gw-actions" }, U1 = ["disabled"], P1 = {
+}, ab = { class: "gw-access-columns" }, rb = { class: "gw-hint" }, ub = ["href"], db = { class: "gw-actions" }, cb = ["disabled"], fb = { class: "gw-two" }, pb = ["disabled"], vb = { key: 0 }, gb = { key: 1 }, hb = { class: "gw-actions" }, mb = ["disabled"], bb = {
   key: 0,
   style: { "margin-top": "24px" }
-}, A1 = {
+}, yb = {
   key: 0,
   class: "gw-hint"
-}, I1 = {
+}, wb = {
   key: 0,
   class: "gw-hint"
-}, M1 = { class: "gw-actions" }, O1 = ["disabled"], R1 = ["disabled"], Pn = "bot4vps_gateway_location", D1 = /* @__PURE__ */ He({
+}, _b = { class: "gw-actions" }, kb = ["disabled"], $b = ["disabled"], Il = "bot4vps_gateway_location", Cb = /* @__PURE__ */ Me({
   __name: "Gateways",
   props: {
     bridge: {},
@@ -8459,143 +8990,136 @@ const wp = { class: "gw-channel-charts" }, _p = { class: "gw-spectrum-card" }, k
     initialPlan: {}
   },
   setup(e) {
-    const t = /* @__PURE__ */ H(!1), l = /* @__PURE__ */ H(null), o = /* @__PURE__ */ H(null), s = e;
+    const t = /* @__PURE__ */ D(!1), n = /* @__PURE__ */ D(null), o = /* @__PURE__ */ D(null), s = e;
     function i() {
       if (s.wizard || !s.initialPlan?.restore_location || s.initialPlan?.return_node_id) return null;
       try {
-        const x = JSON.parse(sessionStorage.getItem(Pn) || "null");
-        return x && typeof x.nodeId == "string" && ["overview", "network", "wifi", "services", "packages", "backups", "logs", "access"].includes(x.tab) ? x : null;
+        const T = JSON.parse(sessionStorage.getItem(Il) || "null");
+        return T && typeof T.nodeId == "string" && ["overview", "network", "wifi", "services", "packages", "backups", "logs", "access"].includes(T.tab) ? T : null;
       } catch {
         return null;
       }
     }
-    const a = i(), r = /* @__PURE__ */ H([]), c = /* @__PURE__ */ H(s.wizard ? null : s.initialPlan?.return_node_id || a?.nodeId || null), g = /* @__PURE__ */ H(!1), m = /* @__PURE__ */ H(""), y = /* @__PURE__ */ H(s.wizard), T = /* @__PURE__ */ H("ssh"), E = /* @__PURE__ */ H(s.initialPlan), B = /* @__PURE__ */ H(!1), I = /* @__PURE__ */ H(a?.tab || "overview"), Q = /* @__PURE__ */ H(""), X = /* @__PURE__ */ H("");
-    Xe([c, I], ([x, f]) => {
+    const a = i(), u = /* @__PURE__ */ D([]), c = /* @__PURE__ */ D(s.wizard ? null : s.initialPlan?.return_node_id || a?.nodeId || null), g = /* @__PURE__ */ D(!1), m = /* @__PURE__ */ D(""), w = /* @__PURE__ */ D(s.wizard), A = /* @__PURE__ */ D("ssh"), V = /* @__PURE__ */ D(s.initialPlan), L = /* @__PURE__ */ D(!1), R = /* @__PURE__ */ D(a?.tab || "overview"), ne = /* @__PURE__ */ D(""), X = /* @__PURE__ */ D("");
+    We([c, R], ([T, p]) => {
       if (!s.wizard)
         try {
-          x ? sessionStorage.setItem(Pn, JSON.stringify({ nodeId: x, tab: f })) : sessionStorage.removeItem(Pn);
+          T ? sessionStorage.setItem(Il, JSON.stringify({ nodeId: T, tab: p })) : sessionStorage.removeItem(Il);
         } catch {
         }
     }, { immediate: !0 });
-    const Z = /* @__PURE__ */ H(""), le = /* @__PURE__ */ H(0), j = /* @__PURE__ */ H(null), te = /* @__PURE__ */ H(null), O = /* @__PURE__ */ H(!1), S = /* @__PURE__ */ H(!1), k = /* @__PURE__ */ H(3), R = /* @__PURE__ */ H(null), z = /* @__PURE__ */ H({}), pe = /* @__PURE__ */ new Set(), he = (x, f) => x + ":" + f;
-    function Pe(x) {
-      const f = /* @__PURE__ */ new Set();
+    const Z = /* @__PURE__ */ D(""), ee = /* @__PURE__ */ D(0), j = /* @__PURE__ */ D(null), le = /* @__PURE__ */ D(null), Q = /* @__PURE__ */ D(!1), I = /* @__PURE__ */ D(!1), E = /* @__PURE__ */ D(3), P = /* @__PURE__ */ D(null), S = /* @__PURE__ */ D({}), C = /* @__PURE__ */ new Set(), ie = (T, p) => T + ":" + p;
+    function ke(T) {
+      const p = /* @__PURE__ */ new Set();
       let $ = !1;
-      for (const ue of x) for (const me of ue.service_update_tasks || [])
-        f.add(me.task_id), z.value[he(ue.id, me.service)] = { stage: me.stage, task_id: me.task_id };
-      for (const [ue, me] of Object.entries(z.value)) me.stage !== "review" && me.task_id && !f.has(me.task_id) && (delete z.value[ue], ue.startsWith((W.value?.id || "") + ":") && ($ = !0));
-      $ && I.value === "services" && le.value++;
+      for (const ce of T) for (const ye of ce.service_update_tasks || [])
+        p.add(ye.task_id), S.value[ie(ce.id, ye.service)] = { stage: ye.stage, task_id: ye.task_id };
+      for (const [ce, ye] of Object.entries(S.value)) ye.stage !== "review" && ye.task_id && !p.has(ye.task_id) && (delete S.value[ce], ce.startsWith((B.value?.id || "") + ":") && ($ = !0));
+      $ && R.value === "services" && ee.value++;
     }
-    const Me = _e(() => Object.fromEntries(Object.entries(z.value).filter(([x]) => x.startsWith((W.value?.id || "") + ":")).map(([x, f]) => [x.split(":").at(-1), f]))), ne = /* @__PURE__ */ H(!1), U = /* @__PURE__ */ H([]), d = /* @__PURE__ */ H({ podkop: [], ssclash: [], adguardhome: [] }), u = /* @__PURE__ */ H({ podkop: "", ssclash: "", adguardhome: "" }), v = /* @__PURE__ */ H({ name: "", host: "", port: 22, user: "root", password: "", url: "", username: "", tls_sha256: "" });
-    Xe(T, () => {
+    const ae = he(() => Object.fromEntries(Object.entries(S.value).filter(([T]) => T.startsWith((B.value?.id || "") + ":")).map(([T, p]) => [T.split(":").at(-1), p]))), z = /* @__PURE__ */ D(!1), U = /* @__PURE__ */ D([]), d = /* @__PURE__ */ D({ podkop: [], ssclash: [], adguardhome: [] }), r = /* @__PURE__ */ D({ podkop: "", ssclash: "", adguardhome: "" }), v = /* @__PURE__ */ D({ name: "", host: "", port: 22, user: "root", password: "", url: "", username: "", tls_sha256: "" });
+    We(A, () => {
       v.value.password = "";
     });
-    const _ = /* @__PURE__ */ H({ user: "root", port: 22, auth_type: "password", password: "", key_path: "" }), K = /* @__PURE__ */ H(null), Ve = /* @__PURE__ */ H(null), W = _e(() => r.value.find((x) => x.id === c.value)), Ne = /* @__PURE__ */ H({ current_password: "", password: "", confirmation: "" }), Ht = /* @__PURE__ */ H(!1), st = /* @__PURE__ */ H(""), ot = /* @__PURE__ */ H(), Gt = _e(() => ot.value && ot.value.id === W.value?.id ? ot.value.configured : W.value?.root_password_configured);
-    let yt = 0;
-    async function hn() {
-      const x = W.value;
-      if (!x || x.ssh_user !== "root" || !x.ssh_configured) return;
-      const f = ++yt;
+    const _ = /* @__PURE__ */ D({ user: "root", port: 22, auth_type: "password", password: "", key_path: "" }), J = /* @__PURE__ */ D(null), Pe = /* @__PURE__ */ D(null), B = he(() => u.value.find((T) => T.id === c.value)), Fe = /* @__PURE__ */ D({ current_password: "", password: "", confirmation: "" }), qt = /* @__PURE__ */ D(!1), it = /* @__PURE__ */ D(""), at = /* @__PURE__ */ D(), Gt = he(() => at.value && at.value.id === B.value?.id ? at.value.configured : B.value?.root_password_configured);
+    let wt = 0;
+    async function ml() {
+      const T = B.value;
+      if (!T || T.ssh_user !== "root" || !T.ssh_configured) return;
+      const p = ++wt;
       try {
-        const $ = await s.bridge.request("/api/gateways/" + x.id + "/root-password");
-        ie && W.value?.id === x.id && f === yt && (ot.value = { id: x.id, configured: $.configured });
+        const $ = await s.bridge.request("/api/gateways/" + T.id + "/root-password");
+        Y && B.value?.id === T.id && p === wt && (at.value = { id: T.id, configured: $.configured });
       } catch {
       }
     }
-    Xe(() => W.value?.id, () => {
-      ot.value = void 0, Ht.value = !1, Ne.value = { current_password: "", password: "", confirmation: "" }, hn();
+    We(() => B.value?.id, () => {
+      at.value = void 0, qt.value = !1, Fe.value = { current_password: "", password: "", confirmation: "" }, ml();
     });
-    const b = _e(() => W.value?.monitor || {}), C = _e(() => Object.values(b.value.wireguard || {})), P = /* @__PURE__ */ H(""), L = /* @__PURE__ */ H(""), M = /* @__PURE__ */ H(1), D = 20, G = _e(() => (b.value.clients || []).filter((x) => [x.hostname, x.ipaddr, x.macaddr].join(" ").toLowerCase().includes(L.value.toLowerCase()))), J = _e(() => Math.max(1, Math.ceil(G.value.length / D))), Y = _e(() => G.value.slice((M.value - 1) * D, M.value * D));
-    Xe(L, () => {
-      M.value = 1;
-    }), Xe(J, (x) => {
-      M.value = Math.min(M.value, x);
-    }), Xe(c, () => {
-      L.value = "", M.value = 1;
-    });
-    function q(x) {
-      x.id === "firewall" ? l.value = "firewall" : x.id === "dnsmasq" ? l.value = "dns" : x.id === "adguardhome" ? t.value = !0 : Oe(x);
+    const y = he(() => B.value?.monitor || {}), k = he(() => Object.values(y.value.wireguard || {})), O = /* @__PURE__ */ D("");
+    function G(T) {
+      T.id === "firewall" ? n.value = "firewall" : T.id === "dnsmasq" ? n.value = "dns" : T.id === "adguardhome" ? t.value = !0 : de(T);
     }
-    const oe = _e(() => r.value.filter((x) => (x.name + " " + x.host + " " + (x.monitor.board?.model || "")).toLowerCase().includes(P.value.toLowerCase()))), ee = [{ id: "overview", name: "Обзор" }, { id: "network", name: "Сеть" }, { id: "wifi", name: "Wi-Fi" }, { id: "services", name: "Службы" }, { id: "packages", name: "Пакеты" }, { id: "backups", name: "Резервные копии" }, { id: "logs", name: "Журнал" }, { id: "access", name: "Доступ" }];
-    let ae, ie = !0;
-    const de = (x, f, $ = "POST") => s.bridge.request(x, { method: $, headers: { "Content-Type": "application/json" }, body: JSON.stringify(f) }), ve = (x) => x == null ? "—" : x > 1073741824 ? (x / 1073741824).toFixed(1) + " ГБ" : x > 1048576 ? (x / 1048576).toFixed(1) + " МБ" : x > 1024 ? (x / 1024).toFixed(1) + " КБ" : x + " Б", ke = (x) => x ? Math.floor(x / 86400) + " д " + Math.floor(x % 86400 / 3600) + " ч" : "—";
-    async function Ie() {
-      const x = W.value;
-      if (!x) return;
-      const f = window.open("about:blank", "_blank");
+    const N = he(() => u.value.filter((T) => (T.name + " " + T.host + " " + (T.monitor.board?.model || "")).toLowerCase().includes(O.value.toLowerCase()))), W = [{ id: "overview", name: "Обзор" }, { id: "network", name: "Сеть" }, { id: "wifi", name: "Wi-Fi" }, { id: "services", name: "Службы" }, { id: "packages", name: "Пакеты" }, { id: "backups", name: "Резервные копии" }, { id: "logs", name: "Журнал" }, { id: "access", name: "Доступ" }];
+    let te, Y = !0;
+    const K = (T, p, $ = "POST") => s.bridge.request(T, { method: $, headers: { "Content-Type": "application/json" }, body: JSON.stringify(p) }), F = (T) => T == null ? "—" : T > 1073741824 ? (T / 1073741824).toFixed(1) + " ГБ" : T > 1048576 ? (T / 1048576).toFixed(1) + " МБ" : T > 1024 ? (T / 1024).toFixed(1) + " КБ" : T + " Б", ue = (T) => T ? Math.floor(T / 86400) + " д " + Math.floor(T % 86400 / 3600) + " ч" : "—";
+    async function se() {
+      const T = B.value;
+      if (!T) return;
+      const p = window.open("about:blank", "_blank");
       try {
-        const $ = await s.bridge.request("/api/gateways/" + encodeURIComponent(x.id) + "/adguard"), me = "http://" + (x.host.includes(":") ? "[" + x.host + "]" : x.host) + ":" + ($.web_port || 3e3) + "/";
-        f ? (f.opener = null, f.location.href = me) : m.value = "Браузер заблокировал открытие сервиса";
+        const $ = await s.bridge.request("/api/gateways/" + encodeURIComponent(T.id) + "/adguard"), ye = "http://" + (T.host.includes(":") ? "[" + T.host + "]" : T.host) + ":" + ($.web_port || 3e3) + "/";
+        p ? (p.opener = null, p.location.href = ye) : m.value = "Браузер заблокировал открытие сервиса";
       } catch ($) {
-        f?.close(), m.value = $ instanceof Error ? $.message : String($);
+        p?.close(), m.value = $ instanceof Error ? $.message : String($);
       }
     }
-    function Oe(x) {
-      x.id === "ssclash" || x.id === "adguardhome" ? window.open(et(x), "_blank", "noopener,noreferrer") : window.open(new URL("/cgi-bin/luci/admin/services/" + (x.id === "podkop" ? "podkop" : ""), W.value.luci_url).href, "_blank", "noopener,noreferrer");
+    function de(T) {
+      T.id === "ssclash" || T.id === "adguardhome" ? window.open(ve(T), "_blank", "noopener,noreferrer") : window.open(new URL("/cgi-bin/luci/admin/services/" + (T.id === "podkop" ? "podkop" : ""), B.value.luci_url).href, "_blank", "noopener,noreferrer");
     }
-    function et(x) {
-      const f = W.value.host.includes(":") ? "[" + W.value.host + "]" : W.value.host, $ = Number(x.web_port) || (x.id === "adguardhome" ? 3e3 : 9091);
-      return (x.web_https ? "https://" : "http://") + f + ":" + $ + "/";
+    function ve(T) {
+      const p = B.value.host.includes(":") ? "[" + B.value.host + "]" : B.value.host, $ = Number(T.web_port) || (T.id === "adguardhome" ? 3e3 : 9091);
+      return (T.web_https ? "https://" : "http://") + p + ":" + $ + "/";
     }
-    async function Ce() {
+    async function fe() {
       try {
-        const x = await s.bridge.request("/api/gateways");
-        if (x.enabled === !1) {
+        const T = await s.bridge.request("/api/gateways");
+        if (T.enabled === !1) {
           s.bridge.navigate("dashboard");
           return;
         }
-        r.value = x.gateways || [], c.value && !r.value.some((f) => f.id === c.value) && (c.value = null, I.value = "overview"), Pe(r.value), s.bridge.changed();
-      } catch (x) {
-        m.value = x.message;
+        u.value = T.gateways || [], c.value && !u.value.some((p) => p.id === c.value) && (c.value = null, R.value = "overview"), ke(u.value), s.bridge.changed();
+      } catch (T) {
+        m.value = T.message;
       }
     }
-    async function ft() {
-      if (!(document.hidden || g.value || y.value))
+    async function Se() {
+      if (!(document.hidden || g.value || w.value))
         try {
-          const x = await s.bridge.request("/api/gateways/status");
-          if (!ie || !Array.isArray(x.gateways)) return;
-          if (x.gateways.length !== r.value.length || x.gateways.some((f) => !r.value.some(($) => $.id === f.id))) {
-            await Ce();
+          const T = await s.bridge.request("/api/gateways/status");
+          if (!Y || !Array.isArray(T.gateways)) return;
+          if (T.gateways.length !== u.value.length || T.gateways.some((p) => !u.value.some(($) => $.id === p.id))) {
+            await fe();
             return;
           }
-          for (const f of x.gateways) {
-            const $ = r.value.find((ue) => ue.id === f.id);
-            $.monitor = { ...$.monitor, ...f.monitor };
+          for (const p of T.gateways) {
+            const $ = u.value.find((ce) => ce.id === p.id);
+            $.monitor = { ...$.monitor, ...p.monitor };
           }
-          Pe(x.gateways);
-        } catch (x) {
-          ie && (m.value = x instanceof Error ? x.message : String(x));
+          ke(T.gateways);
+        } catch (T) {
+          Y && (m.value = T instanceof Error ? T.message : String(T));
         }
     }
-    function ul() {
-      !document.hidden && !y.value && !s.wizard && (Ce(), hn());
+    function $e() {
+      !document.hidden && !w.value && !s.wizard && (fe(), ml());
     }
-    async function we(x) {
+    async function be(T) {
       if (!g.value) {
         g.value = !0, m.value = "";
         try {
-          await x();
-        } catch (f) {
-          m.value = f.message;
+          await T();
+        } catch (p) {
+          m.value = p.message;
         } finally {
           g.value = !1;
         }
       }
     }
-    async function it() {
-      await we(async () => {
-        if (T.value === "api") {
-          const f = await de("/api/gateways/manual", {
+    async function Oe() {
+      await be(async () => {
+        if (A.value === "api") {
+          const p = await K("/api/gateways/manual", {
             name: v.value.name,
             url: v.value.url,
             username: v.value.username,
             password: v.value.password,
             tls_sha256: v.value.tls_sha256 || null
           });
-          v.value.password = "", y.value = !1, c.value = f.id, await Ce(), s.bridge.navigate("gateways"), s.bridge.close?.();
+          v.value.password = "", w.value = !1, c.value = p.id, await fe(), s.bridge.navigate("gateways"), s.bridge.close?.();
           return;
         }
-        const x = await de("/api/gateways/probe", {
+        const T = await K("/api/gateways/probe", {
           name: v.value.name,
           host: v.value.host,
           port: Number(v.value.port),
@@ -8603,465 +9127,465 @@ const wp = { class: "gw-channel-charts" }, _p = { class: "gw-spectrum-card" }, k
           password: v.value.password,
           auth_type: "password"
         });
-        if (v.value.password = "", x.node_type !== "openwrt") throw new Error("На этом устройстве OpenWrt не обнаружен. Добавьте его в разделе «Серверы».");
-        E.value = x;
+        if (v.value.password = "", T.node_type !== "openwrt") throw new Error("На этом устройстве OpenWrt не обнаружен. Добавьте его в разделе «Серверы».");
+        V.value = T;
       });
     }
-    async function el(x) {
-      await we(async () => {
-        const f = await de("/api/gateways/bootstrap/" + encodeURIComponent(E.value.draft_token), { decision: x });
-        if (x === "no") {
-          E.value = null, y.value = !1, s.bridge.close?.();
+    async function Ye(T) {
+      await be(async () => {
+        const p = await K("/api/gateways/bootstrap/" + encodeURIComponent(V.value.draft_token), { decision: T });
+        if (T === "no") {
+          V.value = null, w.value = !1, s.bridge.close?.();
           return;
         }
-        if (x === "manual") {
-          B.value = !0;
+        if (T === "manual") {
+          L.value = !0;
           return;
         }
-        y.value = !1, s.bridge.task({
-          taskId: f.task_id,
+        w.value = !1, s.bridge.task({
+          taskId: p.task_id,
           title: "Подключение шлюза",
           cancellable: !1,
           onDone: async ($) => {
-            ($.status === "success" || $.status === "success_warn") && (await Ce(), s.bridge.navigate("gateways"));
+            ($.status === "success" || $.status === "success_warn") && (await fe(), s.bridge.navigate("gateways"));
           },
-          renderResult: ($, ue) => {
-            const me = document.createElement("p");
-            me.textContent = ["success", "success_warn"].includes($.status) ? $.status === "success_warn" ? "Шлюз подключён и сохранён. Есть предупреждения — проверьте журнал задачи и вкладку «Доступ». Повторное подключение не требуется." : "Управление доступом: LuCI → Службы → Bot4VPS. Секрет в журнал не записывается." : "Подключение не завершено. Проверьте журнал и настройки роутера.", ue.replaceChildren(me);
+          renderResult: ($, ce) => {
+            const ye = document.createElement("p");
+            ye.textContent = ["success", "success_warn"].includes($.status) ? $.status === "success_warn" ? "Шлюз подключён и сохранён. Есть предупреждения — проверьте журнал задачи и вкладку «Доступ». Повторное подключение не требуется." : "Управление доступом: LuCI → Службы → Bot4VPS. Секрет в журнал не записывается." : "Подключение не завершено. Проверьте журнал и настройки роутера.", ce.replaceChildren(ye);
           }
         }), s.bridge.close?.();
       });
     }
-    async function Tt(x) {
-      l.value = null, t.value = !1, I.value = x, m.value = "", X.value = "", O.value = !1, x === "logs" && W.value && await we(async () => {
-        Q.value = (await s.bridge.request("/api/gateways/" + W.value.id + "/logs")).output;
-      }), x === "access" && W.value && (v.value.name = W.value.name, v.value.url = W.value.api_url, v.value.username = W.value.api_username, v.value.tls_sha256 = W.value.tls_sha256 || "", v.value.password = "", _.value = { user: W.value.ssh_user || "root", port: W.value.ssh_port || 22, auth_type: W.value.ssh_auth_type || "password", password: "", key_path: "" });
+    async function qe(T) {
+      n.value = null, t.value = !1, R.value = T, m.value = "", X.value = "", Q.value = !1, T === "logs" && B.value && await be(async () => {
+        ne.value = (await s.bridge.request("/api/gateways/" + B.value.id + "/logs")).output;
+      }), T === "access" && B.value && (v.value.name = B.value.name, v.value.url = B.value.api_url, v.value.username = B.value.api_username, v.value.tls_sha256 = B.value.tls_sha256 || "", v.value.password = "", _.value = { user: B.value.ssh_user || "root", port: B.value.ssh_port || 22, auth_type: B.value.ssh_auth_type || "password", password: "", key_path: "" });
     }
-    async function dl(x, f, $, ue, me) {
-      const tt = W.value?.id;
-      tt && await we(async () => {
-        const tl = await de("/api/gateways/" + tt + "/services/" + x + "/plan", { action: f, keep_backup: !0, bundle_id: $ || null, rollback_bundle_id: ue || null, web_scope: me || null });
-        if (!ie || W.value?.id !== tt) {
-          await de("/api/gateways/" + tt + "/operation-plans/" + encodeURIComponent(tl.plan_token), {}, "DELETE");
+    async function Xe(T, p, $, ce, ye) {
+      const nt = B.value?.id;
+      nt && await be(async () => {
+        const en = await K("/api/gateways/" + nt + "/services/" + T + "/plan", { action: p, keep_backup: !0, bundle_id: $ || null, rollback_bundle_id: ce || null, web_scope: ye || null });
+        if (!Y || B.value?.id !== nt) {
+          await K("/api/gateways/" + nt + "/operation-plans/" + encodeURIComponent(en.plan_token), {}, "DELETE");
           return;
         }
-        te.value = tl, R.value = tt, ne.value = O.value, O.value = !1;
+        le.value = en, P.value = nt, z.value = Q.value, Q.value = !1;
       });
     }
-    function fs(x, f, $, ue) {
-      const me = he(x, f);
-      z.value[me] = { stage: ue, task_id: $ }, !pe.has($) && (pe.add($), s.bridge.task({ taskId: $, title: ue === "prepare" ? "Подготовка обновления " + f : "Обновление " + f, cancellable: !1, onDone: async () => {
+    function un(T, p, $, ce) {
+      const ye = ie(T, p);
+      S.value[ye] = { stage: ce, task_id: $ }, !C.has($) && (C.add($), s.bridge.task({ taskId: $, title: ce === "prepare" ? "Подготовка обновления " + p : "Обновление " + p, cancellable: !1, onDone: async () => {
         try {
-          const tt = await s.bridge.request("/api/tasks/" + encodeURIComponent($));
-          if (z.value[me]?.task_id && z.value[me].task_id !== $) return;
-          if (!tt.success) {
-            ie && W.value?.id === x && (m.value = tt.error || "Обновление завершилось с ошибкой. Проверьте журнал задачи."), delete z.value[me];
+          const nt = await s.bridge.request("/api/tasks/" + encodeURIComponent($));
+          if (S.value[ye]?.task_id && S.value[ye].task_id !== $) return;
+          if (!nt.success) {
+            Y && B.value?.id === T && (m.value = nt.error || "Обновление завершилось с ошибкой. Проверьте журнал задачи."), delete S.value[ye];
             return;
           }
-          if (ue === "prepare") {
-            if (!ie || W.value?.id !== x) {
-              delete z.value[me];
+          if (ce === "prepare") {
+            if (!Y || B.value?.id !== T) {
+              delete S.value[ye];
               return;
             }
-            const tl = JSON.parse(tt.result.output);
-            if (tl.review_prepared) {
-              const Ei = await s.bridge.request("/api/gateways/" + x + "/services/" + f + "/update-plan?task_id=" + encodeURIComponent($));
-              if (z.value[me]?.task_id && z.value[me].task_id !== $) return;
-              if (!ie || W.value?.id !== x) {
-                delete z.value[me];
+            const en = JSON.parse(nt.result.output);
+            if (en.review_prepared) {
+              const Ti = await s.bridge.request("/api/gateways/" + T + "/services/" + p + "/update-plan?task_id=" + encodeURIComponent($));
+              if (S.value[ye]?.task_id && S.value[ye].task_id !== $) return;
+              if (!Y || B.value?.id !== T) {
+                delete S.value[ye];
                 return;
               }
-              ps(Ei);
-            } else await dl(f, "update", tl.bundle_id, tl.rollback_bundle_id);
-            te.value?.action === "update" && te.value.service === f && R.value === x ? z.value[me] = { stage: "review", task_id: te.value.preparation_task_id || $ } : delete z.value[me];
+              Be(Ti);
+            } else await Xe(p, "update", en.bundle_id, en.rollback_bundle_id);
+            le.value?.action === "update" && le.value.service === p && P.value === T ? S.value[ye] = { stage: "review", task_id: le.value.preparation_task_id || $ } : delete S.value[ye];
           } else
-            delete z.value[me], ie && (await Ce(), await Ol(), le.value++);
-        } catch (tt) {
-          (!z.value[me]?.task_id || z.value[me].task_id === $) && delete z.value[me], ie && W.value?.id === x && (m.value = tt instanceof Error ? tt.message : String(tt));
+            delete S.value[ye], Y && (await fe(), await Dn(), ee.value++);
+        } catch (nt) {
+          (!S.value[ye]?.task_id || S.value[ye].task_id === $) && delete S.value[ye], Y && B.value?.id === T && (m.value = nt instanceof Error ? nt.message : String(nt));
         }
       } }));
     }
-    function ps(x) {
-      const f = W.value?.id;
-      !f || x.node_id && x.node_id !== f || (te.value = x, R.value = f, z.value[he(f, x.service)] = { stage: "review", task_id: x.preparation_task_id || void 0 });
+    function Be(T) {
+      const p = B.value?.id;
+      !p || T.node_id && T.node_id !== p || (le.value = T, P.value = p, S.value[ie(p, T.service)] = { stage: "review", task_id: T.preparation_task_id || void 0 });
     }
-    function fi(x, f) {
-      W.value && f.task_id && (z.value[he(W.value.id, x)] = { stage: f.stage, task_id: f.task_id });
+    function rt(T, p) {
+      B.value && p.task_id && (S.value[ie(B.value.id, T)] = { stage: p.stage, task_id: p.task_id });
     }
-    async function pi(x) {
-      const f = W.value?.id;
-      if (!f || g.value || z.value[he(f, x)]) return;
-      const $ = he(f, x);
-      z.value[$] = { stage: "prepare" }, await we(async () => {
+    async function On(T) {
+      const p = B.value?.id;
+      if (!p || g.value || S.value[ie(p, T)]) return;
+      const $ = ie(p, T);
+      S.value[$] = { stage: "prepare" }, await be(async () => {
         try {
-          const ue = await de("/api/gateways/" + f + "/services/" + x + "/update-bundle", {});
-          fs(f, x, ue.task_id, "prepare");
-        } catch (ue) {
-          throw delete z.value[$], ue;
+          const ce = await K("/api/gateways/" + p + "/services/" + T + "/update-bundle", {});
+          un(p, T, ce.task_id, "prepare");
+        } catch (ce) {
+          throw delete S.value[$], ce;
         }
       });
     }
-    async function vi() {
-      await we(async () => {
-        const x = await de("/api/gateways/" + W.value.id + "/bootstrap/finalize", {});
-        s.bridge.task({ taskId: x.task_id, title: "Фиксация подключения", cancellable: !1, onDone: Ce });
+    async function Rn() {
+      await be(async () => {
+        const T = await K("/api/gateways/" + B.value.id + "/bootstrap/finalize", {});
+        s.bridge.task({ taskId: T.task_id, title: "Фиксация подключения", cancellable: !1, onDone: fe });
+      });
+    }
+    async function pi() {
+      const T = B.value;
+      T && await be(async () => {
+        const p = await K("/api/gateways/" + T.id + "/integration/plan", {});
+        Pe.value = { ...p, nodeId: T.id, name: T.name };
+      });
+    }
+    function vi() {
+      const T = Pe.value;
+      Pe.value = null, T && K("/api/gateways/" + T.nodeId + "/integration/plans/" + encodeURIComponent(T.plan_token), {}, "DELETE").catch((p) => {
+        m.value = p instanceof Error ? p.message : String(p);
       });
     }
     async function gi() {
-      const x = W.value;
-      x && await we(async () => {
-        const f = await de("/api/gateways/" + x.id + "/integration/plan", {});
-        Ve.value = { ...f, nodeId: x.id, name: x.name };
-      });
-    }
-    function hi() {
-      const x = Ve.value;
-      Ve.value = null, x && de("/api/gateways/" + x.nodeId + "/integration/plans/" + encodeURIComponent(x.plan_token), {}, "DELETE").catch((f) => {
-        m.value = f instanceof Error ? f.message : String(f);
-      });
-    }
-    async function mi() {
-      const x = Ve.value;
-      x && await we(async () => {
-        const f = await de("/api/gateways/" + x.nodeId + "/integration", { plan_token: x.plan_token, confirmed: !0 });
-        Ve.value = null, s.bridge.task({ taskId: f.task_id, title: "Обновление интеграции Bot4VPS", cancellable: !1, onDone: async () => {
-          ie && (await Ce(), le.value++);
+      const T = Pe.value;
+      T && await be(async () => {
+        const p = await K("/api/gateways/" + T.nodeId + "/integration", { plan_token: T.plan_token, confirmed: !0 });
+        Pe.value = null, s.bridge.task({ taskId: p.task_id, title: "Обновление интеграции Bot4VPS", cancellable: !1, onDone: async () => {
+          Y && (await fe(), ee.value++);
         } });
       });
     }
-    async function bi() {
-      const x = te.value?.plan_token, f = R.value || W.value?.id;
-      te.value?.action === "update" && f && delete z.value[he(f, te.value.service)];
-      const $ = te.value?.action === "update";
-      if (te.value = null, R.value = null, m.value = "", ne.value && (O.value = !0), ne.value = !1, x && f)
+    async function hi() {
+      const T = le.value?.plan_token, p = P.value || B.value?.id;
+      le.value?.action === "update" && p && delete S.value[ie(p, le.value.service)];
+      const $ = le.value?.action === "update";
+      if (le.value = null, P.value = null, m.value = "", z.value && (Q.value = !0), z.value = !1, T && p)
         try {
-          await de("/api/gateways/" + encodeURIComponent(f) + "/operation-plans/" + encodeURIComponent(x), {}, "DELETE");
-        } catch (ue) {
-          m.value = ue instanceof Error ? ue.message : String(ue);
+          await K("/api/gateways/" + encodeURIComponent(p) + "/operation-plans/" + encodeURIComponent(T), {}, "DELETE");
+        } catch (ce) {
+          m.value = ce instanceof Error ? ce.message : String(ce);
         } finally {
-          $ && le.value++;
+          $ && ee.value++;
         }
     }
-    async function yi() {
-      const x = te.value, f = R.value || W.value?.id;
-      !x || !f || await we(async () => {
-        const $ = await de("/api/gateways/" + f + "/operations", { plan_token: x.plan_token, confirmed: !0 }), ue = x.service;
-        if (te.value = null, R.value = null, x.action === "update") {
-          fs(f, ue, $.task_id, "apply");
+    async function mi() {
+      const T = le.value, p = P.value || B.value?.id;
+      !T || !p || await be(async () => {
+        const $ = await K("/api/gateways/" + p + "/operations", { plan_token: T.plan_token, confirmed: !0 }), ce = T.service;
+        if (le.value = null, P.value = null, T.action === "update") {
+          un(p, ce, $.task_id, "apply");
           return;
         }
         s.bridge.task({
           taskId: $.task_id,
-          title: "Операция: " + ue,
+          title: "Операция: " + ce,
           cancellable: !1,
           onDone: async () => {
-            await Ce(), await Ol(), le.value++;
+            await fe(), await Dn(), ee.value++;
           },
-          onResultClosed: (me) => {
-            ie && W.value?.id === f && ue === "adguardhome" && x.action === "install" && ["success", "success_warn"].includes(me.status) && (t.value = !0);
+          onResultClosed: (ye) => {
+            Y && B.value?.id === p && ce === "adguardhome" && T.action === "install" && ["success", "success_warn"].includes(ye.status) && (t.value = !0);
           }
         });
       });
     }
-    async function Ol() {
-      const x = await s.bridge.request("/api/gateways/reserve");
-      S.value = x.settings.enabled, k.value = x.settings.keep, U.value = x.bundles;
+    async function Dn() {
+      const T = await s.bridge.request("/api/gateways/reserve");
+      I.value = T.settings.enabled, E.value = T.settings.keep, U.value = T.bundles;
     }
-    async function vs() {
-      O.value = !0, await we(async () => {
-        await Ol(), await Promise.all(["podkop", "ssclash", "adguardhome"].map(async (x) => {
-          const f = await s.bridge.request("/api/gateways/catalog/" + x + "?node_id=" + encodeURIComponent(W.value.id));
-          d.value[x] = f.versions, f.versions.includes(u.value[x]) || (u.value[x] = f.versions[0] || "");
+    async function gs() {
+      Q.value = !0, await be(async () => {
+        await Dn(), await Promise.all(["podkop", "ssclash", "adguardhome"].map(async (T) => {
+          const p = await s.bridge.request("/api/gateways/catalog/" + T + "?node_id=" + encodeURIComponent(B.value.id));
+          d.value[T] = p.versions, p.versions.includes(r.value[T]) || (r.value[T] = p.versions[0] || "");
         }));
       });
     }
-    async function wi() {
-      await we(async () => {
-        await de("/api/gateways/reserve", { enabled: S.value, keep: Number(k.value) }, "PUT"), X.value = S.value ? "Резервирование включено. Службы на роутере не устанавливаются и не обновляются." : "Автоматическое резервирование отключено. Сохранённые резервные версии останутся на панели.";
+    async function bi() {
+      await be(async () => {
+        await K("/api/gateways/reserve", { enabled: I.value, keep: Number(E.value) }, "PUT"), X.value = I.value ? "Резервирование включено. Службы на роутере не устанавливаются и не обновляются." : "Автоматическое резервирование отключено. Сохранённые резервные версии останутся на панели.";
       });
     }
-    async function _i(x) {
-      await we(async () => {
-        const f = await de("/api/gateways/" + W.value.id + "/bundles", { profile: x, version: u.value[x] });
+    async function yi(T) {
+      await be(async () => {
+        const p = await K("/api/gateways/" + B.value.id + "/bundles", { profile: T, version: r.value[T] });
         s.bridge.task({
-          taskId: f.task_id,
-          title: "Подготовка комплекта " + x,
+          taskId: p.task_id,
+          title: "Подготовка комплекта " + T,
           cancellable: !1,
           onDone: async () => {
-            await Ol();
+            await Dn();
           }
         });
       });
     }
-    function mn(x) {
-      return U.value.find((f) => f.profile === x && f.version === u.value[x] && f.platform.release?.version === b.value.board?.release?.version && f.platform.release?.target === b.value.board?.release?.target && f.complete);
+    function bl(T) {
+      return U.value.find((p) => p.profile === T && p.version === r.value[T] && p.platform.release?.version === y.value.board?.release?.version && p.platform.release?.target === y.value.board?.release?.target && p.complete);
     }
-    async function ki() {
-      const x = W.value?.id;
-      if (!x) return;
-      const f = W.value.tls_sha256, $ = v.value.tls_sha256 || null;
-      if (f && f !== $) {
-        K.value = { nodeId: x, previous: f, next: $ };
+    async function wi() {
+      const T = B.value?.id;
+      if (!T) return;
+      const p = B.value.tls_sha256, $ = v.value.tls_sha256 || null;
+      if (p && p !== $) {
+        J.value = { nodeId: T, previous: p, next: $ };
         return;
       }
-      await gs(!1);
+      await hs(!1);
     }
-    async function gs(x) {
-      const f = W.value?.id;
-      !f || x && K.value?.nodeId !== f || (K.value = null, await we(async () => {
-        await de("/api/gateways/" + f + "/credentials", {
+    async function hs(T) {
+      const p = B.value?.id;
+      !p || T && J.value?.nodeId !== p || (J.value = null, await be(async () => {
+        await K("/api/gateways/" + p + "/credentials", {
           name: v.value.name,
           url: v.value.url,
           username: v.value.username,
           password: v.value.password,
           tls_sha256: v.value.tls_sha256 || null,
-          tls_pin_confirmed: x
-        }, "PUT"), v.value.password = "", X.value = "Доступ проверен и сохранён", await Ce();
+          tls_pin_confirmed: T
+        }, "PUT"), v.value.password = "", X.value = "Доступ проверен и сохранён", await fe();
       }));
     }
-    async function $i() {
-      if (!W.value.ssh_configured) {
-        await Tt("access"), m.value = "Сначала сохраните SSH-доступ для консоли.";
+    async function _i() {
+      if (!B.value.ssh_configured) {
+        await qe("access"), m.value = "Сначала сохраните SSH-доступ для консоли.";
         return;
       }
-      await we(async () => {
-        await s.bridge.console?.(W.value);
+      await be(async () => {
+        await s.bridge.console?.(B.value);
       });
+    }
+    async function ki() {
+      await be(async () => {
+        const T = await K("/api/gateways/" + B.value.id + "/ssh", { ..._.value, password: _.value.password || null }, "PUT");
+        ++wt, at.value = { id: T.id, configured: T.root_password_configured }, _.value.password = "", X.value = "SSH-доступ проверен и сохранён.", await fe();
+      });
+    }
+    function $i() {
+      it.value = "", Fe.value = { current_password: "", password: "", confirmation: "" }, qt.value = !0;
+    }
+    function ms() {
+      Fe.value = { current_password: "", password: "", confirmation: "" }, qt.value = !1;
     }
     async function Ci() {
-      await we(async () => {
-        const x = await de("/api/gateways/" + W.value.id + "/ssh", { ..._.value, password: _.value.password || null }, "PUT");
-        ++yt, ot.value = { id: x.id, configured: x.root_password_configured }, _.value.password = "", X.value = "SSH-доступ проверен и сохранён.", await Ce();
-      });
-    }
-    function xi() {
-      st.value = "", Ne.value = { current_password: "", password: "", confirmation: "" }, Ht.value = !0;
-    }
-    function hs() {
-      Ne.value = { current_password: "", password: "", confirmation: "" }, Ht.value = !1;
-    }
-    async function Si() {
-      const x = W.value;
-      if (!(!x || g.value)) {
-        if (st.value = "", Ne.value.password !== Ne.value.confirmation) {
-          st.value = "Пароли не совпадают.";
+      const T = B.value;
+      if (!(!T || g.value)) {
+        if (it.value = "", Fe.value.password !== Fe.value.confirmation) {
+          it.value = "Пароли не совпадают.";
           return;
         }
         g.value = !0;
         try {
-          const f = await de("/api/gateways/" + x.id + "/root-password", Ne.value, "PUT");
-          ++yt, ot.value = { id: x.id, configured: f.root_password_configured }, hs(), X.value = f.ssh_auth_type === "key" ? "Пароль root изменён. Консоль подключается по SSH-ключу." : "Пароль root и SSH для консоли обновлены.", await Ce(), W.value?.id === x.id && (_.value.auth_type = f.ssh_auth_type);
-        } catch (f) {
-          st.value = f.message;
+          const p = await K("/api/gateways/" + T.id + "/root-password", Fe.value, "PUT");
+          ++wt, at.value = { id: T.id, configured: p.root_password_configured }, ms(), X.value = p.ssh_auth_type === "key" ? "Пароль root изменён. Консоль подключается по SSH-ключу." : "Пароль root и SSH для консоли обновлены.", await fe(), B.value?.id === T.id && (_.value.auth_type = p.ssh_auth_type);
+        } catch (p) {
+          it.value = p.message;
         } finally {
           g.value = !1;
         }
       }
     }
-    async function Vi() {
-      await we(async () => {
-        j.value = await s.bridge.request("/api/gateways/" + W.value.id + "/deletion-plan");
+    async function xi() {
+      await be(async () => {
+        j.value = await s.bridge.request("/api/gateways/" + B.value.id + "/deletion-plan");
       });
     }
-    async function Ti() {
-      await we(async () => {
-        const x = await de("/api/gateways/" + W.value.id, { confirmed: !0, plan_token: j.value.plan_token }, "DELETE");
+    async function Si() {
+      await be(async () => {
+        const T = await K("/api/gateways/" + B.value.id, { confirmed: !0, plan_token: j.value.plan_token }, "DELETE");
         j.value = null, s.bridge.task({
-          taskId: x.task_id,
+          taskId: T.task_id,
           title: "Удаление шлюза и отзыв API",
           cancellable: !1,
           onDone: async () => {
-            c.value = null, await Ce();
+            c.value = null, await fe();
           },
-          renderResult: (f, $) => {
-            const ue = document.createElement("p");
-            ue.textContent = f.status === "success" ? "Удаление шлюза завершено. Результат очистки Bot4VPS — в журнале задачи. Настройки роутера и установленные службы сохранены." : "Отзыв доступа или очистка интеграции не завершены. Запись шлюза сохранена; проверьте журнал задачи.", $.replaceChildren(ue);
+          renderResult: (p, $) => {
+            const ce = document.createElement("p");
+            ce.textContent = p.status === "success" ? "Удаление шлюза завершено. Результат очистки Bot4VPS — в журнале задачи. Настройки роутера и установленные службы сохранены." : "Отзыв доступа или очистка интеграции не завершены. Запись шлюза сохранена; проверьте журнал задачи.", $.replaceChildren(ce);
           }
         });
       });
     }
-    return ct(() => {
-      s.wizard || (Ce().then(() => {
-        if (ie && W.value) return Tt(I.value);
-      }), ae = setInterval(() => {
-        ft();
-      }, 5e3), document.addEventListener("visibilitychange", ul));
-    }), qt(() => {
-      ie = !1, ae && clearInterval(ae), document.removeEventListener("visibilitychange", ul), v.value.password = "", _.value.password = "";
-    }), (x, f) => (p(), h("div", {
-      class: Ue(["gw-shell", { "gw-wizard": e.wizard }])
+    return ot(() => {
+      s.wizard || (fe().then(() => {
+        if (Y && B.value) return qe(R.value);
+      }), te = setInterval(() => {
+        Se();
+      }, 5e3), document.addEventListener("visibilitychange", $e));
+    }), yt(() => {
+      Y = !1, te && clearInterval(te), document.removeEventListener("visibilitychange", $e), v.value.password = "", _.value.password = "";
+    }), (T, p) => (f(), h("div", {
+      class: Te(["gw-shell", { "gw-wizard": e.wizard }])
     }, [
-      m.value ? (p(), h("div", Mh, w(m.value), 1)) : V("", !0),
-      Ve.value ? (p(), ge(bh, {
+      m.value ? (f(), h("div", Am, b(m.value), 1)) : x("", !0),
+      Pe.value ? (f(), me(gm, {
         key: 1,
-        plan: Ve.value,
+        plan: Pe.value,
         busy: g.value,
         error: m.value,
-        onCancel: hi,
-        onApply: mi
-      }, null, 8, ["plan", "busy", "error"])) : V("", !0),
-      K.value ? (p(), ge($h, {
+        onCancel: vi,
+        onApply: gi
+      }, null, 8, ["plan", "busy", "error"])) : x("", !0),
+      J.value ? (f(), me(wm, {
         key: 2,
-        change: K.value,
+        change: J.value,
         busy: g.value,
-        onCancel: f[0] || (f[0] = ($) => K.value = null),
-        onApply: f[1] || (f[1] = ($) => gs(!0))
-      }, null, 8, ["change", "busy"])) : V("", !0),
-      Ht.value ? (p(), ge(qe, {
+        onCancel: p[0] || (p[0] = ($) => J.value = null),
+        onApply: p[1] || (p[1] = ($) => hs(!0))
+      }, null, 8, ["change", "busy"])) : x("", !0),
+      qt.value ? (f(), me(Re, {
         key: 3,
         title: Gt.value === !1 ? "Задать пароль root" : "Сменить пароль root",
         busy: g.value,
         compact: "",
-        onClose: hs
+        onClose: ms
       }, {
-        default: Re(() => [
-          n("form", {
+        default: Ie(() => [
+          l("form", {
             class: "gw-form",
-            onSubmit: Ze(Si, ["prevent"])
+            onSubmit: tt(Ci, ["prevent"])
           }, [
-            Gt.value !== !1 ? (p(), h("label", Oh, [
-              f[55] || (f[55] = A("Текущий пароль", -1)),
-              Ee(vt, {
-                modelValue: Ne.value.current_password,
-                "onUpdate:modelValue": f[2] || (f[2] = ($) => Ne.value.current_password = $),
+            Gt.value !== !1 ? (f(), h("label", Em, [
+              p[52] || (p[52] = M("Текущий пароль", -1)),
+              Ae(vt, {
+                modelValue: Fe.value.current_password,
+                "onUpdate:modelValue": p[2] || (p[2] = ($) => Fe.value.current_password = $),
                 required: "",
                 autocomplete: "current-password",
                 disabled: g.value
               }, null, 8, ["modelValue", "disabled"])
-            ])) : V("", !0),
-            n("label", null, [
-              f[56] || (f[56] = A("Новый пароль", -1)),
-              Ee(vt, {
-                modelValue: Ne.value.password,
-                "onUpdate:modelValue": f[3] || (f[3] = ($) => Ne.value.password = $),
+            ])) : x("", !0),
+            l("label", null, [
+              p[53] || (p[53] = M("Новый пароль", -1)),
+              Ae(vt, {
+                modelValue: Fe.value.password,
+                "onUpdate:modelValue": p[3] || (p[3] = ($) => Fe.value.password = $),
                 required: "",
                 autocomplete: "new-password",
                 disabled: g.value
               }, null, 8, ["modelValue", "disabled"])
             ]),
-            n("label", null, [
-              f[57] || (f[57] = A("Повторите пароль", -1)),
-              Ee(vt, {
-                modelValue: Ne.value.confirmation,
-                "onUpdate:modelValue": f[4] || (f[4] = ($) => Ne.value.confirmation = $),
+            l("label", null, [
+              p[54] || (p[54] = M("Повторите пароль", -1)),
+              Ae(vt, {
+                modelValue: Fe.value.confirmation,
+                "onUpdate:modelValue": p[4] || (p[4] = ($) => Fe.value.confirmation = $),
                 required: "",
                 autocomplete: "new-password",
                 disabled: g.value
               }, null, 8, ["modelValue", "disabled"])
             ]),
-            st.value ? (p(), h("p", Rh, w(st.value), 1)) : V("", !0),
-            n("div", Dh, [
-              n("button", {
+            it.value ? (f(), h("p", Im, b(it.value), 1)) : x("", !0),
+            l("div", Mm, [
+              l("button", {
                 class: "gw-primary",
                 disabled: g.value
-              }, w(g.value ? "Сохраняем…" : "Сохранить"), 9, Nh)
+              }, b(g.value ? "Сохраняем…" : "Сохранить"), 9, Om)
             ])
           ], 32)
         ]),
         _: 1
-      }, 8, ["title", "busy"])) : V("", !0),
-      y.value ? (p(), h(N, { key: 4 }, [
-        f[74] || (f[74] = n("header", { class: "gw-header" }, [
-          n("div", null, [
-            n("span", { class: "gw-eyebrow" }, "НОВОЕ ПОДКЛЮЧЕНИЕ"),
-            n("h2", null, "Добавить шлюз"),
-            n("p", null, "Подключение OpenWrt к вашей инфраструктуре")
+      }, 8, ["title", "busy"])) : x("", !0),
+      w.value ? (f(), h(q, { key: 4 }, [
+        p[71] || (p[71] = l("header", { class: "gw-header" }, [
+          l("div", null, [
+            l("span", { class: "gw-eyebrow" }, "НОВОЕ ПОДКЛЮЧЕНИЕ"),
+            l("h2", null, "Добавить шлюз"),
+            l("p", null, "Подключение OpenWrt к вашей инфраструктуре")
           ])
         ], -1)),
-        E.value ? (p(), h(N, { key: 1 }, [
-          n("div", Wh, [
-            f[68] || (f[68] = n("span", { class: "gw-status good" }, "OpenWrt обнаружен", -1)),
-            n("h3", null, w(E.value.board.model), 1),
-            E.value.name ? (p(), h("p", Bh, "Имя шлюза: " + w(E.value.name), 1)) : V("", !0),
-            n("p", null, w(E.value.board.release?.version) + " · " + w(E.value.board.release?.target), 1)
+        V.value ? (f(), h(q, { key: 1 }, [
+          l("div", Hm, [
+            p[65] || (p[65] = l("span", { class: "gw-status good" }, "OpenWrt обнаружен", -1)),
+            l("h3", null, b(V.value.board.model), 1),
+            V.value.name ? (f(), h("p", Lm, "Имя шлюза: " + b(V.value.name), 1)) : x("", !0),
+            l("p", null, b(V.value.board.release?.version) + " · " + b(V.value.board.release?.target), 1)
           ]),
-          E.value.board.root_password_configured === !1 ? (p(), h("div", Kh, "Пароль root не задан. После подключения задайте его во вкладке «Доступ».")) : V("", !0),
-          n("div", Gh, [
-            f[70] || (f[70] = n("h3", null, "Для подключения панель выполнит", -1)),
-            n("ul", null, [
-              (p(!0), h(N, null, se(E.value.missing_packages, ($) => (p(), h("li", { key: $ }, [
-                f[69] || (f[69] = A("Установит пакет ", -1)),
-                n("strong", null, w($), 1)
+          V.value.board.root_password_configured === !1 ? (f(), h("div", jm, "Пароль root не задан. После подключения задайте его во вкладке «Доступ».")) : x("", !0),
+          l("div", Wm, [
+            p[67] || (p[67] = l("h3", null, "Для подключения панель выполнит", -1)),
+            l("ul", null, [
+              (f(!0), h(q, null, oe(V.value.missing_packages, ($) => (f(), h("li", { key: $ }, [
+                p[66] || (p[66] = M("Установит пакет ", -1)),
+                l("strong", null, b($), 1)
               ]))), 128)),
-              E.value.missing_packages?.length ? V("", !0) : (p(), h("li", zh, "Необходимые пакеты уже установлены")),
-              (p(!0), h(N, null, se(E.value.changes, ($) => (p(), h("li", { key: $ }, w($), 1))), 128)),
-              E.value.https_configuration_required ? (p(), h("li", Jh, "Включит HTTPS на адресе LAN")) : V("", !0)
+              V.value.missing_packages?.length ? x("", !0) : (f(), h("li", Bm, "Необходимые пакеты уже установлены")),
+              (f(!0), h(q, null, oe(V.value.changes, ($) => (f(), h("li", { key: $ }, b($), 1))), 128)),
+              V.value.https_configuration_required ? (f(), h("li", Km, "Включит HTTPS на адресе LAN")) : x("", !0)
             ]),
-            f[71] || (f[71] = n("p", { class: "gw-hint" }, "Прошивка и установленные пакеты не обновляются. Сетевые интерфейсы не перенастраиваются. Ход настройки будет виден в журнале.", -1))
+            p[68] || (p[68] = l("p", { class: "gw-hint" }, "Прошивка и установленные пакеты не обновляются. Сетевые интерфейсы не перенастраиваются. Ход настройки будет виден в журнале.", -1))
           ]),
-          n("div", Yh, [
-            n("button", {
+          l("div", Gm, [
+            l("button", {
               class: "gw-primary",
               disabled: g.value,
-              onClick: f[17] || (f[17] = ($) => el("automatic"))
-            }, "Да, настроить автоматически", 8, Xh),
-            n("button", {
+              onClick: p[17] || (p[17] = ($) => Ye("automatic"))
+            }, "Да, настроить автоматически", 8, zm),
+            l("button", {
               disabled: g.value,
-              onClick: f[18] || (f[18] = ($) => el("no"))
-            }, "Нет", 8, Qh),
-            n("button", {
+              onClick: p[18] || (p[18] = ($) => Ye("no"))
+            }, "Нет", 8, Jm),
+            l("button", {
               disabled: g.value,
-              onClick: f[19] || (f[19] = ($) => el("manual"))
-            }, "Настроить самостоятельно", 8, Zh)
+              onClick: p[19] || (p[19] = ($) => Ye("manual"))
+            }, "Настроить самостоятельно", 8, Ym)
           ]),
-          B.value ? (p(), h("div", em, [
-            f[73] || (f[73] = n("h3", null, "Самостоятельная настройка", -1)),
-            E.value.manual.commands.length ? (p(), h("pre", tm, w(E.value.manual.commands.join(`
-`)), 1)) : V("", !0),
-            n("ol", null, [
-              (p(!0), h(N, null, se(E.value.manual.steps, ($) => (p(), h("li", { key: $ }, w($), 1))), 128))
+          L.value ? (f(), h("div", Xm, [
+            p[70] || (p[70] = l("h3", null, "Самостоятельная настройка", -1)),
+            V.value.manual.commands.length ? (f(), h("pre", Zm, b(V.value.manual.commands.join(`
+`)), 1)) : x("", !0),
+            l("ol", null, [
+              (f(!0), h(q, null, oe(V.value.manual.steps, ($) => (f(), h("li", { key: $ }, b($), 1))), 128))
             ]),
-            n("details", null, [
-              f[72] || (f[72] = n("summary", null, "Права мониторинга rpcd", -1)),
-              n("pre", null, w(JSON.stringify(E.value.manual.acl, null, 2)), 1)
+            l("details", null, [
+              p[69] || (p[69] = l("summary", null, "Права мониторинга rpcd", -1)),
+              l("pre", null, b(JSON.stringify(V.value.manual.acl, null, 2)), 1)
             ]),
-            n("button", {
-              onClick: f[20] || (f[20] = ($) => {
-                T.value = "api", E.value = null;
+            l("button", {
+              onClick: p[20] || (p[20] = ($) => {
+                A.value = "api", V.value = null;
               })
             }, "Указать данные API")
-          ])) : V("", !0)
-        ], 64)) : (p(), h(N, { key: 0 }, [
-          n("div", qh, [
-            n("button", {
-              class: Ue({ on: T.value === "ssh" }),
-              onClick: f[5] || (f[5] = ($) => T.value = "ssh")
+          ])) : x("", !0)
+        ], 64)) : (f(), h(q, { key: 0 }, [
+          l("div", Rm, [
+            l("button", {
+              class: Te({ on: A.value === "ssh" }),
+              onClick: p[5] || (p[5] = ($) => A.value = "ssh")
             }, "Настроить автоматически", 2),
-            n("button", {
-              class: Ue({ on: T.value === "api" }),
-              onClick: f[6] || (f[6] = ($) => T.value = "api")
+            l("button", {
+              class: Te({ on: A.value === "api" }),
+              onClick: p[6] || (p[6] = ($) => A.value = "api")
             }, "API уже настроен", 2)
           ]),
-          n("form", {
+          l("form", {
             class: "gw-form",
-            onSubmit: Ze(it, ["prevent"])
+            onSubmit: tt(Oe, ["prevent"])
           }, [
-            n("label", null, [
-              f[58] || (f[58] = A("Имя шлюза", -1)),
-              F(n("input", {
-                "onUpdate:modelValue": f[7] || (f[7] = ($) => v.value.name = $),
+            l("label", null, [
+              p[55] || (p[55] = M("Имя шлюза", -1)),
+              H(l("input", {
+                "onUpdate:modelValue": p[7] || (p[7] = ($) => v.value.name = $),
                 placeholder: "Определится по модели роутера",
                 maxlength: "100"
               }, null, 512), [
                 [re, v.value.name]
               ])
             ]),
-            T.value === "ssh" ? (p(), h(N, { key: 0 }, [
-              n("label", null, [
-                f[59] || (f[59] = A("Адрес роутера", -1)),
-                F(n("input", {
-                  "onUpdate:modelValue": f[8] || (f[8] = ($) => v.value.host = $),
+            A.value === "ssh" ? (f(), h(q, { key: 0 }, [
+              l("label", null, [
+                p[56] || (p[56] = M("Адрес роутера", -1)),
+                H(l("input", {
+                  "onUpdate:modelValue": p[8] || (p[8] = ($) => v.value.host = $),
                   required: "",
                   placeholder: "192.168.1.1"
                 }, null, 512), [
                   [re, v.value.host]
                 ])
               ]),
-              n("div", Hh, [
-                n("label", null, [
-                  f[60] || (f[60] = A("SSH-порт", -1)),
-                  F(n("input", {
-                    "onUpdate:modelValue": f[9] || (f[9] = ($) => v.value.port = $),
+              l("div", Dm, [
+                l("label", null, [
+                  p[57] || (p[57] = M("SSH-порт", -1)),
+                  H(l("input", {
+                    "onUpdate:modelValue": p[9] || (p[9] = ($) => v.value.port = $),
                     required: "",
                     type: "number",
                     min: "1",
@@ -9070,10 +9594,10 @@ const wp = { class: "gw-channel-charts" }, _p = { class: "gw-spectrum-card" }, k
                     [re, v.value.port]
                   ])
                 ]),
-                n("label", null, [
-                  f[61] || (f[61] = A("Логин", -1)),
-                  F(n("input", {
-                    "onUpdate:modelValue": f[10] || (f[10] = ($) => v.value.user = $),
+                l("label", null, [
+                  p[58] || (p[58] = M("Логин", -1)),
+                  H(l("input", {
+                    "onUpdate:modelValue": p[10] || (p[10] = ($) => v.value.user = $),
                     required: "",
                     autocomplete: "username"
                   }, null, 512), [
@@ -9081,22 +9605,22 @@ const wp = { class: "gw-channel-charts" }, _p = { class: "gw-spectrum-card" }, k
                   ])
                 ])
               ]),
-              n("label", null, [
-                f[62] || (f[62] = A("SSH-пароль", -1)),
-                Ee(vt, {
+              l("label", null, [
+                p[59] || (p[59] = M("SSH-пароль", -1)),
+                Ae(vt, {
                   modelValue: v.value.password,
-                  "onUpdate:modelValue": f[11] || (f[11] = ($) => v.value.password = $),
+                  "onUpdate:modelValue": p[11] || (p[11] = ($) => v.value.password = $),
                   required: v.value.user !== "root",
                   autocomplete: "off",
                   placeholder: "Оставьте пустым, если пароль root ещё не задан"
                 }, null, 8, ["modelValue", "required"])
               ]),
-              f[63] || (f[63] = n("p", { class: "gw-hint" }, "Сначала панель проверит устройство и покажет необходимые изменения. Проверка ничего не устанавливает.", -1))
-            ], 64)) : (p(), h(N, { key: 1 }, [
-              n("label", null, [
-                f[64] || (f[64] = A("HTTPS API", -1)),
-                F(n("input", {
-                  "onUpdate:modelValue": f[12] || (f[12] = ($) => v.value.url = $),
+              p[60] || (p[60] = l("p", { class: "gw-hint" }, "Сначала панель проверит устройство и покажет необходимые изменения. Проверка ничего не устанавливает.", -1))
+            ], 64)) : (f(), h(q, { key: 1 }, [
+              l("label", null, [
+                p[61] || (p[61] = M("HTTPS API", -1)),
+                H(l("input", {
+                  "onUpdate:modelValue": p[12] || (p[12] = ($) => v.value.url = $),
                   required: "",
                   type: "url",
                   placeholder: "https://192.168.1.1/ubus"
@@ -9104,593 +9628,546 @@ const wp = { class: "gw-channel-charts" }, _p = { class: "gw-spectrum-card" }, k
                   [re, v.value.url]
                 ])
               ]),
-              n("label", null, [
-                f[65] || (f[65] = A("Логин API", -1)),
-                F(n("input", {
-                  "onUpdate:modelValue": f[13] || (f[13] = ($) => v.value.username = $),
+              l("label", null, [
+                p[62] || (p[62] = M("Логин API", -1)),
+                H(l("input", {
+                  "onUpdate:modelValue": p[13] || (p[13] = ($) => v.value.username = $),
                   required: "",
                   autocomplete: "username"
                 }, null, 512), [
                   [re, v.value.username]
                 ])
               ]),
-              n("label", null, [
-                f[66] || (f[66] = A("Секрет API", -1)),
-                Ee(vt, {
+              l("label", null, [
+                p[63] || (p[63] = M("Секрет API", -1)),
+                Ae(vt, {
                   modelValue: v.value.password,
-                  "onUpdate:modelValue": f[14] || (f[14] = ($) => v.value.password = $),
+                  "onUpdate:modelValue": p[14] || (p[14] = ($) => v.value.password = $),
                   required: "",
                   autocomplete: "off"
                 }, null, 8, ["modelValue"])
               ]),
-              n("label", null, [
-                f[67] || (f[67] = A("SHA-256 сертификата", -1)),
-                F(n("input", {
-                  "onUpdate:modelValue": f[15] || (f[15] = ($) => v.value.tls_sha256 = $),
+              l("label", null, [
+                p[64] || (p[64] = M("SHA-256 сертификата", -1)),
+                H(l("input", {
+                  "onUpdate:modelValue": p[15] || (p[15] = ($) => v.value.tls_sha256 = $),
                   placeholder: "Для собственного сертификата роутера"
                 }, null, 512), [
                   [re, v.value.tls_sha256]
                 ])
               ])
             ], 64)),
-            n("div", Fh, [
-              n("button", {
+            l("div", Fm, [
+              l("button", {
                 class: "gw-primary",
                 disabled: g.value
-              }, w(g.value ? "Проверяем…" : T.value === "ssh" ? "Проверить роутер" : "Проверить и подключить"), 9, Lh),
-              n("button", {
+              }, b(g.value ? "Проверяем…" : A.value === "ssh" ? "Проверить роутер" : "Проверить и подключить"), 9, qm),
+              l("button", {
                 type: "button",
-                onClick: f[16] || (f[16] = ($) => {
-                  y.value = !1, e.bridge.close?.();
+                onClick: p[16] || (p[16] = ($) => {
+                  w.value = !1, e.bridge.close?.();
                 }),
                 disabled: g.value
-              }, "Отмена", 8, jh)
+              }, "Отмена", 8, Nm)
             ])
           ], 32)
         ], 64))
-      ], 64)) : e.wizard ? V("", !0) : (p(), h(N, { key: 5 }, [
-        W.value ? V("", !0) : (p(), h(N, { key: 0 }, [
-          n("header", lm, [
-            n("div", null, [
-              f[75] || (f[75] = n("span", { class: "gw-eyebrow" }, "СЕТЬ И МАРШРУТИЗАЦИЯ", -1)),
-              f[76] || (f[76] = n("h1", null, "Шлюзы", -1)),
-              n("p", null, "OpenWrt · " + w(r.value.length) + " подключений", 1)
+      ], 64)) : e.wizard ? x("", !0) : (f(), h(q, { key: 5 }, [
+        B.value ? x("", !0) : (f(), h(q, { key: 0 }, [
+          l("header", Qm, [
+            l("div", null, [
+              p[72] || (p[72] = l("span", { class: "gw-eyebrow" }, "СЕТЬ И МАРШРУТИЗАЦИЯ", -1)),
+              p[73] || (p[73] = l("h1", null, "Шлюзы", -1)),
+              l("p", null, "OpenWrt · " + b(u.value.length) + " подключений", 1)
             ]),
-            n("button", {
+            l("button", {
               class: "gw-primary",
-              onClick: f[21] || (f[21] = ($) => e.bridge.add?.())
+              onClick: p[21] || (p[21] = ($) => e.bridge.add?.())
             }, "Добавить шлюз")
           ]),
-          r.value.length ? V("", !0) : (p(), h("div", nm, [
-            f[77] || (f[77] = n("div", { class: "gw-empty-icon" }, "⌘", -1)),
-            f[78] || (f[78] = n("h2", null, "Подключите ваш OpenWrt", -1)),
-            f[79] || (f[79] = n("p", null, "Обзор сети, состояние служб и операции с понятным журналом.", -1)),
-            n("button", {
+          u.value.length ? x("", !0) : (f(), h("div", e1, [
+            p[74] || (p[74] = l("div", { class: "gw-empty-icon" }, "⌘", -1)),
+            p[75] || (p[75] = l("h2", null, "Подключите ваш OpenWrt", -1)),
+            p[76] || (p[76] = l("p", null, "Обзор сети, состояние служб и операции с понятным журналом.", -1)),
+            l("button", {
               class: "gw-primary",
-              onClick: f[22] || (f[22] = ($) => e.bridge.add?.())
+              onClick: p[22] || (p[22] = ($) => e.bridge.add?.())
             }, "Добавить шлюз")
           ])),
-          r.value.length > 3 ? F((p(), h("input", {
+          u.value.length > 3 ? H((f(), h("input", {
             key: 1,
-            "onUpdate:modelValue": f[23] || (f[23] = ($) => P.value = $),
+            "onUpdate:modelValue": p[23] || (p[23] = ($) => O.value = $),
             class: "gw-node-search",
             type: "search",
             "aria-label": "Поиск шлюзов",
             placeholder: "Найти шлюз по имени или адресу"
           }, null, 512)), [
-            [re, P.value]
-          ]) : V("", !0),
-          oe.value.length ? (p(), h("div", sm, [
-            n("table", om, [
-              f[84] || (f[84] = n("thead", null, [
-                n("tr", null, [
-                  n("th", null, "Имя шлюза"),
-                  n("th", null, "Адрес / OpenWrt"),
-                  n("th", null, "Статус"),
-                  n("th", null, "Нагрузка"),
-                  n("th", null, "Трафик LAN / WAN")
+            [re, O.value]
+          ]) : x("", !0),
+          N.value.length ? (f(), h("div", t1, [
+            l("table", n1, [
+              p[81] || (p[81] = l("thead", null, [
+                l("tr", null, [
+                  l("th", null, "Имя шлюза"),
+                  l("th", null, "Адрес / OpenWrt"),
+                  l("th", null, "Статус"),
+                  l("th", null, "Нагрузка"),
+                  l("th", null, "Трафик LAN / WAN")
                 ])
               ], -1)),
-              n("tbody", null, [
-                (p(!0), h(N, null, se(oe.value, ($) => (p(), h("tr", {
+              l("tbody", null, [
+                (f(!0), h(q, null, oe(N.value, ($) => (f(), h("tr", {
                   key: $.id,
                   class: "server-table-row",
                   tabindex: "0",
                   role: "button",
-                  onClick: (ue) => {
-                    c.value = $.id, I.value = "overview", m.value = "";
+                  onClick: (ce) => {
+                    c.value = $.id, R.value = "overview", m.value = "";
                   },
                   onKeydown: [
-                    ln(Ze((ue) => {
-                      c.value = $.id, I.value = "overview", m.value = "";
+                    sl(tt((ce) => {
+                      c.value = $.id, R.value = "overview", m.value = "";
                     }, ["prevent"]), ["enter"]),
-                    ln(Ze((ue) => {
-                      c.value = $.id, I.value = "overview", m.value = "";
+                    sl(tt((ce) => {
+                      c.value = $.id, R.value = "overview", m.value = "";
                     }, ["prevent"]), ["space"])
                   ]
                 }, [
-                  n("td", am, [
-                    n("div", rm, [
-                      f[80] || (f[80] = n("span", {
+                  l("td", s1, [
+                    l("div", o1, [
+                      p[77] || (p[77] = l("span", {
                         class: "gw-router-icon",
                         "aria-hidden": "true"
                       }, [
-                        n("svg", {
+                        l("svg", {
                           viewBox: "0 0 24 24",
                           width: "20",
                           height: "20"
                         }, [
-                          n("rect", {
+                          l("rect", {
                             x: "3",
                             y: "11",
                             width: "18",
                             height: "9",
                             rx: "2"
                           }),
-                          n("path", { d: "M7 11V5m10 6V5M5 6a10 10 0 0 1 14 0M8 8a6 6 0 0 1 8 0M7 16h.01M11 16h.01" })
+                          l("path", { d: "M7 11V5m10 6V5M5 6a10 10 0 0 1 14 0M8 8a6 6 0 0 1 8 0M7 16h.01M11 16h.01" })
                         ])
                       ], -1)),
-                      n("strong", {
+                      l("strong", {
                         title: $.name
-                      }, w($.name), 9, um)
+                      }, b($.name), 9, i1)
                     ])
                   ]),
-                  n("td", dm, [
-                    n("span", null, w($.host), 1),
-                    n("small", null, "OpenWrt " + w($.monitor.board?.release?.version || "—"), 1)
+                  l("td", a1, [
+                    l("span", null, b($.host), 1),
+                    l("small", null, "OpenWrt " + b($.monitor.board?.release?.version || "—"), 1)
                   ]),
-                  n("td", null, [
-                    n("span", {
-                      class: Ue(["gw-status", $.monitor.ok ? "good" : "warn"])
-                    }, w($.monitor.ok ? $.monitor.stale ? "Данные устарели" : "На связи" : "Нет доступа к API"), 3)
+                  l("td", null, [
+                    l("span", {
+                      class: Te(["gw-status", $.monitor.ok ? "good" : "warn"])
+                    }, b($.monitor.ok ? $.monitor.stale ? "Данные устарели" : "На связи" : "Нет доступа к API"), 3)
                   ]),
-                  n("td", cm, [
-                    n("div", fm, [
-                      n("span", null, [
-                        f[81] || (f[81] = A("CPU ", -1)),
-                        n("b", null, w($.monitor.cpu_pct == null ? "—" : $.monitor.cpu_pct + "%"), 1)
+                  l("td", r1, [
+                    l("div", u1, [
+                      l("span", null, [
+                        p[78] || (p[78] = M("CPU ", -1)),
+                        l("b", null, b($.monitor.cpu_pct == null ? "—" : $.monitor.cpu_pct + "%"), 1)
                       ]),
-                      n("span", null, [
-                        f[82] || (f[82] = A("RAM ", -1)),
-                        n("b", null, w($.monitor.ram_pct == null ? "—" : $.monitor.ram_pct + "%"), 1)
+                      l("span", null, [
+                        p[79] || (p[79] = M("RAM ", -1)),
+                        l("b", null, b($.monitor.ram_pct == null ? "—" : $.monitor.ram_pct + "%"), 1)
                       ]),
-                      n("span", null, [
-                        f[83] || (f[83] = A("SoC ", -1)),
-                        n("b", null, w($.monitor.temperature == null ? "—" : $.monitor.temperature + "°C"), 1)
+                      l("span", null, [
+                        p[80] || (p[80] = M("SoC ", -1)),
+                        l("b", null, b($.monitor.temperature == null ? "—" : $.monitor.temperature + "°C"), 1)
                       ])
                     ])
                   ]),
-                  n("td", pm, [
-                    n("span", null, "LAN ↓ " + w(ve($.monitor.traffic?.lan?.rx_bps)) + "/с · ↑ " + w(ve($.monitor.traffic?.lan?.tx_bps)) + "/с", 1),
-                    n("span", null, "WAN ↓ " + w(ve($.monitor.traffic?.wan?.rx_bps)) + "/с · ↑ " + w(ve($.monitor.traffic?.wan?.tx_bps)) + "/с", 1)
+                  l("td", d1, [
+                    l("span", null, "LAN ↓ " + b(F($.monitor.traffic?.lan?.rx_bps)) + "/с · ↑ " + b(F($.monitor.traffic?.lan?.tx_bps)) + "/с", 1),
+                    l("span", null, "WAN ↓ " + b(F($.monitor.traffic?.wan?.rx_bps)) + "/с · ↑ " + b(F($.monitor.traffic?.wan?.tx_bps)) + "/с", 1)
                   ])
-                ], 40, im))), 128))
+                ], 40, l1))), 128))
               ])
             ])
-          ])) : V("", !0)
+          ])) : x("", !0)
         ], 64)),
-        W.value ? (p(), h("section", vm, [
-          n("button", {
+        B.value ? (f(), h("section", c1, [
+          l("button", {
             class: "gw-back-link",
             disabled: g.value,
-            onClick: f[24] || (f[24] = ($) => {
-              c.value = null, O.value = !1;
+            onClick: p[24] || (p[24] = ($) => {
+              c.value = null, Q.value = !1;
             })
-          }, "← Все шлюзы", 8, gm),
-          Ee(Eg, {
-            node: W.value,
+          }, "← Все шлюзы", 8, f1),
+          Ae(Sh, {
+            node: B.value,
             busy: g.value,
-            onConsole: $i
+            onConsole: _i
           }, null, 8, ["node", "busy"]),
-          b.value.ok ? V("", !0) : (p(), h("p", hm, w(b.value.error) + ". " + w(b.value.error_code === "permission" ? "Проверьте доступ в LuCI или укажите новый секрет во вкладке «Доступ»." : "Проверьте доступность API роутера. Панель повторит проверку автоматически."), 1)),
-          W.value.bootstrap_state === "commit_pending" ? (p(), h("p", mm, "Шлюз подключён. Фиксация транзакции не подтверждена; завершите её во вкладке «Доступ».")) : V("", !0),
-          Gt.value === !1 ? (p(), h("div", bm, [
-            f[85] || (f[85] = n("span", null, [
-              n("strong", null, "Пароль root не задан."),
-              A(" Задайте пароль для защиты доступа к роутеру.")
+          y.value.ok ? x("", !0) : (f(), h("p", p1, b(y.value.error) + ". " + b(y.value.error_code === "permission" ? "Проверьте доступ в LuCI или укажите новый секрет во вкладке «Доступ»." : "Проверьте доступность API роутера. Панель повторит проверку автоматически."), 1)),
+          B.value.bootstrap_state === "commit_pending" ? (f(), h("p", v1, "Шлюз подключён. Фиксация транзакции не подтверждена; завершите её во вкладке «Доступ».")) : x("", !0),
+          Gt.value === !1 ? (f(), h("div", g1, [
+            p[82] || (p[82] = l("span", null, [
+              l("strong", null, "Пароль root не задан."),
+              M(" Задайте пароль для защиты доступа к роутеру.")
             ], -1)),
-            n("button", {
+            l("button", {
               type: "button",
-              onClick: f[25] || (f[25] = ($) => Tt("access"))
+              onClick: p[25] || (p[25] = ($) => qe("access"))
             }, "Открыть «Доступ»")
-          ])) : V("", !0),
-          n("div", ym, [
-            (p(), h(N, null, se(ee, ($) => n("button", {
+          ])) : x("", !0),
+          l("div", h1, [
+            (f(), h(q, null, oe(W, ($) => l("button", {
               key: $.id,
-              class: Ue({ on: I.value === $.id }),
-              onClick: (ue) => Tt($.id)
-            }, w($.name), 11, wm)), 64))
+              class: Te({ on: R.value === $.id }),
+              onClick: (ce) => qe($.id)
+            }, b($.name), 11, m1)), 64))
           ]),
-          I.value === "overview" ? (p(), h(N, { key: 3 }, [
-            n("div", _m, [
-              n("div", km, [
-                f[86] || (f[86] = n("span", null, "Загрузка CPU", -1)),
-                n("strong", null, w(b.value.cpu_pct == null ? "—" : b.value.cpu_pct + "%"), 1)
+          R.value === "overview" ? (f(), h(q, { key: 3 }, [
+            l("div", b1, [
+              l("div", y1, [
+                p[83] || (p[83] = l("span", null, "Загрузка CPU", -1)),
+                l("strong", null, b(y.value.cpu_pct == null ? "—" : y.value.cpu_pct + "%"), 1)
               ]),
-              n("div", $m, [
-                f[87] || (f[87] = n("span", null, "Оперативная память", -1)),
-                n("strong", null, w(b.value.ram_pct == null ? "—" : b.value.ram_pct + "%"), 1),
-                n("small", null, w(ve(b.value.ram_used)) + " / " + w(ve(b.value.ram_total)), 1)
+              l("div", w1, [
+                p[84] || (p[84] = l("span", null, "Оперативная память", -1)),
+                l("strong", null, b(y.value.ram_pct == null ? "—" : y.value.ram_pct + "%"), 1),
+                l("small", null, b(F(y.value.ram_used)) + " / " + b(F(y.value.ram_total)), 1)
               ]),
-              n("div", Cm, [
-                f[88] || (f[88] = n("span", null, "Свободное место", -1)),
-                n("strong", null, w(ve(b.value.storage_free)), 1),
-                n("small", null, "из " + w(ve(b.value.storage_total)), 1)
+              l("div", _1, [
+                p[85] || (p[85] = l("span", null, "Свободное место", -1)),
+                l("strong", null, b(F(y.value.storage_free)), 1),
+                l("small", null, "из " + b(F(y.value.storage_total)), 1)
               ]),
-              n("div", xm, [
-                f[89] || (f[89] = n("span", null, "Время работы", -1)),
-                n("strong", null, w(ke(b.value.uptime)), 1)
+              l("div", k1, [
+                p[86] || (p[86] = l("span", null, "Время работы", -1)),
+                l("strong", null, b(ue(y.value.uptime)), 1)
               ]),
-              n("div", Sm, [
-                f[90] || (f[90] = n("span", null, "Температура", -1)),
-                n("strong", null, w(b.value.temperature == null ? "Нет датчика" : b.value.temperature + "°C"), 1),
-                b.value.temperature_support?.virtual ? (p(), h("small", Vm, "Виртуальная машина")) : V("", !0),
-                b.value.temperature_support?.package ? (p(), h("button", {
+              l("div", $1, [
+                p[87] || (p[87] = l("span", null, "Температура", -1)),
+                l("strong", null, b(y.value.temperature == null ? "Нет датчика" : y.value.temperature + "°C"), 1),
+                y.value.temperature_support?.virtual ? (f(), h("small", C1, "Виртуальная машина")) : x("", !0),
+                y.value.temperature_support?.package ? (f(), h("button", {
                   key: 1,
-                  onClick: f[26] || (f[26] = ($) => {
-                    Z.value = b.value.temperature_support.package, Tt("packages");
+                  onClick: p[26] || (p[26] = ($) => {
+                    Z.value = y.value.temperature_support.package, qe("packages");
                   })
-                }, "Проверить пакет датчика")) : V("", !0)
+                }, "Проверить пакет датчика")) : x("", !0)
               ])
             ]),
-            Ee(mp, {
-              monitor: b.value,
-              "node-id": W.value.id,
+            Ae(mp, {
+              monitor: y.value,
+              "node-id": B.value.id,
               bridge: e.bridge
             }, null, 8, ["monitor", "node-id", "bridge"])
-          ], 64)) : V("", !0),
-          I.value === "network" ? (p(), h(N, { key: 4 }, [
-            (p(), ge(xf, {
-              key: W.value.id,
-              node: W.value,
-              bridge: e.bridge,
-              onChanged: Ce
-            }, null, 8, ["node", "bridge"])),
-            n("section", Tm, [
-              n("header", Em, [
-                n("div", null, [
-                  n("h3", null, [
-                    f[91] || (f[91] = A("DHCP-клиенты ", -1)),
-                    n("small", null, w(b.value.clients?.length || 0), 1)
-                  ]),
-                  f[92] || (f[92] = n("p", { class: "gw-hint" }, "Аренда DHCP не подтверждает текущую доступность клиента.", -1))
-                ]),
-                F(n("input", {
-                  "onUpdate:modelValue": f[27] || (f[27] = ($) => L.value = $),
-                  type: "search",
-                  "aria-label": "Поиск DHCP-клиентов",
-                  placeholder: "Имя, IP или MAC"
-                }, null, 512), [
-                  [re, L.value]
-                ])
-              ]),
-              n("div", Um, [
-                n("table", null, [
-                  f[93] || (f[93] = n("thead", null, [
-                    n("tr", null, [
-                      n("th", null, "Клиент"),
-                      n("th", null, "IP-адрес"),
-                      n("th", null, "MAC-адрес")
-                    ])
-                  ], -1)),
-                  n("tbody", null, [
-                    (p(!0), h(N, null, se(Y.value, ($) => (p(), h("tr", {
-                      key: $.macaddr + ":" + $.ipaddr
-                    }, [
-                      n("td", null, w($.hostname || "Без имени"), 1),
-                      n("td", null, w($.ipaddr), 1),
-                      n("td", null, w($.macaddr), 1)
-                    ]))), 128))
-                  ])
-                ])
-              ]),
-              G.value.length ? V("", !0) : (p(), h("p", Pm, w(L.value ? "Клиенты не найдены" : "Нет данных об арендах"), 1)),
-              G.value.length ? (p(), h("footer", Am, [
-                n("span", Im, w((M.value - 1) * D + 1) + "–" + w(Math.min(M.value * D, G.value.length)) + " из " + w(G.value.length), 1),
-                n("div", Mm, [
-                  n("button", {
-                    disabled: M.value === 1,
-                    onClick: f[28] || (f[28] = ($) => M.value--)
-                  }, "Назад", 8, Om),
-                  n("span", Rm, w(M.value) + " / " + w(J.value), 1),
-                  n("button", {
-                    disabled: M.value >= J.value,
-                    onClick: f[29] || (f[29] = ($) => M.value++)
-                  }, "Далее", 8, Dm)
-                ])
-              ])) : V("", !0)
-            ])
-          ], 64)) : V("", !0),
-          I.value === "wifi" ? (p(), ge(Gv, {
-            key: W.value.id,
-            node: W.value,
+          ], 64)) : x("", !0),
+          H((f(), me(Fp, {
+            key: B.value.id,
+            "node-id": B.value.id,
             bridge: e.bridge,
-            onChanged: Ce
-          }, null, 8, ["node", "bridge"])) : V("", !0),
-          I.value === "services" ? (p(), ge(kg, {
-            key: W.value.id,
-            revision: le.value,
-            node: W.value,
+            collect: R.value === "overview"
+          }, null, 8, ["node-id", "bridge", "collect"])), [
+            [hn, R.value === "overview"]
+          ]),
+          R.value === "network" ? (f(), me(xf, {
+            key: B.value.id,
+            node: B.value,
+            bridge: e.bridge,
+            onChanged: fe
+          }, null, 8, ["node", "bridge"])) : x("", !0),
+          R.value === "wifi" ? (f(), me(vg, {
+            key: B.value.id,
+            node: B.value,
+            bridge: e.bridge,
+            onChanged: fe
+          }, null, 8, ["node", "bridge"])) : x("", !0),
+          R.value === "services" ? (f(), me(yh, {
+            key: B.value.id,
+            revision: ee.value,
+            node: B.value,
             bridge: e.bridge,
             busy: g.value,
-            updating: Me.value,
-            onPending: fi,
-            onResume: ps,
-            onWebAccess: f[30] || (f[30] = ($) => dl("ssclash", "web_access", void 0, void 0, $)),
-            onCatalog: vs,
-            onSettings: q,
-            onHelp: f[31] || (f[31] = ($) => t.value = !0),
-            onOpenAdguard: Ie,
-            onAction: dl,
-            onFirewallRestart: f[32] || (f[32] = ($) => o.value = W.value),
-            onUpdate: pi
-          }, null, 8, ["revision", "node", "bridge", "busy", "updating"])) : V("", !0),
-          I.value === "backups" ? (p(), ge(nh, {
-            key: W.value.id,
-            node: W.value,
+            updating: ae.value,
+            onChanged: fe,
+            onPending: rt,
+            onResume: Be,
+            onWebAccess: p[27] || (p[27] = ($) => Xe("ssclash", "web_access", void 0, void 0, $)),
+            onCatalog: gs,
+            onSettings: G,
+            onHelp: p[28] || (p[28] = ($) => t.value = !0),
+            onOpenAdguard: se,
+            onAction: Xe,
+            onFirewallRestart: p[29] || (p[29] = ($) => o.value = B.value),
+            onUpdate: On
+          }, null, 8, ["revision", "node", "bridge", "busy", "updating"])) : x("", !0),
+          R.value === "backups" ? (f(), me(em, {
+            key: B.value.id,
+            node: B.value,
             bridge: e.bridge
-          }, null, 8, ["node", "bridge"])) : V("", !0),
-          o.value ? (p(), ge(Ih, {
+          }, null, 8, ["node", "bridge"])) : x("", !0),
+          o.value ? (f(), me(Um, {
             key: 8,
             node: o.value,
             bridge: e.bridge,
-            onClose: f[33] || (f[33] = ($) => o.value = null),
-            onChanged: Ce
-          }, null, 8, ["node", "bridge"])) : V("", !0),
-          l.value ? (p(), ge(ci, {
+            onClose: p[30] || (p[30] = ($) => o.value = null),
+            onChanged: fe
+          }, null, 8, ["node", "bridge"])) : x("", !0),
+          n.value ? (f(), me(ps, {
             key: 9,
-            node: W.value,
+            node: B.value,
             bridge: e.bridge,
-            mode: l.value,
-            onClose: f[34] || (f[34] = ($) => l.value = null),
-            onChanged: Ce
-          }, null, 8, ["node", "bridge", "mode"])) : V("", !0),
-          O.value ? (p(), ge(qe, {
+            mode: n.value,
+            onClose: p[31] || (p[31] = ($) => n.value = null),
+            onChanged: fe
+          }, null, 8, ["node", "bridge", "mode"])) : x("", !0),
+          Q.value ? (f(), me(Re, {
             key: 10,
             title: "Установка служб",
             wide: !0,
             compact: !0,
-            onClose: f[38] || (f[38] = ($) => {
-              O.value = !1, m.value = "";
+            onClose: p[35] || (p[35] = ($) => {
+              Q.value = !1, m.value = "";
             })
           }, {
-            default: Re(() => [
-              f[99] || (f[99] = n("p", { class: "gw-hint" }, "Готовые комплекты с зависимостями для вашего OpenWrt. Скачивание на панель и установка на роутер выполняются отдельно.", -1)),
-              g.value ? (p(), h("p", Nm, "Получаем совместимые версии…")) : V("", !0),
-              m.value ? (p(), h("p", qm, w(m.value), 1)) : V("", !0),
-              n("div", Hm, [
-                (p(), h(N, null, se(["podkop", "ssclash", "adguardhome"], ($) => n("details", {
+            default: Ie(() => [
+              p[93] || (p[93] = l("p", { class: "gw-hint" }, "Готовые комплекты с зависимостями для вашего OpenWrt. Скачивание на панель и установка на роутер выполняются отдельно.", -1)),
+              g.value ? (f(), h("p", x1, "Получаем совместимые версии…")) : x("", !0),
+              m.value ? (f(), h("p", S1, b(m.value), 1)) : x("", !0),
+              l("div", T1, [
+                (f(), h(q, null, oe(["podkop", "ssclash", "adguardhome"], ($) => l("details", {
                   key: $,
                   class: "gw-catalog-item"
                 }, [
-                  n("summary", Fm, [
-                    n("div", null, [
-                      n("h3", null, w($ === "podkop" ? "Podkop" : $ === "ssclash" ? "SSClash-Go" : "AdGuard Home"), 1),
-                      Ee(ds, { id: $ }, null, 8, ["id"])
+                  l("summary", V1, [
+                    l("div", null, [
+                      l("h3", null, b($ === "podkop" ? "Podkop" : $ === "ssclash" ? "SSClash-Go" : "AdGuard Home"), 1),
+                      Ae(fs, { id: $ }, null, 8, ["id"])
                     ]),
-                    b.value.services?.some((ue) => ue.id === $) ? (p(), h("span", Lm, "Установлен")) : V("", !0)
+                    y.value.services?.some((ce) => ce.id === $) ? (f(), h("span", P1, "Установлен")) : x("", !0)
                   ]),
-                  n("div", jm, [
-                    n("div", Wm, [
-                      n("label", Bm, [
-                        f[94] || (f[94] = A("Версия", -1)),
-                        F(n("select", {
-                          "onUpdate:modelValue": (ue) => u.value[$] = ue,
+                  l("div", U1, [
+                    l("div", A1, [
+                      l("label", E1, [
+                        p[88] || (p[88] = M("Версия", -1)),
+                        H(l("select", {
+                          "onUpdate:modelValue": (ce) => r.value[$] = ce,
                           disabled: g.value
                         }, [
-                          (p(!0), h(N, null, se(d.value[$], (ue) => (p(), h("option", { key: ue }, w(ue), 1))), 128)),
-                          d.value[$]?.length ? V("", !0) : (p(), h("option", Gm, w(g.value ? "Загружаем версии…" : "Нет совместимых версий"), 1))
-                        ], 8, Km), [
-                          [xe, u.value[$]]
+                          (f(!0), h(q, null, oe(d.value[$], (ce) => (f(), h("option", { key: ce }, b(ce), 1))), 128)),
+                          d.value[$]?.length ? x("", !0) : (f(), h("option", M1, b(g.value ? "Загружаем версии…" : "Нет совместимых версий"), 1))
+                        ], 8, I1), [
+                          [xe, r.value[$]]
                         ])
                       ]),
-                      n("div", zm, [
-                        mn($) ? (p(), h("button", {
+                      l("div", O1, [
+                        bl($) ? (f(), h("button", {
                           key: 1,
-                          disabled: g.value || b.value.services?.some((ue) => ue.id === $),
+                          disabled: g.value || y.value.services?.some((ce) => ce.id === $),
                           class: "gw-primary",
-                          onClick: (ue) => dl($, "install", mn($).id)
-                        }, "Установить", 8, Ym)) : (p(), h("button", {
+                          onClick: (ce) => Xe($, "install", bl($).id)
+                        }, "Установить", 8, D1)) : (f(), h("button", {
                           key: 0,
-                          disabled: g.value || !u.value[$],
-                          onClick: (ue) => _i($)
-                        }, "Скачать комплект на панель", 8, Jm)),
-                        $ === "adguardhome" ? (p(), h("button", {
+                          disabled: g.value || !r.value[$],
+                          onClick: (ce) => yi($)
+                        }, "Скачать комплект на панель", 8, R1)),
+                        $ === "adguardhome" ? (f(), h("button", {
                           key: 2,
-                          onClick: f[35] || (f[35] = (ue) => {
-                            O.value = !1, t.value = !0;
+                          onClick: p[32] || (p[32] = (ce) => {
+                            Q.value = !1, t.value = !0;
                           })
-                        }, "Настроить DNS")) : V("", !0)
+                        }, "Настроить DNS")) : x("", !0)
                       ])
                     ]),
-                    n("p", Xm, w(mn($) ? "Комплект сохранён на панели — установка доступна без GitHub." : "Панель скачает файлы и все совместимые зависимости."), 1),
-                    $ === "adguardhome" ? (p(), h("p", Qm, "Установка не переключает DNS и DHCP.")) : V("", !0),
-                    b.value.services?.some((ue) => ue.id === $) ? (p(), h("p", Zm, "Обновление установленной службы доступно в списке сервисов, если найдена новая совместимая версия.")) : V("", !0)
+                    l("p", F1, b(bl($) ? "Комплект сохранён на панели — установка доступна без GitHub." : "Панель скачает файлы и все совместимые зависимости."), 1),
+                    $ === "adguardhome" ? (f(), h("p", q1, "Установка не переключает DNS и DHCP.")) : x("", !0),
+                    y.value.services?.some((ce) => ce.id === $) ? (f(), h("p", N1, "Обновление установленной службы доступно в списке сервисов, если найдена новая совместимая версия.")) : x("", !0)
                   ])
                 ])), 64))
               ]),
-              n("section", e1, [
-                f[97] || (f[97] = n("h3", null, "Резерв версий на панели", -1)),
-                n("label", t1, [
-                  F(n("input", {
-                    "onUpdate:modelValue": f[36] || (f[36] = ($) => S.value = $),
+              l("section", H1, [
+                p[91] || (p[91] = l("h3", null, "Резерв версий на панели", -1)),
+                l("label", L1, [
+                  H(l("input", {
+                    "onUpdate:modelValue": p[33] || (p[33] = ($) => I.value = $),
                     type: "checkbox"
                   }, null, 512), [
-                    [We, S.value]
+                    [je, I.value]
                   ]),
-                  f[95] || (f[95] = A(" Хранить установочные комплекты резервно", -1))
+                  p[89] || (p[89] = M(" Хранить установочные комплекты резервно", -1))
                 ]),
-                f[98] || (f[98] = n("p", { class: "gw-hint" }, "Резерв позволяет устанавливать сервисы при недоступном GitHub. Скачивание не запускает установку или обновление на роутере.", -1)),
-                n("div", l1, [
-                  F(n("select", {
-                    "onUpdate:modelValue": f[37] || (f[37] = ($) => k.value = $),
+                p[92] || (p[92] = l("p", { class: "gw-hint" }, "Резерв позволяет устанавливать сервисы при недоступном GitHub. Скачивание не запускает установку или обновление на роутере.", -1)),
+                l("div", j1, [
+                  H(l("select", {
+                    "onUpdate:modelValue": p[34] || (p[34] = ($) => E.value = $),
                     "aria-label": "Количество резервных версий"
-                  }, [...f[96] || (f[96] = [
-                    n("option", { value: 2 }, "2 последние совместимые версии", -1),
-                    n("option", { value: 3 }, "3 последние совместимые версии", -1)
+                  }, [...p[90] || (p[90] = [
+                    l("option", { value: 2 }, "2 последние совместимые версии", -1),
+                    l("option", { value: 3 }, "3 последние совместимые версии", -1)
                   ])], 512), [
-                    [xe, k.value]
+                    [xe, E.value]
                   ]),
-                  n("button", {
+                  l("button", {
                     disabled: g.value,
-                    onClick: wi
-                  }, "Сохранить настройки", 8, n1)
+                    onClick: bi
+                  }, "Сохранить настройки", 8, W1)
                 ]),
-                X.value ? (p(), h("p", s1, w(X.value), 1)) : V("", !0)
+                X.value ? (f(), h("p", B1, b(X.value), 1)) : x("", !0)
               ])
             ]),
             _: 1
-          })) : V("", !0),
-          t.value ? (p(), ge(Eu, {
+          })) : x("", !0),
+          t.value ? (f(), me(Tu, {
             key: 11,
-            node: W.value,
+            node: B.value,
             bridge: e.bridge,
-            onClose: f[39] || (f[39] = ($) => t.value = !1),
-            onInstall: f[40] || (f[40] = ($) => {
-              t.value = !1, vs();
+            onClose: p[36] || (p[36] = ($) => t.value = !1),
+            onInstall: p[37] || (p[37] = ($) => {
+              t.value = !1, gs();
             }),
-            onStart: f[41] || (f[41] = ($) => {
-              t.value = !1, dl("adguardhome", "start");
+            onStart: p[38] || (p[38] = ($) => {
+              t.value = !1, Xe("adguardhome", "start");
             })
-          }, null, 8, ["node", "bridge"])) : V("", !0),
-          I.value === "packages" ? (p(), ge(Xf, {
-            key: W.value.id,
-            node: W.value,
+          }, null, 8, ["node", "bridge"])) : x("", !0),
+          R.value === "packages" ? (f(), me(Xf, {
+            key: B.value.id,
+            node: B.value,
             bridge: e.bridge,
             "initial-query": Z.value,
-            onChanged: Ce
-          }, null, 8, ["node", "bridge", "initial-query"])) : V("", !0),
-          I.value === "logs" ? (p(), h("div", o1, [
-            n("div", i1, [
-              f[100] || (f[100] = n("h3", null, "Системный журнал", -1)),
-              n("button", {
+            onChanged: fe
+          }, null, 8, ["node", "bridge", "initial-query"])) : x("", !0),
+          R.value === "logs" ? (f(), h("div", K1, [
+            l("div", G1, [
+              p[94] || (p[94] = l("h3", null, "Системный журнал", -1)),
+              l("button", {
                 disabled: g.value,
-                onClick: f[42] || (f[42] = ($) => Tt("logs"))
-              }, "Обновить", 8, a1)
+                onClick: p[39] || (p[39] = ($) => qe("logs"))
+              }, "Обновить", 8, z1)
             ]),
-            n("pre", r1, w(Q.value || "Нет записей"), 1)
-          ])) : V("", !0),
-          I.value === "access" ? (p(), h("section", u1, [
-            W.value.ssh_configured && (W.value.managed || W.value.ssh_user === "root") ? (p(), h("div", d1, [
-              W.value.managed ? (p(), h("p", c1, "RPC-компоненты и интерфейс LuCI Bot4VPS")) : V("", !0),
-              n("div", f1, [
-                W.value.managed ? (p(), h("button", {
+            l("pre", J1, b(ne.value || "Нет записей"), 1)
+          ])) : x("", !0),
+          R.value === "access" ? (f(), h("section", Y1, [
+            B.value.ssh_configured && (B.value.managed || B.value.ssh_user === "root") ? (f(), h("div", X1, [
+              B.value.managed ? (f(), h("p", Z1, "RPC-компоненты и интерфейс LuCI Bot4VPS")) : x("", !0),
+              l("div", Q1, [
+                B.value.managed ? (f(), h("button", {
                   key: 0,
                   type: "button",
                   disabled: g.value,
-                  onClick: gi
-                }, "Обновить интеграцию Bot4VPS", 8, p1)) : V("", !0),
-                n("button", {
+                  onClick: pi
+                }, "Обновить интеграцию Bot4VPS", 8, eb)) : x("", !0),
+                l("button", {
                   type: "button",
-                  disabled: g.value || W.value.ssh_user !== "root",
-                  onClick: xi
-                }, w(Gt.value === !1 ? "Задать пароль root" : "Сменить пароль root"), 9, v1)
+                  disabled: g.value || B.value.ssh_user !== "root",
+                  onClick: $i
+                }, b(Gt.value === !1 ? "Задать пароль root" : "Сменить пароль root"), 9, tb)
               ])
-            ])) : V("", !0),
-            W.value.bootstrap_state === "commit_pending" ? (p(), h("button", {
+            ])) : x("", !0),
+            B.value.bootstrap_state === "commit_pending" ? (f(), h("button", {
               key: 1,
               disabled: g.value,
-              onClick: vi
-            }, "Завершить фиксацию подключения", 8, g1)) : V("", !0),
-            n("header", h1, [
-              f[101] || (f[101] = n("div", null, [
-                n("h3", null, "Доступ к шлюзу"),
-                n("p", { class: "gw-hint" }, "Данные API и SSH для подключения панели")
+              onClick: Rn
+            }, "Завершить фиксацию подключения", 8, nb)) : x("", !0),
+            l("header", lb, [
+              p[95] || (p[95] = l("div", null, [
+                l("h3", null, "Доступ к шлюзу"),
+                l("p", { class: "gw-hint" }, "Данные API и SSH для подключения панели")
               ], -1)),
-              n("button", {
+              l("button", {
                 class: "gw-danger",
                 disabled: g.value,
-                onClick: Vi
-              }, w(W.value.deletion_pending ? "Повторить отзыв и удаление" : "Удалить шлюз"), 9, m1)
+                onClick: xi
+              }, b(B.value.deletion_pending ? "Повторить отзыв и удаление" : "Удалить шлюз"), 9, sb)
             ]),
-            !W.value.ssh_configured || W.value.ssh_user !== "root" ? (p(), h("p", b1, "Для смены пароля роутера сохраните SSH-доступ под root.")) : V("", !0),
-            X.value ? (p(), h("p", y1, w(X.value), 1)) : V("", !0),
-            n("div", w1, [
-              n("form", {
+            !B.value.ssh_configured || B.value.ssh_user !== "root" ? (f(), h("p", ob, "Для смены пароля роутера сохраните SSH-доступ под root.")) : x("", !0),
+            X.value ? (f(), h("p", ib, b(X.value), 1)) : x("", !0),
+            l("div", ab, [
+              l("form", {
                 class: "gw-form",
-                onSubmit: Ze(ki, ["prevent"])
+                onSubmit: tt(wi, ["prevent"])
               }, [
-                f[108] || (f[108] = n("h4", null, "API OpenWrt", -1)),
-                n("p", _1, [
-                  f[102] || (f[102] = A("Управление секретом: ", -1)),
-                  n("a", {
-                    href: W.value.access_url,
+                p[102] || (p[102] = l("h4", null, "API OpenWrt", -1)),
+                l("p", rb, [
+                  p[96] || (p[96] = M("Управление секретом: ", -1)),
+                  l("a", {
+                    href: B.value.access_url,
                     target: "_blank",
                     rel: "noopener noreferrer"
-                  }, "LuCI → Службы → Bot4VPS ↗", 8, k1)
+                  }, "LuCI → Службы → Bot4VPS ↗", 8, ub)
                 ]),
-                n("label", null, [
-                  f[103] || (f[103] = A("Имя шлюза", -1)),
-                  F(n("input", {
-                    "onUpdate:modelValue": f[43] || (f[43] = ($) => v.value.name = $),
+                l("label", null, [
+                  p[97] || (p[97] = M("Имя шлюза", -1)),
+                  H(l("input", {
+                    "onUpdate:modelValue": p[40] || (p[40] = ($) => v.value.name = $),
                     placeholder: "Определится по модели роутера",
                     maxlength: "100"
                   }, null, 512), [
                     [re, v.value.name]
                   ])
                 ]),
-                n("label", null, [
-                  f[104] || (f[104] = A("Адрес API", -1)),
-                  F(n("input", {
-                    "onUpdate:modelValue": f[44] || (f[44] = ($) => v.value.url = $),
+                l("label", null, [
+                  p[98] || (p[98] = M("Адрес API", -1)),
+                  H(l("input", {
+                    "onUpdate:modelValue": p[41] || (p[41] = ($) => v.value.url = $),
                     required: ""
                   }, null, 512), [
                     [re, v.value.url]
                   ])
                 ]),
-                n("label", null, [
-                  f[105] || (f[105] = A("Логин API", -1)),
-                  F(n("input", {
-                    "onUpdate:modelValue": f[45] || (f[45] = ($) => v.value.username = $),
+                l("label", null, [
+                  p[99] || (p[99] = M("Логин API", -1)),
+                  H(l("input", {
+                    "onUpdate:modelValue": p[42] || (p[42] = ($) => v.value.username = $),
                     required: ""
                   }, null, 512), [
                     [re, v.value.username]
                   ])
                 ]),
-                n("label", null, [
-                  f[106] || (f[106] = A("Новый секрет", -1)),
-                  Ee(vt, {
+                l("label", null, [
+                  p[100] || (p[100] = M("Новый секрет", -1)),
+                  Ae(vt, {
                     modelValue: v.value.password,
-                    "onUpdate:modelValue": f[46] || (f[46] = ($) => v.value.password = $),
+                    "onUpdate:modelValue": p[43] || (p[43] = ($) => v.value.password = $),
                     required: "",
                     autocomplete: "off"
                   }, null, 8, ["modelValue"])
                 ]),
-                n("label", null, [
-                  f[107] || (f[107] = A("SHA-256 сертификата", -1)),
-                  F(n("input", {
-                    "onUpdate:modelValue": f[47] || (f[47] = ($) => v.value.tls_sha256 = $)
+                l("label", null, [
+                  p[101] || (p[101] = M("SHA-256 сертификата", -1)),
+                  H(l("input", {
+                    "onUpdate:modelValue": p[44] || (p[44] = ($) => v.value.tls_sha256 = $)
                   }, null, 512), [
                     [re, v.value.tls_sha256]
                   ])
                 ]),
-                n("div", $1, [
-                  n("button", {
+                l("div", db, [
+                  l("button", {
                     class: "gw-primary",
                     disabled: g.value
-                  }, "Проверить и сохранить API", 8, C1)
+                  }, "Проверить и сохранить API", 8, cb)
                 ])
               ], 32),
-              n("form", {
+              l("form", {
                 class: "gw-form",
-                onSubmit: Ze(Ci, ["prevent"])
+                onSubmit: tt(ki, ["prevent"])
               }, [
-                f[116] || (f[116] = n("h4", null, "SSH для консоли", -1)),
-                f[117] || (f[117] = n("p", { class: "gw-hint" }, "Пароль хранится зашифрованным мастер-ключом панели.", -1)),
-                n("div", x1, [
-                  n("label", null, [
-                    f[109] || (f[109] = A("SSH-логин", -1)),
-                    F(n("input", {
-                      "onUpdate:modelValue": f[48] || (f[48] = ($) => _.value.user = $),
+                p[110] || (p[110] = l("h4", null, "SSH для консоли", -1)),
+                p[111] || (p[111] = l("p", { class: "gw-hint" }, "Пароль хранится зашифрованным мастер-ключом панели.", -1)),
+                l("div", fb, [
+                  l("label", null, [
+                    p[103] || (p[103] = M("SSH-логин", -1)),
+                    H(l("input", {
+                      "onUpdate:modelValue": p[45] || (p[45] = ($) => _.value.user = $),
                       required: ""
                     }, null, 512), [
                       [re, _.value.user]
                     ])
                   ]),
-                  n("label", null, [
-                    f[110] || (f[110] = A("SSH-порт", -1)),
-                    F(n("input", {
-                      "onUpdate:modelValue": f[49] || (f[49] = ($) => _.value.port = $),
+                  l("label", null, [
+                    p[104] || (p[104] = M("SSH-порт", -1)),
+                    H(l("input", {
+                      "onUpdate:modelValue": p[46] || (p[46] = ($) => _.value.port = $),
                       type: "number",
                       min: "1",
                       max: "65535",
@@ -9700,113 +10177,113 @@ const wp = { class: "gw-channel-charts" }, _p = { class: "gw-spectrum-card" }, k
                     ])
                   ])
                 ]),
-                n("label", null, [
-                  f[113] || (f[113] = A("Авторизация", -1)),
-                  F(n("select", {
-                    "onUpdate:modelValue": f[50] || (f[50] = ($) => _.value.auth_type = $)
+                l("label", null, [
+                  p[107] || (p[107] = M("Авторизация", -1)),
+                  H(l("select", {
+                    "onUpdate:modelValue": p[47] || (p[47] = ($) => _.value.auth_type = $)
                   }, [
-                    f[111] || (f[111] = n("option", { value: "password" }, "Пароль", -1)),
-                    f[112] || (f[112] = n("option", { value: "key" }, "SSH-ключ панели", -1)),
-                    n("option", {
+                    p[105] || (p[105] = l("option", { value: "password" }, "Пароль", -1)),
+                    p[106] || (p[106] = l("option", { value: "key" }, "SSH-ключ панели", -1)),
+                    l("option", {
                       value: "none",
                       disabled: _.value.user !== "root"
-                    }, "Без пароля (первый вход root)", 8, S1)
+                    }, "Без пароля (первый вход root)", 8, pb)
                   ], 512), [
                     [xe, _.value.auth_type]
                   ])
                 ]),
-                _.value.auth_type === "password" ? (p(), h("label", V1, [
-                  f[114] || (f[114] = A("SSH-пароль", -1)),
-                  Ee(vt, {
+                _.value.auth_type === "password" ? (f(), h("label", vb, [
+                  p[108] || (p[108] = M("SSH-пароль", -1)),
+                  Ae(vt, {
                     modelValue: _.value.password,
-                    "onUpdate:modelValue": f[51] || (f[51] = ($) => _.value.password = $),
+                    "onUpdate:modelValue": p[48] || (p[48] = ($) => _.value.password = $),
                     autocomplete: "off",
-                    placeholder: W.value.ssh_auth_type === "password" && W.value.ssh_configured ? "Оставьте пустым, чтобы сохранить текущий" : ""
+                    placeholder: B.value.ssh_auth_type === "password" && B.value.ssh_configured ? "Оставьте пустым, чтобы сохранить текущий" : ""
                   }, null, 8, ["modelValue", "placeholder"])
-                ])) : _.value.auth_type === "key" ? (p(), h("label", T1, [
-                  f[115] || (f[115] = A("Путь к SSH-ключу", -1)),
-                  F(n("input", {
-                    "onUpdate:modelValue": f[52] || (f[52] = ($) => _.value.key_path = $),
+                ])) : _.value.auth_type === "key" ? (f(), h("label", gb, [
+                  p[109] || (p[109] = M("Путь к SSH-ключу", -1)),
+                  H(l("input", {
+                    "onUpdate:modelValue": p[49] || (p[49] = ($) => _.value.key_path = $),
                     placeholder: "/opt/bot4vps/keys/имя_ключа"
                   }, null, 512), [
                     [re, _.value.key_path]
                   ])
-                ])) : V("", !0),
-                n("div", E1, [
-                  n("button", {
+                ])) : x("", !0),
+                l("div", hb, [
+                  l("button", {
                     class: "gw-primary",
                     disabled: g.value
-                  }, "Проверить и сохранить SSH", 8, U1)
+                  }, "Проверить и сохранить SSH", 8, mb)
                 ])
               ], 32)
             ])
-          ])) : V("", !0),
-          I.value === "network" ? (p(), h(N, { key: 15 }, [
-            C.value.length ? (p(), h("section", P1, [
-              f[119] || (f[119] = n("h3", null, "WireGuard", -1)),
-              (p(!0), h(N, null, se(C.value, ($) => (p(), h("div", {
+          ])) : x("", !0),
+          R.value === "network" ? (f(), h(q, { key: 15 }, [
+            k.value.length ? (f(), h("section", bb, [
+              p[113] || (p[113] = l("h3", null, "WireGuard", -1)),
+              (f(!0), h(q, null, oe(k.value, ($) => (f(), h("div", {
                 key: $.name,
                 class: "gw-panel"
               }, [
-                n("h3", null, w($.name), 1),
-                $.peers.length ? V("", !0) : (p(), h("p", A1, "Пиры не настроены")),
-                (p(!0), h(N, null, se($.peers, (ue, me) => (p(), h("div", {
-                  key: me,
+                l("h3", null, b($.name), 1),
+                $.peers.length ? x("", !0) : (f(), h("p", yb, "Пиры не настроены")),
+                (f(!0), h(q, null, oe($.peers, (ce, ye) => (f(), h("div", {
+                  key: ye,
                   style: { "margin-top": "12px" }
                 }, [
-                  n("span", {
-                    class: Ue(["gw-status", ue.recent_handshake ? "good" : "warn"])
-                  }, w(ue.recent_handshake ? "Недавний handshake" : "Нет недавнего handshake"), 3),
-                  n("p", null, w(ue.endpoint === "(none)" ? "Endpoint не определён" : ue.endpoint) + " · ↓ " + w(ve(ue.rx_bytes)) + " · ↑ " + w(ve(ue.tx_bytes)), 1)
+                  l("span", {
+                    class: Te(["gw-status", ce.recent_handshake ? "good" : "warn"])
+                  }, b(ce.recent_handshake ? "Недавний handshake" : "Нет недавнего handshake"), 3),
+                  l("p", null, b(ce.endpoint === "(none)" ? "Endpoint не определён" : ce.endpoint) + " · ↓ " + b(F(ce.rx_bytes)) + " · ↑ " + b(F(ce.tx_bytes)), 1)
                 ]))), 128)),
-                f[118] || (f[118] = n("p", { class: "gw-hint" }, "Handshake показывает обмен ключами за последние 3 минуты. Простаивающий туннель может не обмениваться пакетами.", -1))
+                p[112] || (p[112] = l("p", { class: "gw-hint" }, "Handshake показывает обмен ключами за последние 3 минуты. Простаивающий туннель может не обмениваться пакетами.", -1))
               ]))), 128))
-            ])) : V("", !0)
-          ], 64)) : V("", !0)
-        ])) : V("", !0)
+            ])) : x("", !0)
+          ], 64)) : x("", !0)
+        ])) : x("", !0)
       ], 64)),
-      j.value ? (p(), ge(qe, {
+      j.value ? (f(), me(Re, {
         key: 6,
         title: "Удаление шлюза",
         busy: g.value,
-        onClose: f[54] || (f[54] = ($) => j.value = null)
+        onClose: p[51] || (p[51] = ($) => j.value = null)
       }, {
-        default: Re(() => [
-          n("h2", null, "Удалить " + w(j.value.name) + "?", 1),
-          n("ol", null, [
-            (p(!0), h(N, null, se(j.value.steps, ($) => (p(), h("li", { key: $ }, w($), 1))), 128))
+        default: Ie(() => [
+          l("h2", null, "Удалить " + b(j.value.name) + "?", 1),
+          l("ol", null, [
+            (f(!0), h(q, null, oe(j.value.steps, ($) => (f(), h("li", { key: $ }, b($), 1))), 128))
           ]),
-          n("p", null, "Сохранятся: " + w(j.value.preserved.join(", ")) + ".", 1),
-          j.value.manual ? (p(), h("p", I1, "Для вручную настроенного API может потребоваться отзыв учётной записи в LuCI. Без подтверждения отзыва панель сохранит запись.")) : V("", !0),
-          n("div", M1, [
-            n("button", {
+          l("p", null, "Сохранятся: " + b(j.value.preserved.join(", ")) + ".", 1),
+          j.value.manual ? (f(), h("p", wb, "Для вручную настроенного API может потребоваться отзыв учётной записи в LuCI. Без подтверждения отзыва панель сохранит запись.")) : x("", !0),
+          l("div", _b, [
+            l("button", {
               class: "gw-primary",
               disabled: g.value,
-              onClick: Ti
-            }, "Да, отозвать доступ и удалить", 8, O1),
-            n("button", {
+              onClick: Si
+            }, "Да, отозвать доступ и удалить", 8, kb),
+            l("button", {
               disabled: g.value,
-              onClick: f[53] || (f[53] = ($) => j.value = null)
-            }, "Отмена", 8, R1)
+              onClick: p[50] || (p[50] = ($) => j.value = null)
+            }, "Отмена", 8, $b)
           ])
         ]),
         _: 1
-      }, 8, ["busy"])) : V("", !0),
-      te.value ? (p(), ge(ph, {
+      }, 8, ["busy"])) : x("", !0),
+      le.value ? (f(), me(dm, {
         key: 7,
-        operation: te.value,
+        operation: le.value,
         busy: g.value,
         error: m.value,
-        onApply: yi,
-        onCancel: bi
-      }, null, 8, ["operation", "busy", "error"])) : V("", !0)
+        onApply: mi,
+        onCancel: hi
+      }, null, 8, ["operation", "busy", "error"])) : x("", !0)
     ], 2));
   }
 });
-function N1(e, t, l = !1, o = null) {
-  const s = iu(D1, { bridge: t, wizard: l, initialPlan: o });
+function xb(e, t, n = !1, o = null) {
+  const s = su(Cb, { bridge: t, wizard: n, initialPlan: o });
   return s.mount(e), () => s.unmount();
 }
 export {
-  N1 as mount
+  xb as mount
 };

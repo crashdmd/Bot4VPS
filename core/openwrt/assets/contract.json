@@ -19,6 +19,8 @@
   ],
   "read_methods": [
     "status",
+    "active_sessions",
+    "active_sessions_v2",
     "packages",
     "network",
     "package_catalog",

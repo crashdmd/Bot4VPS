@@ -1,15 +1,16 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue';
 import type { Bridge } from './main';
+import type { DhcpReservationForm } from './types/gateway';
 import GatewayDialog from './GatewayDialog.vue';
-const props = defineProps<{ node: any; bridge: Bridge; mode: 'dhcp' | 'dns' | 'firewall'; iface?: string }>();
-const emit = defineEmits<{ close: []; changed: [] }>();
+const props = defineProps<{ node: any; bridge: Bridge; mode: 'dhcp' | 'dns' | 'firewall' | 'dhcp_reservation'; iface?: string; reservationForm?: DhcpReservationForm; onTaskDone?: () => void }>();
+const emit = defineEmits<{ close: [submitted?: boolean]; changed: [] }>();
 const model = ref<any>(null), form = ref<any>({}), plan = ref<any>(null), busy = ref(false), error = ref('');
 const firewallTab = ref('general');
 const deleted = ref<string[]>([]), changedRules = ref<Set<string>>(new Set());
 const deletedRedirects = ref<string[]>([]), changedRedirects = ref<Set<string>>(new Set());
 const redirectKeys = ['id', 'name', 'src', 'dest', 'src_ip', 'dest_ip', 'proto', 'src_dport', 'dest_port', 'enabled', 'reflection'];
-const title = { dhcp: 'DHCP-сервер', dns: 'DNS роутера', firewall: 'Настройки firewall' };
+const title = { dhcp: 'DHCP-сервер', dns: 'Настройки DNSMasq', firewall: 'Настройки Firewall', dhcp_reservation: { add: 'Закрепить IPv4-адрес', edit: 'Изменить статическую DHCP-аренду', delete: 'Удалить статическую DHCP-аренду' }[props.reservationForm?.mode || 'add'] };
 const split = (v: any) => String(v || '').split(/[\s,]+/).filter(Boolean);
 const list = (v: any) => Array.isArray(v) ? v.join(', ') : v || '';
 const base = () => '/api/gateways/' + encodeURIComponent(props.node.id);
@@ -44,6 +45,12 @@ async function review(action = props.mode as string) {
   try {
     const data: any = { config_hash: model.value.settings_hash };
     const f = form.value;
+    if (action === 'dhcp_reservation' && props.reservationForm) {
+      const { mode, reservation } = props.reservationForm;
+      data.mode = mode;
+      if (reservation) data.section = reservation.id;
+      if (mode !== 'delete') data.settings = { ip: f.ip, mac: f.mac, name: f.name || null };
+    }
     if (action === 'dhcp') Object.assign(data, { interface: props.iface, settings: { ignore: f.ignore ? '1' : '0', start: String(f.start), limit: String(f.limit), leasetime: f.leasetime, dns: split(f.dns) } });
     if (action === 'dns') Object.assign(data, { section: f.id, settings: { port: String(f.port), server: split(f.server), cachesize: String(f.cachesize), domain: f.domain || null, local: f.local || null, noresolv: f.noresolv ? '1' : '0', rebind_protection: f.rebind_protection ? '1' : '0', domainneeded: f.domainneeded ? '1' : '0', boguspriv: f.boguspriv ? '1' : '0' } });
     if (action === 'firewall') Object.assign(data, { settings: allowed(f.defaults, ['input', 'output', 'forward', 'synflood_protect']), zones: f.zones.map((x: any) => allowed(x, ['id', 'input', 'output', 'forward', 'masq', 'mtu_fix'])), rules: f.rules.filter((x: any) => !x.id || changedRules.value.has(x.id)).map((x: any) => allowed(x, ['id', 'name', 'src', 'dest', 'src_ip', 'dest_ip', 'proto', 'dest_port', 'target', 'enabled'])), deleted_rules: deleted.value });
@@ -56,15 +63,27 @@ async function apply() {
   try {
     const value = plan.value;
     const task = await post('/router-operations', { plan_token: value.plan_token, confirmed: true });
-    plan.value = null; emit('close');
-    props.bridge.task({ taskId: task.task_id, title: value.title, cancellable: false, onDone: async () => emit('changed') });
+    const onDone = props.onTaskDone ?? (() => emit('changed'));
+    plan.value = null; emit('close', true);
+    props.bridge.task({ taskId: task.task_id, title: value.title, cancellable: false, onDone });
   } catch (e: any) { error.value = e.message; } finally { busy.value = false; }
 }
 function discard() {
   const token = plan.value?.plan_token; plan.value = null; error.value = '';
   if (token) post('/operation-plans/' + encodeURIComponent(token), {}, 'DELETE').catch((e: any) => { error.value = e.message; });
 }
-onMounted(() => void load());
+onMounted(() => {
+  const draft = props.reservationForm;
+  if (!draft) { void load(); return; }
+  const { reservation, lease } = draft;
+  model.value = { settings_hash: draft.configHash };
+  const hostname = lease?.hostname === '*' ? '' : lease?.hostname;
+  form.value = {
+    name: reservation?.name || hostname || '',
+    ip: reservation?.ip || lease?.ipaddr || '',
+    mac: reservation?.mac.join(' ') || lease?.macaddr || '',
+  };
+});
 </script>
 <template>
   <GatewayDialog :title="plan ? 'Проверка изменений' : title[mode] + (iface ? ' · ' + iface : '')" :wide="true" :busy="busy" @close="plan ? discard() : emit('close')">
@@ -76,6 +95,17 @@ onMounted(() => void load());
       <div class="gw-actions"><button class="gw-primary" :disabled="busy" @click="apply">Да, применить</button><button :disabled="busy" @click="discard">Назад</button></div>
     </template>
     <form v-else-if="model" class="gw-form" @submit.prevent="review()">
+      <template v-if="reservationForm?.mode === 'delete'">
+        <p>{{ form.name || 'Без имени' }} · {{ form.ip }}<template v-if="form.mac"> · {{ form.mac }}</template></p>
+        <p v-if="reservationForm.reservation?.shared_ipv6" class="gw-hint">Настройки IPv6 этой записи сохранятся.</p>
+      </template>
+      <template v-else-if="mode === 'dhcp_reservation'">
+        <label>Имя устройства<input v-model.trim="form.name" maxlength="63" /></label>
+        <label>MAC-адрес<input v-model.trim="form.mac" maxlength="256" :required="reservationForm?.mode === 'add' || !!reservationForm?.reservation?.mac.length" :readonly="reservationForm?.reservation?.shared_ipv6" />
+          <small>{{ reservationForm?.reservation?.shared_ipv6 ? 'MAC используется также для IPv6' : 'Несколько адресов можно указать через пробел' }}</small>
+        </label>
+        <label>IPv4-адрес<input v-model.trim="form.ip" inputmode="decimal" placeholder="192.168.1.10" maxlength="15" required /></label>
+      </template>
       <template v-if="mode === 'dhcp'">
         <label class="gw-check"><input v-model="form.ignore" type="checkbox" /> Выключить DHCP-сервер на {{ iface }}</label>
         <p v-if="!form.ignore" class="gw-notice">В одном сегменте должен работать один DHCP-сервер. При наличии основного роутера оставьте DHCP здесь выключенным.</p>

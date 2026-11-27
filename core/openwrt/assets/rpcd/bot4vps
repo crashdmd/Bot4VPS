@@ -99,6 +99,105 @@ function wireguard() {
     }
     return interfaces;
 }
+function session_text(path, command, limit) {
+    let fd = path ? open(path, 'r') : null;
+    let pipe = !fd;
+    if (!fd && command) fd = popen(command);
+    if (!fd) return null;
+    let value = fd.read(limit + 1) || '';
+    let closed = fd.close();
+    if (pipe && closed != 0 && !length(value)) return null;
+    return length(value) > limit ? { text: substr(value, 0, limit), truncated: true } : { text: value, truncated: false };
+}
+function proxy_sessions() {
+    let rows = [];
+    if (!access('/usr/bin/curl') || !access('/usr/libexec/bot4vps-proxy-sessions.sh')) return rows;
+    for (let source in ['mihomo', 'sing-box']) {
+        let result = session_text(null, '/bin/sh /usr/libexec/bot4vps-proxy-sessions.sh ' + source + ' 2>/dev/null', 262144);
+        if (!result?.text || result.truncated) continue;
+        try {
+            for (let connection in (json(result.text)?.connections || [])) {
+                let m = connection.metadata;
+                if (type(m) != 'object') continue;
+                push(rows, { network: m.network, sourceIP: m.sourceIP, sourcePort: m.sourcePort,
+                    destinationIP: m.destinationIP, destinationPort: m.destinationPort, host: m.host, sniffHost: m.sniffHost });
+            }
+        } catch (e) {}
+    }
+    return rows;
+}
+function active_sessions() {
+    let limit = 524288;
+    let flows = session_text('/proc/net/nf_conntrack',
+        access('/usr/sbin/conntrack') ? '/usr/sbin/conntrack -L 2>/dev/null' : null, limit);
+    if (!flows) return { available: false, reason: 'unavailable' };
+    let bus = connect(), uc = cursor(), wan = {}, inside = {}, wifi = [], dns_enabled = false, offloaded = false;
+    uc.foreach('firewall', 'defaults', function(section) {
+        if (section.flow_offloading == '1' || section.flow_offloading_hw == '1') offloaded = true;
+    });
+    uc.foreach('firewall', 'zone', function(zone) {
+        let networks = zone.network || [];
+        if (type(networks) != 'array') networks = [networks];
+        for (let name in networks) {
+            if (zone.name == 'wan') wan[name] = true;
+            else inside[name] = true;
+        }
+    });
+    let networks = [], addresses = [], wan_counters = {}, wan_seen = {};
+    for (let iface in (bus?.call('network.interface', 'dump', {})?.interface || [])) {
+        if (!iface.up || iface.interface == 'loopback') continue;
+        let external = wan[iface.interface] || match(iface.interface || '', /^wan/);
+        let local = !external && (inside[iface.interface] || match(iface.interface || '', /^lan/));
+        let device = iface.l3_device || iface.device;
+        if (external && device && !wan_seen[device]) {
+            wan_seen[device] = true;
+            let stats = bus.call('network.device', 'status', { name: device })?.statistics || {};
+            if (type(stats.rx_bytes) == 'int' && type(stats.tx_bytes) == 'int')
+                wan_counters[device] = [stats.rx_bytes, stats.tx_bytes];
+        }
+        let items = [...(iface['ipv4-address'] || []), ...(iface['ipv6-address'] || [])];
+        for (let prefix in (iface['ipv6-prefix-assignment'] || []))
+            if (prefix['local-address']) push(items, { address: prefix['local-address'].address, mask: prefix.mask });
+        for (let item in items) {
+            if (!item.address) continue;
+            push(addresses, item.address);
+            if (local && type(item.mask) == 'int') push(networks, item.address + '/' + item.mask);
+        }
+    }
+    for (let name, radio in (bus?.call('network.wireless', 'status', {}) || {})) {
+        for (let iface in (radio.interfaces || [])) {
+            if (!iface.ifname || iface.config?.mode != 'ap') continue;
+            // iwinfo runs in this same rpcd process. Query the separate hostapd
+            // process so rpcd never waits for one of its own handlers.
+            let stations = bus.call('hostapd.' + iface.ifname, 'get_clients', {})?.clients || {};
+            for (let mac, station in stations)
+                if (station?.assoc) push(wifi, mac);
+        }
+    }
+    uc.foreach('dhcp', 'dnsmasq', function(section) {
+        if (index(['1', 'true', 'yes', 'extra'], section.logqueries) >= 0) dns_enabled = true;
+    });
+    let proxy_logs = access('/etc/init.d/podkop') || access('/etc/init.d/ssclash') || access('/usr/bin/sing-box') || access('/usr/bin/mihomo');
+    let log_pattern = dns_enabled && proxy_logs ? 'dnsmasq|sing-box|mihomo|ssclash|podkop' : dns_enabled ? 'dnsmasq' : 'sing-box|mihomo|ssclash|podkop';
+    let logs = dns_enabled || proxy_logs ? session_text(null,
+        "TZ=UTC0 /sbin/logread -l 400 2>/dev/null | grep -E ' (" + log_pattern + ")(\\[|:|-)| (" + log_pattern + ") ' | tail -c 65536", 65536) : null;
+    let neighbours = session_text(null, 'ip -4 neigh show 2>/dev/null; ip -6 neigh show 2>/dev/null', 65536);
+    let fdb = session_text(null, 'bridge fdb show 2>/dev/null', 65536);
+    let ethernet = [];
+    let checked = {};
+    for (let row in split(fdb?.text || '', '\n')) {
+        let entry = match(row, /^([0-9a-fA-F:]{17}) dev ([a-zA-Z0-9_.-]{1,15}) (.*)$/);
+        if (!entry || !match(entry[3], /(^| )master /) || match(entry[3], /(^| )(permanent|self)( |$)/)) continue;
+        let dev = entry[2];
+        if (!(dev in checked)) checked[dev] = match(dev, /^(eth|lan|en)[a-zA-Z0-9_.-]*$/) &&
+            !access('/sys/class/net/' + dev + '/phy80211') && !access('/sys/class/net/' + dev + '/wireless');
+        if (checked[dev]) push(ethernet, entry[1]);
+    }
+    return { available: true, flows: flows.text, truncated: flows.truncated, networks, addresses, wifi, ethernet,
+        neighbours: neighbours?.text || '', logs: logs?.text || '', proxy_sessions: proxy_sessions(), captured_at: time(), wan_counters,
+        accounting: trim(readfile('/proc/sys/net/netfilter/nf_conntrack_acct') || '') == '1',
+        boot_id: trim(readfile('/proc/sys/kernel/random/boot_id') || ''), offloaded };
+}
 function status() {
     let bus = connect();
     let all = bus ? bus.call('service', 'list', {}) : {};
@@ -151,7 +250,7 @@ function status() {
         let names = zone.network || []; if (type(names) != 'array') names = [names];
         for (let name in names) network_roles[name] = zone.name;
     });
-    return { services, temperature, network_roles, temperature_support: { virtual: !!virtual, package: sensor_package }, wireguard: wireguard(), boot_id: trim(readfile('/proc/sys/kernel/random/boot_id') || '') };
+    return { services, temperature, network_roles, temperature_support: { virtual: !!virtual, package: sensor_package }, wireguard: wireguard(), boot_id: trim(readfile('/proc/sys/kernel/random/boot_id') || ''), active_sessions_version: 2 };
 }
 function accounts() {
     let c = cursor();
@@ -488,6 +587,8 @@ function cleanup(username, request) {
 let objects = {
     bot4vps: {
         status: { call: function() { return status(); } },
+        active_sessions: { call: function() { return active_sessions(); } },
+        active_sessions_v2: { call: function() { return active_sessions(); } },
         packages: { call: function() { return packages(); } },
         adguard_info: { call: function() { return agh.information(); } },
         network: { call: function() { return net.configuration(); } },
@@ -522,7 +623,7 @@ cursor().foreach('rpcd', 'login', function(account) {
         let username = account['.name'];
         objects['bot4vps-key-' + id] = {
             disconnect: { call: function() { return disconnect(username); } },
-            capabilities: { call: function() { let component_hashes = {}; for (let path in ["/usr/share/bot4vps/backup.uc", "/usr/libexec/bot4vps-backup-worker.uc", "/usr/share/bot4vps/contract.json", "/usr/share/bot4vps/adguard.uc", "/usr/share/bot4vps/configuration.uc", "/usr/share/bot4vps/wireless.uc", "/usr/share/bot4vps/network.uc", "/usr/share/bot4vps/package-manager.uc", "/usr/libexec/bot4vps-network-worker.uc", "/usr/libexec/bot4vps-packages-worker.uc", "/usr/share/rpcd/ucode/bot4vps", "/usr/share/rpcd/acl.d/bot4vps.json", "/usr/share/luci/menu.d/bot4vps.json", "/www/luci-static/resources/view/bot4vps/access.js", "/usr/libexec/bot4vps-revoke.uc", "/usr/libexec/bot4vps-worker.uc", "/usr/share/bot4vps/adguardhome.init", "/usr/share/bot4vps/ssclash.init"]) component_hashes[path] = digest(path); return { component_hashes, protocol_version: protocol.version, signed_operations: access('/etc/bot4vps/keys/' + username + '.pub'), network_forms: true, package_manager: true }; } },
+            capabilities: { call: function() { let component_hashes = {}; for (let path in ["/usr/share/bot4vps/backup.uc", "/usr/libexec/bot4vps-backup-worker.uc", "/usr/share/bot4vps/contract.json", "/usr/share/bot4vps/adguard.uc", "/usr/share/bot4vps/configuration.uc", "/usr/share/bot4vps/wireless.uc", "/usr/share/bot4vps/network.uc", "/usr/share/bot4vps/package-manager.uc", "/usr/libexec/bot4vps-network-worker.uc", "/usr/libexec/bot4vps-packages-worker.uc", "/usr/libexec/bot4vps-proxy-sessions.sh", "/usr/share/rpcd/ucode/bot4vps", "/usr/share/rpcd/acl.d/bot4vps.json", "/usr/share/luci/menu.d/bot4vps.json", "/www/luci-static/resources/view/bot4vps/access.js", "/usr/libexec/bot4vps-revoke.uc", "/usr/libexec/bot4vps-worker.uc", "/usr/share/bot4vps/adguardhome.init", "/usr/share/bot4vps/ssclash.init"]) component_hashes[path] = digest(path); return { component_hashes, protocol_version: protocol.version, signed_operations: access('/etc/bot4vps/keys/' + username + '.pub'), network_forms: true, package_manager: true }; } },
             plan: { args: { nonce: '', service: '', action: '', kind: '', data: '', api_host: '', web_scope: '' }, call: function(request) {
                 try { return request.args.kind ? router_plan(username, request) : service_plan(username, request); }
                 catch (error) { return { error: type(error) == 'object' ? error.message : '' + error }; }

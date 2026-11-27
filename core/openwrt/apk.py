@@ -10,8 +10,9 @@ import re
 import subprocess
 import tarfile
 import tempfile
-import threading
 from pathlib import Path
+
+import httpx
 
 from core.install_paths import get_install_path
 from core.json_store import atomic_write_json
@@ -23,7 +24,6 @@ PINS = {
     'aarch64': '5297264f149a36560c404ac6d4428508c37ca2629140de91b2f832cfc2c98e21',
 }
 _lock = asyncio.Lock()
-_resolver_locks = {}
 
 
 def tool_path():
@@ -161,39 +161,23 @@ async def resolve_repositories(platform_info, board, http, progress):
     await progress('Подобраны официальные источники APK для '+architecture+' и ABI ядра '+kernel)
 
 
-def fetch_official(row, platform_info, platform_key, keys):
-    """apk authenticates unsigned packages using their signed repository index."""
-    from core.openwrt import bundles
-    with _resolver_locks.setdefault(platform_key, threading.RLock()):
-        root = ROOT / 'resolvers' / platform_key
-        configuration = root / 'etc/apk'; configuration.mkdir(parents=True, exist_ok=True)
-        trust = configuration / 'keys'; trust.mkdir(exist_ok=True)
-        for key in keys.glob('*.pub'):
-            (trust / key.name).write_bytes(key.read_bytes())
-        (configuration / 'repositories').write_text('\n'.join(repository_indexes(platform_info)) + '\n')
-        (root / 'var/cache/apk').mkdir(parents=True, exist_ok=True)
-        tool = str(tool_path())
-        architecture = package_architecture(platform_info)
-        if not (root / 'lib/apk/db/installed').exists():
-            initialize = [tool, '--root', str(root), '--arch', architecture, '--no-network', 'add', '--initdb', '--no-scripts']
-            if os.geteuid() != 0: initialize.append('--usermode')
-            result = subprocess.run(initialize, capture_output=True, timeout=120)
-            if result.returncode: raise ValueError('Не удалось подготовить проверку репозиториев APK на панели')
-        incoming = bundles.ROOT / 'incoming'; incoming.mkdir(exist_ok=True)
-        with tempfile.TemporaryDirectory(dir=incoming) as directory:
-            arguments = [tool, '--root', str(root), '--arch', architecture, '--no-progress', '--cache-max-age', '240', 'fetch', '--output', directory, row['name']]
-            # fetch's package selector is a name pattern, not a version constraint.
-            # Verify the exact version against the reviewed index after fetching.
-            result = subprocess.run(arguments, capture_output=True, timeout=120)
-            if result.returncode: raise ValueError('Зависимость APK не загружена из проверенного индекса: ' + row['name'])
-            paths = list(Path(directory).glob('*.apk'))
-            if len(paths) != 1 or paths[0].is_symlink() or paths[0].stat().st_size > 128 * 1024 * 1024:
-                raise ValueError('Проверенный источник вернул некорректный комплект APK')
-            digest = hashlib.sha256(paths[0].read_bytes()).hexdigest()
-            size = paths[0].stat().st_size
-            objects = bundles.ROOT / 'objects'; objects.mkdir(exist_ok=True)
-            os.replace(paths[0], objects / digest)
-            return {'sha256': digest, 'size': size, 'source': row['feed'] + '/' + row['name'] + '-' + row['version'] + '.apk'}
+def verify_official(package, filename, name, index, keys, architecture):
+    """Authenticate the package against the exact signed index used to select it."""
+    with tempfile.TemporaryDirectory(dir=package.parent) as directory:
+        root = Path(directory)
+        feed = root / 'feed'
+        feed.mkdir()
+        index_link = feed / 'packages.adb'
+        index_link.hardlink_to(index)
+        (feed / filename).hardlink_to(package)
+        repositories = root / 'repositories'
+        repositories.write_text(str(index_link) + '\n')
+        arguments = [str(tool_path()), '--root', directory, '--keys-dir', str(keys),
+                     '--repositories-file', str(repositories), '--arch', architecture, '--no-network',
+                     '--no-progress', 'fetch', '--output', directory, name]
+        result = subprocess.run(arguments, capture_output=True, timeout=30)
+        if result.returncode or not (root / filename).is_file():
+            raise ValueError('Целостность зависимости APK не подтверждена подписанным индексом: ' + filename)
 
 
 def verify(path, keys, *, project=False):
@@ -249,11 +233,19 @@ async def prepare_files(platform_info, platform_key, profile, release, http, pro
     files = []; queue = []
     async def add(name, url, role, *, project=False, metadata=None, expected=None):
         await progress('Получаю ' + name + '…')
-        item = await asyncio.to_thread(fetch_official, metadata, platform_info, platform_key, keys) if metadata else await bundles._fetch(http, url, expected)
+        try:
+            item = await bundles._fetch(http, url, expected)
+        except httpx.HTTPStatusError as error:
+            if metadata is None:
+                raise
+            raise ValueError(f'Не удалось загрузить зависимость APK {name} (HTTP {error.response.status_code})') from None
         item.update(name=name, role=role)
         if role == 'package':
             path = bundles.object_path(item['sha256'])
             if project: await asyncio.to_thread(verify, path, keys, project=True)
+            if metadata:
+                await asyncio.to_thread(verify_official, path, name, metadata['name'],
+                                        metadata['verified_index'], keys, architecture)
             info = (await asyncio.to_thread(dump, path)).get('info', {})
             if info.get('arch') not in accepted_architectures: raise ValueError('Архитектура APK не совпадает с роутером')
             if metadata and any(info.get(key, []) != metadata.get(key, []) for key in ('name', 'version', 'arch', 'depends', 'provides')):
@@ -293,12 +285,14 @@ async def prepare_files(platform_info, platform_key, profile, release, http, pro
         item = await bundles._fetch(http, feed, limit=32 * 1024 * 1024)
         path = bundles.object_path(item['sha256'])
         await asyncio.to_thread(verify, path, keys)
+        directory = feed.rsplit('/', 1)[0]
         rows = (await asyncio.to_thread(dump, path)).get('packages', [])
         matched = 0
         for row in rows:
             if row.get('arch') not in accepted_architectures: continue
             matched += 1
-            row['feed'] = feed.rsplit('/', 1)[0]
+            row['feed'] = directory
+            row['verified_index'] = path
             index.setdefault(row['name'], row)
             for provided, _ in dependencies(row.get('provides', [])):
                 providers.setdefault(provided, row)
@@ -322,6 +316,9 @@ async def prepare_files(platform_info, platform_key, profile, release, http, pro
         if row['name'] in resolved: resolved.add(name); continue
         if requirement and not await asyncio.to_thread(satisfies, row['version'], requirement):
             raise ValueError('Нет совместимой версии зависимости APK: ' + name + ' ' + requirement)
+        if (not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.+-]*', row['name'])
+                or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.+~-]*', row['version'])):
+            raise ValueError('Некорректное имя или версия зависимости APK')
         filename = row['name'] + '-' + row['version'] + '.apk'
         await add(filename, row['feed'] + '/' + filename, 'package', metadata=row)
         resolved.add(name); resolved.add(row['name'])

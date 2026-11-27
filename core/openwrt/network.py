@@ -78,7 +78,7 @@ def normalise(action, data):
     if action == 'wireless':
         from core.openwrt.wireless import normalise as wireless_normalise
         return wireless_normalise(data)
-    if action in ('dhcp', 'dns', 'firewall', 'firewall_restart'):
+    if action in ('dhcp', 'dhcp_reservation', 'dns', 'firewall', 'firewall_restart'):
         from core.openwrt.configuration import normalise as settings_normalise
         return settings_normalise(action, data)
     if action not in ('edit', 'delete', 'routes', 'up', 'down', 'reconnect'):

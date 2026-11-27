@@ -242,6 +242,7 @@ async def refresh(node, *, force=False):
             "ram_pct": round(100 * (total - available) / total, 1) if total else None,
             "storage_total": _number(root.get("total")) * 1024, "storage_free": _number(root.get("avail", root.get("free"))) * 1024,
             "temperature": _number((health or {}).get("temperature"), None), "temperature_support": _object((health or {}).get('temperature_support')), "interfaces": network, "services": services,
+            "active_sessions_version": (health or {}).get("active_sessions_version"),
             "clients": _rows((leases or {}).get("dhcp_leases")), "wifi": _wifi(wifi),
             "wireguard": _wireguard((health or {}).get('wireguard')), "capabilities": capabilities}
         if sid in _removed: return {'ok': False, 'error': 'Шлюз удалён', 'error_code': 'removed'}
@@ -304,12 +305,16 @@ async def polling_job(_context=None):
 
 
 async def close_clients():
+    from core.openwrt.active_sessions import clear
+    clear()
     for _, client in list(_clients.values()):
         await client.close()
     _clients.clear()
 
 
 async def forget(node_id):
+    from core.openwrt.active_sessions import forget as forget_sessions
+    forget_sessions(node_id)
     _removed.add(node_id)
     previous = _clients.pop(node_id, None)
     if previous:

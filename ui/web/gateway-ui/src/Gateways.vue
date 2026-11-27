@@ -8,6 +8,7 @@ import RouterSettings from './RouterSettings.vue';
 import NetworkEditor from './NetworkEditor.vue';
 import PackageManager from './PackageManager.vue';
 import TrafficCharts from './TrafficCharts.vue';
+import ActiveSessions from './ActiveSessions.vue';
 import WirelessEditor from './WirelessEditor.vue';
 import GatewayServices from './components/GatewayServices.vue';
 import GatewayHeader from './components/GatewayHeader.vue';
@@ -94,14 +95,6 @@ watch(() => active.value?.id, () => {
 const monitor = computed(() => active.value?.monitor || {});
 const wireguard = computed<any[]>(() => Object.values(monitor.value.wireguard || {}));
 const query = ref('');
-const clientQuery = ref(''), clientPage = ref(1), clientPageSize = 20;
-const clients = computed(() => (monitor.value.clients || []).filter((client: any) =>
-  [client.hostname, client.ipaddr, client.macaddr].join(' ').toLowerCase().includes(clientQuery.value.toLowerCase())));
-const clientPages = computed(() => Math.max(1, Math.ceil(clients.value.length / clientPageSize)));
-const pageClients = computed(() => clients.value.slice((clientPage.value - 1) * clientPageSize, clientPage.value * clientPageSize));
-watch(clientQuery, () => { clientPage.value = 1; });
-watch(clientPages, count => { clientPage.value = Math.min(clientPage.value, count); });
-watch(selected, () => { clientQuery.value = ''; clientPage.value = 1; });
 function openServiceSettings(service: any) {
   if (service.id === 'firewall') serviceSettings.value = 'firewall';
   else if (service.id === 'dnsmasq') serviceSettings.value = 'dns';
@@ -486,18 +479,15 @@ onUnmounted(() => { alive = false; if (timer) clearInterval(timer); document.rem
         <button type="button" @click="selectTab('access')">Открыть «Доступ»</button>
       </div>
       <div class="gw-tabs"><button v-for="item in tabs" :key="item.id" :class="{ on: tab === item.id }" @click="selectTab(item.id)">{{ item.name }}</button></div>
-      <template v-if="tab === 'overview'">      <div class="gw-metrics"><div class="gw-panel"><span>Загрузка CPU</span><strong>{{ monitor.cpu_pct == null ? '—' : monitor.cpu_pct + '%' }}</strong></div><div class="gw-panel"><span>Оперативная память</span><strong>{{ monitor.ram_pct == null ? '—' : monitor.ram_pct + '%' }}</strong><small>{{ bytes(monitor.ram_used) }} / {{ bytes(monitor.ram_total) }}</small></div><div class="gw-panel"><span>Свободное место</span><strong>{{ bytes(monitor.storage_free) }}</strong><small>из {{ bytes(monitor.storage_total) }}</small></div><div class="gw-panel"><span>Время работы</span><strong>{{ uptime(monitor.uptime) }}</strong></div><div class="gw-panel"><span>Температура</span><strong>{{ monitor.temperature == null ? 'Нет датчика' : monitor.temperature + '°C' }}</strong><small v-if="monitor.temperature_support?.virtual">Виртуальная машина</small><button v-if="monitor.temperature_support?.package" @click="packageQuery = monitor.temperature_support.package; selectTab('packages')">Проверить пакет датчика</button></div></div><TrafficCharts :monitor="monitor" :node-id="active.id" :bridge="bridge" /></template>
+      <template v-if="tab === 'overview'">      <div class="gw-metrics"><div class="gw-panel"><span>Загрузка CPU</span><strong>{{ monitor.cpu_pct == null ? '—' : monitor.cpu_pct + '%' }}</strong></div><div class="gw-panel"><span>Оперативная память</span><strong>{{ monitor.ram_pct == null ? '—' : monitor.ram_pct + '%' }}</strong><small>{{ bytes(monitor.ram_used) }} / {{ bytes(monitor.ram_total) }}</small></div><div class="gw-panel"><span>Свободное место</span><strong>{{ bytes(monitor.storage_free) }}</strong><small>из {{ bytes(monitor.storage_total) }}</small></div><div class="gw-panel"><span>Время работы</span><strong>{{ uptime(monitor.uptime) }}</strong></div><div class="gw-panel"><span>Температура</span><strong>{{ monitor.temperature == null ? 'Нет датчика' : monitor.temperature + '°C' }}</strong><small v-if="monitor.temperature_support?.virtual">Виртуальная машина</small><button v-if="monitor.temperature_support?.package" @click="packageQuery = monitor.temperature_support.package; selectTab('packages')">Проверить пакет датчика</button></div></div>
+        <TrafficCharts :monitor="monitor" :node-id="active.id" :bridge="bridge" />
+      </template>
+      <ActiveSessions v-show="tab === 'overview'" :key="active.id" :node-id="active.id" :bridge="bridge" :collect="tab === 'overview'" />
       <template v-if="tab === 'network'">
         <NetworkEditor :key="active.id"  :node="active" :bridge="bridge" @changed="load" />
-        <section class="gw-clients-section">
-          <header class="gw-section-header"><div><h3>DHCP-клиенты <small>{{ monitor.clients?.length || 0 }}</small></h3><p class="gw-hint">Аренда DHCP не подтверждает текущую доступность клиента.</p></div><input v-model="clientQuery" type="search" aria-label="Поиск DHCP-клиентов" placeholder="Имя, IP или MAC" /></header>
-          <div class="gw-table-wrap"><table><thead><tr><th>Клиент</th><th>IP-адрес</th><th>MAC-адрес</th></tr></thead><tbody><tr v-for="client in pageClients" :key="client.macaddr + ':' + client.ipaddr"><td>{{ client.hostname || 'Без имени' }}</td><td>{{ client.ipaddr }}</td><td>{{ client.macaddr }}</td></tr></tbody></table></div>
-          <p v-if="!clients.length" class="gw-hint">{{ clientQuery ? 'Клиенты не найдены' : 'Нет данных об арендах' }}</p>
-          <footer v-if="clients.length" class="gw-pagination"><span class="gw-hint">{{ (clientPage - 1) * clientPageSize + 1 }}–{{ Math.min(clientPage * clientPageSize, clients.length) }} из {{ clients.length }}</span><div class="gw-actions"><button :disabled="clientPage === 1" @click="clientPage--">Назад</button><span aria-live="polite">{{ clientPage }} / {{ clientPages }}</span><button :disabled="clientPage >= clientPages" @click="clientPage++">Далее</button></div></footer>
-        </section>
       </template>
       <WirelessEditor v-if="tab === 'wifi'" :key="active.id" :node="active" :bridge="bridge" @changed="load" />
-      <GatewayServices v-if="tab === 'services'" :key="active.id" :revision="servicesRevision" :node="active" :bridge="bridge" :busy="busy" :updating="activeUpdates" @pending="detectPendingUpdate" @resume="resumeUpdate" @web-access="scope => servicePlan('ssclash', 'web_access', undefined, undefined, scope)" @catalog="openCatalog" @settings="openServiceSettings" @help="adguardOpen=true" @open-adguard="openAdguardHome" @action="servicePlan" @firewall-restart="firewallRestartNode = active" @update="updateService" />
+      <GatewayServices v-if="tab === 'services'" :key="active.id" :revision="servicesRevision" :node="active" :bridge="bridge" :busy="busy" :updating="activeUpdates" @changed="load" @pending="detectPendingUpdate" @resume="resumeUpdate" @web-access="scope => servicePlan('ssclash', 'web_access', undefined, undefined, scope)" @catalog="openCatalog" @settings="openServiceSettings" @help="adguardOpen=true" @open-adguard="openAdguardHome" @action="servicePlan" @firewall-restart="firewallRestartNode = active" @update="updateService" />
       <GatewayBackups v-if="tab === 'backups'" :key="active.id" :node="active" :bridge="bridge" />
       <FirewallRestart v-if="firewallRestartNode" :node="firewallRestartNode" :bridge="bridge" @close="firewallRestartNode = null" @changed="load" />
       <RouterSettings v-if="serviceSettings" :node="active" :bridge="bridge" :mode="serviceSettings" @close="serviceSettings = null" @changed="load" />
@@ -626,7 +616,6 @@ onUnmounted(() => { alive = false; if (timer) clearInterval(timer); document.rem
 .gw-service-actions{display:flex;gap:7px;justify-content:flex-end;flex-wrap:wrap}.gw-shell .gw-service-actions button{font-size:12px;padding:8px 11px}
 .gw-catalog-list{display:grid}.gw-catalog-list .gw-catalog-item{border:0;border-bottom:1px solid var(--border,#29374b);border-radius:0;padding:20px 0}.gw-catalog-list .gw-catalog-item:first-child{padding-top:0}
 .gw-access-columns{display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-top:16px}.gw-access h4{margin:0;font-size:15px}.gw-access .gw-form{align-content:start;gap:.65rem}.gw-access .gw-form label{gap:.25rem;margin:0;font-size:.78rem;font-weight:400}.gw-access .gw-two{gap:.8rem}.gw-shell .gw-access input,.gw-shell .gw-access select{height:var(--control-height,32px);min-height:var(--control-height,32px);padding:.35rem .65rem;font-size:var(--control-font-size,13px);border-radius:var(--control-radius,8px)}.gw-shell .gw-access select{padding-right:2rem}.gw-shell .gw-access button{min-height:var(--control-height,32px);padding:.35rem .65rem;font-size:var(--control-font-size,13px)}.gw-access .gw-hint{font-size:.78rem;line-height:1.45}.gw-access .gw-form p{margin:0}.gw-access-columns>.gw-form+.gw-form{border-left:1px solid var(--border,#29374b);padding-left:20px}
-.gw-clients-section h3 small{font-size:12px;color:var(--text-muted,#98a8bd);font-weight:400;margin-left:8px}
 .gw-shell .gw-interface{border:0;border-bottom:1px solid var(--border,#29374b);border-radius:0;padding:18px 0}.gw-interface-list{gap:0;border-top:1px solid var(--border,#29374b)}
 @media(max-width:650px){.gw-service-row{grid-template-columns:minmax(0,1fr) 112px;gap:12px}.gw-service-actions{grid-column:1/-1;justify-content:flex-start}}
 @media(max-width:750px){.gw-access-columns{grid-template-columns:1fr;gap:20px}.gw-access-columns>.gw-form+.gw-form{border-left:0;border-top:1px solid var(--border,#29374b);padding:16px 0 0}}

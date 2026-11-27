@@ -88,7 +88,7 @@ function set_fields(c, config, section, settings) {
 }
 function prepare(dir, action, data) {
     if (action == 'wireless') return wifi.prepare(dir, data);
-    if (index(['dhcp', 'dns', 'firewall', 'firewall_restart'], action) >= 0) return config.prepare(dir, action, data);
+    if (index(['dhcp', 'dhcp_reservation', 'dns', 'firewall', 'firewall_restart'], action) >= 0) return config.prepare(dir, action, data);
     let original = configuration();
     if (data.config_hash != original.config_hash) die('Сеть изменилась после открытия формы. Обновите данные и проверьте изменения.');
     let name = data.interface;

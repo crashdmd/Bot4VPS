@@ -15,6 +15,7 @@ from core.openwrt.signing import sign
 from core.task_manager import TaskResult, register_executor, task_manager
 
 LABELS = {'wireless': 'Настройка Wi-Fi', 'dhcp': 'Настройка DHCP', 'dns': 'Настройка DNS', 'firewall': 'Настройка firewall', 'firewall_restart': 'Перезапуск firewall', 'edit': 'Настройка интерфейса', 'delete': 'Удаление интерфейса', 'routes': 'Настройка маршрутов',
+    'dhcp_reservation': 'Статическая DHCP-аренда',
     'up': 'Подключение', 'down': 'Отключение', 'reconnect': 'Переподключение',
     'refresh': 'Обновление списка пакетов', 'install': 'Установка пакета'}
 
@@ -32,6 +33,17 @@ def new_endpoint(node, remote):
     return urlunsplit((address.scheme, authority, address.path, '', ''))
 
 
+async def check_dhcp_address(rpc, settings):
+    result = _check(await rpc.call('luci-rpc', 'getDHCPLeases', {'family': 4}))
+    leases = result.get('dhcp_leases')
+    if not isinstance(leases, list):
+        raise ValueError('Не удалось проверить выданные DHCP-адреса')
+    macs = set(settings['mac'].split())
+    if any(lease.get('ipaddr') == settings['ip'] and str(lease.get('macaddr')).lower() not in macs
+           for lease in leases if isinstance(lease, dict)):
+        raise ValueError('Этот адрес уже выдан другому устройству')
+
+
 async def prepare(node, owner, kind, action, data):
     if kind not in ('network', 'packages') or action not in LABELS: raise ValueError('Операция не поддерживается')
     rpc = RpcClient(node['openwrt']); nonce = secrets.token_hex(16); token = secrets.token_urlsafe(32)
@@ -42,6 +54,18 @@ async def prepare(node, owner, kind, action, data):
             configuration = _check(await rpc.call('bot4vps', 'network'))
             if not isinstance(configuration.get('firewall', {}).get('redirects'), list):
                 raise ValueError('Обновите интеграцию Bot4VPS на шлюзе для управления перенаправлениями портов')
+        reservation = None
+        if kind == 'network' and action == 'dhcp_reservation':
+            configuration = _check(await rpc.call('bot4vps', 'network'))
+            reservations = configuration.get('dhcp_reservations')
+            if not isinstance(reservations, list):
+                raise ValueError('Обновите интеграцию Bot4VPS на шлюзе для резервирования адресов')
+            if data['mode'] != 'delete':
+                settings = data['settings']
+                old = next((row for row in reservations if row.get('id') == data.get('section')), {})
+                if settings['mac'] or settings['ip'] != old.get('ip'):
+                    await check_dhcp_address(rpc, settings)
+                    reservation = settings
         if kind == 'network' and action == 'wireless':
             from core.openwrt.wireless import validate_hardware
             await validate_hardware(rpc, data)
@@ -50,6 +74,8 @@ async def prepare(node, owner, kind, action, data):
         record = {'token': token, 'owner_hash': hashlib.sha256(owner.encode()).hexdigest(), 'node_id': node['id'],
             'nonce': nonce, 'remote': remote, 'config_hash': config_hash(node), 'service': kind,
             'action': action, 'expires': time.time() + 900, 'started': False}
+        if reservation:
+            record['reservation'] = reservation
         # Native replies contain fingerprints and redacted summaries, never UCI secrets.
         PLANS.mkdir(parents=True, exist_ok=True); atomic_write_json(PLANS / (token + '.json'), record)
         return {'plan_token': token, 'kind': kind, 'action': action, 'title': LABELS[action],
@@ -152,6 +178,8 @@ async def execute(payload, task, progress):
         await progress('Передаю подтверждённый подписанный план…')
         await _upload(original, object_name, nonce, 'manifest.json', raw, progress)
         await _upload(original, object_name, nonce, 'manifest.sig', sign(node['openwrt'], raw).encode(), progress)
+        if record.get('reservation'):
+            await check_dhcp_address(original, record['reservation'])
         try: _check(await original.call(object_name, 'apply', {'nonce': nonce}))
         except RpcError as exc:
             if exc.code != 'connection': raise

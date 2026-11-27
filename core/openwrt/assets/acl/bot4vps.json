@@ -32,6 +32,8 @@
         ],
         "bot4vps": [
           "status",
+          "active_sessions",
+          "active_sessions_v2",
           "packages",
           "logs",
           "network",

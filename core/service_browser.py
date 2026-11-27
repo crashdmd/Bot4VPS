@@ -266,11 +266,30 @@ class ServiceConnection:
     async def _bridge(self, reader, writer):
         task = asyncio.current_task()
         self.bridge_tasks.add(task)
+        channel = self.channel
         async def outgoing():
             while data := await reader.read(32768):
-                await asyncio.to_thread(self.channel.sendall, data)
+                await asyncio.to_thread(channel.sendall, data)
         async def incoming():
-            while data := await asyncio.to_thread(self.channel.recv, 32768):
+            loop = asyncio.get_running_loop()
+            fd = channel.fileno()
+            while True:
+                # Paramiko signals data and EOF on this descriptor. Idle HTTP
+                # keep-alives must leave the executor free for other requests.
+                ready = loop.create_future()
+
+                def readable():
+                    if not ready.done():
+                        ready.set_result(None)
+
+                loop.add_reader(fd, readable)
+                try:
+                    await ready
+                finally:
+                    loop.remove_reader(fd)
+                data = await asyncio.to_thread(channel.recv, 32768)
+                if not data:
+                    return
                 writer.write(data)
                 await writer.drain()
         jobs = [asyncio.create_task(outgoing()), asyncio.create_task(incoming())]
@@ -279,21 +298,28 @@ class ServiceConnection:
             self.bridge_diagnostic = [{"direction": "outgoing" if job is jobs[0] else "incoming", "error": type(job.exception()).__name__ if job.exception() else None} for job in done]
         finally:
             for job in jobs: job.cancel()
-            if self.channel: await asyncio.to_thread(self.channel.close)
-            await asyncio.gather(*jobs, return_exceptions=True)
-            writer.close()
-            with suppress(Exception): await writer.wait_closed()
-            self.bridge_tasks.discard(task)
+            try:
+                await asyncio.gather(*jobs, return_exceptions=True)
+                await self._close_channel()
+            finally:
+                writer.close()
+                self.bridge_tasks.discard(task)
+                with suppress(Exception): await writer.wait_closed()
+
+    async def _close_channel(self):
+        channel, self.channel = self.channel, None
+        if channel:
+            await asyncio.to_thread(channel.close)
 
     async def close(self):
         if self.listener:
             self.listener.close()
         if self.writer:
             self.writer.close()
-        if self.channel: await asyncio.to_thread(self.channel.close)
-        if self.ssh and not self.shared_ssh: await asyncio.to_thread(self.ssh.close)
         for task in list(self.bridge_tasks): task.cancel()
         await asyncio.gather(*self.bridge_tasks, return_exceptions=True)
+        await self._close_channel()
+        if self.ssh and not self.shared_ssh: await asyncio.to_thread(self.ssh.close)
         if self.listener:
             with suppress(Exception): await self.listener.wait_closed()
         if self.writer:

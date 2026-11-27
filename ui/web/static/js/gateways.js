@@ -9,9 +9,9 @@ export function openGatewayFromDashboard(id) {
 async function view() {
   if (!document.getElementById('gateway-vue-css')) {
     const css = document.createElement('link'); css.id = 'gateway-vue-css'; css.rel = 'stylesheet';
-    css.href = '/static/gateways/gateways.css?v=20261126-gateway-15m'; document.head.append(css);
+    css.href = '/static/gateways/gateways.css?v=20261127-session-devices'; document.head.append(css);
   }
-  viewModule ||= import('/static/gateways/gateways.js?v=20261126-gateway-15m');
+  viewModule ||= import('/static/gateways/gateways.js?v=20261127-session-devices');
   return viewModule;
 }
 export async function refreshGatewayNav() {

@@ -227,6 +227,19 @@ def _event_unread(event_id) -> bool:
     return event is not None and event.get("read") is not True
 
 
+def _removed_gateway_availability(event_type, details) -> bool:
+    from core.notification_policy import is_availability
+
+    if not is_availability(event_type, details) or details.get("node_type") != "openwrt":
+        return False
+    server_id = details.get("server_id")
+    if not isinstance(server_id, str) or not server_id:
+        return False
+    from core.storage import find_server
+
+    return find_server(server_id) is None
+
+
 def _accumulator_unread_ids(chat_id) -> list:
     """Непрочитанные события живого сообщения чата (с чисткой от прочитанных).
 
@@ -235,7 +248,13 @@ def _accumulator_unread_ids(chat_id) -> list:
     acc = _live_message(chat_id)
     if not acc:
         return []
-    ids = [eid for eid in acc.get("event_ids", []) if _event_unread(eid)]
+    ids = []
+    for eid in acc.get("event_ids", []):
+        event = get_event(eid) if eid else None
+        if event is not None and event.get("read") is not True and not _removed_gateway_availability(
+            event.get("type"), event.get("details")
+        ):
+            ids.append(eid)
     if not ids:
         _forget_live_message(chat_id)
         return []
@@ -642,6 +661,8 @@ def _resolve(entry: dict):
     event = get_event(event_id) if event_id else None
     if event_id and (event is None or event.get("read") is True):
         # Прочитано в Web или удалено из журнала — дубль не отправляем.
+        return CLOSE, None
+    if _removed_gateway_availability(event_type, details):
         return CLOSE, None
 
     if not entry.get("queue_id"):

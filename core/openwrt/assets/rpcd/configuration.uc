@@ -1,8 +1,10 @@
 'use strict';
 import { readfile, open, popen, mkdir } from 'fs';
 import { cursor } from 'uci';
+import { connect } from 'ubus';
 
 let dhcp_fields = ['ignore', 'start', 'limit', 'leasetime'];
+let host_fields = ['name', 'mac', 'ip'];
 let dns_fields = ['port', 'server', 'noresolv', 'cachesize', 'domain', 'local', 'rebind_protection', 'domainneeded', 'boguspriv'];
 let default_fields = ['input', 'output', 'forward', 'synflood_protect'];
 let zone_fields = ['input', 'output', 'forward', 'masq', 'mtu_fix'];
@@ -24,20 +26,35 @@ function fingerprint() {
     return split(trim(output), ' ')[0] || '';
 }
 function fields(s, names) { let out = {}; for (let n in names) if (s[n] != null) out[n] = s[n]; return out; }
+function host_macs(host) {
+    let raw = type(host?.mac) == 'array' ? join(' ', host.mac) : host?.mac || '';
+    return filter(split(lc(raw), /[[:space:]]+/), value => length(value));
+}
+function ipv4_host_address(ip) {
+    if (type(ip) != 'string' || !match(ip, /^((0|[1-9][0-9]{0,2})\.){3}(0|[1-9][0-9]{0,2})$/)) return false;
+    let octets = map(split(ip, '.'), item => int(item));
+    return octets[0] != 127 && octets[0] < 224 && ip != '0.0.0.0' && !length(filter(octets, item => item > 255));
+}
+function has_ipv6_reservation(host) { return !!(host.duid || host.hostid || host.ip6addr); }
 function configuration() {
-    let c = cursor(), dhcp = [], dns = [], zones = [], rules = [], redirects = [], defaults = {};
+    let c = cursor(), dhcp = [], dhcp_reservations = [], dns = [], zones = [], rules = [], redirects = [], defaults = {};
     c.foreach('dhcp', 'dhcp', function(s) {
         let options = s.dhcp_option || []; if (type(options) != 'array') options = [options];
         let addresses = [];
         for (let o in options) if (match(o, /^6,/)) addresses = [...addresses, ...slice(split(o, ','), 1)];
         push(dhcp, { id: s['.name'], interface: s.interface, ...fields(s, dhcp_fields), dns: addresses });
     });
+    c.foreach('dhcp', 'host', function(s) {
+        if (ipv4_host_address(s.ip)) push(dhcp_reservations, {
+            id: s['.name'], ...fields(s, host_fields), mac: host_macs(s), shared_ipv6: has_ipv6_reservation(s)
+        });
+    });
     c.foreach('dhcp', 'dnsmasq', function(s) { push(dns, { id: s['.name'], ...fields(s, dns_fields), nftset: !!s.nftset, ipset: !!s.ipset }); });
     c.foreach('firewall', 'defaults', function(s) { defaults = { id: s['.name'], ...fields(s, default_fields) }; });
     c.foreach('firewall', 'zone', function(s) { push(zones, { id: s['.name'], name: s.name, network: s.network, ...fields(s, zone_fields) }); });
     c.foreach('firewall', 'rule', function(s) { push(rules, { id: s['.name'], ...fields(s, rule_fields) }); });
     c.foreach('firewall', 'redirect', function(s) { push(redirects, { id: s['.name'], target: s.target, ...fields(s, redirect_fields) }); });
-    return { config_hashes: { network: hash('/etc/config/network'), wireless: hash('/etc/config/wireless'), dhcp: hash('/etc/config/dhcp'), firewall: hash('/etc/config/firewall'), uhttpd: hash('/etc/config/uhttpd') }, settings_hash: fingerprint(), dhcp, dns, firewall: { defaults, zones, rules, redirects } };
+    return { config_hashes: { network: hash('/etc/config/network'), wireless: hash('/etc/config/wireless'), dhcp: hash('/etc/config/dhcp'), firewall: hash('/etc/config/firewall'), uhttpd: hash('/etc/config/uhttpd') }, settings_hash: fingerprint(), dhcp, dhcp_reservations, dns, firewall: { defaults, zones, rules, redirects } };
 }
 function set_fields(c, config, section, values, allowed) {
     if (type(values) != 'object') die('Некорректные параметры конфигурации');
@@ -51,6 +68,60 @@ function set_fields(c, config, section, values, allowed) {
         if (value == null || value == '' || (type(value) == 'array' && !length(value))) c.delete(config, section, key);
         else c.set(config, section, key, value);
     }
+}
+function reservation_description(ip, macs, name) {
+    return ip + (length(macs) ? ' · ' + join(', ', macs) : '') + (name ? ' (' + name + ')' : '');
+}
+function change_reservation(c, data, plan) {
+    let mode = data.mode, id = data.section, old, hosts = [];
+    if (index(['add', 'edit', 'delete'], mode) < 0) die('Укажите действие для статической аренды');
+    c.foreach('dhcp', 'host', function(host) {
+        push(hosts, host);
+        if (host['.name'] == id) old = host;
+    });
+    if (mode != 'add' && (!old || !ipv4_host_address(old.ip))) die('Статическая IPv4-аренда не найдена');
+    let old_macs = host_macs(old), previous = old ? reservation_description(old.ip, old_macs, old.name) : '';
+    plan.warnings = ['DNSMasq перезапустится. Изменение адреса вступит в силу при обновлении аренды.'];
+    if (mode == 'delete') {
+        let keep_ipv6 = has_ipv6_reservation(old);
+        let deleted = keep_ipv6 ? c.delete('dhcp', id, 'ip') : c.delete('dhcp', id);
+        if (!deleted) die('Не удалось удалить статическую аренду IPv4');
+        push(plan.summary, 'Удалить статическую IPv4-аренду ' + previous);
+        if (keep_ipv6) push(plan.summary, 'Параметры IPv6 этой записи сохранятся.');
+        return;
+    }
+    let settings = data.settings, ip = settings?.ip, name = settings?.name;
+    if (type(settings?.mac) != 'string' || length(settings.mac) > 256) die('Некорректный MAC-адрес');
+    let macs = host_macs(settings);
+    let same_macs = join(' ', sort([...old_macs])) == join(' ', sort([...macs]));
+    if ((!length(macs) && (mode == 'add' || length(old_macs))) ||
+            length(filter(macs, (value, i) => !match(value, /^([0-9a-f]{2}:){5}[0-9a-f]{2}$/) ||
+                value == '00:00:00:00:00:00' || !match(substr(value, 1, 1), /^[02468ace]$/) || index(macs, value) != i)))
+        die('Укажите MAC-адрес устройства');
+    if (!ipv4_host_address(ip)) die('Укажите IPv4-адрес устройства');
+    if (name != null && (type(name) != 'string' || !match(name, /^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?$/)))
+        die('Некорректное имя устройства');
+    if (old && has_ipv6_reservation(old) && !same_macs)
+        die('Этот MAC используется также для IPv6. Его можно изменить в LuCI.');
+    for (let host in hosts)
+        if (host['.name'] != id && ((!old || old.ip != ip) && host.ip == ip ||
+                !same_macs && length(filter(host_macs(host), value => index(macs, value) >= 0))))
+            die('Для этого IPv4 или MAC уже есть статическая аренда');
+    let bus = connect(), state = bus ? bus.call('network.interface', 'dump', {}) : null;
+    if (type(state?.interface) != 'array') die('Не удалось проверить адреса шлюза');
+    for (let iface in state.interface)
+        if (length(filter(iface['ipv4-address'] || [], address => address.address == ip)))
+            die('IPv4-адрес используется самим шлюзом');
+    if (!old) id = c.add('dhcp', 'host');
+    if (!id) die('Не удалось создать статическую аренду');
+    let changes = {};
+    if (!old || old.ip != ip) changes.ip = ip;
+    if (!same_macs) changes.mac = length(macs) == 1 ? macs[0] : macs;
+    if (name != (old?.name || null)) changes.name = name;
+    if (!length(keys(changes))) die('Нет изменений статической аренды');
+    set_fields(c, 'dhcp', id, changes, host_fields);
+    let next = reservation_description(ip, macs, name);
+    push(plan.summary, old ? 'Изменить ' + previous + ' → ' + next : 'Закрепить IPv4-адрес ' + next);
 }
 function firewall_explanations(before, data) {
     let notes = [], policy_names = { input: 'входящие подключения к роутеру', forward: 'пересылка между сетями', output: 'исходящие подключения роутера' };
@@ -145,6 +216,8 @@ function prepare(dir, action, data) {
         plan.interface = data.interface;
         push(plan.summary, data.interface + ': DHCP-сервер ' + (settings.ignore == '1' ? 'выключен' : 'включён'));
         if (settings.ignore != '1') push(plan.summary, 'Убедитесь, что в этом сегменте нет другого DHCP-сервера. Уже выданные аренды у клиентов не отзываются.');
+    } else if (action == 'dhcp_reservation') {
+        change_reservation(c, data, plan);
     } else if (action == 'dns') {
         if (c.get('dhcp', data.section) != 'dnsmasq') die('Экземпляр dnsmasq не найден');
         set_fields(c, 'dhcp', data.section, data.settings, dns_fields);
@@ -193,7 +266,8 @@ function prepare(dir, action, data) {
         push(plan.summary, 'Перезапустить firewall. Текущие соединения могут прерваться; роутер сохранит снимок для отката.');
     } else if (action == 'firewall_restart') push(plan.summary, 'Перезапустить firewall с проверкой доступа и восстановлением при обрыве.');
     else die('Действие конфигурации не поддерживается');
-    for (let key, value in data.settings || {}) push(plan.summary, key + ': ' + (value == null ? 'по умолчанию' : type(value) == 'array' ? join(', ', value) : value));
+    if (action != 'dhcp_reservation')
+        for (let key, value in data.settings || {}) push(plan.summary, key + ': ' + (value == null ? 'по умолчанию' : type(value) == 'array' ? join(', ', value) : value));
     if (action != 'firewall_restart' && (!c.save(config) || !c.commit(config))) die('Не удалось подготовить UCI');
     put(dir + '/' + config + '.after', readfile(dir + '/uci/' + config));
     push(plan.configs, { name: config, before: hash(dir + '/' + config + '.before'), after: hash(dir + '/' + config + '.after') });

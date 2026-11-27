@@ -15,6 +15,7 @@ FILES = {
     '/usr/share/bot4vps/package-manager.uc': 'rpcd/package-manager.uc',
     '/usr/libexec/bot4vps-network-worker.uc': 'rpcd/network-worker.uc',
     '/usr/libexec/bot4vps-packages-worker.uc': 'rpcd/packages-worker.uc',
+    '/usr/libexec/bot4vps-proxy-sessions.sh': 'rpcd/proxy-sessions.sh',
     '/usr/share/rpcd/ucode/bot4vps': 'rpcd/bot4vps',
     '/usr/share/rpcd/acl.d/bot4vps.json': 'acl/bot4vps.json',
     '/usr/share/luci/menu.d/bot4vps.json': 'menu/bot4vps.json',

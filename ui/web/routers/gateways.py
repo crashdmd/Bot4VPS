@@ -7,7 +7,7 @@ import asyncio
 from typing import Literal
 from urllib.parse import urlsplit
 
-from fastapi import APIRouter, HTTPException, Request, Depends, UploadFile, File
+from fastapi import APIRouter, HTTPException, Request, Response, Depends, UploadFile, File
 from pydantic import BaseModel, Field
 
 from core.openwrt import bootstrap
@@ -95,7 +95,7 @@ class ApplyBody(BaseModel):
 
 
 class NetworkBody(BaseModel):
-    action: Literal['edit', 'delete', 'routes', 'up', 'down', 'reconnect', 'dhcp', 'dns', 'firewall', 'firewall_restart', 'wireless']
+    action: Literal['edit', 'delete', 'routes', 'up', 'down', 'reconnect', 'dhcp', 'dhcp_reservation', 'dns', 'firewall', 'firewall_restart', 'wireless']
     data: dict = Field(repr=False)
 
 
@@ -451,6 +451,14 @@ async def gateway_traffic(node_id: str, seconds: int = 3600):
         points = await asyncio.to_thread(traffic_series, node_id, seconds)
         return {'seconds': seconds, 'traffic_history': points, 'available_periods': TRAFFIC_PERIODS}
     except ValueError as exc: raise HTTPException(400, str(exc)) from None
+
+
+@router.get('/{node_id}/active-sessions')
+async def gateway_active_sessions(node_id: str, response: Response, view: Literal['devices', 'connections', 'summary'] = 'devices'):
+    from core.openwrt.active_sessions import sample, session_view
+    node = await asyncio.to_thread(gateway, node_id)
+    response.headers['Cache-Control'] = 'no-store'
+    return session_view(await sample(node), view)
 
 
 @router.get('/{node_id}/network')
